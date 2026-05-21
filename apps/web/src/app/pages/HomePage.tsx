@@ -66,9 +66,10 @@ export function HomePage() {
           className="rounded-2xl border border-rose-200 bg-rose-50 dark:bg-rose-950/20 p-4 text-rose-800 dark:text-rose-300 text-sm"
           style={tajawal}
         >
-          {error}. أنشئ ملف <code className="font-mono">apps/web/.env</code> يحتوي{" "}
-          <code className="font-mono">VITE_API_URL=https://YOUR-WORKER.workers.dev</code> ثم أعد تشغيل{" "}
-          <code className="font-mono">npm run dev</code>.
+          {error}. محلياً: اترك <code className="font-mono">VITE_API_URL</code> فارغاً في{" "}
+          <code className="font-mono">.env</code> ثم <code className="font-mono">npm run dev</code>.
+          على Pages: احذف متغير <code className="font-mono">VITE_API_URL</code> من الإعدادات وأعد النشر
+          (يُستخدم بروكسي <code className="font-mono">/api</code> تلقائياً).
         </div>
       )}
 

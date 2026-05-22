@@ -10,3 +10,5 @@ database_id = "d7716e75-85ff-4927-9c59-052240793cab"
 
 [vars]
 ENVIRONMENT = "production"
+# JWT_SECRET → أضفه في Cloudflare: wrangler secret put JWT_SECRET
+# SETUP_KEY → اختياري لـ /api/setup/seed-users (مرة واحدة)

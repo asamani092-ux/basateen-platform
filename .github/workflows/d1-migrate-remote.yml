@@ -1,0 +1,93 @@
+# تشغيل ترحيل D1 من GitHub (Linux) — لأن wrangler/workerd لا يعمل على Windows ARM64 محلياً
+name: D1 Migrate (remote)
+
+on:
+  workflow_dispatch:
+    inputs:
+      migration:
+        description: "ملف SQL للتنفيذ"
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - "001"
+          - "002"
+          - "003"
+          - "004"
+          - "005"
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        working-directory: apps/api
+        run: npm install
+
+      - name: Check Cloudflare secrets
+        run: |
+          if [ -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ]; then
+            echo "::error::Add CLOUDFLARE_API_TOKEN in GitHub → Settings → Secrets → Actions"
+            exit 1
+          fi
+          if [ -z "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" ]; then
+            echo "::error::Add CLOUDFLARE_ACCOUNT_ID in GitHub → Settings → Secrets → Actions"
+            exit 1
+          fi
+
+      - name: D1 — 001_core.sql
+        if: inputs.migration == 'all' || inputs.migration == '001'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          wranglerVersion: "3"
+          command: d1 execute basateen --remote --file=../../packages/database/schema/001_core.sql
+
+      - name: D1 — 002_admin.sql
+        if: inputs.migration == 'all' || inputs.migration == '002'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          wranglerVersion: "3"
+          command: d1 execute basateen --remote --file=../../packages/database/schema/002_admin.sql
+
+      - name: D1 — 003_education.sql
+        if: inputs.migration == 'all' || inputs.migration == '003'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          wranglerVersion: "3"
+          command: d1 execute basateen --remote --file=../../packages/database/schema/003_education.sql
+
+      - name: D1 — 004_programs.sql
+        if: inputs.migration == 'all' || inputs.migration == '004'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          wranglerVersion: "3"
+          command: d1 execute basateen --remote --file=../../packages/database/schema/004_programs.sql
+
+      - name: D1 — 005_seed.sql
+        if: inputs.migration == 'all' || inputs.migration == '005'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          wranglerVersion: "3"
+          command: d1 execute basateen --remote --file=../../packages/database/schema/005_seed.sql

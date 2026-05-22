@@ -6,8 +6,14 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "db:remote:001": "wrangler d1 execute basateen --remote --file=../../packages/database/schema/001_core.sql",
+    "db:remote:002": "wrangler d1 execute basateen --remote --file=../../packages/database/schema/002_admin.sql",
+    "db:remote:003": "wrangler d1 execute basateen --remote --file=../../packages/database/schema/003_education.sql",
+    "db:remote:004": "wrangler d1 execute basateen --remote --file=../../packages/database/schema/004_programs.sql",
+    "db:remote:005": "wrangler d1 execute basateen --remote --file=../../packages/database/schema/005_seed.sql",
+    "db:remote:all": "npm run db:remote:001 && npm run db:remote:002 && npm run db:remote:003 && npm run db:remote:004 && npm run db:remote:005",
     "db:migrate:local": "wrangler d1 execute basateen --local --file=../../packages/database/schema/001_core.sql",
-    "db:migrate:remote": "wrangler d1 execute basateen --remote --file=../../packages/database/schema/001_core.sql"
+    "db:migrate:remote": "npm run db:remote:001"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250214.0",

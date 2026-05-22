@@ -37,6 +37,30 @@ Node 24 قد يسبب مشاكل. ثبّت **20 LTS ARM64** من nodejs.org ثم
 
 ---
 
+## wrangler / workerd على ARM64 (Snapdragon)
+
+### الخطأ
+
+```
+Error: Unsupported platform: win32 arm64 LE
+```
+
+يظهر عند `npm install` داخل `apps/api` لأن **workerd** لا يدعم Windows ARM64.
+
+### الحل — لا تثبّت wrangler محلياً
+
+1. **ترحيل D1:** من GitHub → **Actions** → **D1 Migrate (remote)** → Run workflow → `all`
+2. **نشر Worker:** Actions → **Deploy API (Worker)** (أو ادفع تغييرات `apps/api`)
+3. **إنشاء المستخدمين** (PowerShell على جهازك — بدون wrangler):
+
+```powershell
+Invoke-WebRequest -Method POST -Uri "https://winter-term-cb93.a-samani092.workers.dev/api/setup/seed-users?key=basateen-setup-once"
+```
+
+تفاصيل: `docs/D1-MIGRATE-GITHUB.md`
+
+---
+
 بعد `npm run dev` أنشئ `.env`:
 
 ```

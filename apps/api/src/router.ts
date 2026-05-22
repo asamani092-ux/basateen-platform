@@ -1,8 +1,10 @@
-import type { Env } from "./env";
+import type { Env } from "./types";
 import { handleOptions, withCors } from "./middleware/cors";
 import { handleHealth } from "./routes/health";
 import { handleTvSummary } from "./routes/tv-summary";
 import { handleLogin, handleMe } from "./routes/auth";
+import { handleSeedUsers } from "./routes/setup";
+import { handleStudentsList } from "./routes/students";
 
 type RouteHandler = (
   request: Request,
@@ -15,6 +17,8 @@ const routes: Array<{ method: string; pattern: RegExp; handler: RouteHandler }> 
   { method: "GET", pattern: /^\/api\/tv\/summary$/, handler: handleTvSummary },
   { method: "POST", pattern: /^\/api\/auth\/login$/, handler: handleLogin },
   { method: "GET", pattern: /^\/api\/auth\/me$/, handler: handleMe },
+  { method: "POST", pattern: /^\/api\/setup\/seed-users$/, handler: handleSeedUsers },
+  { method: "GET", pattern: /^\/api\/students$/, handler: handleStudentsList },
 ];
 
 export async function handleRequest(

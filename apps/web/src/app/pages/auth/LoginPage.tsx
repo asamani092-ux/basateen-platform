@@ -1,4 +1,5 @@
-import { Link } from "react-router";
+import { useState } from "react";
+import { useNavigate } from "react-router";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import {
@@ -8,10 +9,33 @@ import {
   CardHeader,
   CardTitle,
 } from "../../components/ui/card";
+import { api } from "../../lib/api-client";
+import { setToken } from "../../lib/auth-store";
 
 const tajawal = { fontFamily: "Tajawal, sans-serif" } as const;
 
 export function LoginPage() {
+  const navigate = useNavigate();
+  const [email, setEmail] = useState("admin@basateen.local");
+  const [password, setPassword] = useState("Basateen123!");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await api.login(email.trim(), password);
+      setToken(res.token);
+      navigate("/", { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "فشل تسجيل الدخول");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div
       className="min-h-screen bg-slate-50 dark:bg-[#0a1628] flex items-center justify-center p-6"
@@ -31,42 +55,53 @@ export function LoginPage() {
             مجمع حلقات البساتين
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <label className="block text-sm font-semibold mb-2" style={tajawal}>
-              البريد الإلكتروني
-            </label>
-            <Input
-              type="email"
-              placeholder="admin@basateen.local"
-              className="rounded-xl border-slate-300 dark:border-[#1e3a5f]"
+        <CardContent>
+          <form onSubmit={onSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-semibold mb-2" style={tajawal}>
+                البريد الإلكتروني
+              </label>
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="rounded-xl border-slate-300 dark:border-[#1e3a5f]"
+                style={tajawal}
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold mb-2" style={tajawal}>
+                كلمة المرور
+              </label>
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="rounded-xl border-slate-300 dark:border-[#1e3a5f]"
+                style={tajawal}
+                required
+              />
+            </div>
+            {error && (
+              <p className="text-sm text-rose-600" style={tajawal}>
+                {error === "invalid_credentials"
+                  ? "بيانات الدخول غير صحيحة"
+                  : error}
+              </p>
+            )}
+            <Button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-[#1e3a8a] hover:bg-[#1e40af] text-white rounded-xl"
               style={tajawal}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-semibold mb-2" style={tajawal}>
-              كلمة المرور
-            </label>
-            <Input
-              type="password"
-              className="rounded-xl border-slate-300 dark:border-[#1e3a5f]"
-              style={tajawal}
-            />
-          </div>
-          <Button
-            className="w-full bg-[#1e3a8a] hover:bg-[#1e40af] text-white rounded-xl"
-            style={tajawal}
-            type="button"
-          >
-            دخول (قريباً)
-          </Button>
-          <Link
-            to="/"
-            className="block text-center text-sm text-[#1e3a8a] hover:underline"
-            style={tajawal}
-          >
-            الدخول للوحة بدون حساب (تطوير)
-          </Link>
+            >
+              {loading ? "جاري الدخول..." : "دخول"}
+            </Button>
+            <p className="text-xs text-slate-500 text-center" style={tajawal}>
+              تجريبي: admin@basateen.local / Basateen123!
+            </p>
+          </form>
         </CardContent>
       </Card>
     </div>

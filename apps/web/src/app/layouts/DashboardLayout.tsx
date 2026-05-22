@@ -1,14 +1,21 @@
 import { useState } from "react";
-import { Link, Outlet, useLocation } from "react-router";
-import { Moon, Sun } from "lucide-react";
+import { Link, Outlet, useLocation, useNavigate } from "react-router";
+import { LogOut, Moon, Sun } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { navItems } from "../config/routes";
+import { clearAuth } from "../lib/auth-store";
 
 const tajawal = { fontFamily: "Tajawal, sans-serif" } as const;
 
 export function DashboardLayout() {
   const [isDark, setIsDark] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+
+  function logout() {
+    clearAuth();
+    navigate("/login", { replace: true });
+  }
 
   return (
     <div className={isDark ? "dark" : ""}>
@@ -55,19 +62,32 @@ export function DashboardLayout() {
               <h1 className="text-lg font-bold" style={tajawal}>
                 مجمع حلقات البساتين
               </h1>
-              <Button
-                variant="outline"
-                size="icon"
-                className="rounded-xl"
-                onClick={() => setIsDark(!isDark)}
-                type="button"
-              >
-                {isDark ? (
-                  <Sun className="w-5 h-5" />
-                ) : (
-                  <Moon className="w-5 h-5" />
-                )}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="rounded-xl"
+                  onClick={() => setIsDark(!isDark)}
+                  type="button"
+                  title="الوضع الليلي"
+                >
+                  {isDark ? (
+                    <Sun className="w-5 h-5" />
+                  ) : (
+                    <Moon className="w-5 h-5" />
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="rounded-xl"
+                  onClick={logout}
+                  type="button"
+                  title="تسجيل الخروج"
+                >
+                  <LogOut className="w-5 h-5" />
+                </Button>
+              </div>
             </div>
           </header>
           <main className="flex-1 p-6 md:p-8 overflow-auto">

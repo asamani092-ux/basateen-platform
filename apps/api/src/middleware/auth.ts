@@ -90,7 +90,7 @@ export async function getAuth(
   const header = request.headers.get("Authorization");
   if (!header?.startsWith("Bearer ")) return null;
   const token = header.slice(7);
-  const secret = env.JWT_SECRET ?? "dev-only-change-in-production";
+  const secret = env.JWT_SECRET || "dev-only-change-in-production";
   return verifyToken(token, secret);
 }
 

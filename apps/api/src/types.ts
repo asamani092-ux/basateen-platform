@@ -2,8 +2,9 @@ export type UserRole = "general_manager" | "supervisor" | "teacher";
 
 export interface Env {
   DB: D1Database;
-  JWT_SECRET: string;
-  ENVIRONMENT: string;
+  JWT_SECRET?: string;
+  SETUP_KEY?: string;
+  ENVIRONMENT?: string;
 }
 
 export interface UserRow {

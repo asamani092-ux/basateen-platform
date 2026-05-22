@@ -25,10 +25,9 @@ export function LoginPage() {
   const canSubmit = Boolean(normalized) && !loading;
 
   useEffect(() => {
-    if (isAuthenticated && user) {
-      navigate(user.homePath, { replace: true });
-    }
-  }, [isAuthenticated, user, navigate]);
+    if (!isAuthenticated || !user) return;
+    navigate(user.homePath, { replace: true });
+  }, [isAuthenticated, user?.homePath, navigate]);
 
   function handleLogout() {
     logout();

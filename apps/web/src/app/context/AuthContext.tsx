@@ -49,7 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     sanitizeStoredAuth();
     notifyAuthChange();
-  }, []);
+  }, []); // مرة واحدة عند التحميل — لا تستدعِ logout أثناء render
 
   const session = useSyncExternalStore(
     subscribe,

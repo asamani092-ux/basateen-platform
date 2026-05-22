@@ -91,18 +91,13 @@ export function loginWithMobile(rawMobile: string): AuthUser | null {
 }
 
 export function getSession(): AuthSession | null {
-  sanitizeStoredAuth();
   const raw = localStorage.getItem(SESSION_KEY);
   if (!raw) return null;
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (!isValidSession(parsed)) {
-      localStorage.removeItem(SESSION_KEY);
-      return null;
-    }
+    if (!isValidSession(parsed)) return null;
     return parsed;
   } catch {
-    localStorage.removeItem(SESSION_KEY);
     return null;
   }
 }

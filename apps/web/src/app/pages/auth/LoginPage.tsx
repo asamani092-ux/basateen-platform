@@ -11,6 +11,7 @@ import {
 } from "../../components/ui/card";
 import { useAuth } from "../../context/AuthContext";
 import { normalizeMobile } from "../../lib/auth-store";
+import { syncApiTokenForMobile } from "../../lib/api-token";
 
 const tajawal = { fontFamily: "Tajawal, sans-serif" } as const;
 
@@ -30,7 +31,7 @@ export function LoginPage() {
     setMobile("");
   }
 
-  function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     if (!normalized) {
@@ -39,9 +40,15 @@ export function LoginPage() {
     }
     setLoading(true);
     const authUser = login(mobile);
-    setLoading(false);
     if (!authUser) {
+      setLoading(false);
       setError("رقم الجوال غير مسجّل في النظام");
+      return;
+    }
+    const apiOk = await syncApiTokenForMobile(mobile);
+    setLoading(false);
+    if (!apiOk && authUser.role !== "teacher") {
+      setError("تعذّر ربط API — تحقق من نشر Worker وحسابات seed");
       return;
     }
     navigate(authUser.homePath, { replace: true });

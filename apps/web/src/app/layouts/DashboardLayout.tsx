@@ -23,9 +23,13 @@ export function DashboardLayout() {
     window.open("/tv-live", "_blank", "noopener,noreferrer");
   }
 
+  const allowedSections = new Set(user?.sections ?? []);
+
+  const visibleNav = navItems.filter((item) => allowedSections.has(item.section));
+
   const nav = (
     <>
-      {navItems.map((item) => {
+      {visibleNav.map((item) => {
         const active = location.pathname === item.path;
         return (
           <Link

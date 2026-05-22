@@ -15,6 +15,7 @@ import {
   type AuthSession,
   type AuthUser,
 } from "../lib/auth-store";
+import { clearApiToken } from "../lib/api-token";
 
 type AuthContextValue = {
   user: AuthUser | null;
@@ -53,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     clearAuth();
+    clearApiToken();
     setSession(null);
     window.dispatchEvent(new Event("basateen-auth"));
   }, []);

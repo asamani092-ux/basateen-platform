@@ -5,6 +5,11 @@ import { handleTvSummary } from "./routes/tv-summary";
 import { handleLogin, handleMe } from "./routes/auth";
 import { handleSeedUsers } from "./routes/setup";
 import { handleStudentsList } from "./routes/students";
+import { handleCirclesList } from "./routes/circles";
+import {
+  handleStudentDetail,
+  handleStudentTransfer,
+} from "./routes/transfers";
 
 type RouteHandler = (
   request: Request,
@@ -18,7 +23,18 @@ const routes: Array<{ method: string; pattern: RegExp; handler: RouteHandler }> 
   { method: "POST", pattern: /^\/api\/auth\/login$/, handler: handleLogin },
   { method: "GET", pattern: /^\/api\/auth\/me$/, handler: handleMe },
   { method: "POST", pattern: /^\/api\/setup\/seed-users$/, handler: handleSeedUsers },
+  { method: "GET", pattern: /^\/api\/circles$/, handler: handleCirclesList },
   { method: "GET", pattern: /^\/api\/students$/, handler: handleStudentsList },
+  {
+    method: "GET",
+    pattern: /^\/api\/students\/\d+$/,
+    handler: handleStudentDetail,
+  },
+  {
+    method: "POST",
+    pattern: /^\/api\/students\/\d+\/transfer$/,
+    handler: handleStudentTransfer,
+  },
 ];
 
 export async function handleRequest(

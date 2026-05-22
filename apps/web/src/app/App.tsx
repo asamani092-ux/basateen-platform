@@ -9,6 +9,7 @@ import { LoginPage } from "./pages/auth/LoginPage";
 import { TvLivePage } from "./pages/tv/TvLivePage";
 import { TeacherHomePage } from "./pages/teacher/TeacherHomePage";
 import { StudentsPage } from "./pages/admin/StudentsPage";
+import { TransfersPage } from "./pages/admin/TransfersPage";
 import { ProgramsHomePage } from "./pages/programs/ProgramsHomePage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
 
@@ -33,10 +34,7 @@ export default function App() {
               path="admin/circles"
               element={<PlaceholderPage title="الحلقات والمسارات" />}
             />
-            <Route
-              path="admin/transfers"
-              element={<PlaceholderPage title="نقل الطلاب" />}
-            />
+            <Route path="admin/transfers" element={<TransfersPage />} />
             <Route
               path="admin/violations"
               element={<PlaceholderPage title="التعهدات والمخالفات" />}

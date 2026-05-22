@@ -1,5 +1,5 @@
-# نشر الواجهة إلى Cloudflare Pages (بدون wrangler-action — أخطاء أوضح)
-# إن كان Pages مربوطاً بـ Git مباشرة، يكفي بناء Dashboard؛ هذا الـ workflow اختياري.
+# نشر الواجهة إلى Cloudflare Pages (يتطلب توكن: Cloudflare Pages → Edit)
+# إن كان Pages مربوطاً بـ Git من Dashboard، يكفي ذلك — لا تشغّل هذا الـ workflow (تجنّب التكرار).
 
 name: Deploy Web (Pages)
 

@@ -1,4 +1,5 @@
 const SESSION_KEY = "basateen_session";
+const LEGACY_TOKEN_KEY = "basateen_token";
 
 export type UserRole = "general_manager" | "supervisor" | "teacher";
 
@@ -48,6 +49,36 @@ export function normalizeMobile(input: string): string | null {
   return null;
 }
 
+function isValidSession(data: unknown): data is AuthSession {
+  if (!data || typeof data !== "object") return false;
+  const s = data as AuthSession;
+  const u = s.user;
+  return (
+    Boolean(u?.homePath && u?.role && u?.full_name_ar && u?.mobile) &&
+    (u.role === "general_manager" ||
+      u.role === "supervisor" ||
+      u.role === "teacher")
+  );
+}
+
+/** تنظيف جلسة قديمة (بريد/توكن) أو JSON تالف */
+export function sanitizeStoredAuth(): void {
+  try {
+    localStorage.removeItem(LEGACY_TOKEN_KEY);
+  } catch {
+    /* ignore */
+  }
+  const raw = localStorage.getItem(SESSION_KEY);
+  if (!raw) return;
+  try {
+    if (!isValidSession(JSON.parse(raw))) {
+      localStorage.removeItem(SESSION_KEY);
+    }
+  } catch {
+    localStorage.removeItem(SESSION_KEY);
+  }
+}
+
 export function loginWithMobile(rawMobile: string): AuthUser | null {
   const mobile = normalizeMobile(rawMobile);
   if (!mobile) return null;
@@ -60,11 +91,18 @@ export function loginWithMobile(rawMobile: string): AuthUser | null {
 }
 
 export function getSession(): AuthSession | null {
+  sanitizeStoredAuth();
   const raw = localStorage.getItem(SESSION_KEY);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as AuthSession;
+    const parsed: unknown = JSON.parse(raw);
+    if (!isValidSession(parsed)) {
+      localStorage.removeItem(SESSION_KEY);
+      return null;
+    }
+    return parsed;
   } catch {
+    localStorage.removeItem(SESSION_KEY);
     return null;
   }
 }
@@ -83,6 +121,11 @@ export function isMockAuth(): boolean {
 
 export function clearAuth(): void {
   localStorage.removeItem(SESSION_KEY);
+  try {
+    localStorage.removeItem(LEGACY_TOKEN_KEY);
+  } catch {
+    /* ignore */
+  }
 }
 
 /** @deprecated Mock auth — no JWT */

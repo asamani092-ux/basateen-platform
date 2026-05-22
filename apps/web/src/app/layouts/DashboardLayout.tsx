@@ -177,6 +177,16 @@ export function DashboardLayout() {
                 </Button>
                 <Button
                   variant="outline"
+                  size="sm"
+                  className="rounded-xl hidden sm:inline-flex text-slate-700 dark:text-slate-200"
+                  onClick={handleLogout}
+                  type="button"
+                  style={tajawal}
+                >
+                  خروج
+                </Button>
+                <Button
+                  variant="outline"
                   size="icon"
                   className="rounded-xl"
                   onClick={handleLogout}
@@ -188,7 +198,7 @@ export function DashboardLayout() {
               </div>
             </div>
           </header>
-          <main className="flex-1 p-4 sm:p-6 md:p-8 overflow-auto">
+          <main className="flex-1 min-h-[50vh] p-4 sm:p-6 md:p-8 overflow-auto">
             <Outlet />
           </main>
         </div>

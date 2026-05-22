@@ -2,15 +2,16 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useSyncExternalStore,
   type ReactNode,
 } from "react";
 import {
   clearAuth,
-  getAuthUser,
   getSession,
   loginWithMobile,
+  sanitizeStoredAuth,
   type AuthUser,
 } from "../lib/auth-store";
 
@@ -32,8 +33,12 @@ function subscribe(callback: () => void) {
   };
 }
 
-function getSnapshot() {
+function getClientSnapshot() {
   return getSession();
+}
+
+function getServerSnapshot() {
+  return null;
 }
 
 function notifyAuthChange() {
@@ -41,7 +46,16 @@ function notifyAuthChange() {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const session = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  useEffect(() => {
+    sanitizeStoredAuth();
+    notifyAuthChange();
+  }, []);
+
+  const session = useSyncExternalStore(
+    subscribe,
+    getClientSnapshot,
+    getServerSnapshot,
+  );
 
   const login = useCallback((mobile: string) => {
     const user = loginWithMobile(mobile);
@@ -71,8 +85,4 @@ export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");
   return ctx;
-}
-
-export function useAuthUser(): AuthUser | null {
-  return getAuthUser();
 }

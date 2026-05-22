@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import {
@@ -16,7 +16,7 @@ const tajawal = { fontFamily: "Tajawal, sans-serif" } as const;
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { login, isAuthenticated, user } = useAuth();
+  const { login, logout, isAuthenticated, user } = useAuth();
   const [mobile, setMobile] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -29,6 +29,12 @@ export function LoginPage() {
       navigate(user.homePath, { replace: true });
     }
   }, [isAuthenticated, user, navigate]);
+
+  function handleLogout() {
+    logout();
+    setError(null);
+    setMobile("");
+  }
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -49,7 +55,7 @@ export function LoginPage() {
 
   return (
     <div
-      className="min-h-screen bg-slate-50 dark:bg-[#0a1628] flex items-center justify-center p-4 sm:p-6"
+      className="min-h-screen min-h-[100dvh] bg-slate-50 dark:bg-[#0a1628] flex items-center justify-center p-4 sm:p-6"
       dir="rtl"
     >
       <Card className="w-full max-w-md rounded-3xl border-slate-200 dark:border-[#1e3a5f] shadow-lg">
@@ -57,12 +63,7 @@ export function LoginPage() {
           <img
             src="/logo-light.png"
             alt="مجمع حلقات البساتين"
-            className="h-20 w-auto object-contain mx-auto mb-4 dark:hidden"
-          />
-          <img
-            src="/logo-dark.png"
-            alt="مجمع حلقات البساتين"
-            className="h-20 w-auto object-contain mx-auto mb-4 hidden dark:block"
+            className="h-20 w-auto object-contain mx-auto mb-4"
           />
           <CardTitle
             className="text-xl text-slate-900 dark:text-white"
@@ -78,6 +79,34 @@ export function LoginPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {isAuthenticated && user && (
+            <div className="mb-4 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-sm space-y-2">
+              <p className="text-amber-900 dark:text-amber-200" style={tajawal}>
+                أنت مسجّل كـ <strong>{user.full_name_ar}</strong>
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl text-slate-800 dark:text-slate-200"
+                  style={tajawal}
+                  onClick={() => navigate(user.homePath)}
+                >
+                  الذهاب للوحة التحكم
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className="rounded-xl"
+                  style={tajawal}
+                  onClick={handleLogout}
+                >
+                  تسجيل خروج
+                </Button>
+              </div>
+            </div>
+          )}
+
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
               <label
@@ -93,7 +122,7 @@ export function LoginPage() {
                 placeholder="05xxxxxxxx"
                 value={mobile}
                 onChange={(e) => setMobile(e.target.value)}
-                className="rounded-xl border-slate-300 dark:border-[#1e3a5f] text-slate-900 dark:text-white"
+                className="rounded-xl border-slate-300 dark:border-[#1e3a5f] text-slate-900 dark:text-white bg-white dark:bg-[#132337]"
                 style={tajawal}
                 dir="ltr"
                 required
@@ -119,6 +148,16 @@ export function LoginPage() {
               تجريبي: 0500000001 مدير · 0500000002 مشرف · 0500000003 معلم
             </p>
           </form>
+
+          <p className="text-center mt-4">
+            <Link
+              to="/tv-live"
+              className="text-sm text-[#1e3a8a] dark:text-[#3b82f6] hover:underline"
+              style={tajawal}
+            >
+              شاشة التلفاز (بدون دخول)
+            </Link>
+          </p>
         </CardContent>
       </Card>
     </div>

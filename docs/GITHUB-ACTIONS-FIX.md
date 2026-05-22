@@ -22,11 +22,27 @@
 | `CLOUDFLARE_API_TOKEN` | Cloudflare → Profile → **API Tokens** → Create Token |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare Dashboard → يمين الصفحة (Account ID) |
 
-**صلاحيات التوكن:**
-- Account → Cloudflare Workers Scripts → **Edit**
-- Account → **Cloudflare Pages** → **Edit** (لنشر `deploy-web`)
-- Account → Account Settings → **Read**
-- Account → D1 → **Edit** (لأن Worker مربوط بـ D1)
+**صلاحيات التوكن (كلها مطلوبة):**
+
+| المورد | الصلاحية |
+|--------|----------|
+| Account → Cloudflare Workers Scripts | **Edit** |
+| Account → **Cloudflare Pages** | **Edit** ← سبب `Authentication error [10000]` عند `pages deploy` |
+| Account → D1 | **Edit** |
+| Account → Account Settings | **Read** |
+
+### إنشاء توكن جديد (موصى به)
+
+1. https://dash.cloudflare.com/profile/api-tokens → **Create Token**
+2. **Edit Cloudflare Workers** (قالب جاهز) → **Continue to summary**
+3. **Add more permissions** → Account → **Cloudflare Pages** → **Edit**
+4. Account Resources: **Include** → حسابك
+5. Create Token → انسخ القيمة
+6. GitHub → `basateen-platform` → Settings → Secrets → Actions:
+   - حدّث `CLOUDFLARE_API_TOKEN` بالتوكن الجديد
+7. Actions → **Deploy Web (Pages)** → Re-run
+
+`whoami` ينجح حتى بدون Pages Edit — لذلك يبدو التوكن «صحيحاً» لكن `pages deploy` يفشل.
 
 ### 2) اسم مشروع Pages خاطئ
 

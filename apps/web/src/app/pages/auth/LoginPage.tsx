@@ -12,8 +12,7 @@ import {
 import { useAuth } from "../../context/AuthContext";
 import { normalizeMobile } from "../../lib/auth-store";
 import { syncApiTokenForMobile } from "../../lib/api-token";
-
-const tajawal = { fontFamily: "Tajawal, sans-serif" } as const;
+import { ds, tajawal } from "../../lib/design-system";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -56,10 +55,10 @@ export function LoginPage() {
 
   return (
     <div
-      className="min-h-screen min-h-[100dvh] bg-slate-50 dark:bg-[#0a1628] flex items-center justify-center p-4 sm:p-6"
+      className="min-h-screen min-h-[100dvh] bg-background flex items-center justify-center p-4 sm:p-6"
       dir="rtl"
     >
-      <Card className="w-full max-w-md rounded-3xl border-slate-200 dark:border-[#1e3a5f] shadow-lg">
+      <Card className={`w-full max-w-md ${ds.card}`}>
         <CardHeader className="text-center">
           <img
             src="/logo-light.png"
@@ -137,7 +136,7 @@ export function LoginPage() {
             <Button
               type="submit"
               disabled={!canSubmit}
-              className="w-full bg-[#1e3a8a] hover:bg-[#1e40af] text-white rounded-xl disabled:opacity-50"
+              className={`w-full ${ds.btnRound} disabled:opacity-50`}
               style={tajawal}
             >
               {loading ? "جاري الدخول..." : "دخول"}

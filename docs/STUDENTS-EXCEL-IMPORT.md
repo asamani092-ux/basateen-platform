@@ -44,4 +44,4 @@ npx wrangler d1 execute basateen --remote --file=..\..\packages\database\schema\
 
 ## الواجهة
 
-`/admin/students/import` — قالب، رفع، معاينة، تأكيد
+**إدارة الطلاب** → تبويب **ملف Excel** — خطوات مرقّمة من ١ إلى ٥ (بدون صفحة منفصلة في القائمة)

@@ -10,8 +10,7 @@ import {
 } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { api, type TvSummary } from "../lib/api-client";
-
-const tajawal = { fontFamily: "Tajawal, sans-serif" } as const;
+import { ds, tajawal } from "../lib/design-system";
 
 export function HomePage() {
   const [summary, setSummary] = useState<TvSummary | null>(null);
@@ -45,10 +44,10 @@ export function HomePage() {
     <div className="space-y-8 max-w-[1600px] mx-auto">
       <div className="flex flex-wrap items-center gap-3 justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white" style={tajawal}>
+          <h2 className={ds.page.title} style={tajawal}>
             لوحة التحكم
           </h2>
-          <p className="text-slate-600 dark:text-slate-300 mt-1" style={tajawal}>
+          <p className={ds.page.description} style={tajawal}>
             مجمع حلقات البساتين — مؤشرات اليوم
           </p>
         </div>
@@ -56,7 +55,7 @@ export function HomePage() {
           <Button
             type="button"
             onClick={() => window.open("/tv-live", "_blank", "noopener,noreferrer")}
-            className="bg-[#1e3a8a] hover:bg-[#1e40af] text-white rounded-xl gap-2"
+            className={`${ds.btnRound} gap-2`}
             style={tajawal}
           >
             <Tv className="w-4 h-4" />

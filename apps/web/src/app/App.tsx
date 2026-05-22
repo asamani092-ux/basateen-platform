@@ -9,7 +9,6 @@ import { LoginPage } from "./pages/auth/LoginPage";
 import { TvLivePage } from "./pages/tv/TvLivePage";
 import { TeacherHomePage } from "./pages/teacher/TeacherHomePage";
 import { StudentsPage } from "./pages/admin/StudentsPage";
-import { StudentsImportPage } from "./pages/admin/StudentsImportPage";
 import { TransfersPage } from "./pages/admin/TransfersPage";
 import { ProgramsHomePage } from "./pages/programs/ProgramsHomePage";
 import { PlaceholderPage } from "./pages/PlaceholderPage";
@@ -31,7 +30,10 @@ export default function App() {
           <Route element={<DashboardLayout />}>
             <Route path="dashboard" element={<HomePage />} />
             <Route path="admin/students" element={<StudentsPage />} />
-            <Route path="admin/students/import" element={<StudentsImportPage />} />
+            <Route
+              path="admin/students/import"
+              element={<Navigate to="/admin/students?tab=excel" replace />}
+            />
             <Route
               path="admin/circles"
               element={<PlaceholderPage title="الحلقات والمسارات" />}

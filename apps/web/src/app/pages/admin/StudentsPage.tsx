@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router";
-import { FileSpreadsheet, Search } from "lucide-react";
+import { useSearchParams } from "react-router";
+import { Search } from "lucide-react";
+import { StudentsExcelPanel } from "../../components/admin/StudentsExcelPanel";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import {
@@ -21,10 +22,14 @@ import {
 import { Badge } from "../../components/ui/badge";
 import { api, type StudentRow } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
+import { ds, tajawal } from "../../lib/design-system";
 
-const tajawal = { fontFamily: "Tajawal, sans-serif" } as const;
+type Tab = "list" | "excel";
 
 export function StudentsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab: Tab = searchParams.get("tab") === "excel" ? "excel" : "list";
+
   const [q, setQ] = useState("");
   const [items, setItems] = useState<StudentRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,7 +40,7 @@ export function StudentsPage() {
     setLoading(true);
     setError(null);
     if (!hasApi) {
-      setError("أعد تسجيل الدخول لربط API");
+      setError("أعد تسجيل الدخول لربط النظام");
       setItems([]);
       setLoading(false);
       return;
@@ -52,122 +57,129 @@ export function StudentsPage() {
   }, [hasApi]);
 
   useEffect(() => {
-    const t = setTimeout(() => load(q), 300);
-    return () => clearTimeout(t);
-  }, [q, load]);
+    if (tab === "list") {
+      const t = setTimeout(() => load(q), 300);
+      return () => clearTimeout(t);
+    }
+  }, [q, load, tab]);
+
+  function setTab(next: Tab) {
+    setSearchParams(next === "excel" ? { tab: "excel" } : {});
+  }
 
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h2
-            className="text-2xl font-bold text-slate-900 dark:text-white"
-            style={tajawal}
-          >
+          <h2 className={ds.page.title} style={tajawal}>
             إدارة الطلاب
           </h2>
-          <p className="text-slate-600 dark:text-slate-300 mt-1" style={tajawal}>
-            بيانات كاملة — استيراد وتصدير Excel
+          <p className={ds.page.description} style={tajawal}>
+            عرض القائمة أو التعامل مع ملف Excel — من مكان واحد
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge className="rounded-xl" style={tajawal}>
-            {items.length} طالب
-          </Badge>
-          <Button
-            asChild
-            className="bg-[#1e3a8a] hover:bg-[#1e40af] text-white rounded-xl gap-2"
-            style={tajawal}
-          >
-            <Link to="/admin/students/import">
-              <FileSpreadsheet className="w-4 h-4" />
-              Excel استيراد/تصدير
-            </Link>
-          </Button>
-        </div>
+        <Badge variant="secondary" className="rounded-xl" style={tajawal}>
+          {tab === "list" ? `${items.length} طالب` : "ملف Excel"}
+        </Badge>
       </div>
 
-      <Card className="rounded-3xl border-slate-200 dark:border-[#1e3a5f]">
-        <CardHeader>
-          <CardTitle className="text-slate-900 dark:text-white" style={tajawal}>
-            قائمة الطلاب
-          </CardTitle>
-          <CardDescription className="text-slate-600 dark:text-slate-300" style={tajawal}>
-            الاسم، الهوية، الجنسية، الجوال، المدرسة، الصف، الحفظ، ولي الأمر، الحلقة،
-            الصحة
-          </CardDescription>
-          <div className="relative max-w-md mt-4">
-            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <Input
-              placeholder="ابحث باسم الطالب..."
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              className="pr-10 rounded-xl text-slate-900 dark:text-white"
-              style={tajawal}
-            />
-          </div>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          {error && (
-            <p className="text-rose-600 text-sm mb-4" style={tajawal}>
-              {error}
-            </p>
-          )}
-          {loading ? (
-            <p className="text-slate-500" style={tajawal}>
-              جاري التحميل...
-            </p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead style={tajawal}>الاسم الرباعي</TableHead>
-                  <TableHead style={tajawal}>الهوية</TableHead>
-                  <TableHead style={tajawal}>الجنسية</TableHead>
-                  <TableHead style={tajawal}>الجوال</TableHead>
-                  <TableHead style={tajawal}>المدرسة</TableHead>
-                  <TableHead style={tajawal}>الصف</TableHead>
-                  <TableHead style={tajawal}>الحفظ</TableHead>
-                  <TableHead style={tajawal}>ولي الأمر</TableHead>
-                  <TableHead style={tajawal}>الحلقة</TableHead>
-                  <TableHead style={tajawal}>صحة</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {items.map((s) => (
-                  <TableRow key={s.id}>
-                    <TableCell className="font-medium whitespace-nowrap" style={tajawal}>
-                      {s.full_name_ar}
-                    </TableCell>
-                    <TableCell style={tajawal}>{s.national_id ?? "—"}</TableCell>
-                    <TableCell style={tajawal}>{s.nationality ?? "—"}</TableCell>
-                    <TableCell style={tajawal}>{s.phone ?? "—"}</TableCell>
-                    <TableCell style={tajawal}>{s.school_name ?? "—"}</TableCell>
-                    <TableCell style={tajawal}>{s.school_grade ?? "—"}</TableCell>
-                    <TableCell style={tajawal}>{s.memorization_amount ?? "—"}</TableCell>
-                    <TableCell style={tajawal}>{s.guardian_phone ?? "—"}</TableCell>
-                    <TableCell style={tajawal}>{s.circle_name ?? "—"}</TableCell>
-                    <TableCell className="max-w-[120px] truncate" style={tajawal}>
-                      {s.health_notes ?? "—"}
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {items.length === 0 && !loading && (
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant={tab === "list" ? "default" : "outline"}
+          className={ds.btnRound}
+          onClick={() => setTab("list")}
+          style={tajawal}
+        >
+          قائمة الطلاب
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={tab === "excel" ? "default" : "outline"}
+          className={ds.btnRound}
+          onClick={() => setTab("excel")}
+          style={tajawal}
+        >
+          ملف Excel (تسجيل / نقل جماعي)
+        </Button>
+      </div>
+
+      {tab === "excel" ? (
+        <StudentsExcelPanel />
+      ) : (
+        <Card className={ds.card}>
+          <CardHeader>
+            <CardTitle className={ds.page.section} style={tajawal}>
+              قائمة الطلاب
+            </CardTitle>
+            <CardDescription style={tajawal}>
+              ابحث بالاسم — جميع الحقول المسجّلة في النظام
+            </CardDescription>
+            <div className="relative max-w-md mt-4">
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="ابحث باسم الطالب..."
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                className={`pr-10 ${ds.btnRound}`}
+                style={tajawal}
+              />
+            </div>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            {error && (
+              <div className={`${ds.alert.error} mb-4`} style={tajawal}>
+                {error}
+              </div>
+            )}
+            {loading ? (
+              <p className="text-muted-foreground" style={tajawal}>
+                جاري التحميل...
+              </p>
+            ) : (
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell
-                      colSpan={10}
-                      className="text-center text-slate-500"
-                      style={tajawal}
-                    >
-                      لا توجد نتائج
-                    </TableCell>
+                    <TableHead style={tajawal}>الاسم</TableHead>
+                    <TableHead style={tajawal}>الهوية</TableHead>
+                    <TableHead style={tajawal}>الجوال</TableHead>
+                    <TableHead style={tajawal}>الحلقة</TableHead>
+                    <TableHead style={tajawal}>المدرسة</TableHead>
+                    <TableHead style={tajawal}>الصف</TableHead>
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+                </TableHeader>
+                <TableBody>
+                  {items.map((s) => (
+                    <TableRow key={s.id}>
+                      <TableCell className="font-medium" style={tajawal}>
+                        {s.full_name_ar}
+                      </TableCell>
+                      <TableCell style={tajawal}>{s.national_id ?? "—"}</TableCell>
+                      <TableCell style={tajawal}>{s.phone ?? "—"}</TableCell>
+                      <TableCell style={tajawal}>{s.circle_name ?? "—"}</TableCell>
+                      <TableCell style={tajawal}>{s.school_name ?? "—"}</TableCell>
+                      <TableCell style={tajawal}>{s.school_grade ?? "—"}</TableCell>
+                    </TableRow>
+                  ))}
+                  {items.length === 0 && !loading && (
+                    <TableRow>
+                      <TableCell
+                        colSpan={6}
+                        className="text-center text-muted-foreground"
+                        style={tajawal}
+                      >
+                        لا توجد نتائج
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

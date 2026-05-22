@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -23,11 +23,6 @@ export function LoginPage() {
 
   const normalized = useMemo(() => normalizeMobile(mobile), [mobile]);
   const canSubmit = Boolean(normalized) && !loading;
-
-  useEffect(() => {
-    if (!isAuthenticated || !user) return;
-    navigate(user.homePath, { replace: true });
-  }, [isAuthenticated, user?.homePath, navigate]);
 
   function handleLogout() {
     logout();

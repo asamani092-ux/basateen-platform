@@ -19,7 +19,7 @@ export default function App() {
       <Route path="/tv-live" element={<TvLivePage />} />
 
       <Route element={<RequireAuth />}>
-        <Route path="/" element={<AuthHomeRedirect />} />
+        <Route index element={<AuthHomeRedirect />} />
 
         <Route
           element={
@@ -27,43 +27,43 @@ export default function App() {
           }
         >
           <Route element={<DashboardLayout />}>
-            <Route path="/dashboard" element={<HomePage />} />
-            <Route path="/admin/students" element={<StudentsPage />} />
+            <Route path="dashboard" element={<HomePage />} />
+            <Route path="admin/students" element={<StudentsPage />} />
             <Route
-              path="/admin/circles"
+              path="admin/circles"
               element={<PlaceholderPage title="الحلقات والمسارات" />}
             />
             <Route
-              path="/admin/transfers"
+              path="admin/transfers"
               element={<PlaceholderPage title="نقل الطلاب" />}
             />
             <Route
-              path="/admin/violations"
+              path="admin/violations"
               element={<PlaceholderPage title="التعهدات والمخالفات" />}
             />
             <Route
-              path="/education/tasks"
+              path="education/tasks"
               element={<PlaceholderPage title="المهام التعليمية" />}
             />
             <Route
-              path="/education/daily-log"
+              path="education/daily-log"
               element={<PlaceholderPage title="الرصد اليومي" />}
             />
             <Route
-              path="/education/competition"
+              path="education/competition"
               element={<PlaceholderPage title="المنافسة والدرجات" />}
             />
             <Route
-              path="/education/himma"
+              path="education/himma"
               element={<PlaceholderPage title="يوم الهمة" />}
             />
-            <Route path="/programs" element={<ProgramsHomePage />} />
+            <Route path="programs" element={<ProgramsHomePage />} />
             <Route
-              path="/programs/quizzes"
+              path="programs/quizzes"
               element={<PlaceholderPage title="الاختبارات" />}
             />
             <Route
-              path="/programs/archive"
+              path="programs/archive"
               element={<PlaceholderPage title="الأرشيف والبرامج" />}
             />
           </Route>
@@ -71,15 +71,13 @@ export default function App() {
 
         <Route element={<RequireRole roles={["teacher"]} />}>
           <Route element={<TeacherLayout />}>
-            <Route path="/teacher" element={<TeacherHomePage />} />
+            <Route path="teacher" element={<TeacherHomePage />} />
             <Route
-              path="/teacher/daily-log"
+              path="teacher/daily-log"
               element={<PlaceholderPage title="الرصد اليومي — المعلم" />}
             />
           </Route>
         </Route>
-
-        <Route path="*" element={<AuthHomeRedirect />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/login" replace />} />

@@ -4,7 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useSyncExternalStore,
+  useState,
   type ReactNode,
 } from "react";
 import {
@@ -12,6 +12,7 @@ import {
   getSession,
   loginWithMobile,
   sanitizeStoredAuth,
+  type AuthSession,
   type AuthUser,
 } from "../lib/auth-store";
 
@@ -24,48 +25,36 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-function subscribe(callback: () => void) {
-  window.addEventListener("storage", callback);
-  window.addEventListener("basateen-auth", callback);
-  return () => {
-    window.removeEventListener("storage", callback);
-    window.removeEventListener("basateen-auth", callback);
-  };
-}
-
-function getClientSnapshot() {
-  return getSession();
-}
-
-function getServerSnapshot() {
-  return null;
-}
-
-function notifyAuthChange() {
-  window.dispatchEvent(new Event("basateen-auth"));
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const [session, setSession] = useState<AuthSession | null>(() => getSession());
+
   useEffect(() => {
     sanitizeStoredAuth();
-    notifyAuthChange();
-  }, []); // مرة واحدة عند التحميل — لا تستدعِ logout أثناء render
+    setSession(getSession());
 
-  const session = useSyncExternalStore(
-    subscribe,
-    getClientSnapshot,
-    getServerSnapshot,
-  );
+    function sync() {
+      setSession(getSession());
+    }
+
+    window.addEventListener("basateen-auth", sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener("basateen-auth", sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
 
   const login = useCallback((mobile: string) => {
     const user = loginWithMobile(mobile);
-    if (user) notifyAuthChange();
+    setSession(getSession());
+    window.dispatchEvent(new Event("basateen-auth"));
     return user;
   }, []);
 
   const logout = useCallback(() => {
     clearAuth();
-    notifyAuthChange();
+    setSession(null);
+    window.dispatchEvent(new Event("basateen-auth"));
   }, []);
 
   const value = useMemo<AuthContextValue>(

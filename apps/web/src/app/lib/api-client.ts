@@ -23,9 +23,34 @@ export type AuthUser = {
 export type StudentRow = {
   id: number;
   full_name_ar: string;
+  national_id: string | null;
+  nationality: string | null;
   phone: string | null;
+  school_name: string | null;
+  school_grade: string | null;
+  memorization_amount: string | null;
+  guardian_phone: string | null;
+  health_notes: string | null;
   circle_name: string | null;
   track_name: string | null;
+};
+
+export type StudentExportRow = {
+  full_name_ar: string;
+  national_id: string | null;
+  nationality: string | null;
+  phone: string | null;
+  school_name: string | null;
+  school_grade: string | null;
+  memorization_amount: string | null;
+  guardian_phone: string | null;
+  guardian_national_id: string | null;
+  circle_name: string | null;
+  health_notes: string | null;
+};
+
+export type StudentImportRow = Omit<StudentExportRow, "guardian_national_id"> & {
+  guardian_national_id?: string | null;
 };
 
 export type CircleOption = {
@@ -113,4 +138,23 @@ export const api = {
       `/api/students/${id}/transfer`,
       { method: "POST", body: JSON.stringify(body) },
     ),
+  studentsExport: () =>
+    request<{ items: StudentExportRow[]; count: number }>(
+      "/api/students/export",
+    ),
+  studentsBulkImport: (
+    mode: "register" | "transfer",
+    rows: StudentImportRow[],
+  ) =>
+    request<{
+      ok: boolean;
+      mode: string;
+      total: number;
+      success: number;
+      failed: number;
+      results: Array<{ row: number; ok: boolean; error?: string; action?: string }>;
+    }>("/api/students/bulk", {
+      method: "POST",
+      body: JSON.stringify({ mode, rows }),
+    }),
 };

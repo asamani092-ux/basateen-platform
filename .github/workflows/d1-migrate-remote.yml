@@ -16,6 +16,7 @@ on:
           - "003"
           - "004"
           - "005"
+          - "006"
 
 jobs:
   migrate:
@@ -77,6 +78,8 @@ jobs:
               run_file "003_education.sql"
               run_file "004_programs.sql"
               run_file "005_seed.sql"
+              run_file "006_students_extended.sql"
               ;;
+            006) run_file "006_students_extended.sql" ;;
             *) echo "Unknown migration: ${{ inputs.migration }}"; exit 1 ;;
           esac

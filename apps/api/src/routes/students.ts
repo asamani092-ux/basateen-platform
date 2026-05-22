@@ -4,7 +4,14 @@ import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 type StudentListRow = {
   id: number;
   full_name_ar: string;
+  national_id: string | null;
+  nationality: string | null;
   phone: string | null;
+  school_name: string | null;
+  school_grade: string | null;
+  memorization_amount: string | null;
+  guardian_phone: string | null;
+  health_notes: string | null;
   circle_name: string | null;
   track_name: string | null;
 };
@@ -34,7 +41,14 @@ export async function handleStudentsList(
     SELECT
       s.id,
       s.full_name_ar,
+      s.national_id,
+      s.nationality,
       s.phone,
+      s.school_name,
+      s.school_grade,
+      s.memorization_amount,
+      s.guardian_phone,
+      s.health_notes,
       c.name_ar AS circle_name,
       t.name_ar AS track_name
     FROM students s

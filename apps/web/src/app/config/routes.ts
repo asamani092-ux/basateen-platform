@@ -7,6 +7,7 @@ export type NavItem = {
 export const navItems: NavItem[] = [
   { label: "لوحة التحكم", path: "/dashboard", section: "admin" },
   { label: "إدارة الطلاب", path: "/admin/students", section: "admin" },
+  { label: "استيراد Excel", path: "/admin/students/import", section: "admin" },
   { label: "الحلقات والمسارات", path: "/admin/circles", section: "admin" },
   { label: "نقل الطلاب", path: "/admin/transfers", section: "admin" },
   { label: "التعهدات والمخالفات", path: "/admin/violations", section: "admin" },

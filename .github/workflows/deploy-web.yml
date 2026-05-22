@@ -1,5 +1,5 @@
-# اختياري: إن ربطت Pages بـ Git من Dashboard، قد لا تحتاج هذا الملف.
-# اسم المشروع على Pages: basateen-platform (ليس basateen-web)
+# نشر الواجهة إلى Cloudflare Pages (بدون wrangler-action — أخطاء أوضح)
+# إن كان Pages مربوطاً بـ Git مباشرة، يكفي بناء Dashboard؛ هذا الـ workflow اختياري.
 
 name: Deploy Web (Pages)
 
@@ -38,14 +38,26 @@ jobs:
       - name: Build web app
         working-directory: apps/web
         run: |
+          set -euxo pipefail
           npm install
           npm run build
+          test -d dist || { echo "::error::dist folder missing after build"; exit 1; }
+          ls -la dist/
+
+      - name: Wrangler whoami
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes wrangler@3.114.17 whoami
 
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: apps/web
-          command: pages deploy dist --project-name=basateen-platform
-          wranglerVersion: "3"
+        working-directory: apps/web
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euxo pipefail
+          npx --yes wrangler@3.114.17 pages deploy dist \
+            --project-name=basateen-platform \
+            --branch=main \
+            --commit-dirty=true

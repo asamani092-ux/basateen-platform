@@ -1,4 +1,15 @@
-# إصلاح فشل wrangler-action@v3
+# إصلاح فشل wrangler / GitHub Actions
+
+## wrangler-action يفشل بدون رسالة واضحة
+
+تم استبدال `cloudflare/wrangler-action@v3` بـ **`npx wrangler` مباشرة** في:
+- `deploy-web.yml` — `wrangler pages deploy dist ...`
+- `deploy-api.yml` — `wrangler deploy`
+- `d1-migrate-remote.yml` — `wrangler d1 execute ...`
+
+بعد `git push` أعد تشغيل الـ workflow واقرأ السجل في الخطوة الأخيرة (ستظهر رسالة wrangler الحقيقية).
+
+---
 
 ## الأسباب الأشهر
 
@@ -11,8 +22,9 @@
 | `CLOUDFLARE_API_TOKEN` | Cloudflare → Profile → **API Tokens** → Create Token |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare Dashboard → يمين الصفحة (Account ID) |
 
-**صلاحيات التوكن (Edit Cloudflare Workers):**
+**صلاحيات التوكن:**
 - Account → Cloudflare Workers Scripts → **Edit**
+- Account → **Cloudflare Pages** → **Edit** (لنشر `deploy-web`)
 - Account → Account Settings → **Read**
 - Account → D1 → **Edit** (لأن Worker مربوط بـ D1)
 

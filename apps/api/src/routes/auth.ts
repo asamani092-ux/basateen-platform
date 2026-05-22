@@ -1,7 +1,10 @@
 import type { Env } from "../env";
 
 /** Placeholder — full auth in next phase after users table + JWT_SECRET */
-export async function handleLogin(request: Request): Promise<Response> {
+export async function handleLogin(
+  request: Request,
+  _env: Env,
+): Promise<Response> {
   let body: { email?: string; password?: string } = {};
   try {
     body = await request.json();

@@ -5,26 +5,39 @@ on:
     branches: [main, master]
     paths:
       - "apps/api/**"
-      - "packages/database/**"
       - ".github/workflows/deploy-api.yml"
   workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/api
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - run: npm install
-      - name: Deploy to Cloudflare Workers
+
+      - name: Install dependencies
+        working-directory: apps/api
+        run: npm install
+
+      - name: Check Cloudflare secrets
+        run: |
+          if [ -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ]; then
+            echo "::error::Add CLOUDFLARE_API_TOKEN in GitHub → Settings → Secrets → Actions"
+            exit 1
+          fi
+          if [ -z "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" ]; then
+            echo "::error::Add CLOUDFLARE_ACCOUNT_ID in GitHub → Settings → Secrets → Actions"
+            exit 1
+          fi
+
+      - name: Deploy Worker (winter-term-cb93)
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy
           workingDirectory: apps/api
+          command: deploy
+          wranglerVersion: "3"

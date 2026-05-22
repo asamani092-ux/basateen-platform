@@ -1,3 +1,6 @@
+# اختياري: إن ربطت Pages بـ Git من Dashboard، قد لا تحتاج هذا الملف.
+# اسم المشروع على Pages: basateen-platform (ليس basateen-web)
+
 name: Deploy Web (Pages)
 
 on:
@@ -16,20 +19,33 @@ jobs:
       deployments: write
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: Build
+
+      - name: Check Cloudflare secrets
+        run: |
+          if [ -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ]; then
+            echo "::error::Add CLOUDFLARE_API_TOKEN in GitHub Secrets"
+            exit 1
+          fi
+          if [ -z "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" ]; then
+            echo "::error::Add CLOUDFLARE_ACCOUNT_ID in GitHub Secrets"
+            exit 1
+          fi
+
+      - name: Build web app
         working-directory: apps/web
-        env:
-          VITE_API_URL: ${{ vars.VITE_API_URL }}
         run: |
           npm install
           npm run build
+
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist --project-name=basateen-web
           workingDirectory: apps/web
+          command: pages deploy dist --project-name=basateen-platform
+          wranglerVersion: "3"

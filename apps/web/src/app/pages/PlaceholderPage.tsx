@@ -12,8 +12,10 @@ export function PlaceholderPage({ title }: { title: string }) {
   return (
     <Card className="rounded-3xl border-slate-200 dark:border-[#1e3a5f] shadow-sm max-w-2xl">
       <CardHeader>
-        <CardTitle style={tajawal}>{title}</CardTitle>
-        <CardDescription style={tajawal}>
+        <CardTitle className="text-slate-900 dark:text-white" style={tajawal}>
+          {title}
+        </CardTitle>
+        <CardDescription className="text-slate-600 dark:text-slate-300" style={tajawal}>
           هذه الصفحة جاهزة في الهيكل — سيتم برمجة المحتوى في المرحلة التالية.
         </CardDescription>
       </CardHeader>

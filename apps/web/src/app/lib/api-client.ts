@@ -1,5 +1,3 @@
-import { getToken } from "./auth-store";
-
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
 export type TvSummary = {
@@ -30,12 +28,10 @@ export type StudentRow = {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const url = `${API_BASE.replace(/\/$/, "")}${path}`;
-  const token = getToken();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(init?.headers as Record<string, string> | undefined),
   };
-  if (token) headers.Authorization = `Bearer ${token}`;
 
   const res = await fetch(url, { ...init, headers });
 

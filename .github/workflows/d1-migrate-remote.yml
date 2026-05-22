@@ -1,4 +1,4 @@
-# تشغيل ترحيل D1 من GitHub (Linux) — لأن wrangler/workerd لا يعمل على Windows ARM64 محلياً
+# ترحيل D1 من GitHub (Linux) — بدون wrangler-action (أخطاء أوضح + --yes)
 name: D1 Migrate (remote)
 
 on:
@@ -42,52 +42,41 @@ jobs:
             exit 1
           fi
 
-      - name: D1 — 001_core.sql
-        if: inputs.migration == 'all' || inputs.migration == '001'
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: apps/api
-          wranglerVersion: "3"
-          command: d1 execute basateen --remote --file=../../packages/database/schema/001_core.sql
+      - name: Verify SQL files
+        run: ls -la packages/database/schema/
 
-      - name: D1 — 002_admin.sql
-        if: inputs.migration == 'all' || inputs.migration == '002'
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: apps/api
-          wranglerVersion: "3"
-          command: d1 execute basateen --remote --file=../../packages/database/schema/002_admin.sql
+      - name: Wrangler whoami
+        working-directory: apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler whoami
 
-      - name: D1 — 003_education.sql
-        if: inputs.migration == 'all' || inputs.migration == '003'
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: apps/api
-          wranglerVersion: "3"
-          command: d1 execute basateen --remote --file=../../packages/database/schema/003_education.sql
-
-      - name: D1 — 004_programs.sql
-        if: inputs.migration == 'all' || inputs.migration == '004'
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: apps/api
-          wranglerVersion: "3"
-          command: d1 execute basateen --remote --file=../../packages/database/schema/004_programs.sql
-
-      - name: D1 — 005_seed.sql
-        if: inputs.migration == 'all' || inputs.migration == '005'
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: apps/api
-          wranglerVersion: "3"
-          command: d1 execute basateen --remote --file=../../packages/database/schema/005_seed.sql
+      - name: Run D1 SQL (remote)
+        working-directory: apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euxo pipefail
+          run_file() {
+            local file="$1"
+            echo "========== $file =========="
+            test -f "../../packages/database/schema/$file" || { echo "Missing: $file"; exit 1; }
+            npx wrangler d1 execute basateen --remote --yes --file="../../packages/database/schema/$file"
+          }
+          case "${{ inputs.migration }}" in
+            001) run_file "001_core.sql" ;;
+            002) run_file "002_admin.sql" ;;
+            003) run_file "003_education.sql" ;;
+            004) run_file "004_programs.sql" ;;
+            005) run_file "005_seed.sql" ;;
+            all)
+              run_file "001_core.sql"
+              run_file "002_admin.sql"
+              run_file "003_education.sql"
+              run_file "004_programs.sql"
+              run_file "005_seed.sql"
+              ;;
+            *) echo "Unknown migration: ${{ inputs.migration }}"; exit 1 ;;
+          esac

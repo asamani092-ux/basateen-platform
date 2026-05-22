@@ -18,8 +18,16 @@ import {
 } from "../../components/ui/table";
 import { Badge } from "../../components/ui/badge";
 import { api, type StudentRow } from "../../lib/api-client";
+import { isMockAuth } from "../../lib/auth-store";
 
 const tajawal = { fontFamily: "Tajawal, sans-serif" } as const;
+
+const DEMO_STUDENTS: StudentRow[] = [
+  { id: 1, full_name_ar: "أحمد محمد العتيبي", phone: "0500000001", circle_name: "حلقة الصديق", track_name: "مسار الحفظ" },
+  { id: 2, full_name_ar: "خالد سعود القحطاني", phone: "0500000002", circle_name: "حلقة الصديق", track_name: "مسار الحفظ" },
+  { id: 3, full_name_ar: "فهد عبدالله الشمري", phone: "0500000003", circle_name: "حلقة الصديق", track_name: "مسار الحفظ" },
+  { id: 4, full_name_ar: "سلمان ناصر الحربي", phone: "0500000004", circle_name: "حلقة النور", track_name: "مسار الحفظ" },
+];
 
 export function StudentsPage() {
   const [q, setQ] = useState("");
@@ -30,6 +38,17 @@ export function StudentsPage() {
   const load = useCallback(async (query: string) => {
     setLoading(true);
     setError(null);
+    const q = query.trim().toLowerCase();
+
+    if (isMockAuth()) {
+      const filtered = DEMO_STUDENTS.filter(
+        (s) => !q || s.full_name_ar.toLowerCase().includes(q),
+      );
+      setItems(filtered);
+      setLoading(false);
+      return;
+    }
+
     try {
       const res = await api.students(query);
       setItems(res.items);

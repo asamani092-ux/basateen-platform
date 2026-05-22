@@ -9,6 +9,20 @@
 - `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
 
+### صلاحيات التوكن (مهم — سبب شائع للفشل)
+
+في [Cloudflare API Tokens](https://dash.cloudflare.com/profile/api-tokens) عدّل التوكن المستخدم في GitHub وأضف:
+
+| الصلاحية | القيمة |
+|----------|--------|
+| Account → **D1** | **Edit** |
+| Account → **Workers Scripts** | **Edit** |
+| Account → **Workers KV** | Edit (اختياري) |
+
+بدون **D1 Edit** يفشل `d1 execute` برمز 1 **بدون رسالة واضحة** في `wrangler-action`.
+
+بعد التعديل: أعد تشغيل workflow **D1 Migrate (remote)**.
+
 ## الخطوات
 
 1. ارفع هذا الملف مع المشروع:
@@ -24,9 +38,13 @@ git push
 
 3. اختر **D1 Migrate (remote)** → **Run workflow** → Branch: `main` → Migration: **all** → Run
 
-4. انتظر ✅ لكل خطوة (001 … 005).
+4. افتح خطوة **Run D1 SQL (remote)** في السجل — ستظهر رسالة wrangler الحقيقية (وليس فقط `Action failed`).
 
-إذا فشل ملف لأن الجدول موجود مسبقاً، شغّل workflow مرة أخرى واختر فقط الرقم التالي (مثلاً `002`).
+5. انتظر ✅. إذا فشل ملف لأن الجدول موجود مسبقاً، شغّل workflow مرة أخرى واختر فقط الرقم التالي (مثلاً `002`).
+
+### إذا ظهر `Action failed` بدون تفاصيل (الإصدار القديم)
+
+كان السبب غالباً `wrangler-action` يخفي خطأ D1. الحل: رفع آخر commit (workflow يستخدم `npx wrangler` + `--yes`) + **D1 Edit** على التوكن.
 
 ## بعد الترحيل
 

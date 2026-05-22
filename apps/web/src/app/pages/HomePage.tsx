@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Users, CircleDot, Percent, Wifi } from "lucide-react";
+import { Users, CircleDot, Percent, Wifi, Tv } from "lucide-react";
+import { Button } from "../components/ui/button";
 import {
   Card,
   CardContent,
@@ -51,14 +52,25 @@ export function HomePage() {
             مجمع حلقات البساتين — مؤشرات اليوم
           </p>
         </div>
-        <Badge
-          variant={apiOk ? "default" : "destructive"}
-          className="rounded-xl px-3 py-1"
-          style={tajawal}
-        >
-          <Wifi className="w-3 h-3 ml-1" />
-          {apiOk === null ? "جاري الاتصال..." : apiOk ? "API متصل" : "API غير متصل"}
-        </Badge>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            onClick={() => window.open("/tv-live", "_blank", "noopener,noreferrer")}
+            className="bg-[#1e3a8a] hover:bg-[#1e40af] text-white rounded-xl gap-2"
+            style={tajawal}
+          >
+            <Tv className="w-4 h-4" />
+            تشغيل شاشة التلفاز
+          </Button>
+          <Badge
+            variant={apiOk ? "default" : "destructive"}
+            className="rounded-xl px-3 py-1"
+            style={tajawal}
+          >
+            <Wifi className="w-3 h-3 ml-1" />
+            {apiOk === null ? "جاري الاتصال..." : apiOk ? "API متصل" : "API غير متصل"}
+          </Badge>
+        </div>
       </div>
 
       {error && (

@@ -1,4 +1,5 @@
 import type { AuthContext, Env } from "../types";
+import { ADMIN_DATA_ROLES } from "./roles";
 
 /** O(1) — فهرس على supervisor_scopes */
 export async function supervisorHasCircle(
@@ -21,8 +22,12 @@ export async function canManageCircle(
   circleId: number,
 ): Promise<boolean> {
   if (auth.role === "general_manager") return true;
-  if (auth.role === "supervisor") {
+  if (auth.role === "edu_supervisor") {
     return supervisorHasCircle(env, auth.userId, circleId);
   }
   return false;
+}
+
+export function canAccessAdminData(auth: AuthContext): boolean {
+  return ADMIN_DATA_ROLES.includes(auth.role);
 }

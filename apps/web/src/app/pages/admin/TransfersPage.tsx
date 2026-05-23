@@ -18,6 +18,7 @@ import {
   TableRow,
 } from "../../components/ui/table";
 import { Badge } from "../../components/ui/badge";
+import { CircleCapacityBadge } from "../../components/admin/CircleCapacityBadge";
 import {
   api,
   type CircleOption,
@@ -51,8 +52,13 @@ export function TransfersPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [capacityHint, setCapacityHint] = useState<string | null>(null);
 
   const hasApi = Boolean(getApiToken());
+
+  const selectedCircle = circles.find(
+    (c) => c.id === Number(targetCircleId),
+  );
 
   const loadCircles = useCallback(async () => {
     try {
@@ -124,7 +130,12 @@ export function TransfersPage() {
         circle_id: Number(targetCircleId),
         note: note.trim() || undefined,
       });
-      setSuccess(res.message);
+      setSuccess(
+        res.capacity_warning
+          ? `${res.message} — ${res.capacity_warning}`
+          : res.message,
+      );
+      setCapacityHint(res.capacity_warning ?? null);
       setNote("");
       await loadDetail(selectedId);
       const list = await api.students(searchQ);
@@ -279,7 +290,28 @@ export function TransfersPage() {
                   </label>
                   <select
                     value={targetCircleId}
-                    onChange={(e) => setTargetCircleId(e.target.value)}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setTargetCircleId(id);
+                      const c = circles.find((x) => x.id === Number(id));
+                      if (!c || c.student_count == null) {
+                        setCapacityHint(null);
+                        return;
+                      }
+                      const remaining =
+                        (c.default_capacity ?? c.capacity) - (c.student_count ?? 0);
+                      if (c.at_or_over_capacity) {
+                        setCapacityHint(
+                          `الحلقة مكتملة (${c.student_count}/${c.default_capacity ?? c.capacity}). يمكنك رفع السعة الافتراضية أو فتح حلقة جديدة.`,
+                        );
+                      } else if (c.near_capacity || remaining <= 3) {
+                        setCapacityHint(
+                          `تبقى ${remaining} مقاعد فقط. فكّر برفع السعة الافتراضية أو حلقة جديدة قبل إضافة الطالب.`,
+                        );
+                      } else {
+                        setCapacityHint(null);
+                      }
+                    }}
                     required
                     className="w-full rounded-xl border border-slate-300 dark:border-[#1e3a5f] bg-white dark:bg-[#132337] px-3 py-2.5 text-slate-900 dark:text-white"
                     style={tajawal}
@@ -288,10 +320,26 @@ export function TransfersPage() {
                     {circles.map((c) => (
                       <option key={c.id} value={String(c.id)}>
                         {c.name_ar}
-                        {c.track_name ? ` (${c.track_name})` : ""}
+                        {c.student_count != null
+                          ? ` (${c.student_count}/${c.default_capacity ?? c.capacity})`
+                          : ""}
+                        {c.track_name ? ` · ${c.track_name}` : ""}
                       </option>
                     ))}
                   </select>
+                  {selectedCircle && (
+                    <div className="mt-2">
+                      <CircleCapacityBadge circle={selectedCircle} />
+                    </div>
+                  )}
+                  {capacityHint && (
+                    <p
+                      className="mt-2 text-sm rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-100 px-3 py-2"
+                      style={tajawal}
+                    >
+                      {capacityHint}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label

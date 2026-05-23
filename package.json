@@ -1,0 +1,31 @@
+{
+  "name": "basateen-platform",
+  "private": true,
+  "version": "0.1.0",
+  "description": "مجمع حلقات البساتين — تطوير الواجهة",
+  "scripts": {
+    "dev": "npm run dev --prefix apps/web",
+    "dev:ui": "npm run dev --prefix apps/web",
+    "dev:full": "concurrently -n api,web -c blue,green \"npm run dev:api\" \"npm run dev:web:local\"",
+    "dev:web": "npm run dev --prefix apps/web",
+    "dev:web:local": "npm run dev --prefix apps/web",
+    "dev:api": "npm run dev --prefix apps/api",
+    "install:ui": "npm install && npm install --prefix apps/web",
+    "db:local:all": "npm run db:local:all --prefix apps/api",
+    "db:local:reset": "npm run db:local:reset --prefix apps/api",
+    "seed:local": "npm run seed:local --prefix apps/api",
+    "setup:local": "npm run db:local:all && npm run seed:local",
+    "db:remote:upgrade": "npm run db:remote:upgrade --prefix apps/api",
+    "db:remote:all": "npm run db:remote:all --prefix apps/api",
+    "deploy:api:prod": "npm run deploy:prod --prefix apps/api",
+    "build:web:prod": "npm run build --prefix apps/web",
+    "seed:remote": "npm run seed:remote --prefix apps/api"
+    "bundle:wave3-sql": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/bundle-wave3-sql.ps1"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "engines": {
+    "node": ">=20 <25"
+  }
+}

@@ -2,16 +2,11 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "../../components/ui/card";
+import { Card, CardContent, CardHeader } from "../../components/ui/card";
 import { useAuth } from "../../context/AuthContext";
 import { normalizeMobile } from "../../lib/auth-store";
 import { syncApiTokenForMobile } from "../../lib/api-token";
+import { isUiDevPreview } from "../../lib/dev-preview";
 import { ds, tajawal } from "../../lib/design-system";
 
 export function LoginPage() {
@@ -46,7 +41,7 @@ export function LoginPage() {
     }
     const apiOk = await syncApiTokenForMobile(mobile);
     setLoading(false);
-    if (!apiOk && authUser.role !== "teacher") {
+    if (!apiOk && !isUiDevPreview() && authUser.role !== "teacher") {
       setError("تعذّر ربط API — تحقق من نشر Worker وحسابات seed");
       return;
     }
@@ -59,45 +54,47 @@ export function LoginPage() {
       dir="rtl"
     >
       <Card className={`w-full max-w-md ${ds.card}`}>
-        <CardHeader className="text-center">
+        <CardHeader className="text-center pb-2">
           <img
             src="/logo-light.png"
-            alt="مجمع حلقات البساتين"
-            className="h-20 w-auto object-contain mx-auto mb-4"
+            alt="منصة بساتين"
+            className="h-32 sm:h-36 w-auto object-contain mx-auto mb-6 dark:hidden"
           />
-          <CardTitle
-            className="text-xl text-slate-900 dark:text-white"
+          <img
+            src="/logo-dark.png"
+            alt="منصة بساتين"
+            className="h-32 sm:h-36 w-auto object-contain mx-auto mb-6 hidden dark:block"
+          />
+          <h1
+            className="text-2xl sm:text-3xl font-bold text-foreground"
             style={tajawal}
           >
-            تسجيل الدخول
-          </CardTitle>
-          <CardDescription
-            className="text-slate-600 dark:text-slate-300"
-            style={tajawal}
-          >
-            أدخل رقم الجوال المسجّل — بدون بريد أو كلمة مرور
-          </CardDescription>
+            منصة بساتين
+          </h1>
+          <p className="text-sm text-muted-foreground mt-2" style={tajawal}>
+            أدخل رقم الجوال المسجّل
+          </p>
         </CardHeader>
         <CardContent>
           {isAuthenticated && user && (
-            <div className="mb-4 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-sm space-y-2">
-              <p className="text-amber-900 dark:text-amber-200" style={tajawal}>
+            <div className={`mb-4 ${ds.alert.info}`}>
+              <p style={tajawal}>
                 أنت مسجّل كـ <strong>{user.full_name_ar}</strong>
               </p>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 mt-3">
                 <Button
                   type="button"
                   variant="outline"
-                  className="rounded-xl text-slate-800 dark:text-slate-200"
+                  className={ds.btnRound}
                   style={tajawal}
                   onClick={() => navigate(user.homePath)}
                 >
-                  الذهاب للوحة التحكم
+                  الذهاب للوحة العمل
                 </Button>
                 <Button
                   type="button"
                   variant="destructive"
-                  className="rounded-xl"
+                  className={ds.btnRound}
                   style={tajawal}
                   onClick={handleLogout}
                 >
@@ -110,7 +107,7 @@ export function LoginPage() {
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
               <label
-                className="block text-sm font-semibold mb-2 text-slate-900 dark:text-white"
+                className="block text-sm font-semibold mb-2 text-foreground"
                 style={tajawal}
               >
                 رقم الجوال
@@ -122,14 +119,14 @@ export function LoginPage() {
                 placeholder="05xxxxxxxx"
                 value={mobile}
                 onChange={(e) => setMobile(e.target.value)}
-                className="rounded-xl border-slate-300 dark:border-[#1e3a5f] text-slate-900 dark:text-white bg-white dark:bg-[#132337]"
+                className={`${ds.btnRound} text-foreground`}
                 style={tajawal}
                 dir="ltr"
                 required
               />
             </div>
             {error && (
-              <p className="text-sm text-rose-600 dark:text-rose-400" style={tajawal}>
+              <p className={`text-sm ${ds.alert.error}`} style={tajawal}>
                 {error}
               </p>
             )}
@@ -142,17 +139,24 @@ export function LoginPage() {
               {loading ? "جاري الدخول..." : "دخول"}
             </Button>
             <p
-              className="text-xs text-slate-500 dark:text-slate-400 text-center leading-relaxed"
+              className="text-xs text-muted-foreground text-center leading-relaxed"
               style={tajawal}
             >
-              تجريبي: 0500000001 مدير · 0500000002 مشرف · 0500000003 معلم
+              تجريبي: 0500000001 مدير · 0500000002 تعليمي · 0500000003 برامج
+              (اختبارات) · 0500000004 مشرف عام · 0500000005 معلم
             </p>
+            {isUiDevPreview() && (
+              <p className={`text-xs text-center ${ds.alert.info}`} style={tajawal}>
+                معاينة UI: أمثلة تسكين، خطط، منافسات، يوم همة، رصد مشارك —
+                راجع docs/DEV-EXAMPLES.md
+              </p>
+            )}
           </form>
 
           <p className="text-center mt-4">
             <Link
               to="/tv-live"
-              className="text-sm text-[#1e3a8a] dark:text-[#3b82f6] hover:underline"
+              className="text-sm text-primary hover:underline"
               style={tajawal}
             >
               شاشة التلفاز (بدون دخول)

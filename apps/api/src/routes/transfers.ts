@@ -1,4 +1,9 @@
 import type { Env } from "../types";
+import { ADMIN_DATA_ROLES } from "../lib/roles";
+import {
+  getCircleCapacity,
+  capacityWarningMessage,
+} from "../lib/circle-capacity";
 import { canManageCircle } from "../lib/scope";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 
@@ -40,7 +45,7 @@ export async function handleStudentDetail(
 ): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
-  if (!requireRoles(auth, ["general_manager", "supervisor"])) {
+  if (!requireRoles(auth, ADMIN_DATA_ROLES)) {
     return json({ error: "forbidden" }, 403);
   }
 
@@ -68,7 +73,7 @@ export async function handleStudentDetail(
     .bind(studentId)
     .first<PlacementRow>();
 
-  if (current && auth.role === "supervisor") {
+  if (current && auth.role === "edu_supervisor") {
     const ok = await canManageCircle(env, auth, current.circle_id);
     if (!ok) return json({ error: "forbidden" }, 403);
   }
@@ -100,7 +105,7 @@ export async function handleStudentTransfer(
 ): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
-  if (!requireRoles(auth, ["general_manager", "supervisor"])) {
+  if (!requireRoles(auth, ADMIN_DATA_ROLES)) {
     return json({ error: "forbidden" }, 403);
   }
 
@@ -139,6 +144,11 @@ export async function handleStudentTransfer(
   if (!(await canManageCircle(env, auth, targetCircleId))) {
     return json({ error: "forbidden_target_circle" }, 403);
   }
+
+  const targetCapacity = await getCircleCapacity(env, targetCircleId);
+  const capacity_warning = targetCapacity
+    ? capacityWarningMessage(targetCapacity)
+    : null;
 
   const trackId =
     body.track_id != null && body.track_id !== undefined
@@ -188,6 +198,12 @@ export async function handleStudentTransfer(
 
   await env.DB.batch(statements);
 
+  await env.DB.prepare(
+    `UPDATE students SET admission_status = NULL WHERE id = ? AND admission_status = 'pending_placement'`,
+  )
+    .bind(studentId)
+    .run();
+
   const placement = await env.DB.prepare(
     `SELECT h.id AS history_id, c.name_ar AS circle_name, t.name_ar AS track_name,
             h.from_at, h.circle_id, h.track_id
@@ -200,9 +216,15 @@ export async function handleStudentTransfer(
     .bind(studentId)
     .first();
 
+  const afterCapacity = await getCircleCapacity(env, targetCircleId);
+
   return json({
     ok: true,
     message: "تم النقل التراكمي — السجل السابق مُجمّد",
     placement,
+    capacity: afterCapacity,
+    capacity_warning: afterCapacity
+      ? capacityWarningMessage(afterCapacity)
+      : capacity_warning,
   });
 }

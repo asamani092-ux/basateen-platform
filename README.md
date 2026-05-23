@@ -2,6 +2,15 @@
 
 منصة سحابية: React (Pages) + Cloudflare Worker + D1.
 
+## تطوير الواجهة الآن (Windows ARM64)
+
+```powershell
+npm run install:ui
+npm run dev
+```
+
+افتح http://localhost:5173 — التفاصيل في **`docs/DEV-UI.md`**.
+
 ## الهيكل
 
 ```
@@ -23,24 +32,30 @@ packages/database/ → مخططات SQL لـ D1
 قاعدة موجودة: `basateen`  
 Database ID: `d7716e75-85ff-4927-9c59-052240793cab`
 
-تنفيذ المخططات بالترتيب:
+**ترحيل كامل (001–020، بدون أمثلة Edu 018):**
 
 ```bash
 cd apps/api
-npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/001_core.sql
-npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/002_admin.sql
-npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/003_education.sql
-npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/004_programs.sql
+npm run db:remote:all
 ```
 
-أو من **D1 Console** في Dashboard: الصق محتوى كل ملف.
+**ترقية من مخطط قديم (بعد 005):**
+
+```bash
+npm run db:remote:upgrade
+```
+
+دليل النشر الكامل: **[docs/PRODUCTION.md](docs/PRODUCTION.md)**  
+**Windows ARM64:** استخدم GitHub Actions → **D1 Production Migrate** / **Production Release** (لا Wrangler محلي).
 
 ### 2) Worker (API)
 
 ```bash
 cd apps/api
 npx wrangler login
-npx wrangler deploy
+npx wrangler secret put JWT_SECRET --env production
+npx wrangler secret put SETUP_KEY --env production
+npm run deploy:prod
 ```
 
 ربط دومين مخصص: Worker → **Domains** → `api.yourdomain.com`
@@ -55,7 +70,8 @@ npx wrangler deploy
    - Root directory: `apps/web`
    - Build command: `npm ci && npm run build`
    - Build output: `dist`
-   - Environment variable: `VITE_API_URL` = `https://YOUR-WORKER.workers.dev` أو `https://api.yourdomain.com`
+   - `VITE_API_URL` = `https://winter-term-cb93.a-samani092.workers.dev`
+   - `VITE_UI_DEV` = `false`
 
 ### 4) أسرار GitHub (للنشر التلقائي)
 

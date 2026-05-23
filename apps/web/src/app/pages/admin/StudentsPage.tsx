@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { Search } from "lucide-react";
 import { StudentsExcelPanel } from "../../components/admin/StudentsExcelPanel";
 import { Button } from "../../components/ui/button";
@@ -28,7 +28,10 @@ type Tab = "list" | "excel";
 
 export function StudentsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab: Tab = searchParams.get("tab") === "excel" ? "excel" : "list";
+  const tab: Tab =
+    searchParams.get("excel") === "1" || searchParams.get("tab") === "excel"
+      ? "excel"
+      : "list";
 
   const [q, setQ] = useState("");
   const [items, setItems] = useState<StudentRow[]>([]);
@@ -64,7 +67,17 @@ export function StudentsPage() {
   }, [q, load, tab]);
 
   function setTab(next: Tab) {
-    setSearchParams(next === "excel" ? { tab: "excel" } : {});
+    const params = new URLSearchParams(searchParams);
+    if (next === "excel") {
+      params.set("excel", "1");
+      if (!params.get("tab") || params.get("tab") === "excel") {
+        params.set("tab", "students");
+      }
+    } else {
+      params.delete("excel");
+      if (params.get("tab") === "excel") params.delete("tab");
+    }
+    setSearchParams(params);
   }
 
   return (
@@ -154,7 +167,12 @@ export function StudentsPage() {
                   {items.map((s) => (
                     <TableRow key={s.id}>
                       <TableCell className="font-medium" style={tajawal}>
-                        {s.full_name_ar}
+                        <Link
+                          to={`/edu-supervisor/students/${s.id}`}
+                          className="text-primary hover:underline"
+                        >
+                          {s.full_name_ar}
+                        </Link>
                       </TableCell>
                       <TableCell style={tajawal}>{s.national_id ?? "—"}</TableCell>
                       <TableCell style={tajawal}>{s.phone ?? "—"}</TableCell>

@@ -1,4 +1,4 @@
-# نفس اسم الـ Worker الحالي على Cloudflare
+# Worker API — الإنتاج: wrangler deploy --env production
 name = "winter-term-cb93"
 main = "src/index.ts"
 compatibility_date = "2024-08-01"
@@ -9,6 +9,25 @@ database_name = "basateen"
 database_id = "d7716e75-85ff-4927-9c59-052240793cab"
 
 [vars]
+ENVIRONMENT = "development"
+
+[dev]
+port = 8787
+ip = "127.0.0.1"
+local_protocol = "http"
+
+# أسرار محلية: انسخ .dev.vars.example → .dev.vars
+# JWT_SECRET و SETUP_KEY في .dev.vars للتطوير المحلي
+
+[env.production]
+name = "winter-term-cb93"
+
+[env.production.vars]
 ENVIRONMENT = "production"
-# JWT_SECRET → أضفه في Cloudflare: wrangler secret put JWT_SECRET
-# SETUP_KEY → اختياري لـ /api/setup/seed-users (مرة واحدة)
+# أضف دومين Pages بعد النشر، مثال:
+# CORS_ALLOWED_ORIGINS = "https://basateen.pages.dev,https://app.yourdomain.com"
+
+# الإنتاج — نفّذ مرة واحدة:
+# npx wrangler secret put JWT_SECRET --env production
+# npx wrangler secret put SETUP_KEY --env production
+# npx wrangler deploy --env production

@@ -1,0 +1,46 @@
+name: D1 Production Migrate
+
+# ترحيل قاعدة basateen على السحابة — مناسب لـ Windows ARM64 (بدون Wrangler محلي)
+on:
+  workflow_dispatch:
+    inputs:
+      migration_set:
+        description: "مجموعة الترحيل"
+        required: true
+        default: upgrade
+        type: choice
+        options:
+          - upgrade
+          - all
+          - demo
+
+concurrency:
+  group: d1-remote-migrate
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run D1 migrations (remote)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          chmod +x scripts/d1-remote-migrate.sh
+          ./scripts/d1-remote-migrate.sh "${{ inputs.migration_set }}"
+
+      - name: Summary
+        run: |
+          echo "Migration set: ${{ inputs.migration_set }}"
+          echo "If some steps warned 'already applied', that is normal on re-runs."
+          echo "Next: run 'Deploy API (production)' then verify /api/health"

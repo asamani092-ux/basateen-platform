@@ -8,7 +8,8 @@
 
 | الملف | الاستخدام |
 |--------|-----------|
-| `apps/web/src/styles/theme.css` | ألوان CSS (`--primary` = #1e3a8a) |
+| `apps/web/src/styles/theme.css` | ألوان CSS (`--primary` = #1e3a8a) + خط Tajawal |
+| `docs/MASTER-SPEC.md` | مسارات الأدوار الخمسة (مجمد) |
 | `apps/web/src/app/lib/design-system.ts` | عناوين، بطاقات، قائمة، تنبيهات |
 | `apps/web/src/app/components/ui/*` | أزرار shadcn — `variant="default"` و `outline` فقط |
 

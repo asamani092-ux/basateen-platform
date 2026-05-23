@@ -1,28 +1,59 @@
 import type { Env } from "../types";
+import type { UserRole } from "../types";
 import { hashPassword } from "../lib/password";
 
-const DEMO_USERS = [
+type DemoUser = {
+  email: string;
+  mobile: string;
+  password: string;
+  full_name_ar: string;
+  role: UserRole;
+  sections: readonly ("admin" | "education" | "programs")[];
+  circleIds?: number[];
+};
+
+const DEMO_USERS: DemoUser[] = [
   {
-    email: "admin@basateen.local",
+    email: "manager@basateen.local",
+    mobile: "0500000001",
     password: "Basateen123!",
     full_name_ar: "عبدالله — مدير عام",
-    role: "general_manager" as const,
-    sections: ["admin", "education", "programs"] as const,
+    role: "general_manager",
+    sections: ["admin", "education", "programs"],
   },
   {
-    email: "supervisor@basateen.local",
+    email: "edu@basateen.local",
+    mobile: "0500000002",
     password: "Basateen123!",
-    full_name_ar: "مشرف الحلقات",
-    role: "supervisor" as const,
-    sections: ["admin", "education"] as const,
+    full_name_ar: "مشرف تعليمي",
+    role: "edu_supervisor",
+    sections: ["admin", "education"],
     circleIds: [1, 2],
   },
   {
+    email: "programs@basateen.local",
+    mobile: "0500000003",
+    password: "Basateen123!",
+    full_name_ar: "مشرف البرامج",
+    role: "prog_supervisor",
+    sections: ["programs"],
+  },
+  {
+    email: "general@basateen.local",
+    mobile: "0500000004",
+    password: "Basateen123!",
+    full_name_ar: "مشرف عام",
+    role: "general_supervisor",
+    sections: ["admin", "education", "programs"],
+    circleIds: [1, 2, 3],
+  },
+  {
     email: "teacher@basateen.local",
+    mobile: "0500000005",
     password: "Basateen123!",
     full_name_ar: "معلم حلقة الصديق",
-    role: "teacher" as const,
-    sections: ["education"] as const,
+    role: "teacher",
+    sections: ["education"],
     circleIds: [1],
   },
 ];
@@ -53,11 +84,24 @@ export async function handleSeedUsers(
 
   for (const demo of DEMO_USERS) {
     const password_hash = await hashPassword(demo.password);
+    const supervisorScope =
+      demo.role === "edu_supervisor"
+        ? "2"
+        : demo.role === "general_supervisor" || demo.role === "prog_supervisor"
+          ? "global"
+          : "global";
     const result = await env.DB.prepare(
-      `INSERT INTO users (complex_id, email, password_hash, full_name_ar, role)
-       VALUES (1, ?, ?, ?, ?)`,
+      `INSERT INTO users (complex_id, email, mobile, password_hash, full_name_ar, role, supervisor_scope)
+       VALUES (1, ?, ?, ?, ?, ?, ?)`,
     )
-      .bind(demo.email, password_hash, demo.full_name_ar, demo.role)
+      .bind(
+        demo.email,
+        demo.mobile,
+        password_hash,
+        demo.full_name_ar,
+        demo.role,
+        supervisorScope,
+      )
       .run();
 
     const userId = result.meta.last_row_id as number;
@@ -70,7 +114,7 @@ export async function handleSeedUsers(
         .run();
     }
 
-    if ("circleIds" in demo && demo.circleIds) {
+    if (demo.circleIds?.length) {
       for (const circleId of demo.circleIds) {
         if (demo.role === "teacher") {
           await env.DB.prepare(
@@ -79,7 +123,10 @@ export async function handleSeedUsers(
             .bind(userId, circleId)
             .run();
         }
-        if (demo.role === "supervisor") {
+        if (
+          demo.role === "edu_supervisor" ||
+          demo.role === "general_supervisor"
+        ) {
           await env.DB.prepare(
             "INSERT INTO supervisor_scopes (user_id, circle_id, track_id) VALUES (?, ?, NULL)",
           )
@@ -89,13 +136,13 @@ export async function handleSeedUsers(
       }
     }
 
-    created.push(demo.email);
+    created.push(`${demo.mobile} (${demo.email})`);
   }
 
   return Response.json({
     ok: true,
     created,
     default_password: "Basateen123!",
-    message: "تم إنشاء حسابات تجريبية",
+    message: "تم إنشاء 5 حسابات تجريبية (جوال + API)",
   });
 }

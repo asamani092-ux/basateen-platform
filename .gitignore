@@ -4,5 +4,7 @@ dist/
 .dev.vars
 .env
 .env.local
+.env.development.local
+apps/web/.env.development.local
 *.log
 .DS_Store

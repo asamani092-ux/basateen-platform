@@ -3,6 +3,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
+/** افتراضي: API منشور — للـ API محلي: apps/web/.env.development.local */
 const API_ORIGIN =
   process.env.VITE_API_PROXY_TARGET ??
   "https://winter-term-cb93.a-samani092.workers.dev";

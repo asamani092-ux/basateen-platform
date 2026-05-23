@@ -1,4 +1,5 @@
 import type { Env } from "../types";
+import { ADMIN_DATA_ROLES } from "../lib/roles";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 
 type StudentListRow = {
@@ -29,12 +30,13 @@ export async function handleStudentsList(
     return json({ error: "unauthorized" }, 401);
   }
 
-  if (!requireRoles(auth, ["general_manager", "supervisor", "teacher"])) {
+  if (!requireRoles(auth, [...ADMIN_DATA_ROLES, "teacher"])) {
     return json({ error: "forbidden" }, 403);
   }
 
   const url = new URL(request.url);
   const q = (url.searchParams.get("q") ?? "").trim();
+  const admissionStatus = url.searchParams.get("admission_status")?.trim();
   const limit = Math.min(Number(url.searchParams.get("limit") ?? 50), 100);
 
   let sql = `
@@ -49,6 +51,9 @@ export async function handleStudentsList(
       s.memorization_amount,
       s.guardian_phone,
       s.health_notes,
+      s.stage_id,
+      s.admission_status,
+      s.age,
       c.name_ar AS circle_name,
       t.name_ar AS track_name
     FROM students s
@@ -68,11 +73,40 @@ export async function handleStudentsList(
     binds.push(auth.userId);
   }
 
-  if (auth.role === "supervisor") {
-    sql += ` AND h.circle_id IN (
-      SELECT circle_id FROM supervisor_scopes WHERE user_id = ?
-    )`;
-    binds.push(auth.userId);
+  if (auth.role === "edu_supervisor") {
+    if (admissionStatus === "pending_placement") {
+      const scopeRow = await env.DB.prepare(
+        `SELECT supervisor_scope FROM users WHERE id = ?`,
+      )
+        .bind(auth.userId)
+        .first<{ supervisor_scope: string | null }>();
+      const scope = (scopeRow?.supervisor_scope ?? "global").trim();
+      sql += ` AND s.admission_status = 'pending_placement'`;
+      if (scope !== "global" && scope.length > 0) {
+        const ids = scope.split(",").map((x) => Number(x.trim())).filter((n) => n >= 1 && n <= 4);
+        if (ids.length > 0) {
+          sql += ` AND s.stage_id IN (${ids.map(() => "?").join(",")})`;
+          binds.push(...ids);
+        }
+      }
+    } else {
+      sql += ` AND (
+        h.circle_id IN (SELECT circle_id FROM supervisor_scopes WHERE user_id = ?)
+        OR (s.admission_status = 'pending_placement' AND s.stage_id IN (
+          SELECT DISTINCT c.stage_id FROM supervisor_scopes ss
+          JOIN circles c ON c.id = ss.circle_id WHERE ss.user_id = ?
+        ))
+      )`;
+      binds.push(auth.userId, auth.userId);
+    }
+  }
+
+  if (
+    admissionStatus &&
+    !(auth.role === "edu_supervisor" && admissionStatus === "pending_placement")
+  ) {
+    sql += ` AND s.admission_status = ?`;
+    binds.push(admissionStatus);
   }
 
   if (q.length > 0) {

@@ -1,5 +1,6 @@
 import type { Env } from "../types";
 import { assignStudentCircle } from "../lib/placement";
+import { ADMIN_DATA_ROLES } from "../lib/roles";
 import { canManageCircle } from "../lib/scope";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 
@@ -91,7 +92,7 @@ export async function handleStudentsExport(
 ): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
-  if (!requireRoles(auth, ["general_manager", "supervisor"])) {
+  if (!requireRoles(auth, ADMIN_DATA_ROLES)) {
     return json({ error: "forbidden" }, 403);
   }
 
@@ -116,7 +117,7 @@ export async function handleStudentsExport(
   `;
   const binds: (string | number)[] = [auth.complexId];
 
-  if (auth.role === "supervisor") {
+  if (auth.role === "edu_supervisor") {
     sql += ` AND h.circle_id IN (
       SELECT circle_id FROM supervisor_scopes WHERE user_id = ?
     )`;
@@ -136,7 +137,7 @@ export async function handleStudentsBulkImport(
 ): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
-  if (!requireRoles(auth, ["general_manager", "supervisor"])) {
+  if (!requireRoles(auth, ADMIN_DATA_ROLES)) {
     return json({ error: "forbidden" }, 403);
   }
 

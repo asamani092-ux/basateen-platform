@@ -25,7 +25,7 @@ name = "winter-term-cb93"
 [env.production.vars]
 ENVIRONMENT = "production"
 # أضف دومين Pages بعد النشر، مثال:
- CORS_ALLOWED_ORIGINS = "https://basateen.pages.dev,https://app.yourdomain.com"
+ CORS_ALLOWED_ORIGINS = "CORS_ALLOWED_ORIGINS = "https://basateen.sam-dev.win,https://basateen-platform.pages.dev""
 
 # الإنتاج — نفّذ مرة واحدة:
 # npx wrangler secret put JWT_SECRET --env production

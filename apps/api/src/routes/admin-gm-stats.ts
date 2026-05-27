@@ -1,4 +1,5 @@
 import type { Env } from "../types";
+import { fetchHimmaAuditFromLedger } from "../lib/himma-ledger-view";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 
 function json(data: unknown, status = 200): Response {

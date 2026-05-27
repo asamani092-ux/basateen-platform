@@ -11,7 +11,6 @@ import { WelcomePage } from "./pages/WelcomePage";
 import { TvLivePage } from "./pages/tv/TvLivePage";
 import { LiveLogPage } from "./pages/live-log/LiveLogPage";
 import { TeacherHubPage } from "./pages/teacher/TeacherHubPage";
-import { DailyScorecardGrid } from "./pages/teacher/DailyScorecardGrid";
 import { PlacementQueueTab } from "./pages/edu-supervisor/PlacementQueueTab";
 import { StudentsPage } from "./pages/admin/StudentsPage";
 import { TransfersPage } from "./pages/admin/TransfersPage";
@@ -54,7 +53,6 @@ export default function App() {
         <Route element={<RequireRole roles={["teacher"]} />}>
           <Route element={<TeacherLayout />}>
             <Route path="teacher" element={<TeacherHubPage />} />
-            <Route path="teacher/scorecard" element={<DailyScorecardGrid />} />
             <Route
               path="teacher/daily-log"
               element={<Navigate to="/teacher" replace />}
@@ -90,6 +88,7 @@ export default function App() {
                 <Route path="transfers" element={<TransfersPage />} />
                 <Route path="circles" element={<AdminCirclesPage />} />
                 <Route path="yom-himma" element={<YomHimmaPage />} />
+                <Route path="master-grid" element={<SuperEduGridConsole />} />
                 <Route path="competitions" element={<CompetitionsPage />} />
                 <Route
                   path="competitions/:competitionId"

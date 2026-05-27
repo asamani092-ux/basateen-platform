@@ -47,7 +47,7 @@ FILES_UPGRADE=(
   "017_student_edu_plans.sql"
   "019_prog_supervisor.sql"
   "020_teacher_full.sql"
-  "023_rebuild_v25.sql"
+  "021_reciter_gate.sql"
 )
 
 FILES_ALL=(
@@ -61,11 +61,11 @@ FILES_ALL=(
 
 case "$MODE" in
   upgrade)
-    echo "D1 remote migrate: upgrade (006–023, no demo 018)"
+    echo "D1 remote migrate: upgrade (006–020, no demo 018)"
     for f in "${FILES_UPGRADE[@]}"; do run_sql "$f"; done
     ;;
   all)
-    echo "D1 remote migrate: full (001–023, no demo 018)"
+    echo "D1 remote migrate: full (001–020, no demo 018)"
     for f in "${FILES_ALL[@]}"; do run_sql "$f"; done
     ;;
   demo)

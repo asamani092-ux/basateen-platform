@@ -47,6 +47,7 @@ FILES_UPGRADE=(
   "017_student_edu_plans.sql"
   "019_prog_supervisor.sql"
   "020_teacher_full.sql"
+  "021_fix_users_supervisor_scope.sql"
 )
 
 FILES_ALL=(

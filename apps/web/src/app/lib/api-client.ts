@@ -2,7 +2,12 @@ import { getApiToken } from "./api-token";
 import { isUiDevPreview } from "./dev-preview";
 import { resolveDevPreviewMock } from "./dev-preview-mocks";
 
-const API_BASE = import.meta.env.VITE_API_URL ?? "";
+/**
+ * Same-Origin strategy: مسارات الطلبات تبدأ بـ `/api/...` (مثل `/api/health`).
+ * اترك VITE_API_URL فارغاً في التطوير والإنتاج لاستخدام بروكسي Vite / Pages.
+ * تعيين قيمة مثل `/api` هنا يُنتج مسارات مزدوجة (/api/api/...).
+ */
+const API_BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
 
 export type TvSummary = {
   complex: string;

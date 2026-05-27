@@ -69,6 +69,22 @@ export async function handleSeedUsers(
     return Response.json({ error: "invalid_setup_key" }, { status: 401 });
   }
 
+  try {
+    return await handleSeedUsersBody(env);
+  } catch (err) {
+    console.error("seed-users:", err);
+    return Response.json(
+      {
+        error: "database_error",
+        message:
+          "D1 غير جاهزة — نفّذ db:remote:upgrade ثم wrangler deploy --env production",
+      },
+      { status: 503 },
+    );
+  }
+}
+
+async function handleSeedUsersBody(env: Env): Promise<Response> {
   const count = await env.DB.prepare(
     "SELECT COUNT(*) AS c FROM users",
   ).first<{ c: number }>();

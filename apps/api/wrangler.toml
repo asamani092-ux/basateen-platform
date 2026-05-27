@@ -3,7 +3,6 @@ name = "winter-term-cb93"
 main = "src/index.ts"
 compatibility_date = "2024-08-01"
 
-# تطوير محلي (wrangler dev)
 [[d1_databases]]
 binding = "DB"
 database_name = "basateen"
@@ -17,9 +16,6 @@ port = 8787
 ip = "127.0.0.1"
 local_protocol = "http"
 
-# أسرار محلية: انسخ .dev.vars.example → .dev.vars
-# JWT_SECRET و SETUP_KEY في .dev.vars للتطوير المحلي
-
 [env.production]
 name = "winter-term-cb93"
 
@@ -31,7 +27,3 @@ database_id = "d7716e75-85ff-4927-9c59-052240793cab"
 [env.production.vars]
 ENVIRONMENT = "production"
 CORS_ALLOWED_ORIGINS = "https://basateen.sam-dev.win"
-# الإنتاج — أسرار عبر Dashboard أو:
-# CLOUDFLARE_API_TOKEN=... npx wrangler secret put JWT_SECRET --env production
-# CLOUDFLARE_API_TOKEN=... npx wrangler secret put SETUP_KEY --env production
-# npx wrangler deploy --env production

@@ -1,6 +1,8 @@
 const LOCAL_ORIGINS = new Set([
   "http://localhost:5173",
   "http://127.0.0.1:5173",
+  "https://basateen.sam-dev.win",
+  "https://sam-dev.win",
 ]);
 
 function extraOriginsFromEnv(env?: { CORS_ALLOWED_ORIGINS?: string }): Set<string> {

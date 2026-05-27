@@ -1,12 +1,7 @@
-name: Deploy Web (Pages)
+name: Deploy Web (Pages) - Legacy Manual Only
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "apps/web/**"
-      - ".github/workflows/deploy-pages.yml"
 
 jobs:
   deploy:

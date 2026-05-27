@@ -47,6 +47,9 @@ import { handleLiveLogRouter, handleYomHimmaLiveLogToken } from "./routes/live-l
 import { handleProgSupervisorRouter } from "./routes/prog-supervisor";
 import { handleQuizPublicRouter } from "./routes/quiz-public";
 import { handleSeedProgExamples } from "./routes/setup-prog-examples";
+import { handleSeedEduMatrix } from "./routes/setup-edu-matrix";
+import { handleEduSupervisorMatrixRouter } from "./routes/edu-supervisor-matrix";
+import { handleEduEntryRouter } from "./routes/edu-entry";
 
 type RouteHandler = (
   request: Request,
@@ -74,11 +77,6 @@ const routes: Array<{ method: string; pattern: RegExp; handler: RouteHandler }> 
     method: "POST",
     pattern: /^\/api\/setup\/seed-prog-examples$/,
     handler: handleSeedProgExamples,
-  },
-  {
-    method: "POST",
-    pattern: /^\/api\/setup\/seed-edu-matrix$/,
-    handler: handleSeedEduMatrix,
   },
   { method: "GET", pattern: /^\/api\/circles$/, handler: handleCirclesList },
   { method: "GET", pattern: /^\/api\/students$/, handler: handleStudentsList },

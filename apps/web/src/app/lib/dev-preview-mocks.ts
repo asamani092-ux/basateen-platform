@@ -361,7 +361,12 @@ export function resolveDevPreviewMock<T>(
 
   if (p.match(/^\/api\/yom-himma\/\d+\/live-log-token$/) && m === "POST") {
     const token = previewStore.rotateHimmaLiveToken();
-    return { ok: true, live_log_token: token, path: `/live-log/${token}` } as T;
+    return {
+      ok: true,
+      live_log_token: token,
+      access_pin: "1234",
+      path: `/live-log/${token}`,
+    } as T;
   }
 
   if (p === "/api/yom-himma" && m === "POST") {

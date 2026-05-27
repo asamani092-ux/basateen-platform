@@ -168,6 +168,12 @@ export function YomHimmaPage() {
     if (readOnly || !getApiToken()) return;
     api.eduTargetOptions().then((res) => {
       const studs = res.students as Array<Record<string, unknown>>;
+      setTargetStudents(
+        studs.map((s) => ({
+          id: Number(s.id),
+          full_name_ar: String(s.full_name_ar ?? ""),
+        })),
+      );
       if (picker.student_ids.length === 0 && studs.length) {
         setPicker((p) => ({
           ...p,
@@ -176,6 +182,19 @@ export function YomHimmaPage() {
       }
     });
   }, [readOnly, picker.student_ids.length]);
+
+  function addAllStudents() {
+    if (!targetStudents.length) return;
+    const ids = targetStudents.map((s) => s.id);
+    setPicker((p) => ({ ...p, student_ids: ids }));
+    setTargets(
+      targetStudents.map((s) => ({
+        student_id: s.id,
+        full_name_ar: s.full_name_ar,
+        target_hizb: defaultHizb,
+      })),
+    );
+  }
 
   async function createSession() {
     if (readOnly) return;

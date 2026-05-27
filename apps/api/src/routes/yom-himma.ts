@@ -1,4 +1,8 @@
 import type { Env } from "../types";
+import {
+  fetchHimmaAuditFromLedger,
+  upsertHimmaAuditToLedger,
+} from "../lib/himma-ledger-view";
 import { FIELD_EDU_ROLES } from "../lib/roles";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 
@@ -163,11 +167,11 @@ export async function handleYomHimmaDetail(
     .bind(sessionId)
     .all();
 
-  const audit = await env.DB.prepare(
-    `SELECT * FROM yom_himma_audit WHERE session_id = ?`,
-  )
-    .bind(sessionId)
-    .all();
+  const audit = await fetchHimmaAuditFromLedger(
+    env,
+    sessionId,
+    session.session_date,
+  );
 
   return json({
     session: {
@@ -176,7 +180,7 @@ export async function handleYomHimmaDetail(
       scope: JSON.parse(session.scope_json),
     },
     targets: targets.results ?? [],
-    audit: audit.results ?? [],
+    audit,
   });
 }
 
@@ -218,70 +222,37 @@ export async function handleYomHimmaUpsertAudit(
   if (!studentId) return json({ error: "student_id_required" }, 400);
 
   const session = await env.DB.prepare(
-    `SELECT rules_json FROM yom_himma_sessions WHERE id = ? AND complex_id = ?`,
+    `SELECT rules_json, session_date FROM yom_himma_sessions WHERE id = ? AND complex_id = ?`,
   )
     .bind(sessionId, auth.complexId)
-    .first<{ rules_json: string }>();
+    .first<{ rules_json: string; session_date: string }>();
 
   if (!session) return json({ error: "not_found" }, 404);
 
   const rules = JSON.parse(session.rules_json) as HimmaRules;
 
-  const existing = await env.DB.prepare(
-    `SELECT * FROM yom_himma_audit WHERE session_id = ? AND student_id = ?`,
-  )
-    .bind(sessionId, studentId)
-    .first<{
-      alerts_count: number;
-      errors_count: number;
-      juz_done: number;
-      hizb_done: number;
-      current_hizb_failed: number;
-      attendance: string | null;
-    }>();
-
-  let alerts = existing?.alerts_count ?? 0;
-  let errors = existing?.errors_count ?? 0;
-  let juz = existing?.juz_done ?? 0;
-  let hizb = existing?.hizb_done ?? 0;
-  let failed = existing?.current_hizb_failed ?? 0;
-  let attendance = existing?.attendance ?? null;
-
-  if (body.attendance) attendance = body.attendance;
-  if (body.alerts_count != null) alerts = body.alerts_count;
-  if (body.errors_count != null) errors = body.errors_count;
-  if (body.juz_done != null) juz = body.juz_done;
-  if (body.hizb_done != null) hizb = body.hizb_done;
-  if (body.delta_alert) alerts += body.delta_alert;
-  if (body.delta_error) errors += body.delta_error;
-  if (body.delta_juz) juz += body.delta_juz;
-  if (body.delta_hizb) hizb += body.delta_hizb;
-
-  const effectiveErrors =
-    errors + Math.floor(alerts / Math.max(rules.alerts_per_error, 1));
-  if (effectiveErrors >= rules.fail_threshold_errors) failed = 1;
-  if (body.current_hizb_failed != null) failed = body.current_hizb_failed;
-
-  await env.DB.prepare(
-    `INSERT INTO yom_himma_audit
-     (session_id, student_id, attendance, juz_done, hizb_done, alerts_count, errors_count, current_hizb_failed, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-     ON CONFLICT(session_id, student_id) DO UPDATE SET
-       attendance = excluded.attendance,
-       juz_done = excluded.juz_done,
-       hizb_done = excluded.hizb_done,
-       alerts_count = excluded.alerts_count,
-       errors_count = excluded.errors_count,
-       current_hizb_failed = excluded.current_hizb_failed,
-       updated_at = datetime('now')`,
-  )
-    .bind(sessionId, studentId, attendance, juz, hizb, alerts, errors, failed)
-    .run();
+  const result = await upsertHimmaAuditToLedger(env, {
+    sessionId,
+    sessionDate: session.session_date,
+    studentId,
+    loggedByUserId: auth.userId,
+    attendance: body.attendance,
+    juz_done: body.juz_done,
+    hizb_done: body.hizb_done,
+    alerts_count: body.alerts_count,
+    errors_count: body.errors_count,
+    current_hizb_failed: body.current_hizb_failed,
+    delta_alert: body.delta_alert,
+    delta_error: body.delta_error,
+    delta_juz: body.delta_juz,
+    delta_hizb: body.delta_hizb,
+    rules,
+  });
 
   return json({
     ok: true,
-    failed: failed === 1,
-    effective_errors: effectiveErrors,
+    failed: result.failed,
+    effective_errors: result.effective_errors,
     threshold: rules.fail_threshold_errors,
   });
 }

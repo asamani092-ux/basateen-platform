@@ -21,6 +21,7 @@ const PATH_RULES: Array<{ prefix: string; roles: UserRole[] }> = [
   { prefix: "/admin/circles-setup", roles: ["general_manager"] },
   { prefix: "/admin/statistics", roles: ["general_manager"] },
   { prefix: "/edu-supervisor/yom-himma", roles: ["edu_supervisor"] },
+  { prefix: "/edu-supervisor/master-grid", roles: ["edu_supervisor"] },
   { prefix: "/edu-supervisor/competitions", roles: ["edu_supervisor"] },
   { prefix: "/edu-supervisor", roles: ["edu_supervisor"] },
   { prefix: "/prog-supervisor", roles: ["prog_supervisor"] },

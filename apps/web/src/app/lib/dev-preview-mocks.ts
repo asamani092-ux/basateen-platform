@@ -498,20 +498,72 @@ export function resolveDevPreviewMock<T>(
     return { ok: true } as T;
   }
 
+  if (p === "/api/v1/education/public/validate-gate" && m === "POST") {
+    const body = bodyText ? JSON.parse(bodyText) : {};
+    const token = String(body.token ?? "demo-himma-live");
+    const pin = String(body.pin_code ?? "");
+    if (pin && pin !== "1234" && pin !== "8890") {
+      throw new Error("invalid_pin");
+    }
+    const payload = liveLogPayload(token);
+    return {
+      ok: true,
+      session_token: "preview-reciter-jwt",
+      session: payload.session,
+      students: (payload.students as Array<Record<string, unknown>>).map((s) => ({
+        id: Number(s.student_id),
+        full_name_ar: String(s.full_name_ar),
+        school_grade: null,
+      })),
+    } as T;
+  }
+
+  if (p.match(/^\/api\/v1\/education\/public\/student-snapshot\/\d+$/) && m === "GET") {
+    return {
+      student: { id: 1, full_name_ar: "معاينة طالب", school_grade: null, memorization_amount: null },
+      cumulative: { total_memorized_days: 12, aggregate_errors: 2, aggregate_warnings: 1 },
+      plan: null,
+      session_today: {
+        has_memorized: 0,
+        memorization_errors: 0,
+        memorization_warnings: 0,
+        juz_done: 0,
+        hizb_done: 0,
+        current_hizb_failed: 0,
+      },
+      target: { target_juz: 1, target_hizb: 2 },
+    } as T;
+  }
+
+  if (p === "/api/v1/education/public/submit-log" && m === "POST") {
+    return { ok: true, failed: false, tv_key: "preview-key" } as T;
+  }
+
+  if (p.startsWith("/api/v1/education/supervisor/master-grid") && m === "GET") {
+    return {
+      date: new Date().toISOString().slice(0, 10),
+      rows: previewStore.listStudents().map((s) => ({
+        student_id: s.id,
+        full_name_ar: s.full_name_ar,
+        school_grade: s.school_grade,
+        circle_id: 1,
+        circle_name: "حلقة معاينة",
+        has_memorized: 0,
+        has_reviewed: 0,
+        has_linked: 0,
+        memorization_errors: 0,
+        memorization_warnings: 0,
+      })),
+    } as T;
+  }
+
+  if (p === "/api/v1/education/supervisor/upsert-log" && m === "POST") {
+    return { ok: true } as T;
+  }
+
   const liveMatch = p.match(/^\/api\/live-log\/([^/]+)$/);
-  if (liveMatch) {
-    const token = liveMatch[1];
-    if (m === "GET") {
-      return liveLogPayload(token) as T;
-    }
-    if (m === "POST") {
-      const body = bodyText ? JSON.parse(bodyText) : {};
-      const sid = Number(body.student_id);
-      if (sid) previewStore.upsertHimmaAudit(sid, body);
-      const effective =
-        Number(body.delta_error ?? 0) > 0 || Number(body.errors_count ?? 0) >= 3;
-      return { ok: true, failed: effective, tv_key: "preview-key" } as T;
-    }
+  if (liveMatch && (m === "GET" || m === "POST")) {
+    throw new Error("deprecated");
   }
 
   if (p === "/api/prog-supervisor/scope" && m === "GET") {

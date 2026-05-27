@@ -47,9 +47,6 @@ import { handleLiveLogRouter, handleYomHimmaLiveLogToken } from "./routes/live-l
 import { handleProgSupervisorRouter } from "./routes/prog-supervisor";
 import { handleQuizPublicRouter } from "./routes/quiz-public";
 import { handleSeedProgExamples } from "./routes/setup-prog-examples";
-import { handleSeedEduMatrix } from "./routes/setup-edu-matrix";
-import { handleEduSupervisorMatrixRouter } from "./routes/edu-supervisor-matrix";
-import { handleEduEntryRouter } from "./routes/edu-entry";
 
 type RouteHandler = (
   request: Request,
@@ -154,6 +151,12 @@ export async function handleRequest(
 
   const eduComp = await handleEduCompetitionsRouter(request, env, url);
   if (eduComp) return withCors(eduComp, request, env);
+
+  const eduMatrix = await handleEduSupervisorMatrixRouter(request, env, url);
+  if (eduMatrix) return withCors(eduMatrix, request, env);
+
+  const eduEntry = await handleEduEntryRouter(request, env, url);
+  if (eduEntry) return withCors(eduEntry, request, env);
 
   const eduRoute = await handleEduSupervisorRouter(request, env, url);
   if (eduRoute) return withCors(eduRoute, request, env);

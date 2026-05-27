@@ -19,6 +19,7 @@ import { EduDashboardPage } from "./pages/edu-supervisor/EduDashboardPage";
 import { YomHimmaPage } from "./pages/edu-supervisor/YomHimmaPage";
 import { CompetitionsPage } from "./pages/edu-supervisor/CompetitionsPage";
 import { CompetitionDetailPage } from "./pages/edu-supervisor/CompetitionDetailPage";
+import { SuperEduGridConsole } from "./pages/edu-supervisor/SuperEduGridConsole";
 import { StudentProfilePage } from "./pages/edu-supervisor/StudentProfilePage";
 import { ProgSupervisorLayout } from "./layouts/ProgSupervisorLayout";
 import { ProgQuizzesPage } from "./pages/prog-supervisor/ProgQuizzesPage";
@@ -88,7 +89,6 @@ export default function App() {
                 <Route path="transfers" element={<TransfersPage />} />
                 <Route path="circles" element={<AdminCirclesPage />} />
                 <Route path="yom-himma" element={<YomHimmaPage />} />
-                <Route path="master-grid" element={<SuperEduGridConsole />} />
                 <Route path="competitions" element={<CompetitionsPage />} />
                 <Route
                   path="competitions/:competitionId"

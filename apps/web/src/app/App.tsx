@@ -11,6 +11,7 @@ import { WelcomePage } from "./pages/WelcomePage";
 import { TvLivePage } from "./pages/tv/TvLivePage";
 import { LiveLogPage } from "./pages/live-log/LiveLogPage";
 import { TeacherHubPage } from "./pages/teacher/TeacherHubPage";
+import { DailyScorecardGrid } from "./pages/teacher/DailyScorecardGrid";
 import { PlacementQueueTab } from "./pages/edu-supervisor/PlacementQueueTab";
 import { StudentsPage } from "./pages/admin/StudentsPage";
 import { TransfersPage } from "./pages/admin/TransfersPage";

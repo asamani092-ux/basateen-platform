@@ -1,0 +1,96 @@
+# تشغيل من المستودع فقط: ترحيل D1 + نشر Worker + فحص + seed (اختياري)
+# يتطلب Secrets في GitHub: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
+# اختياري للـ seed: SETUP_KEY (نفس قيمة Worker)
+name: Production Bootstrap (D1 + API + Seed)
+
+on:
+  workflow_dispatch:
+    inputs:
+      migration_set:
+        description: "ترحيل D1"
+        required: true
+        default: upgrade
+        type: choice
+        options:
+          - upgrade
+          - all
+          - skip
+      run_seed:
+        description: "تشغيل seed-users بعد النشر"
+        required: true
+        default: true
+        type: boolean
+
+concurrency:
+  group: production-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    if: inputs.migration_set != 'skip'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: D1 migrate (remote)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          chmod +x scripts/d1-remote-migrate.sh
+          ./scripts/d1-remote-migrate.sh "${{ inputs.migration_set }}"
+
+  deploy-and-verify:
+    needs: migrate
+    if: always() && (needs.migrate.result == 'success' || needs.migrate.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install API deps
+        working-directory: apps/api
+        run: npm install
+
+      - name: Deploy Worker (production)
+        working-directory: apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy --env production
+
+      - name: Health check (db must be ok)
+        run: |
+          curl -fsS -o health.json "https://winter-term-cb93.a-samani092.workers.dev/api/health"
+          node -e "
+            const h = JSON.parse(require('fs').readFileSync('health.json','utf8'));
+            console.log(JSON.stringify(h, null, 2));
+            if (!h.ok) process.exit(1);
+            if (!h.db?.ok) {
+              console.error('db.ok is false — D1 not bound or not migrated');
+              process.exit(1);
+            }
+            console.log('health OK');
+          "
+
+      - name: Seed demo users (optional)
+        if: inputs.run_seed == true
+        env:
+          API_BASE: https://winter-term-cb93.a-samani092.workers.dev
+          SETUP_KEY: ${{ secrets.SETUP_KEY }}
+        run: |
+          if [ -z "$SETUP_KEY" ]; then
+            echo "::warning::SETUP_KEY secret missing — skip seed. Add it in GitHub → Settings → Secrets."
+            exit 0
+          fi
+          node scripts/seed-remote.mjs
+
+      - name: Summary
+        run: |
+          echo "Done. Test login: 0500000001 (password Basateen123! after seed)"

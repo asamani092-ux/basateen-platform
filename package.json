@@ -20,6 +20,7 @@
     "deploy:api:prod": "npm run deploy:prod --prefix apps/api",
     "build:web:prod": "npm run build --prefix apps/web",
     "seed:remote": "npm run seed:remote --prefix apps/api",
+    "bootstrap:remote": "npm run db:remote:upgrade && npm run deploy:api:prod && npm run seed:remote",
     "bundle:wave3-sql": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/bundle-wave3-sql.ps1"
   },
   "devDependencies": {

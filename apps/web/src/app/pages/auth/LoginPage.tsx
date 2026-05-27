@@ -5,7 +5,10 @@ import { Input } from "../../components/ui/input";
 import { Card, CardContent, CardHeader } from "../../components/ui/card";
 import { useAuth } from "../../context/AuthContext";
 import { normalizeMobile } from "../../lib/auth-store";
-import { syncApiTokenForMobile } from "../../lib/api-token";
+import {
+  apiTokenSyncErrorMessage,
+  syncApiTokenForMobile,
+} from "../../lib/api-token";
 import { isUiDevPreview } from "../../lib/dev-preview";
 import { ds, tajawal } from "../../lib/design-system";
 
@@ -39,10 +42,10 @@ export function LoginPage() {
       setError("رقم الجوال غير مسجّل في النظام");
       return;
     }
-    const apiOk = await syncApiTokenForMobile(mobile);
+    const apiSync = await syncApiTokenForMobile(mobile);
     setLoading(false);
-    if (!apiOk && !isUiDevPreview() && authUser.role !== "teacher") {
-      setError("تعذّر ربط API — تحقق من نشر Worker وحسابات seed");
+    if (!apiSync.ok && !isUiDevPreview() && authUser.role !== "teacher") {
+      setError(apiTokenSyncErrorMessage(apiSync));
       return;
     }
     navigate(authUser.homePath, { replace: true });

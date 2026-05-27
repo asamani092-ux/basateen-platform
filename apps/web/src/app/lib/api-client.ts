@@ -2,12 +2,7 @@ import { getApiToken } from "./api-token";
 import { isUiDevPreview } from "./dev-preview";
 import { resolveDevPreviewMock } from "./dev-preview-mocks";
 
-/**
- * Same-Origin strategy: مسارات الطلبات تبدأ بـ `/api/...` (مثل `/api/health`).
- * اترك VITE_API_URL فارغاً في التطوير والإنتاج لاستخدام بروكسي Vite / Pages.
- * تعيين قيمة مثل `/api` هنا يُنتج مسارات مزدوجة (/api/api/...).
- */
-const API_BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
+const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
 export type TvSummary = {
   complex: string;
@@ -174,11 +169,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(
-      (body as { error?: string; message?: string }).error ??
-        (body as { message?: string }).message ??
-        `HTTP ${res.status}`,
-    );
+    const code = (body as { error?: string }).error;
+    const message =
+      (body as { message?: string }).message ??
+      code ??
+      `HTTP ${res.status}`;
+    throw new ApiRequestError(message, res.status, code);
   }
 
   return res.json() as Promise<T>;

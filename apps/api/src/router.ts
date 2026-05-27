@@ -75,6 +75,11 @@ const routes: Array<{ method: string; pattern: RegExp; handler: RouteHandler }> 
     pattern: /^\/api\/setup\/seed-prog-examples$/,
     handler: handleSeedProgExamples,
   },
+  {
+    method: "POST",
+    pattern: /^\/api\/setup\/seed-edu-matrix$/,
+    handler: handleSeedEduMatrix,
+  },
   { method: "GET", pattern: /^\/api\/circles$/, handler: handleCirclesList },
   { method: "GET", pattern: /^\/api\/students$/, handler: handleStudentsList },
   { method: "GET", pattern: /^\/api\/students\/export$/, handler: handleStudentsExport },

@@ -2,6 +2,7 @@ import { useSearchParams } from "react-router";
 import { HubTabs } from "../../components/hub/HubTabs";
 import { TeacherDailyLogPage } from "./TeacherDailyLogPage";
 import { TeacherPlansPage } from "./TeacherPlansPage";
+import { DailyScorecardGrid } from "./DailyScorecardGrid";
 import { ds, tajawal } from "../../lib/design-system";
 
 const TABS = [

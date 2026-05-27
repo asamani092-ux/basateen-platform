@@ -53,6 +53,7 @@ export default function App() {
         <Route element={<RequireRole roles={["teacher"]} />}>
           <Route element={<TeacherLayout />}>
             <Route path="teacher" element={<TeacherHubPage />} />
+            <Route path="teacher/scorecard" element={<DailyScorecardGrid />} />
             <Route
               path="teacher/daily-log"
               element={<Navigate to="/teacher" replace />}

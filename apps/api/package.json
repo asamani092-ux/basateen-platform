@@ -27,7 +27,8 @@
     "db:local:018": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/018_edu_demo_examples.sql",
     "db:local:019": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/019_prog_supervisor.sql",
     "db:local:020": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/020_teacher_full.sql",
-    "db:local:all": "npm run db:local:001 && npm run db:local:002 && npm run db:local:003 && npm run db:local:004 && npm run db:local:005 && npm run db:local:006 && npm run db:local:007 && npm run db:local:008 && npm run db:local:009 && npm run db:local:010 && npm run db:local:011 && npm run db:local:012 && npm run db:local:013 && npm run db:local:014 && npm run db:local:015 && npm run db:local:016 && npm run db:local:017 && npm run db:local:018 && npm run db:local:019 && npm run db:local:020 && npm run db:local:022",
+    "db:local:023": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/023_rebuild_v25.sql",
+    "db:local:all": "npm run db:local:001 && npm run db:local:002 && npm run db:local:003 && npm run db:local:004 && npm run db:local:005 && npm run db:local:006 && npm run db:local:007 && npm run db:local:008 && npm run db:local:009 && npm run db:local:010 && npm run db:local:011 && npm run db:local:012 && npm run db:local:013 && npm run db:local:014 && npm run db:local:015 && npm run db:local:016 && npm run db:local:017 && npm run db:local:018 && npm run db:local:019 && npm run db:local:020 && npm run db:local:023",
     "seed:edu-examples": "node ../../scripts/seed-edu-examples.mjs",
     "seed:prog-examples": "node ../../scripts/seed-prog-examples.mjs",
     "db:local:reset": "node ../../scripts/reset-local-d1.mjs",
@@ -51,13 +52,12 @@
     "db:remote:017": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/017_student_edu_plans.sql",
     "db:remote:019": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/019_prog_supervisor.sql",
     "db:remote:020": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/020_teacher_full.sql",
-    "db:remote:022": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/022_edu_flat_matrix.sql",
+    "db:remote:023": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/023_rebuild_v25.sql",
     "db:remote:018": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/018_edu_demo_examples.sql",
-    "db:remote:all": "npm run db:remote:001 && npm run db:remote:002 && npm run db:remote:003 && npm run db:remote:004 && npm run db:remote:005 && npm run db:remote:006 && npm run db:remote:007 && npm run db:remote:008 && npm run db:remote:009 && npm run db:remote:010 && npm run db:remote:011 && npm run db:remote:012 && npm run db:remote:013 && npm run db:remote:014 && npm run db:remote:015 && npm run db:remote:016 && npm run db:remote:017 && npm run db:remote:019 && npm run db:remote:020 && npm run db:remote:022 && npm run db:remote:022",
-    "db:remote:upgrade": "npm run db:remote:006 && npm run db:remote:007 && npm run db:remote:008 && npm run db:remote:009 && npm run db:remote:010 && npm run db:remote:011 && npm run db:remote:012 && npm run db:remote:013 && npm run db:remote:014 && npm run db:remote:015 && npm run db:remote:016 && npm run db:remote:017 && npm run db:remote:019 && npm run db:remote:020 && npm run db:remote:022 && npm run db:remote:022",
+    "db:remote:all": "npm run db:remote:001 && npm run db:remote:002 && npm run db:remote:003 && npm run db:remote:004 && npm run db:remote:005 && npm run db:remote:006 && npm run db:remote:007 && npm run db:remote:008 && npm run db:remote:009 && npm run db:remote:010 && npm run db:remote:011 && npm run db:remote:012 && npm run db:remote:013 && npm run db:remote:014 && npm run db:remote:015 && npm run db:remote:016 && npm run db:remote:017 && npm run db:remote:019 && npm run db:remote:020 && npm run db:remote:023",
+    "db:remote:upgrade": "npm run db:remote:006 && npm run db:remote:007 && npm run db:remote:008 && npm run db:remote:009 && npm run db:remote:010 && npm run db:remote:011 && npm run db:remote:012 && npm run db:remote:013 && npm run db:remote:014 && npm run db:remote:015 && npm run db:remote:016 && npm run db:remote:017 && npm run db:remote:019 && npm run db:remote:020 && npm run db:remote:023",
     "db:remote:demo": "npm run db:remote:018",
-    "seed:remote": "node ../../scripts/seed-remote.mjs",
-    "db:local:022": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/022_edu_flat_matrix.sql"
+    "seed:remote": "node ../../scripts/seed-remote.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250214.0",

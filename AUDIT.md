@@ -16,7 +16,7 @@
 
 - `index.ts`, `router.ts`, `middleware/cors.ts`
 - Routes: `/api/health`, `/api/tv/summary`, `/api/auth/*` (placeholder)
-- `wrangler.toml`: D1 `basateen` + ID `d7716e75-85ff-4927-9c59-052240793cab`
+- `wrangler.toml`: D1 `basateen` + ID `ab9ce5ad-7c2a-4f58-8e18-c0db7a30dfad`
 
 ## apps/web — سليم مع ملاحظات
 

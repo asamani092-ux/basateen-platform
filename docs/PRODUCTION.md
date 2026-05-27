@@ -6,7 +6,7 @@
 |---------|--------|
 | Worker | `winter-term-cb93` |
 | API | `https://winter-term-cb93.a-samani092.workers.dev` |
-| D1 | `basateen` (`d7716e75-85ff-4927-9c59-052240793cab`) |
+| D1 | `basateen` (`ab9ce5ad-7c2a-4f58-8e18-c0db7a30dfad`) |
 
 ---
 

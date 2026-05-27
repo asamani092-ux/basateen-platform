@@ -30,7 +30,7 @@ packages/database/ → مخططات SQL لـ D1
 ### 1) D1
 
 قاعدة موجودة: `basateen`  
-Database ID: `d7716e75-85ff-4927-9c59-052240793cab`
+Database ID: `ab9ce5ad-7c2a-4f58-8e18-c0db7a30dfad`
 
 **ترحيل كامل (001–020، بدون أمثلة Edu 018):**
 

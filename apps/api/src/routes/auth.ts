@@ -30,9 +30,25 @@ async function issueSession(
   return { token, expiresAt };
 }
 
+async function readSupervisorScope(
+  env: Env,
+  userId: number,
+): Promise<string> {
+  try {
+    const row = await env.DB.prepare(
+      "SELECT supervisor_scope FROM users WHERE id = ? LIMIT 1",
+    )
+      .bind(userId)
+      .first<{ supervisor_scope: string | null }>();
+    return row?.supervisor_scope?.trim() || "global";
+  } catch {
+    return "global";
+  }
+}
+
 async function userPayload(env: Env, userId: number) {
   const user = await env.DB.prepare(
-    `SELECT id, email, mobile, full_name_ar, role, complex_id, supervisor_scope
+    `SELECT id, email, mobile, full_name_ar, role, complex_id
      FROM users WHERE id = ? AND is_active = 1`,
   )
     .bind(userId)
@@ -43,7 +59,6 @@ async function userPayload(env: Env, userId: number) {
       full_name_ar: string;
       role: string;
       complex_id: number;
-      supervisor_scope: string | null;
     }>();
 
   if (!user) return null;
@@ -60,9 +75,21 @@ async function userPayload(env: Env, userId: number) {
     mobile: user.mobile,
     full_name_ar: user.full_name_ar,
     role: user.role,
-    supervisor_scope: user.supervisor_scope ?? "global",
+    supervisor_scope: await readSupervisorScope(env, userId),
     sections: sections.results?.map((r) => r.section) ?? [],
   };
+}
+
+function databaseErrorResponse(err: unknown): Response {
+  console.error("auth database error:", err);
+  return Response.json(
+    {
+      error: "database_error",
+      message:
+        "قاعدة البيانات غير جاهزة — نفّذ ترحيل D1 (001–020) ثم seed-users على Worker",
+    },
+    { status: 503 },
+  );
 }
 
 /** Legacy email/password — used by api-token bridge until full mobile API */
@@ -70,37 +97,41 @@ export async function handleLogin(
   request: Request,
   env: Env,
 ): Promise<Response> {
-  let body: { email?: string; password?: string } = {};
   try {
-    body = await request.json();
-  } catch {
-    return Response.json({ error: "Invalid JSON" }, { status: 400 });
+    let body: { email?: string; password?: string } = {};
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+
+    if (!body.email || !body.password) {
+      return Response.json({ error: "email and password required" }, { status: 400 });
+    }
+
+    const user = await env.DB.prepare(
+      `SELECT id, email, mobile, password_hash, role, full_name_ar, complex_id, is_active
+       FROM users WHERE email = ? LIMIT 1`,
+    )
+      .bind(body.email.trim().toLowerCase())
+      .first<UserRow>();
+
+    if (!user || user.is_active !== 1) {
+      return Response.json({ error: "invalid_credentials" }, { status: 401 });
+    }
+
+    const valid = await verifyPassword(body.password, user.password_hash);
+    if (!valid) {
+      return Response.json({ error: "invalid_credentials" }, { status: 401 });
+    }
+
+    const { token } = await issueSession(env, user);
+    const payload = await userPayload(env, user.id);
+
+    return Response.json({ token, user: payload });
+  } catch (err) {
+    return databaseErrorResponse(err);
   }
-
-  if (!body.email || !body.password) {
-    return Response.json({ error: "email and password required" }, { status: 400 });
-  }
-
-  const user = await env.DB.prepare(
-    `SELECT id, email, mobile, password_hash, role, full_name_ar, complex_id, is_active
-     FROM users WHERE email = ? LIMIT 1`,
-  )
-    .bind(body.email.trim().toLowerCase())
-    .first<UserRow>();
-
-  if (!user || user.is_active !== 1) {
-    return Response.json({ error: "invalid_credentials" }, { status: 401 });
-  }
-
-  const valid = await verifyPassword(body.password, user.password_hash);
-  if (!valid) {
-    return Response.json({ error: "invalid_credentials" }, { status: 401 });
-  }
-
-  const { token } = await issueSession(env, user);
-  const payload = await userPayload(env, user.id);
-
-  return Response.json({ token, user: payload });
 }
 
 /** Mobile-only login — MASTER-SPEC */
@@ -108,51 +139,59 @@ export async function handleLoginMobile(
   request: Request,
   env: Env,
 ): Promise<Response> {
-  let body: { mobile?: string } = {};
   try {
-    body = await request.json();
-  } catch {
-    return Response.json({ error: "Invalid JSON" }, { status: 400 });
+    let body: { mobile?: string } = {};
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+
+    const mobile = normalizeMobile(body.mobile ?? "");
+    if (!mobile) {
+      return Response.json({ error: "invalid_mobile" }, { status: 400 });
+    }
+
+    const user = await env.DB.prepare(
+      `SELECT id, email, mobile, password_hash, role, full_name_ar, complex_id, is_active
+       FROM users WHERE mobile = ? LIMIT 1`,
+    )
+      .bind(mobile)
+      .first<UserRow>();
+
+    if (!user) {
+      return Response.json({ error: "invalid_credentials" }, { status: 401 });
+    }
+    if (user.is_active !== 1) {
+      return Response.json({ error: "account_frozen" }, { status: 403 });
+    }
+
+    const { token } = await issueSession(env, user);
+    const payload = await userPayload(env, user.id);
+
+    return Response.json({ token, user: payload });
+  } catch (err) {
+    return databaseErrorResponse(err);
   }
-
-  const mobile = normalizeMobile(body.mobile ?? "");
-  if (!mobile) {
-    return Response.json({ error: "invalid_mobile" }, { status: 400 });
-  }
-
-  const user = await env.DB.prepare(
-    `SELECT id, email, mobile, password_hash, role, full_name_ar, complex_id, is_active
-     FROM users WHERE mobile = ? LIMIT 1`,
-  )
-    .bind(mobile)
-    .first<UserRow>();
-
-  if (!user) {
-    return Response.json({ error: "invalid_credentials" }, { status: 401 });
-  }
-  if (user.is_active !== 1) {
-    return Response.json({ error: "account_frozen" }, { status: 403 });
-  }
-
-  const { token } = await issueSession(env, user);
-  const payload = await userPayload(env, user.id);
-
-  return Response.json({ token, user: payload });
 }
 
 export async function handleMe(
   request: Request,
   env: Env,
 ): Promise<Response> {
-  const auth = await getAuth(request, env);
-  if (!auth) {
-    return Response.json({ error: "unauthorized" }, { status: 401 });
-  }
+  try {
+    const auth = await getAuth(request, env);
+    if (!auth) {
+      return Response.json({ error: "unauthorized" }, { status: 401 });
+    }
 
-  const payload = await userPayload(env, auth.userId);
-  if (!payload) {
-    return Response.json({ error: "unauthorized" }, { status: 401 });
-  }
+    const payload = await userPayload(env, auth.userId);
+    if (!payload) {
+      return Response.json({ error: "unauthorized" }, { status: 401 });
+    }
 
-  return Response.json({ user: payload });
+    return Response.json({ user: payload });
+  } catch (err) {
+    return databaseErrorResponse(err);
+  }
 }

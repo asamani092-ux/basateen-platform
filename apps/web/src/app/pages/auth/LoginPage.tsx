@@ -5,7 +5,10 @@ import { Input } from "../../components/ui/input";
 import { Card, CardContent, CardHeader } from "../../components/ui/card";
 import { useAuth } from "../../context/AuthContext";
 import { normalizeMobile } from "../../lib/auth-store";
-import { syncApiTokenForMobile } from "../../lib/api-token";
+import {
+  apiTokenSyncErrorMessage,
+  syncApiTokenForMobile,
+} from "../../lib/api-token";
 import { isUiDevPreview } from "../../lib/dev-preview";
 import { ds, tajawal } from "../../lib/design-system";
 

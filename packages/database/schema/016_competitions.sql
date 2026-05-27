@@ -72,5 +72,8 @@ CREATE TABLE IF NOT EXISTS competition_audit_trail (
 CREATE INDEX IF NOT EXISTS idx_competitions_dates ON competitions(start_date, end_date);
 CREATE INDEX IF NOT EXISTS idx_competition_logs_comp ON competition_logs(competition_id, log_date);
 
--- رمز الرصد التشاركي ليوم الهمة
-ALTER TABLE yom_himma_sessions ADD COLUMN live_log_token TEXT UNIQUE;
+-- رمز الرصد التشاركي ليوم الهمة (SQLite: لا يمكن ADD COLUMN مع UNIQUE مباشرة)
+ALTER TABLE yom_himma_sessions ADD COLUMN live_log_token TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_yom_himma_sessions_live_log_token
+  ON yom_himma_sessions (live_log_token)
+  WHERE live_log_token IS NOT NULL;

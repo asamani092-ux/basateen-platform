@@ -42,10 +42,10 @@ export function LoginPage() {
       setError("رقم الجوال غير مسجّل في النظام");
       return;
     }
-    const apiOk = await syncApiTokenForMobile(mobile);
+    const apiSync = await syncApiTokenForMobile(mobile);
     setLoading(false);
-    if (!apiOk && !isUiDevPreview() && authUser.role !== "teacher") {
-      setError("تعذّر ربط API — تحقق من نشر Worker وحسابات seed");
+    if (!apiSync.ok && !isUiDevPreview() && authUser.role !== "teacher") {
+      setError(apiTokenSyncErrorMessage(apiSync));
       return;
     }
     navigate(authUser.homePath, { replace: true });

@@ -147,6 +147,72 @@ export type StudentDetail = {
   history: HistoryRow[];
 };
 
+export type ReciterGateResponse = {
+  ok: boolean;
+  session_token: string;
+  session: {
+    kind: "yom_himma" | "competition";
+    id: number;
+    name_ar: string;
+    date: string;
+    status: string;
+    rules: Record<string, unknown>;
+    tv_key: string;
+  };
+  students: Array<{
+    id: number;
+    full_name_ar: string;
+    school_grade: string | null;
+  }>;
+};
+
+export type ReciterSnapshot = {
+  student: {
+    id: number;
+    full_name_ar: string;
+    school_grade: string | null;
+    memorization_amount: string | null;
+  };
+  cumulative: {
+    total_memorized_days: number;
+    aggregate_errors: number;
+    aggregate_warnings: number;
+  };
+  plan: Record<string, unknown> | null;
+  session_today: {
+    has_memorized: number;
+    memorization_errors: number;
+    memorization_warnings: number;
+    juz_done: number;
+    hizb_done: number;
+    current_hizb_failed: number;
+  };
+  target: { target_juz: number; target_hizb: number };
+};
+
+async function requestWithBearer<T>(
+  path: string,
+  bearer: string,
+  init?: RequestInit,
+): Promise<T> {
+  const url = `${API_BASE.replace(/\/$/, "")}${path}`;
+  const res = await fetch(url, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${bearer}`,
+      ...(init?.headers as Record<string, string> | undefined),
+    },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `HTTP ${res.status}`,
+    );
+  }
+  return res.json() as Promise<T>;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase();
   const bodyText =
@@ -917,149 +983,4 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-
-  eduMatrixMasterGrid: (params?: { stage?: string; q?: string }) => {
-    const sp = new URLSearchParams();
-    if (params?.stage) sp.set("stage", params.stage);
-    if (params?.q?.trim()) sp.set("q", params.q.trim());
-    const qs = sp.toString();
-    return request<{
-      items: EduMatrixStudentRow[];
-      count: number;
-      stages: Array<{ id: string; label: string }>;
-      circles: EduMatrixCircleOption[];
-      tracks: EduMatrixTrackOption[];
-    }>(`/api/v1/education/supervisor/master-grid${qs ? `?${qs}` : ""}`);
-  },
-  eduMatrixTransfer: (body: {
-    student_id: number;
-    target_circle_id: number | null;
-    target_track_id: number | null;
-  }) =>
-    request<{ ok: boolean; message: string }>(
-      "/api/v1/education/supervisor/transfer",
-      { method: "POST", body: JSON.stringify(body) },
-    ),
-  eduMatrixCompetitionCreate: (body: {
-    name: string;
-    start_date: string;
-    end_date: string;
-    targets: Array<{ target_type: "circle" | "track"; target_id: number }>;
-  }) =>
-    request<{ ok: boolean; id: number }>(
-      "/api/v1/education/supervisor/competition-create",
-      { method: "POST", body: JSON.stringify(body) },
-    ),
-  eduMatrixStudentHistory: (studentId: number) =>
-    request<EduMatrixStudentHistory>(
-      `/api/v1/education/supervisor/student-history/${studentId}`,
-    ),
-  eduMatrixEntryGrid: (params?: {
-    date?: string;
-    context_type?: string;
-    context_id?: number;
-  }) => {
-    const sp = new URLSearchParams();
-    if (params?.date) sp.set("date", params.date);
-    if (params?.context_type) sp.set("context_type", params.context_type);
-    if (params?.context_id != null) sp.set("context_id", String(params.context_id));
-    const qs = sp.toString();
-    return request<EduMatrixEntryGridResponse>(
-      `/api/v1/education/entry/my-grid${qs ? `?${qs}` : ""}`,
-    );
-  },
-  eduMatrixUpsertLog: (body: EduMatrixUpsertLogBody) =>
-    request<{ ok: boolean; attendance_auto: boolean }>(
-      "/api/v1/education/entry/upsert-log",
-      { method: "POST", body: JSON.stringify(body) },
-    ),
-};
-
-export type EduMatrixStudentRow = {
-  id: number;
-  name: string;
-  student_phone: string | null;
-  guardian_phone: string;
-  national_id: string;
-  stage: string;
-  stage_label: string;
-  academic_grade: string;
-  current_circle_id: number | null;
-  current_track_id: number | null;
-  circle_name: string | null;
-  track_name: string | null;
-  placement: "hybrid" | "circle" | "track" | "unassigned";
-};
-
-export type EduMatrixCircleOption = {
-  id: number;
-  name: string;
-  stage: string;
-  teacher_id: number;
-  is_active: number;
-};
-
-export type EduMatrixTrackOption = {
-  id: number;
-  name: string;
-  supervisor_id: number;
-  is_active: number;
-};
-
-export type EduMatrixStudentHistory = {
-  student: {
-    id: number;
-    name: string;
-    current_circle_id: number | null;
-    current_track_id: number | null;
-    circle_name: string | null;
-    track_name: string | null;
-  };
-  contexts: Array<{
-    context_type: string;
-    context_id: number;
-    context_name: string;
-    log_days: number;
-    first_date: string;
-    last_date: string;
-  }>;
-  transfers: Array<Record<string, unknown>>;
-};
-
-export type EduMatrixEntryGridResponse = {
-  date: string;
-  context: { context_type: string; context_id: number; role_label: string };
-  items: Array<{
-    id: number;
-    name: string;
-    national_id: string;
-    stage: string;
-    academic_grade: string;
-    log: {
-      id: number;
-      has_memorized: number;
-      has_repeated: number;
-      has_reviewed: number;
-      has_linked: number;
-      memorization_errors: number;
-      memorization_warnings: number;
-      review_errors: number;
-    } | null;
-    attendance_status: string | null;
-  }>;
-  count: number;
-};
-
-export type EduMatrixUpsertLogBody = {
-  student_id: number;
-  date: string;
-  context_type?: "circle" | "track" | "competition";
-  context_id?: number;
-  has_memorized?: number;
-  has_repeated?: number;
-  has_reviewed?: number;
-  has_linked?: number;
-  memorization_errors?: number;
-  memorization_warnings?: number;
-  review_errors?: number;
 };

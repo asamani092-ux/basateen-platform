@@ -303,21 +303,17 @@ export async function handleYomHimmaTv(
 
   if (!session) return json({ error: "invalid_key" }, 404);
 
-  const stats = await env.DB.prepare(
-    `SELECT
-       COUNT(*) AS total,
-       SUM(CASE WHEN attendance = 'present' THEN 1 ELSE 0 END) AS present,
-       SUM(juz_done) AS juz_total,
-       SUM(hizb_done) AS hizb_total
-     FROM yom_himma_audit WHERE session_id = ?`,
-  )
-    .bind(session.id)
-    .first<{
-      total: number;
-      present: number;
-      juz_total: number;
-      hizb_total: number;
-    }>();
+  const auditRows = await fetchHimmaAuditFromLedger(
+    env,
+    session.id,
+    session.session_date,
+  );
+  const stats = {
+    total: auditRows.length,
+    present: auditRows.filter((a) => a.attendance === "present").length,
+    juz_total: auditRows.reduce((s, a) => s + a.juz_done, 0),
+    hizb_total: auditRows.reduce((s, a) => s + a.hizb_done, 0),
+  };
 
   return json({
     session: {
@@ -326,6 +322,6 @@ export async function handleYomHimmaTv(
       session_date: session.session_date,
       status: session.status,
     },
-    stats: stats ?? { total: 0, present: 0, juz_total: 0, hizb_total: 0 },
+    stats,
   });
 }

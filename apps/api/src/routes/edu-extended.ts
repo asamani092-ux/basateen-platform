@@ -147,20 +147,20 @@ export async function handleEduExtendedRoutes(
       .all();
 
     const compLogs = await env.DB.prepare(
-      `SELECT cl.competition_id, c.name_ar, cl.log_date, cl.metrics_json
-       FROM competition_logs cl
-       JOIN competitions c ON c.id = cl.competition_id
-       WHERE cl.student_id = ?
-       ORDER BY cl.recorded_at DESC LIMIT 30`,
+      `SELECT l.context_id AS competition_id, c.name_ar, l.mark_date AS log_date, l.notes AS metrics_json
+       FROM quran_daily_ledger l
+       JOIN competitions c ON c.id = l.context_id
+       WHERE l.student_id = ? AND l.context_type = 'competition'
+       ORDER BY l.recorded_at DESC LIMIT 30`,
     )
       .bind(studentId)
       .all();
 
     const compSummary = await env.DB.prepare(
       `SELECT c.id, c.name_ar, c.telemetry_type, c.start_date, c.end_date
-       FROM competition_logs cl
-       JOIN competitions c ON c.id = cl.competition_id
-       WHERE cl.student_id = ?
+       FROM quran_daily_ledger l
+       JOIN competitions c ON c.id = l.context_id
+       WHERE l.student_id = ? AND l.context_type = 'competition'
        GROUP BY c.id
        ORDER BY c.end_date DESC`,
     )

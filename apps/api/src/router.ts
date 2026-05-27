@@ -47,8 +47,6 @@ import { handleLiveLogRouter, handleYomHimmaLiveLogToken } from "./routes/live-l
 import { handleProgSupervisorRouter } from "./routes/prog-supervisor";
 import { handleQuizPublicRouter } from "./routes/quiz-public";
 import { handleSeedProgExamples } from "./routes/setup-prog-examples";
-import { handleEduSupervisorMatrixRouter } from "./routes/edu-supervisor-matrix";
-import { handleEduEntryRouter } from "./routes/edu-entry";
 
 type RouteHandler = (
   request: Request,
@@ -144,6 +142,12 @@ export async function handleRequest(
 
   const gsRoute = await handleGeneralSupervisorRouter(request, env, url);
   if (gsRoute) return withCors(gsRoute, request, env);
+
+  const eduPublicReciter = await handleEduPublicReciterRouter(request, env, url);
+  if (eduPublicReciter) return withCors(eduPublicReciter, request, env);
+
+  const eduSupervisorGrid = await handleEduSupervisorGridRouter(request, env, url);
+  if (eduSupervisorGrid) return withCors(eduSupervisorGrid, request, env);
 
   const liveLog = await handleLiveLogRouter(request, env, url);
   if (liveLog) return withCors(liveLog, request, env);

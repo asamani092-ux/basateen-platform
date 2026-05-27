@@ -199,12 +199,12 @@ export async function handleEduCompetitionsRouter(
       .all();
 
     const logs = await env.DB.prepare(
-      `SELECT cl.student_id, cl.log_date, cl.metrics_json, cl.source, cl.recorded_at,
-              s.full_name_ar
-       FROM competition_logs cl
-       JOIN students s ON s.id = cl.student_id
-       WHERE cl.competition_id = ?
-       ORDER BY cl.log_date DESC, cl.recorded_at DESC`,
+      `SELECT l.student_id, l.mark_date AS log_date, l.notes AS metrics_json,
+              'ledger' AS source, l.recorded_at, s.full_name_ar
+       FROM quran_daily_ledger l
+       JOIN students s ON s.id = l.student_id
+       WHERE l.context_type = 'competition' AND l.context_id = ?
+       ORDER BY l.mark_date DESC, l.recorded_at DESC`,
     )
       .bind(id)
       .all();

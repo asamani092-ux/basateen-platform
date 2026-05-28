@@ -54,13 +54,29 @@ export function isEduNavActive(itemPath: string, pathname: string): boolean {
 
   }
 
-  if (itemPath === "/edu-supervisor/competitions") {
+  if (itemPath === "/edu-supervisor/events-engine") {
 
     return (
+
+      pathname === "/edu-supervisor/events-engine" ||
+
+      pathname === "/edu-supervisor/yom-himma" ||
 
       pathname === "/edu-supervisor/competitions" ||
 
       pathname.startsWith("/edu-supervisor/competitions/")
+
+    );
+
+  }
+
+  if (itemPath === "/edu-supervisor/master-grid") {
+
+    return (
+
+      pathname === "/edu-supervisor/master-grid" ||
+
+      pathname === "/edu-supervisor/placement"
 
     );
 

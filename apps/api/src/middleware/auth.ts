@@ -153,7 +153,24 @@ export async function getAuth(
   const verified = await verifyTokenWithReason(token, secret);
   if (!verified.auth) {
     authFailureFlags.set(request, verified.reason ?? "unauthorized");
+    return null;
   }
+
+  const userRow = await env.DB.prepare(
+    `SELECT id, is_active, role FROM users WHERE id = ? LIMIT 1`,
+  )
+    .bind(verified.auth.userId)
+    .first<{ id: number; is_active: number | null; role: string | null }>();
+
+  if (!userRow || typeof userRow.is_active === "undefined" || userRow.is_active !== 1) {
+    authFailureFlags.set(request, "legacy_session_detected");
+    return null;
+  }
+  if (!VALID_ROLES.includes(userRow.role as UserRole)) {
+    authFailureFlags.set(request, "legacy_session_detected");
+    return null;
+  }
+
   return verified.auth;
 }
 

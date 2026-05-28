@@ -43,8 +43,6 @@ import {
 import { handleGeneralSupervisorRouter } from "./routes/general-supervisor";
 import { handleEduSupervisorRouter } from "./routes/edu-supervisor";
 import { handleEduCompetitionsRouter } from "./routes/competitions";
-import { handleEduPublicReciterRouter } from "./routes/edu-public-reciter";
-import { handleEduSupervisorGridRouter } from "./routes/edu-supervisor-grid";
 import { handleLiveLogRouter, handleYomHimmaLiveLogToken } from "./routes/live-log";
 import { handleProgSupervisorRouter } from "./routes/prog-supervisor";
 import { handleQuizPublicRouter } from "./routes/quiz-public";
@@ -139,6 +137,31 @@ export async function handleRequest(
 
   const url = new URL(request.url);
 
+  try {
+    return await dispatchRequest(request, env, url);
+  } catch (error: unknown) {
+    console.error("Router exception:", error);
+    return withCors(
+      Response.json(
+        {
+          error: "api_internal_crash",
+          message:
+            error instanceof Error ? error.message : "Uncaught runtime error",
+          clear_polluted_session: true,
+        },
+        { status: 500 },
+      ),
+      request,
+      env,
+    );
+  }
+}
+
+async function dispatchRequest(
+  request: Request,
+  env: Env,
+  url: URL,
+): Promise<Response> {
   const adminGm = await handleAdminGmRouter(request, env, url);
   if (adminGm) return withCors(adminGm, request, env);
 

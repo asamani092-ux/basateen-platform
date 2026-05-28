@@ -83,6 +83,10 @@ export default function App() {
                   element={<Navigate to="/edu-supervisor/events-engine" replace />}
                 />
                 <Route path="master-grid" element={<MasterGridConsole />} />
+                <Route
+                  path="placement"
+                  element={<Navigate to="/edu-supervisor/master-grid" replace />}
+                />
                 <Route path="students" element={<StudentsPage />} />
                 <Route path="students/:studentId" element={<StudentProfilePage />} />
                 <Route path="transfers" element={<TransfersPage />} />

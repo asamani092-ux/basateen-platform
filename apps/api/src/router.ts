@@ -147,7 +147,6 @@ export async function handleRequest(
           error: "api_internal_crash",
           message:
             error instanceof Error ? error.message : "Uncaught runtime error",
-          clear_polluted_session: true,
         },
         { status: 500 },
       ),

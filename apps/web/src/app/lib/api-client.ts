@@ -1,6 +1,10 @@
 import { getApiToken } from "./api-token";
 import { isUiDevPreview } from "./dev-preview";
 import { resolveDevPreviewMock } from "./dev-preview-mocks";
+import {
+  redirectToLoginAfterSessionReset,
+  resetClientSession,
+} from "./session-reset";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
@@ -170,12 +174,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     if ((body as { clear_polluted_session?: boolean }).clear_polluted_session) {
-      console.warn(
-        "Contaminated session context detected by server. Executing clean sweep...",
-      );
-      sessionStorage.clear();
-      localStorage.removeItem("auth_token");
-      window.location.href = "/login?reason=session_reset";
+      resetClientSession();
+      redirectToLoginAfterSessionReset();
       throw new Error("legacy_session_detected");
     }
     throw new Error(

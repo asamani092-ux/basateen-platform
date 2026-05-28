@@ -215,7 +215,7 @@ export const api = {
     request<StudentDetail>(`/api/students/${id}`),
   transferStudent: (
     id: number,
-    body: { circle_id: number; note?: string },
+    body: { circle_id: number; track_id?: number | null; note?: string },
   ) =>
     request<{
       ok: boolean;
@@ -287,18 +287,28 @@ export const api = {
       `/api/yom-himma/${sessionId}/live-log-token`,
       { method: "POST", body: "{}" },
     ),
-  liveLogSession: (token: string) =>
+  liveLogSession: (token: string, pin: string) =>
     request<{
       kind: "yom_himma" | "competition";
       session: Record<string, unknown>;
       students: Array<Record<string, unknown>>;
       audit?: Array<Record<string, unknown>>;
       logs?: Array<Record<string, unknown>>;
-    }>(`/api/live-log/${encodeURIComponent(token)}`),
-  liveLogUpsert: (token: string, body: Record<string, unknown>) =>
+    }>(`/api/live-log/${encodeURIComponent(token)}`, {
+      headers: { "X-Live-Pin": pin },
+    }),
+  liveLogUpsert: (
+    token: string,
+    body: Record<string, unknown>,
+    pin: string,
+  ) =>
     request<{ ok: boolean; failed?: boolean; tv_key?: string }>(
       `/api/live-log/${encodeURIComponent(token)}`,
-      { method: "POST", body: JSON.stringify(body) },
+      {
+        method: "POST",
+        headers: { "X-Live-Pin": pin },
+        body: JSON.stringify(body),
+      },
     ),
   competitionsList: () =>
     request<{ items: Array<Record<string, unknown>> }>(
@@ -636,10 +646,41 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
-  studentsPendingPlacement: () =>
-    request<{ items: StudentRow[]; count: number }>(
-      "/api/students?admission_status=pending_placement&limit=100",
-    ),
+  eduMasterGrid: (params?: { pending_acceptance?: string; q?: string }) => {
+    const search = new URLSearchParams();
+    if (params?.pending_acceptance) {
+      search.set("pending_acceptance", params.pending_acceptance);
+    }
+    if (params?.q?.trim()) search.set("q", params.q.trim());
+    const qs = search.toString();
+    return request<{
+      items: Array<{
+        id: number;
+        full_name_ar: string;
+        is_active: number;
+        stage_id: number | null;
+        school_grade: string | null;
+        admission_status: string | null;
+        current_circle_id: number | null;
+        current_circle_name: string | null;
+        current_track_id: number | null;
+        current_track_name: string | null;
+      }>;
+      circles: CircleOption[];
+      tracks: Array<{ id: number; name_ar: string }>;
+      pending_filter_applied: boolean;
+    }>(`/api/edu-supervisor/master-grid${qs ? `?${qs}` : ""}`);
+  },
+  eduAcceptAssign: (body: {
+    student_id: number;
+    circle_id: number;
+    track_id?: number | null;
+    note?: string;
+  }) =>
+    request<{ ok: boolean; message: string }>("/api/edu-supervisor/accept-assign", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   gsScope: () =>
     request<{
       scope: { type: string; stageIds?: number[] };

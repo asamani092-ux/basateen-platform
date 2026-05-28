@@ -1,11 +1,22 @@
 import type { Env } from "../types";
-import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
+import {
+  authUnauthorizedResponse,
+  getAuth,
+  requireAuth,
+  requireRoles,
+} from "../middleware/auth";
+import { assignStudentCircle } from "../lib/placement";
 import {
   loadUserScope,
   studentsInScopeBinds,
   studentsInScopeWhere,
 } from "../lib/supervisor-scope";
 import { handleEduExtendedRoutes } from "./edu-extended";
+
+const ACCEPT_ASSIGN_PATHS = new Set([
+  "/api/edu-supervisor/accept-assign",
+  "/api/v1/education/supervisor/accept-assign",
+]);
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
@@ -21,10 +32,10 @@ export async function handleEduSupervisorRouter(
   url: URL,
 ): Promise<Response | null> {
   const path = url.pathname;
-  if (!path.startsWith("/api/edu-supervisor/")) return null;
+  if (!path.startsWith("/api/edu-supervisor/") && !ACCEPT_ASSIGN_PATHS.has(path)) return null;
 
   const auth = await getAuth(request, env);
-  if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
+  if (!requireAuth(auth)) return authUnauthorizedResponse(request);
   if (!requireRoles(auth, ["edu_supervisor"])) {
     return json({ error: "forbidden" }, 403);
   }
@@ -38,7 +49,68 @@ export async function handleEduSupervisorRouter(
     { userId: auth.userId, complexId: auth.complexId },
     scope,
   );
-  if (extended) return extended;
+
+  if (request.method === "POST" && ACCEPT_ASSIGN_PATHS.has(path)) {
+    let body: {
+      student_id?: number;
+      circle_id?: number;
+      track_id?: number | null;
+      note?: string;
+    };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+
+    const studentId = Number(body.student_id);
+    const circleId = Number(body.circle_id);
+    if (!Number.isFinite(studentId) || !Number.isFinite(circleId) || circleId <= 0) {
+      return json({ error: "student_id_and_circle_id_required" }, 400);
+    }
+
+    const scopeWhere = studentsInScopeWhere(scope);
+    const allowed = await env.DB.prepare(
+      `SELECT s.id FROM students s WHERE ${scopeWhere} AND s.id = ? AND s.is_active = 1`,
+    )
+      .bind(...studentsInScopeBinds(auth.complexId, scope), studentId)
+      .first();
+
+    if (!allowed) return json({ error: "student_out_of_scope" }, 403);
+
+    const circle = await env.DB.prepare(
+      `SELECT id, track_id FROM circles
+       WHERE id = ? AND complex_id = ? AND is_active = 1`,
+    )
+      .bind(circleId, auth.complexId)
+      .first<{ id: number; track_id: number | null }>();
+
+    if (!circle) return json({ error: "circle_not_found" }, 404);
+
+    const trackId =
+      body.track_id != null && body.track_id !== undefined
+        ? Number(body.track_id)
+        : circle.track_id;
+
+    const note =
+      typeof body.note === "string"
+        ? body.note.trim().slice(0, 500)
+        : "قبول وتوزيع فوري — الشبكة المركزية";
+
+    await assignStudentCircle(env, studentId, circleId, trackId, note);
+
+    await env.DB.prepare(
+      `UPDATE students SET admission_status = NULL
+       WHERE id = ? AND admission_status = 'pending_placement'`,
+    )
+      .bind(studentId)
+      .run();
+
+    return json({
+      ok: true,
+      message: "تم تنفيذ القبول والتوزيع دون المساس بسجل الرصد",
+    });
+  }
 
   if (request.method === "GET" && path === "/api/edu-supervisor/scope") {
     const row = await env.DB.prepare(

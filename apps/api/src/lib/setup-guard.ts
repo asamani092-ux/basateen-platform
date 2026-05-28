@@ -9,9 +9,9 @@ export function demoSetupBlockedResponse(env: Env): Response | null {
   if (!isProductionEnv(env)) return null;
   return Response.json(
     {
-      error: "disabled_in_production",
+      error: "gone",
       message: "تعطيل seed الأمثلة في الإنتاج — استخدم seed-users فقط عند الإعداد الأول",
     },
-    { status: 403 },
+    { status: 410 },
   );
 }

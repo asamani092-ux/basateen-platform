@@ -2,13 +2,13 @@ import { useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 const TAB_TO_PATH: Record<string, string> = {
-  placement: "/edu-supervisor/placement",
+  placement: "/edu-supervisor/master-grid",
   students: "/edu-supervisor/students",
   transfers: "/edu-supervisor/transfers",
   circles: "/edu-supervisor/circles",
-  education: "/edu-supervisor/competitions",
+  education: "/edu-supervisor/events-engine",
   dashboard: "/edu-supervisor/dashboard",
-  attendance: "/edu-supervisor/placement",
+  attendance: "/edu-supervisor/master-grid",
 };
 
 /** يحوّل /edu-supervisor?tab=... إلى المسارات الجديدة في القائمة الجانبية */

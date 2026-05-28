@@ -46,7 +46,7 @@ export function EduDashboardPage() {
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <KpiCard label="انتظار التسكين" value={k?.pending_placement ?? "—"} />
+        <KpiCard label="انتظار القبول والتوزيع" value={k?.pending_placement ?? "—"} />
         <KpiCard label="طلاب نشطون" value={k?.active_students ?? "—"} />
         <KpiCard label="منافسات نشطة" value={k?.active_competitions ?? "—"} />
         <KpiCard label="رصد معلم اليوم" value={k?.teacher_marks_today ?? "—"} />
@@ -68,13 +68,13 @@ export function EduDashboardPage() {
 
       <div className="flex flex-wrap gap-2">
         <Button asChild variant="outline" className={ds.btnRound} style={tajawal}>
-          <Link to="/edu-supervisor/placement">التسكين</Link>
+          <Link to="/edu-supervisor/master-grid">القبول والتوزيع</Link>
         </Button>
         <Button asChild variant="outline" className={ds.btnRound} style={tajawal}>
           <Link to="/edu-supervisor/students">الطلاب</Link>
         </Button>
         <Button asChild variant="outline" className={ds.btnRound} style={tajawal}>
-          <Link to="/edu-supervisor/competitions">المنافسات</Link>
+          <Link to="/edu-supervisor/events-engine">محرك الفعاليات</Link>
         </Button>
       </div>
     </div>

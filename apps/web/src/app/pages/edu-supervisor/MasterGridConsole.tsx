@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { History, Loader2, Search, Shuffle } from "lucide-react";
-import { toast } from "sonner";
-import { Input } from "../../components/ui/input";
+import { Link } from "react-router";
 import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -11,240 +18,236 @@ import {
   TableHeader,
   TableRow,
 } from "../../components/ui/table";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../../components/ui/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "../../components/ui/sheet";
-import { Badge } from "../../components/ui/badge";
-import { api, type EduMatrixStudentRow } from "../../lib/api-client";
-import { StudentTransferModal } from "./StudentTransferModal";
-import { tajawal } from "../../lib/design-system";
+import { api, type CircleOption } from "../../lib/api-client";
+import { canUseApi } from "../../lib/api-access";
+import { ds, tajawal } from "../../lib/design-system";
+
+type MasterRow = {
+  id: number;
+  full_name_ar: string;
+  is_active: number;
+  stage_id: number | null;
+  school_grade: string | null;
+  admission_status: string | null;
+  current_circle_id: number | null;
+  current_circle_name: string | null;
+  current_track_id: number | null;
+  current_track_name: string | null;
+};
+
+type TrackRow = { id: number; name_ar: string };
 
 export function MasterGridConsole() {
+  const [items, setItems] = useState<MasterRow[]>([]);
+  const [circles, setCircles] = useState<CircleOption[]>([]);
+  const [tracks, setTracks] = useState<TrackRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [q, setQ] = useState("");
-  const [stage, setStage] = useState<string>("all");
-  const [items, setItems] = useState<EduMatrixStudentRow[]>([]);
-  const [circles, setCircles] = useState<
-    Awaited<ReturnType<typeof api.eduMatrixMasterGrid>>["circles"]
-  >([]);
-  const [tracks, setTracks] = useState<
-    Awaited<ReturnType<typeof api.eduMatrixMasterGrid>>["tracks"]
-  >([]);
-  const [stages, setStages] = useState<
-    Array<{ id: string; label: string }>
-  >([]);
-  const [transferStudent, setTransferStudent] =
-    useState<EduMatrixStudentRow | null>(null);
-  const [historyId, setHistoryId] = useState<number | null>(null);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyData, setHistoryData] = useState<
-    Awaited<ReturnType<typeof api.eduMatrixStudentHistory>> | null
-  >(null);
+  const [pendingOnly, setPendingOnly] = useState(false);
+  const [query, setQuery] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [openRow, setOpenRow] = useState<MasterRow | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [circleId, setCircleId] = useState<number | "">("");
+  const [trackId, setTrackId] = useState<number | "">("");
 
   const load = useCallback(async () => {
+    if (!canUseApi()) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
+    setError(null);
     try {
-      const data = await api.eduMatrixMasterGrid({
-        q: q || undefined,
-        stage: stage === "all" ? undefined : stage,
+      const res = await api.eduMasterGrid({
+        pending_acceptance: pendingOnly ? "1" : "0",
+        q: query,
       });
-      setItems(data.items);
-      setCircles(data.circles);
-      setTracks(data.tracks);
-      setStages(data.stages);
+      setItems(res.items);
+      setCircles(res.circles);
+      setTracks(res.tracks);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "تعذّر تحميل الشبكة");
+      setError(e instanceof Error ? e.message : "تعذر تحميل الشبكة المركزية");
+      setItems([]);
     } finally {
       setLoading(false);
     }
-  }, [q, stage]);
+  }, [pendingOnly, query]);
 
   useEffect(() => {
-    const t = setTimeout(() => void load(), 300);
+    const t = setTimeout(() => {
+      void load();
+    }, 250);
     return () => clearTimeout(t);
   }, [load]);
 
-  const placementLabel = useMemo(
-    () =>
-      ({
-        hybrid: "هجين",
-        circle: "حلقة",
-        track: "مسار",
-        unassigned: "غير مسكّن",
-      }) as const,
-    [],
-  );
+  const titleCount = useMemo(() => items.length, [items.length]);
 
-  async function openHistory(studentId: number) {
-    setHistoryId(studentId);
-    setHistoryLoading(true);
+  function openAdmission(row: MasterRow) {
+    setOpenRow(row);
+    setCircleId(row.current_circle_id ?? "");
+    setTrackId(row.current_track_id ?? "");
+  }
+
+  async function applyAdmission() {
+    if (!openRow) return;
+    if (!circleId && !trackId) {
+      setError("اختر حلقة أو مسار على الأقل");
+      return;
+    }
+    const targetCircle = circleId || openRow.current_circle_id;
+    if (!targetCircle) {
+      setError("لا يمكن ربط مسار فقط بدون حلقة حالية. اختر حلقة أولاً.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
     try {
-      const data = await api.eduMatrixStudentHistory(studentId);
-      setHistoryData(data);
+      await api.transferStudent(openRow.id, {
+        circle_id: Number(targetCircle),
+        track_id: trackId === "" ? undefined : Number(trackId),
+        note: "إجراء القبول والتوزيع الفوري من الشبكة المركزية",
+      });
+      setOpenRow(null);
+      await load();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "تعذّر تحميل السجل");
-      setHistoryId(null);
+      setError(e instanceof Error ? e.message : "فشل تنفيذ القبول والتوزيع");
     } finally {
-      setHistoryLoading(false);
+      setSaving(false);
     }
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute right-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-          <Input
-            className="pr-10"
-            placeholder="بحث بالاسم أو الهوية أو جوال ولي الأمر"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            style={tajawal}
-          />
-        </div>
-        <Select value={stage} onValueChange={setStage}>
-          <SelectTrigger className="w-full sm:w-44">
-            <SelectValue placeholder="المرحلة" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">كل المراحل</SelectItem>
-            {stages.map((s) => (
-              <SelectItem key={s.id} value={s.id}>
-                {s.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+    <section className="space-y-4">
+      <header className="space-y-1">
+        <h2 className={ds.page.title} style={tajawal}>
+          شبكة البيانات الكلية — القبول والتوزيع المباشر
+        </h2>
+        <p className={ds.page.description} style={tajawal}>
+          قراءة حية لكل الطلاب (النشطين والموقوفين) مع تنفيذ القبول/التوزيع دون المساس بسجل Ledger التاريخي.
+        </p>
+      </header>
+
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          className={ds.btnRound}
+          variant={pendingOnly ? "default" : "outline"}
+          onClick={() => setPendingOnly((v) => !v)}
+          style={tajawal}
+        >
+          {pendingOnly ? "إلغاء فلتر انتظار القبول" : "انتظار القبول والتوزيع"}
+        </Button>
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="max-w-sm"
+          placeholder="بحث سريع باسم الطالب..."
+          style={tajawal}
+        />
       </div>
 
-      {loading ? (
-        <div className="flex justify-center py-16">
-          <Loader2 className="size-8 animate-spin text-primary" />
-        </div>
-      ) : (
-        <div className="border rounded-xl overflow-x-auto bg-card">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead style={tajawal}>الطالب</TableHead>
-                <TableHead style={tajawal}>المرحلة</TableHead>
-                <TableHead style={tajawal}>الحلقة</TableHead>
-                <TableHead style={tajawal}>المسار</TableHead>
-                <TableHead style={tajawal}>الوضع</TableHead>
-                <TableHead className="text-left" style={tajawal}>
-                  إجراءات
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell>
-                    <div className="font-medium" style={tajawal}>
-                      {row.name}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {row.national_id}
-                    </div>
-                  </TableCell>
-                  <TableCell style={tajawal}>{row.stage_label}</TableCell>
-                  <TableCell style={tajawal}>
-                    {row.circle_name ?? "—"}
-                  </TableCell>
-                  <TableCell style={tajawal}>{row.track_name ?? "—"}</TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">
-                      {placementLabel[row.placement]}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-1 justify-end">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        type="button"
-                        onClick={() => void openHistory(row.id)}
-                      >
-                        <History className="size-4" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        type="button"
-                        onClick={() => setTransferStudent(row)}
-                      >
-                        <Shuffle className="size-4 ml-1" />
-                        نقل
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          {!items.length && (
-            <p className="text-center py-8 text-muted-foreground" style={tajawal}>
-              لا توجد صفوف — نفّذ db:remote:022 ثم POST /api/setup/seed-edu-matrix
-            </p>
-          )}
-        </div>
+      {error && (
+        <p className={ds.alert.error} style={tajawal}>
+          {error}
+        </p>
       )}
 
-      <StudentTransferModal
-        open={!!transferStudent}
-        onOpenChange={(o) => !o && setTransferStudent(null)}
-        student={transferStudent}
-        circles={circles}
-        tracks={tracks}
-        onConfirm={async (payload) => {
-          if (!transferStudent) return;
-          await api.eduMatrixTransfer({
-            student_id: transferStudent.id,
-            ...payload,
-          });
-          toast.success("تم النقل بنجاح");
-          await load();
-        }}
-      />
+      <div className={ds.card}>
+        <div className="p-4 border-b border-border text-sm text-muted-foreground" style={tajawal}>
+          عدد السجلات: {titleCount}
+        </div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead style={tajawal}>الطالب</TableHead>
+              <TableHead style={tajawal}>الحالة</TableHead>
+              <TableHead style={tajawal}>القبول الحالي</TableHead>
+              <TableHead style={tajawal}>المسار الحالي</TableHead>
+              <TableHead style={tajawal}>الإجراء</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={5} style={tajawal}>
+                  جاري التحميل...
+                </TableCell>
+              </TableRow>
+            ) : (
+              items.map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell style={tajawal}>
+                    <Link className="text-primary hover:underline" to={`/edu-supervisor/students/${row.id}`}>
+                      {row.full_name_ar}
+                    </Link>
+                  </TableCell>
+                  <TableCell style={tajawal}>{row.is_active === 1 ? "نشط" : "موقوف"}</TableCell>
+                  <TableCell style={tajawal}>{row.current_circle_name ?? "غير مقبول بعد"}</TableCell>
+                  <TableCell style={tajawal}>{row.current_track_name ?? "غير مرتبط"}</TableCell>
+                  <TableCell>
+                    <Button type="button" size="sm" variant="outline" onClick={() => openAdmission(row)} style={tajawal}>
+                      قبول/توزيع
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
-      <Sheet open={historyId != null} onOpenChange={(o) => !o && setHistoryId(null)}>
-        <SheetContent side="left" className="w-full sm:max-w-lg overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle style={tajawal}>
-              السجل التاريخي — {historyData?.student.name ?? "…"}
-            </SheetTitle>
-          </SheetHeader>
-          {historyLoading ? (
-            <Loader2 className="mx-auto mt-8 animate-spin" />
-          ) : (
-            <ul className="mt-4 space-y-3">
-              {(historyData?.contexts ?? []).map((c) => (
-                <li
-                  key={`${c.context_type}-${c.context_id}`}
-                  className="border rounded-lg p-3 text-sm"
-                  style={tajawal}
-                >
-                  <p className="font-semibold">
-                    {c.context_name} ({c.context_type})
-                  </p>
-                  <p className="text-muted-foreground">
-                    {c.first_date} → {c.last_date} — {c.log_days} يوم رصد
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </SheetContent>
-      </Sheet>
-    </div>
+      <Dialog open={Boolean(openRow)} onOpenChange={(v) => !v && setOpenRow(null)}>
+        <DialogContent dir="rtl">
+          <DialogHeader>
+            <DialogTitle style={tajawal}>إجراء القبول والتوزيع الفوري للطالب في الحلقات والمسارات</DialogTitle>
+            <DialogDescription style={tajawal}>
+              قبول الطالب في حلقة أو مسار جديدة يحفظ سجلاته التاريخية السابقة في الـ Ledger ولا يصفرها نهائياً
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <label className="block text-sm" style={tajawal}>
+              الحلقة
+              <select
+                className="mt-1 w-full rounded-xl border border-border px-3 py-2"
+                value={circleId}
+                onChange={(e) => setCircleId(e.target.value ? Number(e.target.value) : "")}
+                style={tajawal}
+              >
+                <option value="">بدون تغيير</option>
+                {circles.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name_ar}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm" style={tajawal}>
+              المسار
+              <select
+                className="mt-1 w-full rounded-xl border border-border px-3 py-2"
+                value={trackId}
+                onChange={(e) => setTrackId(e.target.value ? Number(e.target.value) : "")}
+                style={tajawal}
+              >
+                <option value="">بدون تغيير</option>
+                {tracks.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name_ar}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setOpenRow(null)} style={tajawal}>
+              إلغاء
+            </Button>
+            <Button type="button" onClick={applyAdmission} disabled={saving} style={tajawal}>
+              {saving ? "جارٍ التنفيذ..." : "تنفيذ القبول والتوزيع"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </section>
   );
 }

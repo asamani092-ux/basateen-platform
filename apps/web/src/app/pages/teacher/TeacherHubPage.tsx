@@ -1,12 +1,11 @@
 import { useSearchParams } from "react-router";
 import { HubTabs } from "../../components/hub/HubTabs";
-import { TeacherDailyLogPage } from "./TeacherDailyLogPage";
-import { TeacherPlansPage } from "./TeacherPlansPage";
 import { DailyScorecardGrid } from "./DailyScorecardGrid";
+import { TeacherPlansPage } from "./TeacherPlansPage";
 import { ds, tajawal } from "../../lib/design-system";
 
 const TABS = [
-  { id: "daily", label: "الرصد اليومي" },
+  { id: "daily", label: "شبكة الرصد السريع" },
   { id: "plans", label: "خطتي وإحصائياتي" },
 ];
 
@@ -29,7 +28,7 @@ export function TeacherHubPage() {
         active={tab}
         onChange={(id) => setSearchParams(id === "daily" ? {} : { tab: id })}
       />
-      {tab === "daily" ? <TeacherDailyLogPage /> : <TeacherPlansPage />}
+      {tab === "daily" ? <DailyScorecardGrid /> : <TeacherPlansPage />}
     </div>
   );
 }

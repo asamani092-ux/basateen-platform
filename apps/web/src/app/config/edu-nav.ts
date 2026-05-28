@@ -16,7 +16,11 @@ export const EDU_NAV_ITEMS: EduNavItem[] = [
 
   { id: "dashboard", label: "لوحة المتابعة", path: "/edu-supervisor/dashboard" },
 
-  { id: "placement", label: "انتظار التسكين", path: "/edu-supervisor/placement" },
+  {
+    id: "master-grid",
+    label: "انتظار القبول والتوزيع",
+    path: "/edu-supervisor/master-grid",
+  },
 
   { id: "students", label: "الطلاب و Excel", path: "/edu-supervisor/students" },
 
@@ -24,11 +28,7 @@ export const EDU_NAV_ITEMS: EduNavItem[] = [
 
   { id: "circles", label: "الحلقات التشغيلية", path: "/edu-supervisor/circles" },
 
-  { id: "competitions", label: "المنافسات والبرامج", path: "/edu-supervisor/competitions" },
-
-  { id: "yom-himma", label: "يوم الهمة القرآني", path: "/edu-supervisor/yom-himma" },
-
-  { id: "master-grid", label: "شبكة الرصد", path: "/edu-supervisor/master-grid" },
+  { id: "events-engine", label: "محرك الفعاليات", path: "/edu-supervisor/events-engine" },
 
 ];
 

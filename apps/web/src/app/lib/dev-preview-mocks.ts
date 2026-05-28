@@ -377,6 +377,31 @@ export function resolveDevPreviewMock<T>(
     } as T;
   }
 
+
+  if (p.startsWith("/api/edu-supervisor/master-grid") && m === "GET") {
+    const pendingOnly = url.searchParams.get("pending_acceptance") === "1";
+    const rows = previewStore.listStudents().map((s) => ({
+      id: s.id,
+      full_name_ar: s.full_name_ar,
+      is_active: 1,
+      stage_id: s.stage_id,
+      school_grade: s.school_grade,
+      admission_status: s.admission_status,
+      current_circle_id: s.admission_status === "pending_placement" ? null : 1,
+      current_circle_name: s.admission_status === "pending_placement" ? null : "حلقة معاينة",
+      current_track_id: s.admission_status === "pending_placement" ? null : 1,
+      current_track_name: s.admission_status === "pending_placement" ? null : "مسار معاينة",
+    }));
+    return {
+      items: pendingOnly
+        ? rows.filter((r) => r.current_circle_id === null && r.current_track_id === null)
+        : rows,
+      circles: PREVIEW_CIRCLES,
+      tracks: PREVIEW_TRACKS,
+      pending_filter_applied: pendingOnly,
+    } as T;
+  }
+
   if (p === "/api/edu-supervisor/dashboard" && m === "GET") {
     const pending = previewStore.filterStudents({
       admission_status: "pending_placement",
@@ -491,7 +516,7 @@ export function resolveDevPreviewMock<T>(
     const id = Number(p.match(/^\/api\/edu-supervisor\/competitions\/(\d+)\/live-log-token$/)![1]);
     const token = `preview-comp-${Date.now()}`;
     previewStore.setCompetitionLiveToken(id, token);
-    return { ok: true, live_log_token: token, path: `/live-log/${token}` } as T;
+    return { ok: true, live_log_token: token, access_pin: "1234", path: `/live-log/${token}` } as T;
   }
 
   if (p.match(/^\/api\/edu-supervisor\/competitions\/\d+\/activate$/) && m === "POST") {

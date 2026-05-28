@@ -15,7 +15,7 @@ export function EduSupervisorLayout() {
           القسم التعليمي
         </h2>
         <p className={ds.page.description} style={tajawal}>
-          {user?.full_name_ar} — متابعة الخطط، التسكين، المنافسات، يوم الهمة
+          {user?.full_name_ar} — متابعة الخطط، القبول والتوزيع، محرك الفعاليات
         </p>
       </div>
       <EduLegacyTabRedirect />

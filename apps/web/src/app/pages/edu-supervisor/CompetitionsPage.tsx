@@ -124,16 +124,23 @@ export function CompetitionsPage() {
           <code className="text-xs break-all block mb-2" dir="ltr">
             {liveLink}
           </code>
+          <p className="text-sm font-semibold mb-2" style={tajawal}>
+            رمز الدخول (PIN): <span dir="ltr">{accessPin}</span>
+          </p>
           <Button
             type="button"
             variant="outline"
             size="sm"
             className={ds.btnRound}
-            onClick={() => navigator.clipboard.writeText(liveLink)}
+            onClick={() =>
+              navigator.clipboard.writeText(
+                `رابط الرصد: ${liveLink}\nرمز الدخول: ${accessPin}`,
+              )
+            }
             style={tajawal}
           >
             <Copy className="w-4 h-4" />
-            نسخ
+            نسخ الرابط + PIN
           </Button>
         </div>
       )}

@@ -39,6 +39,7 @@ type Rules = {
   error_penalty: number;
   alerts_per_error: number;
   fail_threshold_errors: number;
+  access_pin?: string;
 };
 
 type TargetRow = {
@@ -62,6 +63,7 @@ const DEFAULT_RULES: Rules = {
   error_penalty: 2,
   alerts_per_error: 5,
   fail_threshold_errors: 3,
+  access_pin: "1234",
 };
 
 export function YomHimmaPage() {
@@ -90,6 +92,7 @@ export function YomHimmaPage() {
   const [audit, setAudit] = useState<Record<number, AuditState>>({});
   const [error, setError] = useState<string | null>(null);
   const [liveLogUrl, setLiveLogUrl] = useState<string | null>(null);
+  const [liveLogPin, setLiveLogPin] = useState<string | null>(null);
 
   const setTab = (id: string) => setSearchParams({ tab: id });
 
@@ -158,7 +161,8 @@ export function YomHimmaPage() {
       const res = await api.yomHimmaLiveLogToken(sessionId);
       const url = `${window.location.origin}/live-log/${res.live_log_token}`;
       setLiveLogUrl(url);
-      await navigator.clipboard.writeText(url);
+      setLiveLogPin(res.access_pin);
+      await navigator.clipboard.writeText(`رابط الرصد: ${url}\nرمز الدخول: ${res.access_pin}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل توليد الرابط");
     }
@@ -168,12 +172,6 @@ export function YomHimmaPage() {
     if (readOnly || !getApiToken()) return;
     api.eduTargetOptions().then((res) => {
       const studs = res.students as Array<Record<string, unknown>>;
-      setTargetStudents(
-        studs.map((s) => ({
-          id: Number(s.id),
-          full_name_ar: String(s.full_name_ar ?? ""),
-        })),
-      );
       if (picker.student_ids.length === 0 && studs.length) {
         setPicker((p) => ({
           ...p,
@@ -182,19 +180,6 @@ export function YomHimmaPage() {
       }
     });
   }, [readOnly, picker.student_ids.length]);
-
-  function addAllStudents() {
-    if (!targetStudents.length) return;
-    const ids = targetStudents.map((s) => s.id);
-    setPicker((p) => ({ ...p, student_ids: ids }));
-    setTargets(
-      targetStudents.map((s) => ({
-        student_id: s.id,
-        full_name_ar: s.full_name_ar,
-        target_hizb: defaultHizb,
-      })),
-    );
-  }
 
   async function createSession() {
     if (readOnly) return;
@@ -388,6 +373,7 @@ export function YomHimmaPage() {
                   ["error_penalty", "خصم خطأ/لحن"],
                   ["alerts_per_error", "تنبيهات = خطأ"],
                   ["fail_threshold_errors", "حد الرسوب"],
+                  ["access_pin", "رمز دخول المقرئ (PIN)"],
                 ] as const
               ).map(([key, label]) => (
                 <div key={key}>
@@ -395,13 +381,16 @@ export function YomHimmaPage() {
                     {label}
                   </label>
                   <Input
-                    type="number"
+                    type={key === "access_pin" ? "text" : "number"}
                     value={rules[key]}
                     disabled={readOnly}
                     onChange={(e) =>
                       setRules((r) => ({
                         ...r,
-                        [key]: Number(e.target.value),
+                        [key]:
+                          key === "access_pin"
+                            ? e.target.value
+                            : Number(e.target.value),
                       }))
                     }
                     className={ds.btnRound}
@@ -484,7 +473,7 @@ export function YomHimmaPage() {
               <CardHeader>
                 <CardTitle style={tajawal}>الرصد التشاركي الميداني</CardTitle>
                 <CardDescription style={tajawal}>
-                  شارك الرابط مع المعلمين والمقرئين للرصد من الجوال دون كلمة مرور
+                  شارك الرابط مع المقرئين، مع رمز PIN لحماية بوابة الرصد الخارجية
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -502,16 +491,28 @@ export function YomHimmaPage() {
                     <code className="text-xs break-all block mb-2" dir="ltr">
                       {liveLogUrl}
                     </code>
+                    {liveLogPin && (
+                      <p className="text-sm font-semibold mb-2" style={tajawal}>
+                        رمز الدخول (PIN): <span dir="ltr">{liveLogPin}</span>
+                      </p>
+                    )}
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
                       className={ds.btnRound}
-                      onClick={() => navigator.clipboard.writeText(liveLogUrl)}
+                      onClick={() =>
+                        navigator.clipboard.writeText(
+                          liveLogPin
+                            ? `رابط الرصد: ${liveLogUrl}
+رمز الدخول: ${liveLogPin}`
+                            : liveLogUrl,
+                        )
+                      }
                       style={tajawal}
                     >
                       <Copy className="w-4 h-4" />
-                      نسخ الرابط
+                      نسخ الرابط + PIN
                     </Button>
                   </div>
                 )}

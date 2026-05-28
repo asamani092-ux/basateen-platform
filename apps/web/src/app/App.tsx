@@ -11,13 +11,13 @@ import { WelcomePage } from "./pages/WelcomePage";
 import { TvLivePage } from "./pages/tv/TvLivePage";
 import { LiveLogPage } from "./pages/live-log/LiveLogPage";
 import { TeacherHubPage } from "./pages/teacher/TeacherHubPage";
-import { PlacementQueueTab } from "./pages/edu-supervisor/PlacementQueueTab";
+import { MasterGridConsole } from "./pages/edu-supervisor/MasterGridConsole";
+import { EventsEngineConsole } from "./pages/edu-supervisor/EventsEngineConsole";
 import { StudentsPage } from "./pages/admin/StudentsPage";
 import { TransfersPage } from "./pages/admin/TransfersPage";
 import { AdminCirclesPage } from "./pages/admin/AdminCirclesPage";
 import { EduDashboardPage } from "./pages/edu-supervisor/EduDashboardPage";
 import { YomHimmaPage } from "./pages/edu-supervisor/YomHimmaPage";
-import { CompetitionsPage } from "./pages/edu-supervisor/CompetitionsPage";
 import { CompetitionDetailPage } from "./pages/edu-supervisor/CompetitionDetailPage";
 import { StudentProfilePage } from "./pages/edu-supervisor/StudentProfilePage";
 import { ProgSupervisorLayout } from "./layouts/ProgSupervisorLayout";
@@ -35,7 +35,6 @@ import { GsStudentAttendancePage } from "./pages/general-supervisor/GsStudentAtt
 import { StaffManagementPage } from "./pages/admin/StaffManagementPage";
 import { CirclesSetupPage } from "./pages/admin/CirclesSetupPage";
 import { StatisticsPage } from "./pages/admin/StatisticsPage";
-import { SuperEduGridConsole } from "./pages/edu-supervisor/SuperEduGridConsole";
 import { STAFF_ROLES } from "./config/role-access";
 
 export default function App() {
@@ -81,16 +80,19 @@ export default function App() {
                 />
                 <Route
                   path="education"
-                  element={<Navigate to="/edu-supervisor/competitions" replace />}
+                  element={<Navigate to="/edu-supervisor/events-engine" replace />}
                 />
-                <Route path="placement" element={<PlacementQueueTab />} />
+                <Route path="master-grid" element={<MasterGridConsole />} />
                 <Route path="students" element={<StudentsPage />} />
                 <Route path="students/:studentId" element={<StudentProfilePage />} />
                 <Route path="transfers" element={<TransfersPage />} />
                 <Route path="circles" element={<AdminCirclesPage />} />
+                <Route path="events-engine" element={<EventsEngineConsole />} />
                 <Route path="yom-himma" element={<YomHimmaPage />} />
-                <Route path="master-grid" element={<SuperEduGridConsole />} />
-                <Route path="competitions" element={<CompetitionsPage />} />
+                <Route
+                  path="competitions"
+                  element={<Navigate to="/edu-supervisor/events-engine" replace />}
+                />
                 <Route
                   path="competitions/:competitionId"
                   element={<CompetitionDetailPage />}
@@ -159,7 +161,7 @@ export default function App() {
               />
               <Route
                 path="education/*"
-                element={<Navigate to="/edu-supervisor/competitions" replace />}
+                element={<Navigate to="/edu-supervisor/events-engine" replace />}
               />
               <Route
                 path="programs/*"

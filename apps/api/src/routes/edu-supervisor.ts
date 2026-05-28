@@ -185,5 +185,70 @@ export async function handleEduSupervisorRouter(
     return json({ ok: true, student_id: studentId, status, attendance_date: date });
   }
 
+  if (request.method === "GET" && path === "/api/edu-supervisor/master-grid") {
+    const pendingOnly = url.searchParams.get("pending_acceptance") === "1";
+    const q = (url.searchParams.get("q") ?? "").trim();
+    const scopeWhere = studentsInScopeWhere(scope);
+    let sql = `
+      SELECT * FROM (
+        SELECT
+          s.id,
+          s.full_name_ar,
+          s.is_active,
+          s.stage_id,
+          s.school_grade,
+          s.admission_status,
+          h.circle_id AS current_circle_id,
+          c.name_ar AS current_circle_name,
+          h.track_id AS current_track_id,
+          t.name_ar AS current_track_name
+        FROM students s
+        LEFT JOIN student_circle_history h
+          ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL
+        LEFT JOIN circles c ON c.id = h.circle_id
+        LEFT JOIN tracks t ON t.id = h.track_id
+        WHERE ${scopeWhere}
+      ) master_sheet
+      WHERE 1 = 1
+    `;
+    const binds: Array<string | number> = [
+      ...studentsInScopeBinds(auth.complexId, scope),
+    ];
+    if (pendingOnly) {
+      sql += ` AND current_circle_id IS NULL AND current_track_id IS NULL`;
+    }
+    if (q.length > 0) {
+      sql += ` AND full_name_ar LIKE ?`;
+      binds.push(`%${q}%`);
+    }
+    sql += ` ORDER BY full_name_ar LIMIT 500`;
+    const rows = await env.DB.prepare(sql).bind(...binds).all();
+
+    const circles = await env.DB.prepare(
+      `SELECT id, name_ar, track_id
+       FROM circles
+       WHERE complex_id = ? AND is_active = 1
+       ORDER BY name_ar`,
+    )
+      .bind(auth.complexId)
+      .all();
+
+    const tracks = await env.DB.prepare(
+      `SELECT id, name_ar
+       FROM tracks
+       WHERE complex_id = ?
+       ORDER BY name_ar`,
+    )
+      .bind(auth.complexId)
+      .all();
+
+    return json({
+      items: rows.results ?? [],
+      circles: circles.results ?? [],
+      tracks: tracks.results ?? [],
+      pending_filter_applied: pendingOnly,
+    });
+  }
+
   return json({ error: "Not Found", path }, 404);
 }

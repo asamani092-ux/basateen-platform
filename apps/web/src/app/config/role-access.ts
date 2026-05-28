@@ -21,7 +21,6 @@ const PATH_RULES: Array<{ prefix: string; roles: UserRole[] }> = [
   { prefix: "/admin/circles-setup", roles: ["general_manager"] },
   { prefix: "/admin/statistics", roles: ["general_manager"] },
   { prefix: "/edu-supervisor/yom-himma", roles: ["edu_supervisor"] },
-  { prefix: "/edu-supervisor/master-grid", roles: ["edu_supervisor"] },
   { prefix: "/edu-supervisor/competitions", roles: ["edu_supervisor"] },
   { prefix: "/edu-supervisor", roles: ["edu_supervisor"] },
   { prefix: "/prog-supervisor", roles: ["prog_supervisor"] },
@@ -66,12 +65,12 @@ export const LEGACY_REDIRECTS: Record<string, string | "home"> = {
 
 /** تحويل ?tab= القديمة للمشرف التعليمي */
 export const EDU_LEGACY_TAB_REDIRECTS: Record<string, string> = {
-  placement: "/edu-supervisor/placement",
+  placement: "/edu-supervisor/master-grid",
   students: "/edu-supervisor/students",
   transfers: "/edu-supervisor/transfers",
   circles: "/edu-supervisor/circles",
-  education: "/edu-supervisor/competitions",
-  attendance: "/edu-supervisor/placement",
+  education: "/edu-supervisor/events-engine",
+  attendance: "/edu-supervisor/master-grid",
 };
 
 export function resolveEduTabRedirect(pathname: string, tab: string | null): string | null {

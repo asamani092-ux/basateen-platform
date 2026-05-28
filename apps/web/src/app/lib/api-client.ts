@@ -147,72 +147,6 @@ export type StudentDetail = {
   history: HistoryRow[];
 };
 
-export type ReciterGateResponse = {
-  ok: boolean;
-  session_token: string;
-  session: {
-    kind: "yom_himma" | "competition";
-    id: number;
-    name_ar: string;
-    date: string;
-    status: string;
-    rules: Record<string, unknown>;
-    tv_key: string;
-  };
-  students: Array<{
-    id: number;
-    full_name_ar: string;
-    school_grade: string | null;
-  }>;
-};
-
-export type ReciterSnapshot = {
-  student: {
-    id: number;
-    full_name_ar: string;
-    school_grade: string | null;
-    memorization_amount: string | null;
-  };
-  cumulative: {
-    total_memorized_days: number;
-    aggregate_errors: number;
-    aggregate_warnings: number;
-  };
-  plan: Record<string, unknown> | null;
-  session_today: {
-    has_memorized: number;
-    memorization_errors: number;
-    memorization_warnings: number;
-    juz_done: number;
-    hizb_done: number;
-    current_hizb_failed: number;
-  };
-  target: { target_juz: number; target_hizb: number };
-};
-
-async function requestWithBearer<T>(
-  path: string,
-  bearer: string,
-  init?: RequestInit,
-): Promise<T> {
-  const url = `${API_BASE.replace(/\/$/, "")}${path}`;
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${bearer}`,
-      ...(init?.headers as Record<string, string> | undefined),
-    },
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(
-      (body as { error?: string }).error ?? `HTTP ${res.status}`,
-    );
-  }
-  return res.json() as Promise<T>;
-}
-
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase();
   const bodyText =
@@ -272,7 +206,7 @@ export const api = {
     request<StudentDetail>(`/api/students/${id}`),
   transferStudent: (
     id: number,
-    body: { circle_id: number; note?: string },
+    body: { circle_id: number; track_id?: number; note?: string },
   ) =>
     request<{
       ok: boolean;
@@ -290,6 +224,28 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  eduMasterGrid: (params?: { pending_acceptance?: "0" | "1"; q?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.pending_acceptance) qs.set("pending_acceptance", params.pending_acceptance);
+    if (params?.q?.trim()) qs.set("q", params.q.trim());
+    return request<{
+      items: Array<{
+        id: number;
+        full_name_ar: string;
+        is_active: number;
+        stage_id: number | null;
+        school_grade: string | null;
+        admission_status: string | null;
+        current_circle_id: number | null;
+        current_circle_name: string | null;
+        current_track_id: number | null;
+        current_track_name: string | null;
+      }>;
+      circles: CircleOption[];
+      tracks: Array<{ id: number; name_ar: string }>;
+      pending_filter_applied: boolean;
+    }>(`/api/edu-supervisor/master-grid${qs.toString() ? `?${qs.toString()}` : ""}`);
+  },
   studentsExport: () =>
     request<{ items: StudentExportRow[]; count: number }>(
       "/api/students/export",
@@ -340,40 +296,29 @@ export const api = {
       `/api/yom-himma/tv?key=${encodeURIComponent(key)}`,
     ),
   yomHimmaLiveLogToken: (sessionId: number) =>
+    request<{ ok: boolean; live_log_token: string; access_pin: string; path: string }>(
+      `/api/yom-himma/${sessionId}/live-log-token`,
+      { method: "POST", body: "{}" },
+    ),
+  liveLogSession: (token: string, pin_code?: string) =>
     request<{
-      ok: boolean;
-      live_log_token: string;
-      access_pin: string;
-      path: string;
-    }>(`/api/yom-himma/${sessionId}/live-log-token`, {
-      method: "POST",
-      body: "{}",
+      kind: "yom_himma" | "competition";
+      session: Record<string, unknown>;
+      students: Array<Record<string, unknown>>;
+      audit?: Array<Record<string, unknown>>;
+      logs?: Array<Record<string, unknown>>;
+    }>(`/api/live-log/${encodeURIComponent(token)}`, {
+      headers: pin_code ? { "X-Live-Pin": pin_code } : undefined,
     }),
-  reciterValidateGate: (token: string, pin_code: string) =>
-    request<ReciterGateResponse>("/api/v1/education/public/validate-gate", {
-      method: "POST",
-      body: JSON.stringify({ token, pin_code }),
-    }),
-  reciterStudentSnapshot: (studentId: number, sessionToken: string) =>
-    requestWithBearer<ReciterSnapshot>(
-      `/api/v1/education/public/student-snapshot/${studentId}`,
-      sessionToken,
+  liveLogUpsert: (token: string, body: Record<string, unknown>, pin_code?: string) =>
+    request<{ ok: boolean; failed?: boolean; tv_key?: string }>(
+      `/api/live-log/${encodeURIComponent(token)}`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        headers: pin_code ? { "X-Live-Pin": pin_code } : undefined,
+      },
     ),
-  reciterSubmitLog: (body: Record<string, unknown>, sessionToken: string) =>
-    requestWithBearer<{ ok: boolean; failed?: boolean; tv_key?: string | null }>(
-      "/api/v1/education/public/submit-log",
-      sessionToken,
-      { method: "POST", body: JSON.stringify(body) },
-    ),
-  eduSupervisorMasterGrid: (queryString: string) =>
-    request<{ date: string; rows: Array<Record<string, unknown>> }>(
-      `/api/v1/education/supervisor/master-grid?${queryString}`,
-    ),
-  eduSupervisorUpsertLog: (body: Record<string, unknown>) =>
-    request<{ ok: boolean }>("/api/v1/education/supervisor/upsert-log", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
   competitionsList: () =>
     request<{ items: Array<Record<string, unknown>> }>(
       "/api/edu-supervisor/competitions",
@@ -390,7 +335,7 @@ export const api = {
       plans: Array<Record<string, unknown>>;
     }>(`/api/edu-supervisor/competitions/${id}`),
   competitionsLiveLogToken: (id: number) =>
-    request<{ ok: boolean; live_log_token: string; path: string }>(
+    request<{ ok: boolean; live_log_token: string; access_pin: string; path: string }>(
       `/api/edu-supervisor/competitions/${id}/live-log-token`,
       { method: "POST", body: "{}" },
     ),

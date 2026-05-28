@@ -2,12 +2,29 @@ import type { Env, UserRole, UserRow } from "../types";
 import { mobileLookupKeys, normalizeMobile } from "./mobile";
 
 let cachedHasRoleColumn: boolean | null = null;
+let cachedHasUserSectionsTable: boolean | null = null;
+let cachedUserColumns: Set<string> | null = null;
+
+async function getUserColumns(env: Env): Promise<Set<string>> {
+  if (cachedUserColumns) return cachedUserColumns;
+  const rows = await env.DB.prepare("PRAGMA table_info(users)").all<{ name: string }>();
+  cachedUserColumns = new Set((rows.results ?? []).map((r) => r.name));
+  return cachedUserColumns;
+}
 
 export async function usersHaveRoleColumn(env: Env): Promise<boolean> {
   if (cachedHasRoleColumn !== null) return cachedHasRoleColumn;
-  const rows = await env.DB.prepare("PRAGMA table_info(users)").all<{ name: string }>();
-  cachedHasRoleColumn = (rows.results ?? []).some((r) => r.name === "role");
+  cachedHasRoleColumn = (await getUserColumns(env)).has("role");
   return cachedHasRoleColumn;
+}
+
+async function hasUserSectionsTable(env: Env): Promise<boolean> {
+  if (cachedHasUserSectionsTable !== null) return cachedHasUserSectionsTable;
+  const row = await env.DB.prepare(
+    "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'user_sections' LIMIT 1",
+  ).first();
+  cachedHasUserSectionsTable = row !== null;
+  return cachedHasUserSectionsTable;
 }
 
 export function resolveRoleFromFlat(row: {
@@ -21,6 +38,22 @@ export function resolveRoleFromFlat(row: {
   if (row.is_programs === 1) return "prog_supervisor";
   if (row.is_teacher === 1) return "teacher";
   return "general_manager";
+}
+
+function sectionsFromFlatFlags(row: {
+  is_admin?: number | null;
+  is_educational?: number | null;
+  is_programs?: number | null;
+  is_teacher?: number | null;
+}): string[] {
+  const sections: string[] = [];
+  if (row.is_admin === 1) sections.push("admin");
+  if (row.is_educational === 1) sections.push("education");
+  if (row.is_programs === 1) sections.push("programs");
+  if (row.is_teacher === 1 && !sections.includes("education")) {
+    sections.push("education");
+  }
+  return sections.length ? sections : ["admin", "education", "programs"];
 }
 
 type RawUser = {
@@ -84,9 +117,7 @@ export async function loadUserByMobile(
   env: Env,
   rawMobile: string,
 ): Promise<UserRow | null> {
-  const keys = mobileLookupKeys(
-    normalizeMobile(rawMobile) ?? rawMobile,
-  );
+  const keys = mobileLookupKeys(normalizeMobile(rawMobile) ?? rawMobile);
   const placeholders = keys.map(() => "?").join(", ");
   return queryUser(
     env,
@@ -100,9 +131,10 @@ export async function loadUserByMobile(
 }
 
 export async function loadUserPayload(env: Env, userId: number) {
-  const hasRole = await usersHaveRoleColumn(env);
-  const hasSupervisorScope = (await env.DB.prepare("PRAGMA table_info(users)").all<{ name: string }>())
-    .results?.some((r) => r.name === "supervisor_scope");
+  const cols = await getUserColumns(env);
+  const hasRole = cols.has("role");
+  const hasSupervisorScope = cols.has("supervisor_scope");
+  const hasStageScope = cols.has("stage_scope");
 
   const user = hasRole
     ? await env.DB.prepare(
@@ -123,7 +155,9 @@ export async function loadUserPayload(env: Env, userId: number) {
         }>()
     : await env.DB.prepare(
         `SELECT id, email, mobile, full_name_ar, complex_id,
-                is_admin, is_educational, is_programs, is_teacher, stage_scope
+                is_admin, is_educational, is_programs, is_teacher${
+                  hasStageScope ? ", stage_scope" : ""
+                }
          FROM users WHERE id = ? AND is_active = 1`,
       )
         .bind(userId)
@@ -142,11 +176,21 @@ export async function loadUserPayload(env: Env, userId: number) {
 
   if (!user) return null;
 
-  const sections = await env.DB.prepare(
-    "SELECT section FROM user_sections WHERE user_id = ?",
-  )
-    .bind(userId)
-    .all<{ section: string }>();
+  let sections: string[] = ["admin", "education", "programs"];
+  if (await hasUserSectionsTable(env)) {
+    const sectionRows = await env.DB.prepare(
+      "SELECT section FROM user_sections WHERE user_id = ?",
+    )
+      .bind(userId)
+      .all<{ section: string }>();
+    if (sectionRows.results?.length) {
+      sections = sectionRows.results.map((r) => r.section);
+    }
+  } else if (!hasRole) {
+    sections = sectionsFromFlatFlags(
+      user as Parameters<typeof sectionsFromFlatFlags>[0],
+    );
+  }
 
   const role = hasRole
     ? (user as { role: string }).role
@@ -162,12 +206,9 @@ export async function loadUserPayload(env: Env, userId: number) {
     supervisor_scope:
       hasRole && "supervisor_scope" in user && user.supervisor_scope
         ? String(user.supervisor_scope)
-        : "stage_scope" in user && user.stage_scope
+        : hasStageScope && "stage_scope" in user && user.stage_scope
           ? String(user.stage_scope)
           : "global",
-    sections:
-      sections.results?.length
-        ? sections.results.map((r) => r.section)
-        : ["admin", "education", "programs"],
+    sections,
   };
 }

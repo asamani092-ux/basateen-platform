@@ -3,7 +3,7 @@ import type { UserRow } from "../types";
 import { createToken, getAuth } from "../middleware/auth";
 import { verifyPassword } from "../lib/password";
 import { sha256Hex } from "../lib/crypto";
-import { normalizeMobile } from "../lib/mobile";
+import { mobileLookupKeys, normalizeMobile } from "../lib/mobile";
 
 async function issueSession(
   env: Env,
@@ -120,13 +120,11 @@ export async function handleLoginMobile(
     return Response.json({ error: "invalid_mobile" }, { status: 400 });
   }
 
-  const keys = mobileLookupKeys(mobile);
-  const placeholders = keys.map(() => "?").join(", ");
   const user = await env.DB.prepare(
     `SELECT id, email, mobile, password_hash, role, full_name_ar, complex_id, is_active
-     FROM users WHERE mobile IN (${placeholders}) LIMIT 1`,
+     FROM users WHERE mobile = ? LIMIT 1`,
   )
-    .bind(...keys)
+    .bind(mobile)
     .first<UserRow>();
 
   if (!user) {

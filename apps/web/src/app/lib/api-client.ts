@@ -169,6 +169,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    if ((body as { clear_polluted_session?: boolean }).clear_polluted_session) {
+      console.warn(
+        "Contaminated session context detected by server. Executing clean sweep...",
+      );
+      sessionStorage.clear();
+      localStorage.removeItem("auth_token");
+      window.location.href = "/login?reason=session_reset";
+      throw new Error("legacy_session_detected");
+    }
     throw new Error(
       (body as { error?: string; message?: string }).error ??
         (body as { message?: string }).message ??
@@ -206,7 +215,7 @@ export const api = {
     request<StudentDetail>(`/api/students/${id}`),
   transferStudent: (
     id: number,
-    body: { circle_id: number; track_id?: number; note?: string },
+    body: { circle_id: number; note?: string },
   ) =>
     request<{
       ok: boolean;
@@ -224,28 +233,6 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  eduMasterGrid: (params?: { pending_acceptance?: "0" | "1"; q?: string }) => {
-    const qs = new URLSearchParams();
-    if (params?.pending_acceptance) qs.set("pending_acceptance", params.pending_acceptance);
-    if (params?.q?.trim()) qs.set("q", params.q.trim());
-    return request<{
-      items: Array<{
-        id: number;
-        full_name_ar: string;
-        is_active: number;
-        stage_id: number | null;
-        school_grade: string | null;
-        admission_status: string | null;
-        current_circle_id: number | null;
-        current_circle_name: string | null;
-        current_track_id: number | null;
-        current_track_name: string | null;
-      }>;
-      circles: CircleOption[];
-      tracks: Array<{ id: number; name_ar: string }>;
-      pending_filter_applied: boolean;
-    }>(`/api/edu-supervisor/master-grid${qs.toString() ? `?${qs.toString()}` : ""}`);
-  },
   studentsExport: () =>
     request<{ items: StudentExportRow[]; count: number }>(
       "/api/students/export",
@@ -296,28 +283,22 @@ export const api = {
       `/api/yom-himma/tv?key=${encodeURIComponent(key)}`,
     ),
   yomHimmaLiveLogToken: (sessionId: number) =>
-    request<{ ok: boolean; live_log_token: string; access_pin: string; path: string }>(
+    request<{ ok: boolean; live_log_token: string; path: string }>(
       `/api/yom-himma/${sessionId}/live-log-token`,
       { method: "POST", body: "{}" },
     ),
-  liveLogSession: (token: string, pin_code?: string) =>
+  liveLogSession: (token: string) =>
     request<{
       kind: "yom_himma" | "competition";
       session: Record<string, unknown>;
       students: Array<Record<string, unknown>>;
       audit?: Array<Record<string, unknown>>;
       logs?: Array<Record<string, unknown>>;
-    }>(`/api/live-log/${encodeURIComponent(token)}`, {
-      headers: pin_code ? { "X-Live-Pin": pin_code } : undefined,
-    }),
-  liveLogUpsert: (token: string, body: Record<string, unknown>, pin_code?: string) =>
+    }>(`/api/live-log/${encodeURIComponent(token)}`),
+  liveLogUpsert: (token: string, body: Record<string, unknown>) =>
     request<{ ok: boolean; failed?: boolean; tv_key?: string }>(
       `/api/live-log/${encodeURIComponent(token)}`,
-      {
-        method: "POST",
-        body: JSON.stringify(body),
-        headers: pin_code ? { "X-Live-Pin": pin_code } : undefined,
-      },
+      { method: "POST", body: JSON.stringify(body) },
     ),
   competitionsList: () =>
     request<{ items: Array<Record<string, unknown>> }>(
@@ -335,7 +316,7 @@ export const api = {
       plans: Array<Record<string, unknown>>;
     }>(`/api/edu-supervisor/competitions/${id}`),
   competitionsLiveLogToken: (id: number) =>
-    request<{ ok: boolean; live_log_token: string; access_pin: string; path: string }>(
+    request<{ ok: boolean; live_log_token: string; path: string }>(
       `/api/edu-supervisor/competitions/${id}/live-log-token`,
       { method: "POST", body: "{}" },
     ),

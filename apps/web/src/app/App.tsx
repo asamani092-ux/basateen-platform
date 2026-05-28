@@ -35,6 +35,7 @@ import { GsStudentAttendancePage } from "./pages/general-supervisor/GsStudentAtt
 import { StaffManagementPage } from "./pages/admin/StaffManagementPage";
 import { CirclesSetupPage } from "./pages/admin/CirclesSetupPage";
 import { StatisticsPage } from "./pages/admin/StatisticsPage";
+import { SuperEduGridConsole } from "./pages/edu-supervisor/SuperEduGridConsole";
 import { STAFF_ROLES } from "./config/role-access";
 
 export default function App() {

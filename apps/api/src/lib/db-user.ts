@@ -1,88 +1,105 @@
-import type { DbUserRow, UserRole } from "../../../../packages/types/schema";
-import { resolveRoleFromUser } from "../../../../packages/types/schema";
-import type { Env, UserRow } from "../types";
+import type { Env, UserRole, UserRow } from "../types";
+import { mobileLookupKeys, normalizeMobile } from "./mobile";
 
-let cachedRoleColumn: boolean | null = null;
+let cachedHasRoleColumn: boolean | null = null;
 
-async function usersHaveRoleColumn(env: Env): Promise<boolean> {
-  if (cachedRoleColumn !== null) return cachedRoleColumn;
+export async function usersHaveRoleColumn(env: Env): Promise<boolean> {
+  if (cachedHasRoleColumn !== null) return cachedHasRoleColumn;
   const rows = await env.DB.prepare("PRAGMA table_info(users)").all<{ name: string }>();
-  cachedRoleColumn = (rows.results ?? []).some((r) => r.name === "role");
-  return cachedRoleColumn;
+  cachedHasRoleColumn = (rows.results ?? []).some((r) => r.name === "role");
+  return cachedHasRoleColumn;
 }
 
-function toUserRow(raw: DbUserRow & { is_active: number }): UserRow {
+export function resolveRoleFromFlat(row: {
+  is_admin?: number | null;
+  is_educational?: number | null;
+  is_programs?: number | null;
+  is_teacher?: number | null;
+}): UserRole {
+  if (row.is_admin === 1) return "general_manager";
+  if (row.is_educational === 1) return "edu_supervisor";
+  if (row.is_programs === 1) return "prog_supervisor";
+  if (row.is_teacher === 1) return "teacher";
+  return "general_manager";
+}
+
+type RawUser = {
+  id: number;
+  email: string;
+  mobile: string | null;
+  password_hash: string;
+  full_name_ar: string;
+  complex_id: number;
+  is_active: number;
+  role?: string;
+  is_admin?: number | null;
+  is_educational?: number | null;
+  is_programs?: number | null;
+  is_teacher?: number | null;
+};
+
+function toUserRow(raw: RawUser): UserRow {
+  const role =
+    raw.role && typeof raw.role === "string"
+      ? (raw.role as UserRole)
+      : resolveRoleFromFlat(raw);
   return {
     id: raw.id,
     email: raw.email,
-    mobile: raw.mobile ?? null,
+    mobile: raw.mobile,
     password_hash: raw.password_hash,
     full_name_ar: raw.full_name_ar,
     complex_id: raw.complex_id,
     is_active: raw.is_active,
-    role: resolveRoleFromUser(raw),
+    role,
   };
 }
 
-export async function loadUserByEmail(
+async function queryUser(
   env: Env,
-  email: string,
+  sqlRole: string,
+  sqlFlat: string,
+  binds: string[],
 ): Promise<UserRow | null> {
   const hasRole = await usersHaveRoleColumn(env);
-  const row = hasRole
-    ? await env.DB.prepare(
-        `SELECT id, email, mobile, password_hash, full_name_ar, complex_id, is_active, role
-         FROM users WHERE email = ? LIMIT 1`,
-      )
-        .bind(email)
-        .first<DbUserRow & { is_active: number }>()
-    : await env.DB.prepare(
-        `SELECT id, email, mobile, password_hash, full_name_ar, complex_id, is_active,
-                is_admin, is_educational, is_programs, is_teacher, is_track_supervisor, stage_scope
-         FROM users WHERE email = ? LIMIT 1`,
-      )
-        .bind(email)
-        .first<DbUserRow & { is_active: number }>();
-
+  const row = await env.DB.prepare(hasRole ? sqlRole : sqlFlat)
+    .bind(...binds)
+    .first<RawUser>();
   return row ? toUserRow(row) : null;
+}
+
+export async function loadUserByEmail(env: Env, email: string): Promise<UserRow | null> {
+  return queryUser(
+    env,
+    `SELECT id, email, mobile, password_hash, full_name_ar, complex_id, is_active, role
+     FROM users WHERE email = ? LIMIT 1`,
+    `SELECT id, email, mobile, password_hash, full_name_ar, complex_id, is_active,
+            is_admin, is_educational, is_programs, is_teacher
+     FROM users WHERE email = ? LIMIT 1`,
+    [email],
+  );
 }
 
 export async function loadUserByMobile(
   env: Env,
-  mobile: string,
+  rawMobile: string,
 ): Promise<UserRow | null> {
-  const hasRole = await usersHaveRoleColumn(env);
-  const row = hasRole
-    ? await env.DB.prepare(
-        `SELECT id, email, mobile, password_hash, full_name_ar, complex_id, is_active, role
-         FROM users WHERE mobile = ? LIMIT 1`,
-      )
-        .bind(mobile)
-        .first<DbUserRow & { is_active: number }>()
-    : await env.DB.prepare(
-        `SELECT id, email, mobile, password_hash, full_name_ar, complex_id, is_active,
-                is_admin, is_educational, is_programs, is_teacher, is_track_supervisor, stage_scope
-         FROM users WHERE mobile = ? LIMIT 1`,
-      )
-        .bind(mobile)
-        .first<DbUserRow & { is_active: number }>();
-
-  return row ? toUserRow(row) : null;
+  const keys = mobileLookupKeys(
+    normalizeMobile(rawMobile) ?? rawMobile,
+  );
+  const placeholders = keys.map(() => "?").join(", ");
+  return queryUser(
+    env,
+    `SELECT id, email, mobile, password_hash, full_name_ar, complex_id, is_active, role
+     FROM users WHERE mobile IN (${placeholders}) LIMIT 1`,
+    `SELECT id, email, mobile, password_hash, full_name_ar, complex_id, is_active,
+            is_admin, is_educational, is_programs, is_teacher
+     FROM users WHERE mobile IN (${placeholders}) LIMIT 1`,
+    keys,
+  );
 }
 
-export async function loadUserPayload(
-  env: Env,
-  userId: number,
-): Promise<{
-  id: number;
-  email: string;
-  mobile: string | null;
-  full_name_ar: string;
-  role: UserRole;
-  complex_id: number;
-  supervisor_scope: string;
-  sections: string[];
-} | null> {
+export async function loadUserPayload(env: Env, userId: number) {
   const hasRole = await usersHaveRoleColumn(env);
   const hasSupervisorScope = (await env.DB.prepare("PRAGMA table_info(users)").all<{ name: string }>())
     .results?.some((r) => r.name === "supervisor_scope");
@@ -95,14 +112,33 @@ export async function loadUserPayload(
          FROM users WHERE id = ? AND is_active = 1`,
       )
         .bind(userId)
-        .first<DbUserRow & { supervisor_scope?: string | null }>()
+        .first<{
+          id: number;
+          email: string;
+          mobile: string | null;
+          full_name_ar: string;
+          role: string;
+          complex_id: number;
+          supervisor_scope?: string | null;
+        }>()
     : await env.DB.prepare(
         `SELECT id, email, mobile, full_name_ar, complex_id,
-                is_admin, is_educational, is_programs, is_teacher, is_track_supervisor, stage_scope
+                is_admin, is_educational, is_programs, is_teacher, stage_scope
          FROM users WHERE id = ? AND is_active = 1`,
       )
         .bind(userId)
-        .first<DbUserRow>();
+        .first<{
+          id: number;
+          email: string;
+          mobile: string | null;
+          full_name_ar: string;
+          complex_id: number;
+          is_admin?: number | null;
+          is_educational?: number | null;
+          is_programs?: number | null;
+          is_teacher?: number | null;
+          stage_scope?: string | null;
+        }>();
 
   if (!user) return null;
 
@@ -112,20 +148,26 @@ export async function loadUserPayload(
     .bind(userId)
     .all<{ section: string }>();
 
-  const flat = user as DbUserRow & { stage_scope?: string | null };
+  const role = hasRole
+    ? (user as { role: string }).role
+    : resolveRoleFromFlat(user as Parameters<typeof resolveRoleFromFlat>[0]);
+
   return {
     id: user.id,
     email: user.email,
-    mobile: user.mobile ?? null,
+    mobile: user.mobile,
     full_name_ar: user.full_name_ar,
-    role: resolveRoleFromUser(user),
+    role: role as UserRole,
     complex_id: user.complex_id,
     supervisor_scope:
-      hasSupervisorScope && "supervisor_scope" in flat && flat.supervisor_scope
-        ? String(flat.supervisor_scope)
-        : flat.stage_scope
-          ? String(flat.stage_scope)
+      hasRole && "supervisor_scope" in user && user.supervisor_scope
+        ? String(user.supervisor_scope)
+        : "stage_scope" in user && user.stage_scope
+          ? String(user.stage_scope)
           : "global",
-    sections: sections.results?.map((r) => r.section) ?? ["admin", "education", "programs"],
+    sections:
+      sections.results?.length
+        ? sections.results.map((r) => r.section)
+        : ["admin", "education", "programs"],
   };
 }

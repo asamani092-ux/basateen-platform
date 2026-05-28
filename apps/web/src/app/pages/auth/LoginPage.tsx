@@ -18,7 +18,7 @@ import { ds, tajawal } from "../../lib/design-system";
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { login, logout, isAuthenticated, user } = useAuth();
+  const { login } = useAuth();
   const [mobile, setMobile] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -30,14 +30,6 @@ export function LoginPage() {
   const canSubmitMobile = Boolean(normalized) && !loading;
   const canSubmitEmail =
     Boolean(email.trim() && password) && !loading && !isUiDevPreview();
-
-  function handleLogout() {
-    logout();
-    setError(null);
-    setMobile("");
-    setEmail("");
-    setPassword("");
-  }
 
   function finishLogin(
     res: { token: string; user: { id: number; full_name_ar: string; role: string; sections: string[] } },
@@ -133,34 +125,6 @@ export function LoginPage() {
           </p>
         </CardHeader>
         <CardContent>
-          {isAuthenticated && user && (
-            <div className={`mb-4 ${ds.alert.info}`}>
-              <p style={tajawal}>
-                أنت مسجّل كـ <strong>{user.full_name_ar}</strong>
-              </p>
-              <div className="flex flex-wrap gap-2 mt-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={ds.btnRound}
-                  style={tajawal}
-                  onClick={() => navigate(user.homePath)}
-                >
-                  الذهاب للوحة العمل
-                </Button>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  className={ds.btnRound}
-                  style={tajawal}
-                  onClick={handleLogout}
-                >
-                  تسجيل خروج
-                </Button>
-              </div>
-            </div>
-          )}
-
           {!useEmail ? (
             <form onSubmit={onSubmitMobile} className="space-y-4">
               <div>

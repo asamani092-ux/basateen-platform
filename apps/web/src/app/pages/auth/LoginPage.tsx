@@ -4,11 +4,10 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Card, CardContent, CardHeader } from "../../components/ui/card";
 import { useAuth } from "../../context/AuthContext";
-import { normalizeMobile } from "../../lib/auth-store";
-import {
-  apiTokenSyncErrorMessage,
-  syncApiTokenForMobile,
-} from "../../lib/api-token";
+import { loginWithApiUser, normalizeMobile, type UserRole } from "../../lib/auth-store";
+import { syncApiTokenForMobile, setApiToken } from "../../lib/api-token";
+import { api } from "../../lib/api-client";
+import { ROLE_HOME } from "../../config/role-access";
 import { isUiDevPreview } from "../../lib/dev-preview";
 import { ds, tajawal } from "../../lib/design-system";
 
@@ -42,10 +41,10 @@ export function LoginPage() {
       setError("رقم الجوال غير مسجّل في النظام");
       return;
     }
-    const apiSync = await syncApiTokenForMobile(mobile);
+    const apiOk = await syncApiTokenForMobile(mobile);
     setLoading(false);
-    if (!apiSync.ok && !isUiDevPreview() && authUser.role !== "teacher") {
-      setError(apiTokenSyncErrorMessage(apiSync));
+    if (!apiOk && !isUiDevPreview() && authUser.role !== "teacher") {
+      setError("تعذّر ربط API — تحقق من نشر Worker وحسابات seed");
       return;
     }
     navigate(authUser.homePath, { replace: true });

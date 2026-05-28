@@ -40,7 +40,7 @@ export type AuthSession = {
 
   user: AuthUser;
 
-  mock: true;
+  mock: boolean;
 
 };
 
@@ -230,6 +230,32 @@ export function loginWithMobile(rawMobile: string): AuthUser | null {
 
   return user;
 
+}
+
+/** Session from real API login (D1 user — not mock whitelist) */
+export function loginWithApiUser(
+  apiUser: {
+    id: number;
+    full_name_ar: string;
+    role: UserRole;
+    sections?: string[];
+  },
+  rawMobile: string,
+  homePath: string,
+): AuthUser | null {
+  const mobile = normalizeMobile(rawMobile);
+  if (!mobile) return null;
+  const user: AuthUser = {
+    id: apiUser.id,
+    mobile,
+    full_name_ar: apiUser.full_name_ar,
+    role: apiUser.role,
+    sections: apiUser.sections ?? [],
+    homePath,
+  };
+  const session: AuthSession = { user, mock: false };
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  return user;
 }
 
 

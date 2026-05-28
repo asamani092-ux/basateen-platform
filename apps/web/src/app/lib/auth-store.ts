@@ -49,6 +49,13 @@ export type AuthSession = {
 /** Mock users — mobile only (MASTER-SPEC) */
 
 const MOCK_BY_MOBILE: Record<string, Omit<AuthUser, "mobile">> = {
+  "0500000000": {
+    id: 1,
+    full_name_ar: "المشرف العام السيادي",
+    role: "general_manager",
+    sections: ["admin", "education", "programs"],
+    homePath: "/admin/staff",
+  },
 
   "0500000001": {
 

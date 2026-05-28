@@ -3,7 +3,7 @@ import type { UserRow } from "../types";
 import { createToken, getAuth } from "../middleware/auth";
 import { verifyPassword } from "../lib/password";
 import { sha256Hex } from "../lib/crypto";
-import { normalizeMobile } from "../lib/mobile";
+import { mobileLookupKeys, normalizeMobile } from "../lib/mobile";
 
 async function issueSession(
   env: Env,

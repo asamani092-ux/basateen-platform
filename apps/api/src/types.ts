@@ -1,9 +1,13 @@
-export type UserRole =
-  | "teacher"
-  | "edu_supervisor"
-  | "prog_supervisor"
-  | "general_supervisor"
-  | "general_manager";
+export type {
+  UserRole,
+  User,
+  DbUserRow,
+  Complex,
+  Student,
+  Session,
+} from "../../../packages/types/schema";
+
+export { resolveRoleFromUser } from "../../../packages/types/schema";
 
 export interface Env {
   DB: D1Database;
@@ -14,12 +18,13 @@ export interface Env {
   CORS_ALLOWED_ORIGINS?: string;
 }
 
+/** Active user row returned from auth queries (RBAC schema) */
 export interface UserRow {
   id: number;
   email: string;
   mobile: string | null;
   password_hash: string;
-  role: UserRole;
+  role: import("../../../packages/types/schema").UserRole;
   full_name_ar: string;
   complex_id: number;
   is_active: number;
@@ -27,6 +32,6 @@ export interface UserRow {
 
 export interface AuthContext {
   userId: number;
-  role: UserRole;
+  role: import("../../../packages/types/schema").UserRole;
   complexId: number;
 }

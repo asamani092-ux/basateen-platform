@@ -1,4 +1,6 @@
 import type { AuthContext, Env, UserRole } from "../types";
+import type { DbUserRow } from "../../../../packages/types/schema";
+import { resolveRoleFromUser } from "../../../../packages/types/schema";
 
 const encoder = new TextEncoder();
 const authFailureFlags = new WeakMap<Request, "legacy_session_detected" | "unauthorized">();
@@ -156,17 +158,30 @@ export async function getAuth(
     return null;
   }
 
-  const userRow = await env.DB.prepare(
-    `SELECT id, is_active, role FROM users WHERE id = ? LIMIT 1`,
-  )
-    .bind(verified.auth.userId)
-    .first<{ id: number; is_active: number | null; role: string | null }>();
+  const pragma = await env.DB.prepare("PRAGMA table_info(users)").all<{ name: string }>();
+  const hasRole = (pragma.results ?? []).some((c) => c.name === "role");
+
+  const userRow = hasRole
+    ? await env.DB.prepare(
+        `SELECT id, is_active, role FROM users WHERE id = ? LIMIT 1`,
+      )
+        .bind(verified.auth.userId)
+        .first<{ id: number; is_active: number | null; role: string | null }>()
+    : await env.DB.prepare(
+        `SELECT id, is_active, is_admin, is_educational, is_programs, is_teacher
+         FROM users WHERE id = ? LIMIT 1`,
+      )
+        .bind(verified.auth.userId)
+        .first<DbUserRow & { id: number; is_active: number | null }>();
 
   if (!userRow || typeof userRow.is_active === "undefined" || userRow.is_active !== 1) {
     authFailureFlags.set(request, "legacy_session_detected");
     return null;
   }
-  if (!VALID_ROLES.includes(userRow.role as UserRole)) {
+  const role = hasRole
+    ? (userRow as { role: string }).role
+    : resolveRoleFromUser(userRow as DbUserRow);
+  if (!VALID_ROLES.includes(role as UserRole)) {
     authFailureFlags.set(request, "legacy_session_detected");
     return null;
   }

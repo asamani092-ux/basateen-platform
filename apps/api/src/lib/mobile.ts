@@ -6,7 +6,7 @@ export function normalizeMobile(input: string): string | null {
   return null;
 }
 
-/** DB may store 05XXXXXXXX or 9665XXXXXXXX — both keys for lookup */
+/** D1 may store 05XXXXXXXX or 9665XXXXXXXX — lookup both */
 export function mobileLookupKeys(normalized: string): string[] {
   if (normalized.length === 10 && normalized.startsWith("05")) {
     const intl = `966${normalized.slice(1)}`;

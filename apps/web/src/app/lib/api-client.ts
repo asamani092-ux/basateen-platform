@@ -147,6 +147,72 @@ export type StudentDetail = {
   history: HistoryRow[];
 };
 
+export type ReciterGateResponse = {
+  ok: boolean;
+  session_token: string;
+  session: {
+    kind: "yom_himma" | "competition";
+    id: number;
+    name_ar: string;
+    date: string;
+    status: string;
+    rules: Record<string, unknown>;
+    tv_key: string;
+  };
+  students: Array<{
+    id: number;
+    full_name_ar: string;
+    school_grade: string | null;
+  }>;
+};
+
+export type ReciterSnapshot = {
+  student: {
+    id: number;
+    full_name_ar: string;
+    school_grade: string | null;
+    memorization_amount: string | null;
+  };
+  cumulative: {
+    total_memorized_days: number;
+    aggregate_errors: number;
+    aggregate_warnings: number;
+  };
+  plan: Record<string, unknown> | null;
+  session_today: {
+    has_memorized: number;
+    memorization_errors: number;
+    memorization_warnings: number;
+    juz_done: number;
+    hizb_done: number;
+    current_hizb_failed: number;
+  };
+  target: { target_juz: number; target_hizb: number };
+};
+
+async function requestWithBearer<T>(
+  path: string,
+  bearer: string,
+  init?: RequestInit,
+): Promise<T> {
+  const url = `${API_BASE.replace(/\/$/, "")}${path}`;
+  const res = await fetch(url, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${bearer}`,
+      ...(init?.headers as Record<string, string> | undefined),
+    },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `HTTP ${res.status}`,
+    );
+  }
+  return res.json() as Promise<T>;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? "GET").toUpperCase();
   const bodyText =
@@ -283,19 +349,31 @@ export const api = {
       method: "POST",
       body: "{}",
     }),
-  liveLogSession: (token: string) =>
-    request<{
-      kind: "yom_himma" | "competition";
-      session: Record<string, unknown>;
-      students: Array<Record<string, unknown>>;
-      audit?: Array<Record<string, unknown>>;
-      logs?: Array<Record<string, unknown>>;
-    }>(`/api/live-log/${encodeURIComponent(token)}`),
-  liveLogUpsert: (token: string, body: Record<string, unknown>) =>
-    request<{ ok: boolean; failed?: boolean; tv_key?: string }>(
-      `/api/live-log/${encodeURIComponent(token)}`,
+  reciterValidateGate: (token: string, pin_code: string) =>
+    request<ReciterGateResponse>("/api/v1/education/public/validate-gate", {
+      method: "POST",
+      body: JSON.stringify({ token, pin_code }),
+    }),
+  reciterStudentSnapshot: (studentId: number, sessionToken: string) =>
+    requestWithBearer<ReciterSnapshot>(
+      `/api/v1/education/public/student-snapshot/${studentId}`,
+      sessionToken,
+    ),
+  reciterSubmitLog: (body: Record<string, unknown>, sessionToken: string) =>
+    requestWithBearer<{ ok: boolean; failed?: boolean; tv_key?: string | null }>(
+      "/api/v1/education/public/submit-log",
+      sessionToken,
       { method: "POST", body: JSON.stringify(body) },
     ),
+  eduSupervisorMasterGrid: (queryString: string) =>
+    request<{ date: string; rows: Array<Record<string, unknown>> }>(
+      `/api/v1/education/supervisor/master-grid?${queryString}`,
+    ),
+  eduSupervisorUpsertLog: (body: Record<string, unknown>) =>
+    request<{ ok: boolean }>("/api/v1/education/supervisor/upsert-log", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   competitionsList: () =>
     request<{ items: Array<Record<string, unknown>> }>(
       "/api/edu-supervisor/competitions",

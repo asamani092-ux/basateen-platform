@@ -16,18 +16,6 @@ export const EDU_NAV_ITEMS: EduNavItem[] = [
 
   { id: "dashboard", label: "لوحة المتابعة", path: "/edu-supervisor/dashboard" },
 
-  {
-    id: "matrix-console",
-    label: "شبكة الطلاب (مسطّحة)",
-    path: "/edu-supervisor/matrix-console",
-  },
-
-  {
-    id: "matrix-competition",
-    label: "منافسة زمنية (شبكة)",
-    path: "/edu-supervisor/matrix-competition",
-  },
-
   { id: "placement", label: "انتظار التسكين", path: "/edu-supervisor/placement" },
 
   { id: "students", label: "الطلاب و Excel", path: "/edu-supervisor/students" },
@@ -39,6 +27,8 @@ export const EDU_NAV_ITEMS: EduNavItem[] = [
   { id: "competitions", label: "المنافسات والبرامج", path: "/edu-supervisor/competitions" },
 
   { id: "yom-himma", label: "يوم الهمة القرآني", path: "/edu-supervisor/yom-himma" },
+
+  { id: "master-grid", label: "شبكة الرصد", path: "/edu-supervisor/master-grid" },
 
 ];
 

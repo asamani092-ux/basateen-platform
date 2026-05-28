@@ -32,5 +32,16 @@ export async function handleYomHimmaLiveLogToken(
     .bind(token, sessionId, auth.complexId)
     .run();
 
-  return json({ ok: true, live_log_token: token, path: `/live-log/${token}` });
+  const pinRow = await env.DB.prepare(
+    `SELECT access_pin FROM yom_himma_sessions WHERE id = ? AND complex_id = ?`,
+  )
+    .bind(sessionId, auth.complexId)
+    .first<{ access_pin: string }>();
+
+  return json({
+    ok: true,
+    live_log_token: token,
+    access_pin: pinRow?.access_pin ?? "1234",
+    path: `/live-log/${token}`,
+  });
 }

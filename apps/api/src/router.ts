@@ -43,6 +43,8 @@ import {
 import { handleGeneralSupervisorRouter } from "./routes/general-supervisor";
 import { handleEduSupervisorRouter } from "./routes/edu-supervisor";
 import { handleEduCompetitionsRouter } from "./routes/competitions";
+import { handleEduPublicReciterRouter } from "./routes/edu-public-reciter";
+import { handleEduSupervisorGridRouter } from "./routes/edu-supervisor-grid";
 import { handleLiveLogRouter, handleYomHimmaLiveLogToken } from "./routes/live-log";
 import { handleProgSupervisorRouter } from "./routes/prog-supervisor";
 import { handleQuizPublicRouter } from "./routes/quiz-public";
@@ -142,12 +144,6 @@ export async function handleRequest(
 
   const gsRoute = await handleGeneralSupervisorRouter(request, env, url);
   if (gsRoute) return withCors(gsRoute, request, env);
-
-  const eduPublicReciter = await handleEduPublicReciterRouter(request, env, url);
-  if (eduPublicReciter) return withCors(eduPublicReciter, request, env);
-
-  const eduSupervisorGrid = await handleEduSupervisorGridRouter(request, env, url);
-  if (eduSupervisorGrid) return withCors(eduSupervisorGrid, request, env);
 
   const liveLog = await handleLiveLogRouter(request, env, url);
   if (liveLog) return withCors(liveLog, request, env);

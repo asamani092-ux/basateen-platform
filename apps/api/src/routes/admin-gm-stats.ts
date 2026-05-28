@@ -1,5 +1,4 @@
 import type { Env } from "../types";
-import { fetchHimmaAuditFromLedger } from "../lib/himma-ledger-view";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 
 function json(data: unknown, status = 200): Response {
@@ -157,23 +156,16 @@ export async function handleAdminYomHimmaSummary(
 
   const items = [];
   for (const s of sessions.results ?? []) {
-    const stats = await env.DB.prepare(
-      `SELECT COUNT(*) AS total,
-              SUM(CASE WHEN attendance = 'present' THEN 1 ELSE 0 END) AS present,
-              SUM(juz_done) AS juz_total,
-              SUM(hizb_done) AS hizb_total
-       FROM yom_himma_audit WHERE session_id = ?`,
-    )
-      .bind(s.id)
-      .first<{
-        total: number;
-        present: number;
-        juz_total: number;
-        hizb_total: number;
-      }>();
+    const auditRows = await fetchHimmaAuditFromLedger(env, s.id, s.session_date);
+    const stats = {
+      total: auditRows.length,
+      present: auditRows.filter((a) => a.attendance === "present").length,
+      juz_total: auditRows.reduce((sum, a) => sum + a.juz_done, 0),
+      hizb_total: auditRows.reduce((sum, a) => sum + a.hizb_done, 0),
+    };
     items.push({
       session: s,
-      stats: stats ?? { total: 0, present: 0, juz_total: 0, hizb_total: 0 },
+      stats,
     });
   }
 

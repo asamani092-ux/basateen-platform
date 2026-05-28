@@ -47,8 +47,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback((mobile: string) => {
     const user = loginWithMobile(mobile);
-    setSession(getSession());
-    window.dispatchEvent(new Event("basateen-auth"));
+    if (user) {
+      setSession(getSession());
+      window.dispatchEvent(new Event("basateen-auth"));
+    }
     return user;
   }, []);
 

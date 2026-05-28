@@ -7,6 +7,8 @@ import {
   capacityWarningMessage,
 } from "../lib/circle-capacity";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
+import { usersHaveRoleColumn } from "../lib/db-user";
+import { activePlacementSql, hasTable } from "../lib/db-schema";
 
 const GM_ONLY: UserRole[] = ["general_manager"];
 const DEFAULT_PASSWORD = "Basateen123!";
@@ -234,17 +236,29 @@ export async function handleAdminCirclesSummary(
   const denied = requireGm(auth);
   if (denied) return denied;
 
+  const hasRole = await usersHaveRoleColumn(env);
+  const hasTeacherAssignments = await hasTable(env, "teacher_assignments");
+  const activePlacement = await activePlacementSql(env, "h");
+  const teacherJoin = hasTeacherAssignments
+    ? `LEFT JOIN teacher_assignments ta ON ta.circle_id = c.id
+     LEFT JOIN users u ON u.id = ta.user_id AND ${
+       hasRole ? "u.role = 'teacher'" : "u.is_teacher = 1"
+     }`
+    : "";
+  const teacherIdCol = hasTeacherAssignments
+    ? "u.id AS teacher_id, u.full_name_ar AS teacher_name"
+    : "NULL AS teacher_id, NULL AS teacher_name";
+
   const rows = await env.DB.prepare(
     `SELECT c.id, c.name_ar, COALESCE(c.stage_id, 2) AS stage_id,
             COALESCE(c.default_capacity, c.capacity, 20) AS default_capacity,
             c.track_id, t.name_ar AS track_name, c.is_active,
-            u.id AS teacher_id, u.full_name_ar AS teacher_name,
+            ${teacherIdCol},
             (SELECT COUNT(*) FROM student_circle_history h
-             WHERE h.circle_id = c.id AND h.to_at IS NULL AND h.frozen_at IS NULL) AS student_count
+             WHERE h.circle_id = c.id AND ${activePlacement}) AS student_count
      FROM circles c
      LEFT JOIN tracks t ON t.id = c.track_id
-     LEFT JOIN teacher_assignments ta ON ta.circle_id = c.id
-     LEFT JOIN users u ON u.id = ta.user_id AND u.role = 'teacher'
+     ${teacherJoin}
      WHERE c.complex_id = ?
      ORDER BY c.stage_id, c.name_ar`,
   )

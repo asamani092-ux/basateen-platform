@@ -15,7 +15,7 @@ import {
   type AuthSession,
   type AuthUser,
 } from "../lib/auth-store";
-import { clearApiToken } from "../lib/api-token";
+import { resetClientSession } from "../lib/session-reset";
 
 type AuthContextValue = {
   user: AuthUser | null;
@@ -47,10 +47,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback((mobile: string) => {
     const user = loginWithMobile(mobile);
-    if (user) {
-      setSession(getSession());
-      window.dispatchEvent(new Event("basateen-auth"));
-    }
+    setSession(getSession());
+    window.dispatchEvent(new Event("basateen-auth"));
     return user;
   }, []);
 

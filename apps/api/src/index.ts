@@ -9,7 +9,6 @@ export default {
         {
           error: "api_internal_crash",
           message: error instanceof Error ? error.message : "Internal server error",
-          clear_polluted_session: true,
         },
         { status: 500, headers: { "Content-Type": "application/json" } },
       );

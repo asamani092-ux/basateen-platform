@@ -3,7 +3,12 @@ import type { UserRow } from "../types";
 import { createToken, getAuth } from "../middleware/auth";
 import { verifyPassword } from "../lib/password";
 import { sha256Hex } from "../lib/crypto";
-import { mobileLookupKeys, normalizeMobile } from "../lib/mobile";
+import { normalizeMobile } from "../lib/mobile";
+import {
+  loadUserByEmail,
+  loadUserByMobile,
+  loadUserPayload,
+} from "../lib/db-user";
 
 async function issueSession(
   env: Env,
@@ -30,41 +35,6 @@ async function issueSession(
   return { token, expiresAt };
 }
 
-async function userPayload(env: Env, userId: number) {
-  const user = await env.DB.prepare(
-    `SELECT id, email, mobile, full_name_ar, role, complex_id, supervisor_scope
-     FROM users WHERE id = ? AND is_active = 1`,
-  )
-    .bind(userId)
-    .first<{
-      id: number;
-      email: string;
-      mobile: string | null;
-      full_name_ar: string;
-      role: string;
-      complex_id: number;
-      supervisor_scope: string | null;
-    }>();
-
-  if (!user) return null;
-
-  const sections = await env.DB.prepare(
-    "SELECT section FROM user_sections WHERE user_id = ?",
-  )
-    .bind(userId)
-    .all<{ section: string }>();
-
-  return {
-    id: user.id,
-    email: user.email,
-    mobile: user.mobile,
-    full_name_ar: user.full_name_ar,
-    role: user.role,
-    supervisor_scope: user.supervisor_scope ?? "global",
-    sections: sections.results?.map((r) => r.section) ?? [],
-  };
-}
-
 /** Legacy email/password — used by api-token bridge until full mobile API */
 export async function handleLogin(
   request: Request,
@@ -81,12 +51,7 @@ export async function handleLogin(
     return Response.json({ error: "email and password required" }, { status: 400 });
   }
 
-  const user = await env.DB.prepare(
-    `SELECT id, email, mobile, password_hash, role, full_name_ar, complex_id, is_active
-     FROM users WHERE email = ? LIMIT 1`,
-  )
-    .bind(body.email.trim().toLowerCase())
-    .first<UserRow>();
+  const user = await loadUserByEmail(env, body.email.trim().toLowerCase());
 
   if (!user || user.is_active !== 1) {
     return Response.json({ error: "invalid_credentials" }, { status: 401 });
@@ -98,7 +63,7 @@ export async function handleLogin(
   }
 
   const { token } = await issueSession(env, user);
-  const payload = await userPayload(env, user.id);
+  const payload = await loadUserPayload(env, user.id);
 
   return Response.json({ token, user: payload });
 }
@@ -120,14 +85,7 @@ export async function handleLoginMobile(
     return Response.json({ error: "invalid_mobile" }, { status: 400 });
   }
 
-  const keys = mobileLookupKeys(mobile);
-  const placeholders = keys.map(() => "?").join(", ");
-  const user = await env.DB.prepare(
-    `SELECT id, email, mobile, password_hash, role, full_name_ar, complex_id, is_active
-     FROM users WHERE mobile IN (${placeholders}) LIMIT 1`,
-  )
-    .bind(...keys)
-    .first<UserRow>();
+  const user = await loadUserByMobile(env, mobile);
 
   if (!user) {
     return Response.json({ error: "invalid_credentials" }, { status: 401 });
@@ -137,7 +95,7 @@ export async function handleLoginMobile(
   }
 
   const { token } = await issueSession(env, user);
-  const payload = await userPayload(env, user.id);
+  const payload = await loadUserPayload(env, user.id);
 
   return Response.json({ token, user: payload });
 }
@@ -151,7 +109,7 @@ export async function handleMe(
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const payload = await userPayload(env, auth.userId);
+  const payload = await loadUserPayload(env, auth.userId);
   if (!payload) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }

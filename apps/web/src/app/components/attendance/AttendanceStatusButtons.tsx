@@ -1,0 +1,75 @@
+import { Button } from "../ui/button";
+import { cn } from "../ui/utils";
+import { tajawal } from "../../lib/design-system";
+
+type Status = "present" | "absent" | "excused";
+
+const OPTIONS: Array<{
+  value: Status;
+  label: string;
+  activeClass: string;
+  idleClass: string;
+  activeVariant: "default" | "destructive";
+  idleVariant: "outline";
+}> = [
+  {
+    value: "present",
+    label: "حاضر",
+    activeVariant: "default",
+    idleVariant: "outline",
+    activeClass: "",
+    idleClass: "border-primary/40 text-primary hover:bg-primary/10",
+  },
+  {
+    value: "excused",
+    label: "مستأذن",
+    activeVariant: "default",
+    idleVariant: "outline",
+    activeClass:
+      "bg-amber-500 text-white hover:bg-amber-500/90 border-amber-500 ring-2 ring-amber-500",
+    idleClass:
+      "border-amber-400 text-amber-900 hover:bg-amber-50 dark:text-amber-100 dark:hover:bg-amber-950/40",
+  },
+  {
+    value: "absent",
+    label: "غائب",
+    activeVariant: "destructive",
+    idleVariant: "outline",
+    activeClass: "",
+    idleClass: "border-destructive/40 text-destructive hover:bg-destructive/10",
+  },
+];
+
+type Props = {
+  value: string;
+  onChange: (status: Status) => void;
+  disabled?: boolean;
+};
+
+export function AttendanceStatusButtons({ value, onChange, disabled }: Props) {
+  return (
+    <div className="flex flex-wrap gap-1.5 justify-end">
+      {OPTIONS.map((opt) => {
+        const isActive = value === opt.value;
+        return (
+          <Button
+            key={opt.value}
+            type="button"
+            size="sm"
+            variant={isActive ? opt.activeVariant : opt.idleVariant}
+            disabled={disabled}
+            className={cn(
+              "min-w-[4rem] rounded-full text-xs font-medium",
+              isActive ? opt.activeClass : opt.idleClass,
+            )}
+            style={tajawal}
+            aria-pressed={isActive}
+            onClick={() => onChange(opt.value)}
+          >
+            {opt.label}
+          </Button>
+        );
+      })}
+    </div>
+  );
+}

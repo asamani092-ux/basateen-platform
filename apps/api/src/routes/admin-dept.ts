@@ -887,6 +887,126 @@ async function handleAdminDeptRouterImpl(
     });
   }
 
+  // GET /api/admin-dept/students/search?q=
+  if (request.method === "GET" && path === "/api/admin-dept/students/search") {
+    const q = url.searchParams.get("q")?.trim() ?? "";
+    const limit = Math.min(Number(url.searchParams.get("limit") ?? 20), 50);
+
+    const hasCircleCol = await tableHasColumn(env, "students", "current_circle_id");
+    const circleJoin = hasCircleCol
+      ? `LEFT JOIN circles c ON c.id = s.current_circle_id AND c.complex_id = s.complex_id`
+      : `LEFT JOIN circles c ON 1 = 0`;
+
+    let sql = `
+      SELECT s.id, s.full_name_ar, s.national_id, s.phone, s.guardian_phone,
+             c.name_ar AS circle_name
+      FROM students s
+      ${circleJoin}
+      WHERE s.complex_id = ? AND COALESCE(s.is_active, 1) = 1`;
+    const binds: (string | number)[] = [admin.complexId];
+
+    if (q.length > 0) {
+      sql += ` AND s.full_name_ar LIKE ?`;
+      binds.push(`%${q}%`);
+    }
+    sql += ` ORDER BY s.full_name_ar LIMIT ?`;
+    binds.push(limit);
+
+    const rows = await env.DB.prepare(sql)
+      .bind(...binds)
+      .all<{
+        id: number;
+        full_name_ar: string;
+        national_id: string | null;
+        phone: string | null;
+        guardian_phone: string | null;
+        circle_name: string | null;
+      }>();
+
+    return json({ items: rows.results ?? [], count: rows.results?.length ?? 0 });
+  }
+
+  // GET /api/admin-dept/magic-links
+  if (request.method === "GET" && path === "/api/admin-dept/magic-links") {
+    if (!(await hasTable(env, "shared_access_tokens"))) {
+      return json({ items: [] });
+    }
+
+    const rows = await env.DB.prepare(
+      `SELECT id, token, feature_name, context_data, is_active, created_at
+       FROM shared_access_tokens
+       WHERE complex_id = ? AND feature_name = 'student_attendance'
+       ORDER BY created_at DESC`,
+    )
+      .bind(admin.complexId)
+      .all<{
+        id: number;
+        token: string;
+        feature_name: string;
+        context_data: string;
+        is_active: number;
+        created_at: string;
+      }>();
+
+    const items = [];
+    for (const row of rows.results ?? []) {
+      let circleId: number | null = null;
+      let attendanceDate: string | null = null;
+      try {
+        const ctx = JSON.parse(row.context_data) as {
+          circle_id?: number;
+          attendance_date?: string;
+        };
+        circleId = ctx.circle_id != null ? Number(ctx.circle_id) : null;
+        attendanceDate = ctx.attendance_date ?? null;
+      } catch {
+        /* ignore malformed context */
+      }
+
+      let circleName: string | null = null;
+      if (circleId != null && Number.isFinite(circleId)) {
+        const circle = await circleLabelRow(env, circleId);
+        circleName = circle?.name_ar ?? null;
+      }
+
+      const publicPath = `/public/attendance/${row.token}`;
+      items.push({
+        id: row.id,
+        token: row.token,
+        circle_id: circleId,
+        circle_name: circleName,
+        attendance_date: attendanceDate,
+        is_active: row.is_active,
+        created_at: row.created_at,
+        public_path: publicPath,
+      });
+    }
+
+    return json({ items });
+  }
+
+  // DELETE /api/admin-dept/magic-links/:id
+  const magicDeleteMatch = path.match(/^\/api\/admin-dept\/magic-links\/(\d+)$/);
+  if (request.method === "DELETE" && magicDeleteMatch) {
+    if (!(await hasTable(env, "shared_access_tokens"))) {
+      return json({ error: "migration_required", migration: "024_admin_department" }, 503);
+    }
+
+    const linkId = Number(magicDeleteMatch[1]);
+    const row = await env.DB.prepare(
+      `SELECT id FROM shared_access_tokens WHERE id = ? AND complex_id = ?`,
+    )
+      .bind(linkId, admin.complexId)
+      .first();
+    if (!row) return json({ error: "not_found" }, 404);
+
+    await env.DB.prepare(`DELETE FROM shared_access_tokens WHERE id = ?`)
+      .bind(linkId)
+      .run();
+
+    return json({ ok: true, id: linkId });
+  }
+
   // POST /api/admin-dept/magic-links
   if (request.method === "POST" && path === "/api/admin-dept/magic-links") {
     if (!(await hasTable(env, "shared_access_tokens"))) {

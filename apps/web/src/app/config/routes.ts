@@ -22,17 +22,6 @@ export function isNavGroup(entry: NavEntry): entry is NavGroup {
 
 const ADMIN_DEPT_ROLES: UserRole[] = ["admin_supervisor", "super_admin"];
 
-/** المشرف العام — إدارة المجمع */
-export const SUPER_ADMIN_NAV: NavItem[] = [
-  { id: "staff", label: "إدارة المنسوبين", path: "/super-admin/staff", roles: ["super_admin"] },
-  {
-    id: "circles-setup",
-    label: "إعداد الحلقات والمسارات",
-    path: "/super-admin/circles-setup",
-    roles: ["super_admin"],
-  },
-];
-
 /** القسم التعليمي */
 export const EDU_DEPT_NAV: NavItem[] = [
   { id: "dashboard", label: "لوحة المتابعة", path: "/edu-dept/dashboard", roles: ["edu_supervisor"] },
@@ -53,8 +42,20 @@ export const EDU_DEPT_NAV: NavItem[] = [
   },
 ];
 
-/** القسم الإداري — مسارات v2.6 */
+/** القسم الإداري — مسارات v2.6 (كل التبويبات داخل القائمة المنسدلة) */
 export const ADMIN_DEPT_NAV: NavItem[] = [
+  {
+    id: "staff",
+    label: "إدارة المنسوبين",
+    path: "/super-admin/staff",
+    roles: ["super_admin"],
+  },
+  {
+    id: "circles-setup",
+    label: "إعداد الحلقات والمسارات",
+    path: "/super-admin/circles-setup",
+    roles: ["super_admin"],
+  },
   {
     id: "staff-attendance",
     label: "تحضير المنسوبين",
@@ -91,7 +92,16 @@ export const ADMIN_DEPT_NAV: NavItem[] = [
     path: "/admin-dept/reports",
     roles: ADMIN_DEPT_ROLES,
   },
+  {
+    id: "magic-links",
+    label: "الروابط السحرية",
+    path: "/admin-dept/magic-links",
+    roles: ADMIN_DEPT_ROLES,
+  },
 ];
+
+/** @deprecated — استخدم ADMIN_DEPT_NAV داخل ADMIN_DEPT_GROUP */
+export const SUPER_ADMIN_NAV: NavItem[] = [];
 
 /** قسم إشراف البرامج */
 export const PROG_DEPT_NAV: NavItem[] = [
@@ -113,7 +123,6 @@ export const ADMIN_DEPT_GROUP: NavGroup = {
 };
 
 export const navItems: NavItem[] = [
-  ...SUPER_ADMIN_NAV,
   ...EDU_DEPT_NAV,
   ...ADMIN_DEPT_NAV,
   ...PROG_DEPT_NAV,
@@ -123,7 +132,6 @@ export const navItems: NavItem[] = [
 export function navForRole(role: UserRole): NavEntry[] {
   const entries: NavEntry[] = [];
   if (role === "super_admin") {
-    entries.push(...SUPER_ADMIN_NAV);
     entries.push(ADMIN_DEPT_GROUP);
     return entries;
   }
@@ -166,6 +174,20 @@ export function isNavActive(path: string, pathname: string): boolean {
   }
   if (path === "/prog-dept/quizzes") {
     return pathname === "/prog-dept" || pathname.startsWith("/prog-dept/quizzes");
+  }
+  if (path === "/super-admin/staff") {
+    return (
+      pathname === "/super-admin/staff" ||
+      pathname.startsWith("/super-admin/staff") ||
+      pathname === "/admin/staff"
+    );
+  }
+  if (path === "/super-admin/circles-setup") {
+    return (
+      pathname === "/super-admin/circles-setup" ||
+      pathname.startsWith("/super-admin/circles-setup") ||
+      pathname === "/admin/circles-setup"
+    );
   }
   return pathname === path || pathname.startsWith(`${path}/`);
 }

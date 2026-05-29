@@ -772,6 +772,39 @@ export const api = {
       `/api/admin-dept/magic-links/${id}/toggle`,
       { method: "PUT", body: "{}" },
     ),
+  adminDeptMagicLinksList: () =>
+    request<{
+      items: Array<{
+        id: number;
+        token: string;
+        circle_id: number | null;
+        circle_name: string | null;
+        attendance_date: string | null;
+        is_active: number;
+        created_at: string;
+        public_path: string;
+      }>;
+    }>("/api/admin-dept/magic-links"),
+  adminDeptMagicLinksDelete: (id: number) =>
+    request<{ ok: boolean; id: number }>(`/api/admin-dept/magic-links/${id}`, {
+      method: "DELETE",
+    }),
+  adminDeptStudentsSearch: (q: string, limit = 20) => {
+    const params = new URLSearchParams();
+    if (q.trim()) params.set("q", q.trim());
+    params.set("limit", String(limit));
+    return request<{
+      items: Array<{
+        id: number;
+        full_name_ar: string;
+        national_id: string | null;
+        phone: string | null;
+        guardian_phone: string | null;
+        circle_name: string | null;
+      }>;
+      count: number;
+    }>(`/api/admin-dept/students/search?${params.toString()}`);
+  },
   adminDeptAdmission: (body: {
     full_name_ar: string;
     national_id: string;
@@ -792,8 +825,9 @@ export const api = {
       ok: boolean;
       student_id: number;
       stage_id: number;
-      stage_label: string;
+      stage_label?: string;
       circle_id: number;
+      admission_status?: string;
     }>("/api/admin-dept/admission", {
       method: "POST",
       body: JSON.stringify(body),

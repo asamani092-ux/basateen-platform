@@ -15,7 +15,7 @@ import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { normalizeAttendanceStatus } from "../../lib/attendance-status";
 import { matchesArabicName } from "../../lib/attendance-search";
-import { ATTENDANCE_STATUS_BUTTONS } from "../../lib/attendance-status-ui";
+import { AttendanceStatusButtons } from "../../components/attendance/AttendanceStatusButtons";
 import { roleLabelAr } from "../../lib/role-labels";
 import { ds, tajawal } from "../../lib/design-system";
 
@@ -192,16 +192,16 @@ export function StaffAttendancePage() {
             لا يوجد منسوبون يطابقون البحث.
           </p>
         ) : (
-          <Table>
+          <Table className="table-fixed w-full">
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[32%] min-w-[140px]" style={tajawal}>
+                <TableHead className="text-right w-[32%]" style={tajawal}>
                   الاسم
                 </TableHead>
-                <TableHead className="w-[22%] min-w-[100px]" style={tajawal}>
+                <TableHead className="text-right w-[22%]" style={tajawal}>
                   الدور
                 </TableHead>
-                <TableHead className="w-[46%] min-w-[220px]" style={tajawal}>
+                <TableHead className="text-right w-[46%]" style={tajawal}>
                   الحالة
                 </TableHead>
               </TableRow>
@@ -209,33 +209,18 @@ export function StaffAttendancePage() {
             <TableBody>
               {filteredRows.map((r) => (
                 <TableRow key={r.user_id}>
-                  <TableCell className="font-medium" style={tajawal}>
+                  <TableCell className="text-right font-medium" style={tajawal}>
                     {r.full_name_ar}
                   </TableCell>
-                  <TableCell className="text-muted-foreground" style={tajawal}>
+                  <TableCell className="text-right text-muted-foreground" style={tajawal}>
                     {roleLabelAr(r.role)}
                   </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-2 justify-end">
-                      {ATTENDANCE_STATUS_BUTTONS.map((opt) => {
-                        const isActive = r.status === opt.value;
-                        return (
-                          <button
-                            key={opt.value}
-                            type="button"
-                            disabled={committing}
-                            onClick={() => setStatus(r.user_id, opt.value)}
-                            className={`min-w-[4.5rem] h-10 px-3 rounded-full text-sm font-medium touch-manipulation transition ${
-                              isActive ? opt.active : opt.idle
-                            }`}
-                            style={tajawal}
-                            aria-pressed={isActive}
-                          >
-                            {opt.label}
-                          </button>
-                        );
-                      })}
-                    </div>
+                  <TableCell className="text-right align-middle">
+                    <AttendanceStatusButtons
+                      value={r.status}
+                      disabled={committing}
+                      onChange={(st) => setStatus(r.user_id, st)}
+                    />
                   </TableCell>
                 </TableRow>
               ))}

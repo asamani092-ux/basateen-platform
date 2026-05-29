@@ -12,6 +12,7 @@ import {
   type NavItem,
 } from "../config/routes";
 import { useAuth } from "../context/AuthContext";
+import type { UserRole } from "../lib/auth-store";
 import { DevPreviewBanner } from "../components/DevPreviewBanner";
 import { ds, tajawal } from "../lib/design-system";
 
@@ -41,10 +42,12 @@ function NavGroupBlock({
   group,
   pathname,
   onNavigate,
+  userRole,
 }: {
   group: NavGroup;
   pathname: string;
   onNavigate?: () => void;
+  userRole: UserRole;
 }) {
   const groupActive = navGroupIsActive(group, pathname);
   const [open, setOpen] = useState(groupActive);
@@ -73,14 +76,16 @@ function NavGroupBlock({
       </button>
       {open && (
         <div className="mr-2 pr-2 border-r-2 border-border space-y-1">
-          {group.children.map((child) => (
-            <NavLinkItem
-              key={child.path}
-              item={child}
-              pathname={pathname}
-              onNavigate={onNavigate}
-            />
-          ))}
+          {group.children
+            .filter((child) => child.roles.includes(userRole))
+            .map((child) => (
+              <NavLinkItem
+                key={child.path}
+                item={child}
+                pathname={pathname}
+                onNavigate={onNavigate}
+              />
+            ))}
         </div>
       )}
     </div>
@@ -90,6 +95,7 @@ function NavGroupBlock({
 function renderNav(
   entries: NavEntry[],
   pathname: string,
+  userRole: UserRole,
   onNavigate?: () => void,
 ) {
   return entries.map((entry) =>
@@ -98,6 +104,7 @@ function renderNav(
         key={entry.id}
         group={entry}
         pathname={pathname}
+        userRole={userRole}
         onNavigate={onNavigate}
       />
     ) : (
@@ -129,7 +136,12 @@ export function RoleShellLayout() {
 
   const visibleNav = user ? navForRole(user.role) : [];
 
-  const nav = renderNav(visibleNav, location.pathname, () => setMobileOpen(false));
+  const nav = renderNav(
+    visibleNav,
+    location.pathname,
+    user?.role ?? "teacher",
+    () => setMobileOpen(false),
+  );
 
   return (
     <div className="min-h-screen bg-background text-foreground" dir="rtl">

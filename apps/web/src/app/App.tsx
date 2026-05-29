@@ -33,6 +33,7 @@ import { AbsentWhatsappPage } from "./pages/admin-dept/AbsentWhatsappPage";
 import { AdmissionPage } from "./pages/admin-dept/AdmissionPage";
 import { PledgesPage } from "./pages/admin-dept/PledgesPage";
 import { AdminReportsPage } from "./pages/admin-dept/AdminReportsPage";
+import { MagicLinksManagerPage } from "./pages/admin-dept/MagicLinksManagerPage";
 import { StaffManagementPage } from "./pages/admin/StaffManagementPage";
 import { CirclesSetupPage } from "./pages/admin/CirclesSetupPage";
 import { STAFF_ROLES } from "./config/role-access";
@@ -93,6 +94,7 @@ export default function App() {
               <Route path="admin-dept/admissions" element={<AdmissionPage />} />
               <Route path="admin-dept/pledges" element={<PledgesPage />} />
               <Route path="admin-dept/reports" element={<AdminReportsPage />} />
+              <Route path="admin-dept/magic-links" element={<MagicLinksManagerPage />} />
 
               <Route path="prog-dept" element={<ProgSupervisorLayout />}>
                 <Route index element={<Navigate to="quizzes" replace />} />

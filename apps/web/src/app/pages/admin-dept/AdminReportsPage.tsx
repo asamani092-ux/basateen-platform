@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Printer, Users, GraduationCap } from "lucide-react";
 import { Button } from "../../components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
+import { Label } from "../../components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -16,6 +25,13 @@ import { ds, tajawal } from "../../lib/design-system";
 
 type DatePreset = "last3" | "last7" | "month" | "custom";
 type StatusFilter = "all" | "absent_only";
+
+type ReportRow = {
+  name: string;
+  date: string;
+  status: string;
+  type: "staff" | "student";
+};
 
 function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -49,6 +65,54 @@ const emptySummary = {
   students_absent_pct: 0,
 };
 
+function DetailTable({
+  rows,
+  emptyLabel,
+}: {
+  rows: ReportRow[];
+  emptyLabel: string;
+}) {
+  if (rows.length === 0) {
+    return (
+      <p className="p-4 text-sm text-muted-foreground text-right" style={tajawal}>
+        {emptyLabel}
+      </p>
+    );
+  }
+  return (
+    <Table className="table-fixed w-full">
+      <TableHeader>
+        <TableRow>
+          <TableHead className="text-right w-[32%]" style={tajawal}>
+            الاسم
+          </TableHead>
+          <TableHead className="text-right w-[22%]" style={tajawal}>
+            التاريخ
+          </TableHead>
+          <TableHead className="text-right w-[22%]" style={tajawal}>
+            الحالة
+          </TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((row, i) => (
+          <TableRow key={`${row.date}-${row.name}-${i}`}>
+            <TableCell className="text-right font-medium" style={tajawal}>
+              {row.name}
+            </TableCell>
+            <TableCell className="text-right" style={tajawal}>
+              {row.date}
+            </TableCell>
+            <TableCell className="text-right" style={tajawal}>
+              {STATUS_AR[row.status] ?? row.status}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
 export function AdminReportsPage() {
   const [preset, setPreset] = useState<DatePreset>("last7");
   const [customStart, setCustomStart] = useState(() => isoDate(new Date()));
@@ -57,9 +121,7 @@ export function AdminReportsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState(emptySummary);
-  const [items, setItems] = useState<
-    Array<{ name: string; date: string; status: string; type: "staff" | "student" }>
-  >([]);
+  const [items, setItems] = useState<ReportRow[]>([]);
 
   const { startDate, endDate } = useMemo(() => {
     if (preset === "custom") {
@@ -67,6 +129,15 @@ export function AdminReportsPage() {
     }
     return rangeForPreset(preset);
   }, [preset, customStart, customEnd]);
+
+  const staffItems = useMemo(
+    () => items.filter((r) => r.type === "staff"),
+    [items],
+  );
+  const studentItems = useMemo(
+    () => items.filter((r) => r.type === "student"),
+    [items],
+  );
 
   const load = useCallback(async () => {
     if (!canUseApi()) {
@@ -111,116 +182,101 @@ export function AdminReportsPage() {
             المؤشرات والتقارير
           </h2>
           <p className={ds.page.description} style={tajawal}>
-            ملخص التحضير مع جدول تفصيلي — تصدير PDF عبر الطباعة.
+            ملخص التحضير مع جداول تفصيلية منفصلة — تصدير PDF عبر الطباعة.
           </p>
         </div>
 
-        <div className={`${ds.card} p-4 space-y-4`}>
-          <div>
-            <p className="text-sm font-semibold mb-2" style={tajawal}>
-              الفترة
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {(
-                [
-                  ["last3", "آخر 3 أيام"],
-                  ["last7", "آخر أسبوع"],
-                  ["month", "هذا الشهر"],
-                  ["custom", "مخصص"],
-                ] as const
-              ).map(([id, label]) => (
-                <Button
-                  key={id}
-                  type="button"
-                  size="sm"
-                  variant={preset === id ? "default" : "outline"}
-                  className={ds.btnRound}
-                  onClick={() => setPreset(id)}
-                  style={tajawal}
+        <Card className={ds.card}>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base" style={tajawal}>
+              فلاتر التقرير
+            </CardTitle>
+            <CardDescription style={tajawal}>
+              اختر الفترة وحالة التصدير ثم حدّث البيانات.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="space-y-2 sm:col-span-2 lg:col-span-2">
+                <Label style={tajawal}>الفترة السريعة</Label>
+                <Select
+                  value={preset}
+                  onValueChange={(v) => setPreset(v as DatePreset)}
                 >
-                  {label}
-                </Button>
-              ))}
-            </div>
-          </div>
-
-          {preset === "custom" && (
-            <div className="flex flex-wrap gap-3 items-end">
-              <div>
-                <label className="text-xs text-muted-foreground block mb-1" style={tajawal}>
-                  من
-                </label>
-                <input
-                  type="date"
-                  value={customStart}
-                  onChange={(e) => setCustomStart(e.target.value)}
-                  className={`border border-border px-3 py-2 ${ds.btnRound}`}
-                />
+                  <SelectTrigger className={ds.btnRound}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="last3">آخر 3 أيام</SelectItem>
+                    <SelectItem value="last7">آخر أسبوع</SelectItem>
+                    <SelectItem value="month">هذا الشهر</SelectItem>
+                    <SelectItem value="custom">مخصص</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-              <div>
-                <label className="text-xs text-muted-foreground block mb-1" style={tajawal}>
-                  إلى
-                </label>
-                <input
-                  type="date"
-                  value={customEnd}
-                  onChange={(e) => setCustomEnd(e.target.value)}
-                  className={`border border-border px-3 py-2 ${ds.btnRound}`}
-                />
+              <div className="space-y-2">
+                <Label style={tajawal}>حالة التصدير</Label>
+                <Select
+                  value={statusFilter}
+                  onValueChange={(v) => setStatusFilter(v as StatusFilter)}
+                >
+                  <SelectTrigger className={ds.btnRound}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">الجميع</SelectItem>
+                    <SelectItem value="absent_only">الغائبون فقط</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
-          )}
 
-          <div>
-            <p className="text-sm font-semibold mb-2" style={tajawal}>
-              حالة التصدير
-            </p>
+            {preset === "custom" && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label style={tajawal}>من تاريخ</Label>
+                  <input
+                    type="date"
+                    value={customStart}
+                    onChange={(e) => setCustomStart(e.target.value)}
+                    className={`w-full border border-border px-3 py-2 ${ds.btnRound}`}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label style={tajawal}>إلى تاريخ</Label>
+                  <input
+                    type="date"
+                    value={customEnd}
+                    onChange={(e) => setCustomEnd(e.target.value)}
+                    className={`w-full border border-border px-3 py-2 ${ds.btnRound}`}
+                  />
+                </div>
+              </div>
+            )}
+
             <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
-                size="sm"
-                variant={statusFilter === "all" ? "default" : "outline"}
+                variant="outline"
                 className={ds.btnRound}
-                onClick={() => setStatusFilter("all")}
+                onClick={load}
+                disabled={loading}
                 style={tajawal}
               >
-                الجميع
+                تحديث
               </Button>
               <Button
                 type="button"
-                size="sm"
-                variant={statusFilter === "absent_only" ? "default" : "outline"}
                 className={ds.btnRound}
-                onClick={() => setStatusFilter("absent_only")}
+                onClick={handlePrint}
                 style={tajawal}
               >
-                الغائبون فقط
+                <Printer className="w-4 h-4" />
+                طباعة / تصدير PDF
               </Button>
             </div>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className={ds.btnRound}
-              onClick={load}
-              disabled={loading}
-              style={tajawal}
-            >
-              تحديث
-            </Button>
-            <Button
-              type="button"
-              className={ds.btnRound}
-              onClick={handlePrint}
-              style={tajawal}
-            >
-              <Printer className="w-4 h-4" />
-              طباعة / تصدير PDF
-            </Button>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       </div>
 
       {error && (
@@ -271,53 +327,45 @@ export function AdminReportsPage() {
           </div>
         )}
 
-        <div className={`${ds.card} overflow-hidden print:shadow-none print:border`}>
-          <div className="p-4 border-b border-border print:border-0">
-            <h3 className={ds.page.section} style={tajawal}>
+        <Card className={`${ds.card} overflow-hidden print:shadow-none print:border`}>
+          <CardHeader className="border-b border-border print:border-0">
+            <CardTitle className={ds.page.section} style={tajawal}>
               التقرير التفصيلي
-            </h3>
-          </div>
-          {items.length === 0 ? (
-            <p className="p-4 text-sm text-muted-foreground" style={tajawal}>
-              لا توجد سجلات مطابقة للفلاتر.
-            </p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[28%] min-w-[140px]" style={tajawal}>
-                    الاسم
-                  </TableHead>
-                  <TableHead className="w-[18%] min-w-[100px]" style={tajawal}>
-                    التاريخ
-                  </TableHead>
-                  <TableHead className="w-[22%] min-w-[110px]" style={tajawal}>
-                    نوع الحساب
-                  </TableHead>
-                  <TableHead className="w-[20%] min-w-[100px]" style={tajawal}>
-                    الحالة
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {items.map((row, i) => (
-                  <TableRow key={`${row.type}-${row.date}-${row.name}-${i}`}>
-                    <TableCell className="font-medium" style={tajawal}>
-                      {row.name}
-                    </TableCell>
-                    <TableCell style={tajawal}>{row.date}</TableCell>
-                    <TableCell style={tajawal}>
-                      {row.type === "staff" ? "منسوب" : "طالب"}
-                    </TableCell>
-                    <TableCell style={tajawal}>
-                      {STATUS_AR[row.status] ?? row.status}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </div>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Tabs defaultValue="students" className="w-full">
+              <TabsList className="w-full justify-start rounded-none border-b border-border bg-transparent p-0 h-auto flex-wrap print:hidden">
+                <TabsTrigger
+                  value="students"
+                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary px-4 py-3"
+                  style={tajawal}
+                >
+                  تقرير الطلاب ({studentItems.length})
+                </TabsTrigger>
+                <TabsTrigger
+                  value="staff"
+                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary px-4 py-3"
+                  style={tajawal}
+                >
+                  تقرير المنسوبين ({staffItems.length})
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="students" className="mt-0 print:block">
+                <DetailTable
+                  rows={studentItems}
+                  emptyLabel="لا توجد سجلات طلاب مطابقة للفلاتر."
+                />
+              </TabsContent>
+              <TabsContent value="staff" className="mt-0 print:block">
+                <DetailTable
+                  rows={staffItems}
+                  emptyLabel="لا توجد سجلات منسوبين مطابقة للفلاتر."
+                />
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

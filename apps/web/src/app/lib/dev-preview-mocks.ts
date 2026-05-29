@@ -266,6 +266,43 @@ export function resolveDevPreviewMock<T>(
     } as T;
   }
 
+  if (p === "/api/admin-dept/magic-links" && m === "GET") {
+    return {
+      items: [
+        {
+          id: 1,
+          token: "preview-token-1",
+          circle_id: 1,
+          circle_name: "حلقة معاينة",
+          attendance_date: date,
+          is_active: 1,
+          created_at: date,
+          public_path: "/public/attendance/preview-token-1",
+        },
+      ],
+    } as T;
+  }
+
+  if (p.match(/^\/api\/admin-dept\/magic-links\/\d+$/) && m === "DELETE") {
+    return { ok: true, id: 1 } as T;
+  }
+
+  if (p === "/api/admin-dept/students/search" && m === "GET") {
+    const q = url.searchParams.get("q")?.trim() ?? "";
+    let items = previewStore.getStudents().map((s) => ({
+      id: s.id,
+      full_name_ar: s.full_name_ar,
+      national_id: s.national_id,
+      phone: s.phone,
+      guardian_phone: s.guardian_phone,
+      circle_name: s.current_circle_name,
+    }));
+    if (q) {
+      items = items.filter((s) => s.full_name_ar.includes(q));
+    }
+    return { items: items.slice(0, 20), count: items.length } as T;
+  }
+
   if (p === "/api/admin-dept/magic-links" && m === "POST") {
     const body = bodyText ? JSON.parse(bodyText) : {};
     const token = `preview-${body.circle_id ?? 1}-${Date.now()}`;

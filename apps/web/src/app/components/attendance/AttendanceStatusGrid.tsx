@@ -1,7 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 import { CheckCircle2 } from "lucide-react";
 import { Button } from "../ui/button";
-import { ATTENDANCE_STATUS_BUTTONS } from "../../lib/attendance-status-ui";
+import { AttendanceStatusButtons } from "./AttendanceStatusButtons";
 import { ds, tajawal } from "../../lib/design-system";
 
 export type AttendanceRow = {
@@ -106,24 +106,11 @@ export function AttendanceStatusGrid({
                   </p>
                 )}
               </div>
-              <div className="flex flex-wrap gap-2">
-                {ATTENDANCE_STATUS_BUTTONS.map((opt) => {
-                  const st = opt.value;
-                  const isActive = r.status === st;
-                  return (
-                    <button
-                      key={st}
-                      type="button"
-                      disabled={committing}
-                      onClick={() => onStatusPick(r.id, st)}
-                      className={`min-w-[4.5rem] h-11 px-4 rounded-full text-sm font-medium transition touch-manipulation ${isActive ? opt.active : opt.idle}`}
-                      style={tajawal}
-                    >
-                      {opt.label}
-                    </button>
-                  );
-                })}
-              </div>
+              <AttendanceStatusButtons
+                value={r.status}
+                disabled={committing}
+                onChange={(st) => onStatusPick(r.id, st)}
+              />
             </div>
           ))}
         </div>

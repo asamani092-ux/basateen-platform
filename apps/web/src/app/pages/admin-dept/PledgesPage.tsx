@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { FileText, Plus, Printer } from "lucide-react";
-import { StudentSearchSelect } from "../../components/admin/StudentSearchSelect";
+import { AdminStudentSearchCombobox } from "../../components/admin/AdminStudentSearchCombobox";
 import { Button } from "../../components/ui/button";
 import {
   Dialog,
@@ -115,7 +115,7 @@ export function PledgesPage() {
 
       <div className={`${ds.card} p-4 print:hidden space-y-3`}>
         <Label style={tajawal}>بحث عن طالب لعرض سجل التعهدات</Label>
-        <StudentSearchSelect
+        <AdminStudentSearchCombobox
           value={studentId}
           onChange={(id) => {
             setStudentId(id);
@@ -146,11 +146,11 @@ export function PledgesPage() {
           <form onSubmit={addPledge} className="space-y-4">
             <div className="space-y-2">
               <Label style={tajawal}>الطالب *</Label>
-              <StudentSearchSelect
-                value={studentId}
-                onChange={setStudentId}
-                disabled={submitting}
-              />
+            <AdminStudentSearchCombobox
+              value={studentId}
+              onChange={(id) => setStudentId(id)}
+              disabled={submitting}
+            />
             </div>
             <div className="space-y-2">
               <Label style={tajawal}>تاريخ التعهد</Label>

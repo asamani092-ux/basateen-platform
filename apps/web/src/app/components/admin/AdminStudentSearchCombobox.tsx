@@ -1,15 +1,7 @@
-import { useEffect, useState } from "react";
-import { Check, ChevronsUpDown } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Loader2, X } from "lucide-react";
 import { Button } from "../ui/button";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "../ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
+import { Input } from "../ui/input";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { cn } from "../ui/utils";
@@ -28,26 +20,48 @@ type Props = {
   placeholder?: string;
 };
 
+/**
+ * بحث طلاب حي — حقل إدخال + قائمة (بدون Popover) ليعمل داخل Dialog دون focus trap.
+ */
 export function AdminStudentSearchCombobox({
   value,
   onChange,
   disabled,
-  placeholder = "ابحث باسم الطالب…",
+  placeholder = "اكتب اسم الطالب للبحث…",
 }: Props) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<AdminStudentOption[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectedLabel, setSelectedLabel] = useState("");
+  const [selected, setSelected] = useState<AdminStudentOption | null>(null);
+
+  const syncSelected = useCallback(async (id: number) => {
+    if (!canUseApi()) return;
+    try {
+      const detail = await api.studentDetail(id);
+      const hit: AdminStudentOption = {
+        id: detail.student.id,
+        full_name_ar: detail.student.full_name_ar,
+        circle_name: detail.current?.circle_name ?? null,
+      };
+      setSelected(hit);
+      setQuery(hit.full_name_ar);
+    } catch {
+      /* keep placeholder id */
+    }
+  }, []);
 
   useEffect(() => {
-    if (!value) {
-      setSelectedLabel("");
+    if (value == null) {
+      setSelected(null);
+      if (!open) setQuery("");
       return;
     }
-    const found = items.find((s) => s.id === value);
-    if (found) setSelectedLabel(found.full_name_ar);
-  }, [value, items]);
+    if (selected?.id === value) return;
+    void syncSelected(value);
+  }, [value, selected?.id, open, syncSelected]);
 
   useEffect(() => {
     if (!canUseApi()) {
@@ -55,7 +69,11 @@ export function AdminStudentSearchCombobox({
       return;
     }
     const q = query.trim();
-    if (q.length < 1) {
+    if (!open || q.length < 1) {
+      setItems([]);
+      return;
+    }
+    if (selected && q === selected.full_name_ar) {
       setItems([]);
       return;
     }
@@ -64,10 +82,6 @@ export function AdminStudentSearchCombobox({
       try {
         const res = await api.adminDeptStudentsSearch(q);
         setItems(res.items);
-        if (value) {
-          const hit = res.items.find((s) => s.id === value);
-          if (hit) setSelectedLabel(hit.full_name_ar);
-        }
       } catch {
         setItems([]);
       } finally {
@@ -75,97 +89,122 @@ export function AdminStudentSearchCombobox({
       }
     }, 280);
     return () => clearTimeout(t);
-  }, [query, value]);
+  }, [query, open, selected]);
+
+  useEffect(() => {
+    function onPointerDown(e: MouseEvent) {
+      if (!rootRef.current?.contains(e.target as Node)) {
+        setOpen(false);
+        if (selected) setQuery(selected.full_name_ar);
+      }
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [selected]);
 
   function pick(student: AdminStudentOption) {
+    setSelected(student);
+    setQuery(student.full_name_ar);
     onChange(student.id, student);
-    setSelectedLabel(student.full_name_ar);
     setOpen(false);
-    setQuery("");
+    inputRef.current?.blur();
   }
 
   function clear() {
+    setSelected(null);
+    setQuery("");
     onChange(null);
-    setSelectedLabel("");
+    setItems([]);
+    setOpen(false);
+    inputRef.current?.focus();
   }
 
-  const display =
-    selectedLabel || (value ? `طالب #${value}` : placeholder);
+  function handleInputChange(text: string) {
+    setQuery(text);
+    setOpen(true);
+    if (selected && text !== selected.full_name_ar) {
+      setSelected(null);
+      onChange(null);
+    }
+  }
+
+  const showList =
+    open &&
+    !disabled &&
+    (loading || items.length > 0 || (query.trim().length > 0 && !selected));
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
+    <div ref={rootRef} className="relative w-full space-y-1">
+      <div className="flex gap-2">
+        <Input
+          ref={inputRef}
+          type="text"
+          value={query}
           disabled={disabled}
-          className={cn(
-            "w-full justify-between font-normal text-right",
-            ds.btnRound,
-            !value && "text-muted-foreground",
-          )}
+          placeholder={placeholder}
+          className={cn("flex-1 text-right bg-background", ds.btnRound)}
           style={tajawal}
-        >
-          <span className="truncate">{display}</span>
-          <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-[min(100vw-2rem,28rem)] p-0" align="start">
-        <Command shouldFilter={false}>
-          <CommandInput
-            placeholder="اكتب جزءاً من الاسم…"
-            value={query}
-            onValueChange={setQuery}
-          />
-          <CommandList>
-            <CommandEmpty style={tajawal}>
-              {loading
-                ? "جاري البحث…"
-                : query.trim()
-                  ? "لا يوجد طالب مطابق"
-                  : "ابدأ الكتابة للبحث"}
-            </CommandEmpty>
-            <CommandGroup>
-              {items.map((s) => (
-                <CommandItem
-                  key={s.id}
-                  value={String(s.id)}
-                  onSelect={() => pick(s)}
-                >
-                  <Check
-                    className={cn(
-                      "ml-2 h-4 w-4",
-                      value === s.id ? "opacity-100" : "opacity-0",
-                    )}
-                  />
-                  <span style={tajawal}>{s.full_name_ar}</span>
-                  {s.circle_name && (
-                    <span className="text-xs text-muted-foreground mr-2">
-                      — {s.circle_name}
-                    </span>
-                  )}
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
+          autoComplete="off"
+          onChange={(e) => handleInputChange(e.target.value)}
+          onFocus={() => setOpen(true)}
+        />
         {value != null && (
-          <div className="border-t border-border p-2">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="w-full"
-              onClick={clear}
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className={cn("shrink-0", ds.btnRound)}
+            disabled={disabled}
+            onClick={clear}
+            title="مسح"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+
+      {showList && (
+        <div
+          className="absolute z-[100] mt-1 w-full rounded-xl border border-border bg-popover text-popover-foreground shadow-md max-h-56 overflow-y-auto"
+          role="listbox"
+        >
+          {loading && (
+            <p
+              className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground"
               style={tajawal}
             >
-              مسح الاختيار
-            </Button>
-          </div>
-        )}
-      </PopoverContent>
-    </Popover>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              جاري البحث…
+            </p>
+          )}
+          {!loading && items.length === 0 && (
+            <p className="px-3 py-2 text-sm text-muted-foreground" style={tajawal}>
+              لا يوجد طالب مطابق
+            </p>
+          )}
+          {!loading &&
+            items.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                role="option"
+                className="w-full text-right px-3 py-2 text-sm hover:bg-muted transition-colors border-b border-border last:border-0"
+                style={tajawal}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  pick(s);
+                }}
+              >
+                <span className="font-medium">{s.full_name_ar}</span>
+                {s.circle_name && (
+                  <span className="text-xs text-muted-foreground mr-2">
+                    — {s.circle_name}
+                  </span>
+                )}
+              </button>
+            ))}
+        </div>
+      )}
+    </div>
   );
 }

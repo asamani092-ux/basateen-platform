@@ -192,7 +192,7 @@ function TeachersPanel() {
         )}
 
         <Dialog open={addOpen} onOpenChange={setAddOpen}>
-          <DialogContent className="max-w-md rounded-2xl" dir="rtl">
+          <DialogContent className={`${ds.card} max-w-md`} dir="rtl">
             <DialogHeader>
               <DialogTitle style={tajawal}>إضافة معلم</DialogTitle>
               <DialogDescription style={tajawal}>
@@ -381,7 +381,7 @@ function TeacherEditDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md rounded-2xl" dir="rtl">
+      <DialogContent className={`${ds.card} max-w-md`} dir="rtl">
         <DialogHeader>
           <DialogTitle style={tajawal}>تعديل معلم</DialogTitle>
           <DialogDescription style={tajawal}>{teacher.full_name_ar}</DialogDescription>
@@ -508,7 +508,7 @@ function SupervisorsPanel() {
         )}
 
         <Dialog open={addOpen} onOpenChange={setAddOpen}>
-          <DialogContent className="max-w-md rounded-2xl" dir="rtl">
+          <DialogContent className={`${ds.card} max-w-md`} dir="rtl">
             <DialogHeader>
               <DialogTitle style={tajawal}>إضافة مشرف</DialogTitle>
             </DialogHeader>
@@ -720,7 +720,7 @@ function SupervisorEditDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md rounded-2xl" dir="rtl">
+      <DialogContent className={`${ds.card} max-w-md`} dir="rtl">
         <DialogHeader>
           <DialogTitle style={tajawal}>تعديل مشرف</DialogTitle>
         </DialogHeader>

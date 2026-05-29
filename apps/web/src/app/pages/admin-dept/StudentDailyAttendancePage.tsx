@@ -33,7 +33,7 @@ type MagicLinkState = {
 };
 
 /**
- * تحضير الطلاب اليومي + الرابط السحري — design-system (system_D) + ui.
+ * تحضير الطلاب اليومي + روابط التحضير — design-system (system_D) + ui.
  */
 export function StudentDailyAttendancePage() {
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -228,7 +228,7 @@ export function StudentDailyAttendancePage() {
           التحضير اليومي للطلاب
         </h2>
         <p className={ds.page.description} style={tajawal}>
-          اختر الحلقة، سجّل الغياب أو الاستئذان، أو شارك رابط التحضير السحري.
+          اختر الحلقة، سجّل الغياب أو الاستئذان، أو شارك رابط تحضير للحلقة.
         </p>
       </div>
 

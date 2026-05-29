@@ -130,7 +130,10 @@ export function AdmissionPage() {
       )}
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl" dir="rtl">
+        <DialogContent
+          className={`${ds.card} max-w-lg max-h-[90vh] overflow-y-auto`}
+          dir="rtl"
+        >
           <DialogHeader>
             <DialogTitle style={tajawal}>إضافة طالب جديد</DialogTitle>
             <DialogDescription style={tajawal}>

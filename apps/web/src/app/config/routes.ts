@@ -94,7 +94,7 @@ export const ADMIN_DEPT_NAV: NavItem[] = [
   },
   {
     id: "magic-links",
-    label: "الروابط السحرية",
+    label: "روابط التحضير",
     path: "/admin-dept/magic-links",
     roles: ADMIN_DEPT_ROLES,
   },

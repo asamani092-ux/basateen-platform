@@ -199,7 +199,7 @@ function CirclesPanel() {
         )}
         <Dialog open={showForm} onOpenChange={setShowForm}>
           <DialogContent
-            className="max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl"
+            className={`${ds.card} max-w-lg max-h-[90vh] overflow-y-auto`}
             dir="rtl"
           >
             <DialogHeader>
@@ -521,7 +521,7 @@ function TracksPanel() {
         )}
         <Dialog open={showForm} onOpenChange={setShowForm}>
           <DialogContent
-            className="max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl"
+            className={`${ds.card} max-w-lg max-h-[90vh] overflow-y-auto`}
             dir="rtl"
           >
             <DialogHeader>

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Copy, Trash2 } from "lucide-react";
+import { cn } from "../../components/ui/utils";
 import { DoubleConfirmDialog } from "../../components/shared/DoubleConfirmDialog";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import {
   Table,
   TableBody,
@@ -15,7 +17,7 @@ import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { ds, tajawal } from "../../lib/design-system";
 
-type MagicLinkRow = {
+type AttendanceLinkRow = {
   id: number;
   circle_name: string | null;
   public_path: string;
@@ -23,8 +25,13 @@ type MagicLinkRow = {
   attendance_date: string | null;
 };
 
+function shortenPath(path: string, max = 28): string {
+  if (path.length <= max) return path;
+  return `…${path.slice(-max + 1)}`;
+}
+
 export function MagicLinksManagerPage() {
-  const [items, setItems] = useState<MagicLinkRow[]>([]);
+  const [items, setItems] = useState<AttendanceLinkRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copyHint, setCopyHint] = useState<string | null>(null);
@@ -42,7 +49,7 @@ export function MagicLinksManagerPage() {
       const res = await api.adminDeptMagicLinksList();
       setItems(res.items);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل تحميل الروابط");
+      setError(e instanceof Error ? e.message : "فشل تحميل روابط التحضير");
       setItems([]);
     } finally {
       setLoading(false);
@@ -76,13 +83,13 @@ export function MagicLinksManagerPage() {
   }
 
   return (
-    <div className="space-y-4 max-w-[1200px]">
+    <div className="space-y-4 max-w-[1100px]">
       <div>
         <h2 className={ds.page.title} style={tajawal}>
-          إدارة الروابط السحرية
+          إدارة روابط التحضير
         </h2>
         <p className={ds.page.description} style={tajawal}>
-          جميع روابط تحضير الطلاب المصدرة للحلقات — نسخ أو حذف نهائي.
+          روابط تحضير الطلاب المصدرة للحلقات — نسخ أو حذف نهائي.
         </p>
       </div>
 
@@ -97,92 +104,123 @@ export function MagicLinksManagerPage() {
         </p>
       )}
 
-      <div className={`${ds.card} overflow-hidden`}>
-        {loading ? (
-          <p className="p-4 text-muted-foreground" style={tajawal}>
-            جاري التحميل…
-          </p>
-        ) : items.length === 0 ? (
-          <p className="p-4 text-sm text-muted-foreground" style={tajawal}>
-            لا توجد روابط سحرية مسجّلة بعد.
-          </p>
-        ) : (
-          <Table className="table-fixed w-full">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="text-right w-[22%]" style={tajawal}>
-                  الحلقة
-                </TableHead>
-                <TableHead className="text-right w-[14%]" style={tajawal}>
-                  التاريخ
-                </TableHead>
-                <TableHead className="text-right w-[34%]" style={tajawal}>
-                  الرابط
-                </TableHead>
-                <TableHead className="text-right w-[12%]" style={tajawal}>
-                  الحالة
-                </TableHead>
-                <TableHead className="text-right w-[18%]" style={tajawal}>
-                  إجراءات
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell className="text-right font-medium" style={tajawal}>
-                    {row.circle_name ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-right" style={tajawal}>
-                    {row.attendance_date ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <code className="text-xs break-all" dir="ltr">
-                      {fullUrl(row.public_path)}
-                    </code>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Badge variant={row.is_active ? "secondary" : "destructive"}>
-                      {row.is_active ? "مفعّل" : "مغلق"}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex flex-wrap gap-2 justify-end">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className={ds.btnRound}
-                        onClick={() => copyLink(row.public_path)}
-                      >
-                        <Copy className="w-4 h-4" />
-                        نسخ
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="destructive"
-                        className={ds.btnRound}
-                        onClick={() => setDeleteId(row.id)}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        حذف
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </div>
+      <Card className={ds.card}>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base" style={tajawal}>
+            روابط التحضير النشطة
+          </CardTitle>
+          <CardDescription style={tajawal}>
+            انقر «نسخ» للحصول على الرابط الكامل.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0 sm:p-0">
+          {loading ? (
+            <p className="p-4 text-muted-foreground text-right" style={tajawal}>
+              جاري التحميل…
+            </p>
+          ) : items.length === 0 ? (
+            <p className="p-4 text-sm text-muted-foreground text-right" style={tajawal}>
+              لا توجد روابط تحضير مسجّلة بعد.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table className="w-full min-w-[640px] table-fixed">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-right w-[20%]" style={tajawal}>
+                      الحلقة
+                    </TableHead>
+                    <TableHead className="text-right w-[12%]" style={tajawal}>
+                      التاريخ
+                    </TableHead>
+                    <TableHead className="text-right w-[28%]" style={tajawal}>
+                      الرابط
+                    </TableHead>
+                    <TableHead className="text-right w-[12%]" style={tajawal}>
+                      الحالة
+                    </TableHead>
+                    <TableHead className="text-right w-[28%]" style={tajawal}>
+                      إجراءات
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {items.map((row) => {
+                    const url = fullUrl(row.public_path);
+                    return (
+                      <TableRow key={row.id}>
+                        <TableCell
+                          className="text-right font-medium align-middle truncate"
+                          style={tajawal}
+                          title={row.circle_name ?? undefined}
+                        >
+                          {row.circle_name ?? "—"}
+                        </TableCell>
+                        <TableCell
+                          className="text-right align-middle whitespace-nowrap"
+                          style={tajawal}
+                        >
+                          {row.attendance_date ?? "—"}
+                        </TableCell>
+                        <TableCell className="text-right align-middle">
+                          <span
+                            className="text-xs text-muted-foreground font-mono block truncate"
+                            dir="ltr"
+                            title={url}
+                          >
+                            {shortenPath(row.public_path, 32)}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right align-middle">
+                          <Badge
+                            variant={row.is_active ? "secondary" : "destructive"}
+                            className="text-xs"
+                          >
+                            {row.is_active ? "مفعّل" : "مغلق"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right align-middle">
+                          <div className="flex flex-wrap gap-1 justify-end">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className={cn("h-7 px-2 text-xs", ds.btnRound)}
+                              onClick={() => copyLink(row.public_path)}
+                              style={tajawal}
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                              نسخ
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="destructive"
+                              className={cn("h-7 px-2 text-xs", ds.btnRound)}
+                              onClick={() => setDeleteId(row.id)}
+                              style={tajawal}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              حذف
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <DoubleConfirmDialog
         open={deleteId != null}
         onOpenChange={(o) => {
           if (!o) setDeleteId(null);
         }}
-        title="حذف الرابط السحري"
+        title="حذف رابط التحضير"
         description="سيتم حذف الرابط نهائياً ولن يعمل بعد الآن."
         confirmLabel="حذف نهائي"
         destructive

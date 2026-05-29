@@ -136,7 +136,10 @@ export function PledgesPage() {
       </div>
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="max-w-md rounded-2xl" dir="rtl">
+        <DialogContent
+          className={`${ds.card} max-w-md rounded-2xl border-border bg-card`}
+          dir="rtl"
+        >
           <DialogHeader>
             <DialogTitle style={tajawal}>إضافة تعهد</DialogTitle>
             <DialogDescription style={tajawal}>

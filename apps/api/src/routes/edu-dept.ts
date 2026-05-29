@@ -140,10 +140,8 @@ export async function handleEduDeptRouter(
               sda.recorded_at,
               sda.source
        FROM students s
-       LEFT JOIN student_circle_history h
-         ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL
-       LEFT JOIN circles c ON c.id = h.circle_id
-       LEFT JOIN student_daily_attendance sda
+       LEFT JOIN circles c ON c.id = s.current_circle_id
+       LEFT JOIN student_attendance sda
          ON sda.student_id = s.id AND sda.attendance_date = ?
        WHERE ${scopeWhere}
        ORDER BY c.name_ar, s.full_name_ar`,
@@ -181,7 +179,7 @@ export async function handleEduDeptRouter(
 
     for (const row of students.results ?? []) {
       await env.DB.prepare(
-        `INSERT INTO student_daily_attendance
+        `INSERT INTO student_attendance
          (complex_id, student_id, attendance_date, status, source, recorded_by_user_id)
          VALUES (?, ?, ?, 'present', 'edu_supervisor', ?)
          ON CONFLICT(student_id, attendance_date) DO NOTHING`,
@@ -226,13 +224,20 @@ export async function handleEduDeptRouter(
 
     if (!allowed) return json({ error: "student_out_of_scope" }, 403);
 
+    const circleRow = await env.DB.prepare(
+      `SELECT current_circle_id FROM students WHERE id = ?`,
+    )
+      .bind(studentId)
+      .first<{ current_circle_id: number | null }>();
+
     await env.DB.prepare(
-      `INSERT INTO student_daily_attendance
-       (complex_id, student_id, attendance_date, status, source, recorded_by_user_id, notes)
-       VALUES (?, ?, ?, ?, 'edu_supervisor', ?, ?)
+      `INSERT INTO student_attendance
+       (complex_id, student_id, attendance_date, status, source, circle_id, recorded_by_user_id, notes)
+       VALUES (?, ?, ?, ?, 'edu_supervisor', ?, ?, ?)
        ON CONFLICT(student_id, attendance_date) DO UPDATE SET
          status = excluded.status,
          source = 'edu_supervisor',
+         circle_id = COALESCE(excluded.circle_id, student_attendance.circle_id),
          recorded_by_user_id = excluded.recorded_by_user_id,
          notes = excluded.notes,
          recorded_at = datetime('now')`,
@@ -242,17 +247,10 @@ export async function handleEduDeptRouter(
         studentId,
         date,
         status,
+        circleRow?.current_circle_id ?? null,
         auth.userId,
         body.notes?.trim() ?? null,
       )
-      .run();
-
-    await env.DB.prepare(
-      `INSERT INTO student_attendance_log
-       (student_id, attendance_date, status, source, recorded_by_user_id, notes)
-       VALUES (?, ?, ?, 'edu_supervisor', ?, ?)`,
-    )
-      .bind(studentId, date, status, auth.userId, body.notes?.trim() ?? null)
       .run();
 
     return json({ ok: true, student_id: studentId, status, attendance_date: date });

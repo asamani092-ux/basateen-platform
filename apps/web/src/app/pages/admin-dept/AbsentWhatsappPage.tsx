@@ -136,7 +136,7 @@ export function AbsentWhatsappPage() {
             لا يوجد غائبون مسجلون لهذا اليوم.
           </p>
         ) : (
-          <Table>
+          <Table className={ds.tableMin}>
             <TableHeader>
               <TableRow>
                 <TableHead style={tajawal}>الطالب</TableHead>

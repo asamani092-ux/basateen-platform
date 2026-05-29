@@ -220,7 +220,7 @@ function TeachersPanel() {
                   value={circleId}
                   onChange={(e) => setCircleId(e.target.value)}
                   required
-                  className="w-full rounded-xl border border-border bg-background px-3 py-2"
+                  className={ds.select}
                   style={tajawal}
                 >
                   <option value="">— اختر الحلقة —</option>
@@ -397,7 +397,7 @@ function TeacherEditDialog({
           <select
             value={circleId}
             onChange={(e) => setCircleId(e.target.value)}
-            className="rounded-xl border px-3 py-2"
+            className={ds.select}
             style={tajawal}
           >
             <option value="">—</option>
@@ -532,7 +532,7 @@ function SupervisorsPanel() {
                 <select
                   value={roleType}
                   onChange={(e) => setRoleType(e.target.value)}
-                  className="w-full rounded-xl border border-border bg-background px-3 py-2"
+                  className={ds.select}
                   style={tajawal}
                 >
                   {SUPERVISOR_TYPES.map((t) => (
@@ -549,7 +549,7 @@ function SupervisorsPanel() {
                 <select
                   value={scope}
                   onChange={(e) => setScope(e.target.value)}
-                  className="w-full rounded-xl border border-border bg-background px-3 py-2"
+                  className={ds.select}
                   style={tajawal}
                 >
                   <option value={SCOPE_GLOBAL}>{stageLabel(SCOPE_GLOBAL)}</option>
@@ -735,7 +735,7 @@ function SupervisorEditDialog({
           <select
             value={roleType}
             onChange={(e) => setRoleType(e.target.value)}
-            className="rounded-xl border px-3 py-2"
+            className={ds.select}
             style={tajawal}
           >
             {SUPERVISOR_TYPES.map((t) => (
@@ -747,7 +747,7 @@ function SupervisorEditDialog({
           <select
             value={scope}
             onChange={(e) => setScope(e.target.value)}
-            className="rounded-xl border px-3 py-2"
+            className={ds.select}
             style={tajawal}
           >
             <option value={SCOPE_GLOBAL}>{stageLabel(SCOPE_GLOBAL)}</option>

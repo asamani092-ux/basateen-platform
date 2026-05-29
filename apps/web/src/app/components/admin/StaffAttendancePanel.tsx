@@ -16,9 +16,9 @@ import {
   TableHeader,
   TableRow,
 } from "../ui/table";
+import { ds, tajawal } from "../../lib/design-system";
 import { api } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
-import { ds, tajawal } from "../../lib/design-system";
 
 type StaffOption = { id: number; full_name_ar: string; role: string };
 
@@ -99,7 +99,7 @@ export function StaffAttendancePanel({
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="block rounded-xl border border-border px-3 py-2"
+              className={ds.field}
             />
           </div>
           <div>
@@ -109,7 +109,7 @@ export function StaffAttendancePanel({
             <select
               value={userId}
               onChange={(e) => setUserId(e.target.value)}
-              className="block rounded-xl border border-border px-3 py-2 min-w-[200px]"
+              className={`${ds.select} min-w-[200px]`}
               style={tajawal}
             >
               <option value="">— اختر —</option>
@@ -127,7 +127,7 @@ export function StaffAttendancePanel({
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value)}
-              className="block rounded-xl border border-border px-3 py-2"
+              className={ds.select}
               style={tajawal}
             >
               <option value="present">حاضر</option>

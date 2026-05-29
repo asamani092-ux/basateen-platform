@@ -119,7 +119,7 @@ export function ViolationsPledgesTab() {
           </p>
         ) : (
           <div className="overflow-x-auto">
-            <Table>
+            <Table className={ds.tableMin}>
               <TableHeader>
                 <TableRow>
                   <TableHead style={tajawal}>الطالب</TableHead>

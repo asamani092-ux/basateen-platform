@@ -222,7 +222,7 @@ function CirclesPanel() {
               <select
                 value={stageId}
                 onChange={(e) => setStageId(Number(e.target.value) as StageId)}
-                className="w-full rounded-xl border border-border bg-background px-3 py-2"
+                className={ds.select}
                 style={tajawal}
               >
                 {EDUCATIONAL_STAGES.map((s) => (
@@ -251,7 +251,7 @@ function CirclesPanel() {
               <select
                 value={teacherId}
                 onChange={(e) => setTeacherId(e.target.value)}
-                className="w-full rounded-xl border border-border bg-background px-3 py-2"
+                className={ds.select}
                 style={tajawal}
               >
                 <option value="">— معلم جديد أدناه —</option>
@@ -291,7 +291,7 @@ function CirclesPanel() {
               <select
                 value={trackId}
                 onChange={(e) => setTrackId(e.target.value)}
-                className="w-full rounded-xl border border-border bg-background px-3 py-2"
+                className={ds.select}
                 style={tajawal}
               >
                 <option value="">— بدون مسار —</option>
@@ -557,7 +557,7 @@ function TracksPanel() {
                 <select
                   value={supervisorId}
                   onChange={(e) => setSupervisorId(e.target.value)}
-                  className={`w-full border border-border px-3 py-2 ${ds.btnRound}`}
+                  className={ds.select}
                   required
                   style={tajawal}
                 >

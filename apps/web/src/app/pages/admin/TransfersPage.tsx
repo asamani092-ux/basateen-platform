@@ -27,8 +27,7 @@ import {
   type StudentRow,
 } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
-
-const tajawal = { fontFamily: "Tajawal, sans-serif" } as const;
+import { ds, tajawal } from "../../lib/design-system";
 
 const ERROR_AR: Record<string, string> = {
   unauthorized: "انتهت الجلسة — سجّل الدخول مرة أخرى",
@@ -155,103 +154,84 @@ export function TransfersPage() {
     <div className="space-y-6 max-w-[1200px] mx-auto">
       <div>
         <h2
-          className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2"
+          className={`${ds.page.title} flex items-center gap-2`}
           style={tajawal}
         >
-          <ArrowLeftRight className="w-7 h-7 text-[#1e3a8a]" />
+          <ArrowLeftRight className="w-7 h-7 text-primary" />
           نقل الطلاب (تراكمي)
         </h2>
-        <p className="text-slate-600 dark:text-slate-300 mt-1" style={tajawal}>
+        <p className={ds.page.description} style={tajawal}>
           تجميد السجل الحالي وإضافة سجل جديد — لا يُحذف التاريخ
         </p>
       </div>
 
       {!hasApi && (
-        <div
-          className="rounded-2xl border border-amber-200 bg-amber-50 dark:bg-amber-950/30 p-4 text-amber-900 dark:text-amber-200 text-sm"
-          style={tajawal}
-        >
+        <div className={ds.alert.warn} style={tajawal}>
           سجّل الخروج ثم ادخل مجدداً بالجوال (0500000001 / 0500000002) لربط API.
         </div>
       )}
 
       {error && (
-        <div
-          className="rounded-2xl border border-rose-200 bg-rose-50 dark:bg-rose-950/30 p-4 text-rose-800 dark:text-rose-300 text-sm"
-          style={tajawal}
-        >
+        <div className={ds.alert.error} style={tajawal}>
           {error}
         </div>
       )}
 
       {success && (
-        <div
-          className="rounded-2xl border border-emerald-200 bg-emerald-50 dark:bg-emerald-950/30 p-4 text-emerald-800 dark:text-emerald-300 text-sm"
-          style={tajawal}
-        >
+        <div className={ds.alert.success} style={tajawal}>
           {success}
         </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="rounded-3xl border-slate-200 dark:border-[#1e3a5f]">
+        <Card className={ds.card}>
           <CardHeader>
-            <CardTitle className="text-slate-900 dark:text-white" style={tajawal}>
-              اختيار الطالب
-            </CardTitle>
-            <CardDescription
-              className="text-slate-600 dark:text-slate-300"
-              style={tajawal}
-            >
+            <CardTitle style={tajawal}>اختيار الطالب</CardTitle>
+            <CardDescription style={tajawal}>
               ابحث بالاسم ثم اختر الطالب
             </CardDescription>
             <div className="relative mt-2">
-              <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 placeholder="ابحث باسم الطالب..."
                 value={searchQ}
                 onChange={(e) => setSearchQ(e.target.value)}
-                className="pr-10 rounded-xl text-slate-900 dark:text-white"
+                className={`pr-10 ${ds.btnRound}`}
                 style={tajawal}
               />
             </div>
           </CardHeader>
           <CardContent className="space-y-2 max-h-64 overflow-y-auto">
             {searchResults.map((s) => (
-              <button
+              <Button
                 key={s.id}
                 type="button"
+                variant={selectedId === s.id ? "secondary" : "outline"}
                 onClick={() => loadDetail(s.id)}
-                className={`w-full text-right px-4 py-3 rounded-xl border transition-colors ${
-                  selectedId === s.id
-                    ? "border-[#1e3a8a] bg-[#dbeafe] dark:bg-[#1e3a5f]"
-                    : "border-slate-200 dark:border-[#1e3a5f] hover:bg-slate-50 dark:hover:bg-[#132337]"
-                }`}
+                className={`w-full h-auto justify-start text-right px-4 py-3 ${ds.btnRound}`}
+                style={tajawal}
               >
-                <p
-                  className="font-semibold text-slate-900 dark:text-white"
-                  style={tajawal}
-                >
-                  {s.full_name_ar}
-                </p>
-                <p className="text-xs text-slate-500 dark:text-slate-400" style={tajawal}>
-                  {s.circle_name ?? "—"} · {s.track_name ?? "—"}
-                </p>
-              </button>
+                <span className="block w-full">
+                  <span className="block font-semibold text-foreground">
+                    {s.full_name_ar}
+                  </span>
+                  <span className="block text-xs text-muted-foreground font-normal">
+                    {s.circle_name ?? "—"} · {s.track_name ?? "—"}
+                  </span>
+                </span>
+              </Button>
             ))}
             {searchQ && searchResults.length === 0 && (
-              <p className="text-sm text-slate-500 text-center py-4" style={tajawal}>
+              <p className="text-sm text-muted-foreground text-center py-4" style={tajawal}>
                 لا توجد نتائج
               </p>
             )}
           </CardContent>
         </Card>
 
-        <Card className="rounded-3xl border-slate-200 dark:border-[#1e3a5f]">
+        <Card className={ds.card}>
           <CardHeader>
-            <CardTitle className="text-slate-900 dark:text-white" style={tajawal}>
-              نقل إلى حلقة جديدة
-            </CardTitle>
+            <CardTitle style={tajawal}>نقل إلى حلقة جديدة</CardTitle>
             {detail?.current && (
               <CardDescription style={tajawal}>
                 الحالي:{" "}
@@ -264,26 +244,23 @@ export function TransfersPage() {
           </CardHeader>
           <CardContent>
             {!detail && !loading && (
-              <p className="text-slate-500 text-sm" style={tajawal}>
+              <p className="text-muted-foreground text-sm" style={tajawal}>
                 اختر طالباً من القائمة
               </p>
             )}
             {loading && (
-              <p className="text-slate-500 text-sm" style={tajawal}>
+              <p className="text-muted-foreground text-sm" style={tajawal}>
                 جاري التحميل...
               </p>
             )}
             {detail && (
               <form onSubmit={handleTransfer} className="space-y-4">
-                <p
-                  className="font-bold text-lg text-slate-900 dark:text-white"
-                  style={tajawal}
-                >
+                <p className="font-bold text-lg text-foreground" style={tajawal}>
                   {detail.student.full_name_ar}
                 </p>
                 <div>
                   <label
-                    className="block text-sm font-semibold mb-2 text-slate-900 dark:text-white"
+                    className="block text-sm font-semibold mb-2 text-foreground"
                     style={tajawal}
                   >
                     الحلقة الجديدة
@@ -313,7 +290,7 @@ export function TransfersPage() {
                       }
                     }}
                     required
-                    className="w-full rounded-xl border border-slate-300 dark:border-[#1e3a5f] bg-white dark:bg-[#132337] px-3 py-2.5 text-slate-900 dark:text-white"
+                    className={ds.select}
                     style={tajawal}
                   >
                     <option value="">— اختر الحلقة —</option>
@@ -333,17 +310,14 @@ export function TransfersPage() {
                     </div>
                   )}
                   {capacityHint && (
-                    <p
-                      className="mt-2 text-sm rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-100 px-3 py-2"
-                      style={tajawal}
-                    >
+                    <p className={`mt-2 text-sm ${ds.alert.warn}`} style={tajawal}>
                       {capacityHint}
                     </p>
                   )}
                 </div>
                 <div>
                   <label
-                    className="block text-sm font-semibold mb-2 text-slate-900 dark:text-white"
+                    className="block text-sm font-semibold mb-2 text-foreground"
                     style={tajawal}
                   >
                     ملاحظة (اختياري)
@@ -352,14 +326,15 @@ export function TransfersPage() {
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
                     placeholder="سبب النقل..."
-                    className="rounded-xl text-slate-900 dark:text-white"
+                    className={ds.btnRound}
                     style={tajawal}
                   />
                 </div>
                 <Button
                   type="submit"
+                  variant="default"
                   disabled={submitting || !targetCircleId || !hasApi}
-                  className="w-full bg-[#1e3a8a] hover:bg-[#1e40af] text-white rounded-xl"
+                  className={`w-full ${ds.btnRound}`}
                   style={tajawal}
                 >
                   {submitting ? "جاري النقل..." : "تأكيد النقل التراكمي"}
@@ -371,14 +346,12 @@ export function TransfersPage() {
       </div>
 
       {detail && detail.history.length > 0 && (
-        <Card className="rounded-3xl border-slate-200 dark:border-[#1e3a5f]">
+        <Card className={ds.card}>
           <CardHeader>
-            <CardTitle className="text-slate-900 dark:text-white" style={tajawal}>
-              سجل الحلقات (تراكمي)
-            </CardTitle>
+            <CardTitle style={tajawal}>سجل الحلقات (تراكمي)</CardTitle>
           </CardHeader>
           <CardContent>
-            <Table>
+            <Table className={ds.tableMin}>
               <TableHeader>
                 <TableRow>
                   <TableHead style={tajawal}>الحلقة</TableHead>
@@ -396,7 +369,9 @@ export function TransfersPage() {
                     <TableCell style={tajawal}>{h.from_at}</TableCell>
                     <TableCell style={tajawal}>
                       {h.to_at ?? (
-                        <Badge className="rounded-lg bg-emerald-600">نشط</Badge>
+                        <Badge variant="default" className="rounded-lg">
+                          نشط
+                        </Badge>
                       )}
                     </TableCell>
                     <TableCell style={tajawal}>{h.note ?? "—"}</TableCell>

@@ -10,7 +10,7 @@ export const ATTENDANCE_STATUS_BUTTONS = [
     value: "excused" as const,
     label: "مستأذن",
     active: "bg-amber-500 text-white ring-2 ring-amber-500",
-    idle: "bg-amber-50 text-amber-900 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-100",
+    idle: "bg-amber-500/15 text-foreground border border-amber-500/30",
   },
   {
     value: "absent" as const,

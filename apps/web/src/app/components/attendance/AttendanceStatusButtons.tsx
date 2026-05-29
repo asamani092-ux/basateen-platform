@@ -28,7 +28,7 @@ const OPTIONS: Array<{
     activeClass:
       "bg-amber-500 text-white hover:bg-amber-500/90 border-amber-500 ring-2 ring-amber-500",
     idleClass:
-      "border-amber-400 text-amber-900 hover:bg-amber-50 dark:text-amber-100 dark:hover:bg-amber-950/40",
+      "border-amber-500/40 text-foreground hover:bg-amber-500/15",
   },
   {
     value: "absent",

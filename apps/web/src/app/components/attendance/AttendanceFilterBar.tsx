@@ -52,7 +52,7 @@ export function AttendanceFilterBar({
             <select
               value={groupValue}
               onChange={(e) => onGroupChange(e.target.value)}
-              className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-background"
+              className={ds.select}
               style={tajawal}
             >
               <option value="">الكل</option>
@@ -68,7 +68,7 @@ export function AttendanceFilterBar({
       <p className="text-xs text-muted-foreground" style={tajawal}>
         يعرض {shownCount} من {totalCount}
         {hiddenDirty > 0 && (
-          <span className="text-amber-700 dark:text-amber-400">
+          <span className="text-amber-600 dark:text-amber-400">
             {" "}
             — {hiddenDirty} تغيير غير معتمد خارج الفلتر
           </span>

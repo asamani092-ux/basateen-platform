@@ -108,7 +108,7 @@ export function AdmissionForm({ onSubmit, submitting }: Props) {
           <select
             value={values.stage_id}
             onChange={(e) => set("stage_id", e.target.value)}
-            className="w-full rounded-xl border border-border px-3 py-2"
+            className={ds.select}
             style={tajawal}
           >
             <option value="">— اختر المرحلة —</option>

@@ -156,7 +156,7 @@ export function AdmissionPage() {
                   setStageFilter(e.target.value);
                   setCircleId("");
                 }}
-                className="w-full rounded-xl border border-border px-3 py-2"
+                className={ds.select}
                 style={tajawal}
               >
                 <option value="">كل المراحل</option>

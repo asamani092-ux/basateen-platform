@@ -127,7 +127,7 @@ export function AdmissionFunnelTab() {
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <Table>
+              <Table className={ds.tableMin}>
                 <TableHeader>
                   <TableRow>
                     <TableHead style={tajawal}>الاسم</TableHead>

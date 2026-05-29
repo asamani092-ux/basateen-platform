@@ -29,12 +29,20 @@ export async function tableHasColumn(
   return cols.has(column);
 }
 
-/** Active placement predicate for student_circle_history (flat vs full schema). */
+/** Active placement predicate for student_circle_history (legacy open row). */
 export async function activePlacementSql(
   env: Env,
   alias = "h",
 ): Promise<string> {
-  const hasFrozen = await tableHasColumn(env, "student_circle_history", "frozen_at");
+  const hasToAt = await tableHasColumn(env, "student_circle_history", "to_at");
+  if (!hasToAt) {
+    return "1=0";
+  }
+  const hasFrozen = await tableHasColumn(
+    env,
+    "student_circle_history",
+    "frozen_at",
+  );
   const p = `${alias}.to_at IS NULL`;
   return hasFrozen ? `${p} AND ${alias}.frozen_at IS NULL` : p;
 }

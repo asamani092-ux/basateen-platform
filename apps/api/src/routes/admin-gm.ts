@@ -7,6 +7,14 @@ import {
   capacityWarningMessage,
 } from "../lib/circle-capacity";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
+import {
+  circleCapacityExpr,
+  circleStageIdExpr,
+  circleStudentCountSubquery,
+  circleTeacherJoinSql,
+  circleTrackSelectSql,
+  teachersListSql,
+} from "../lib/admin-gm-schema";
 import { usersHaveRoleColumn } from "../lib/db-user";
 import { activePlacementSql, hasTable, tableHasColumn } from "../lib/db-schema";
 
@@ -32,36 +40,36 @@ export async function handleAdminTeachersList(
   request: Request,
   env: Env,
 ): Promise<Response> {
-  const auth = await getAuth(request, env);
-  const denied = requireGm(auth);
-  if (denied) return denied;
+  try {
+    const auth = await getAuth(request, env);
+    const denied = requireGm(auth);
+    if (denied) return denied;
 
-  const hasRole = await usersHaveRoleColumn(env);
-  const teacherFilter = hasRole
-    ? "u.role = 'teacher'"
-    : "COALESCE(u.is_teacher, 0) = 1";
+    const sql = await teachersListSql(env);
+    const rows = await env.DB.prepare(sql)
+      .bind(auth!.complexId)
+      .all<{
+        id: number;
+        full_name_ar: string;
+        mobile: string | null;
+        is_active: number;
+        circle_id: number | null;
+        circle_name: string | null;
+        stage_id: number;
+      }>();
 
-  const rows = await env.DB.prepare(
-    `SELECT u.id, u.full_name_ar, u.mobile, u.is_active,
-            ta.circle_id, c.name_ar AS circle_name, COALESCE(c.stage_id, 2) AS stage_id
-     FROM users u
-     LEFT JOIN teacher_assignments ta ON ta.user_id = u.id
-     LEFT JOIN circles c ON c.id = ta.circle_id
-     WHERE u.complex_id = ? AND ${teacherFilter}
-     ORDER BY u.full_name_ar`,
-  )
-    .bind(auth!.complexId)
-    .all<{
-      id: number;
-      full_name_ar: string;
-      mobile: string | null;
-      is_active: number;
-      circle_id: number | null;
-      circle_name: string | null;
-      stage_id: number;
-    }>();
-
-  return json({ items: rows.results ?? [] });
+    return json({ items: rows.results ?? [] });
+  } catch (error: unknown) {
+    console.error("[admin-gm] teachers list:", error);
+    return json(
+      {
+        error: "admin_teachers_error",
+        message:
+          error instanceof Error ? error.message : "Failed to load teachers",
+      },
+      500,
+    );
+  }
 }
 
 export async function handleAdminTeachersCreate(
@@ -259,63 +267,70 @@ export async function handleAdminCirclesSummary(
   request: Request,
   env: Env,
 ): Promise<Response> {
-  const auth = await getAuth(request, env);
-  const denied = requireGm(auth);
-  if (denied) return denied;
+  try {
+    const auth = await getAuth(request, env);
+    const denied = requireGm(auth);
+    if (denied) return denied;
 
-  const hasRole = await usersHaveRoleColumn(env);
-  const hasTeacherAssignments = await hasTable(env, "teacher_assignments");
-  const activePlacement = await activePlacementSql(env, "h");
-  const teacherJoin = hasTeacherAssignments
-    ? `LEFT JOIN teacher_assignments ta ON ta.circle_id = c.id
-     LEFT JOIN users u ON u.id = ta.user_id AND ${
-       hasRole ? "u.role = 'teacher'" : "u.is_teacher = 1"
-     }`
-    : "";
-  const teacherIdCol = hasTeacherAssignments
-    ? "u.id AS teacher_id, u.full_name_ar AS teacher_name"
-    : "NULL AS teacher_id, NULL AS teacher_name";
+    const stageExpr = await circleStageIdExpr(env);
+    const capacityExpr = await circleCapacityExpr(env);
+    const track = await circleTrackSelectSql(env);
+    const teacher = await circleTeacherJoinSql(env);
+    const studentCount = await circleStudentCountSubquery(env);
 
-  const rows = await env.DB.prepare(
-    `SELECT c.id, c.name_ar, COALESCE(c.stage_id, 2) AS stage_id,
-            COALESCE(c.default_capacity, c.capacity, 20) AS default_capacity,
-            c.track_id, t.name_ar AS track_name, c.is_active,
-            ${teacherIdCol},
-            (SELECT COUNT(*) FROM student_circle_history h
-             WHERE h.circle_id = c.id AND ${activePlacement}) AS student_count
-     FROM circles c
-     LEFT JOIN tracks t ON t.id = c.track_id
-     ${teacherJoin}
-     WHERE c.complex_id = ?
-     ORDER BY c.stage_id, c.name_ar`,
-  )
-    .bind(auth!.complexId)
-    .all<{
-      id: number;
-      name_ar: string;
-      stage_id: number;
-      default_capacity: number;
-      track_id: number | null;
-      track_name: string | null;
-      is_active: number;
-      teacher_id: number | null;
-      teacher_name: string | null;
-      student_count: number;
-    }>();
+    const rows = await env.DB.prepare(
+      `SELECT c.id, c.name_ar, ${stageExpr} AS stage_id,
+              ${capacityExpr} AS default_capacity,
+              ${track.trackIdCol}, ${track.trackNameCol},
+              COALESCE(c.is_active, 1) AS is_active,
+              ${teacher.teacherIdCol}, ${teacher.teacherNameCol},
+              ${studentCount} AS student_count
+       FROM circles c
+       ${track.joinSql}
+       ${teacher.joinSql}
+       WHERE c.complex_id = ?
+       ORDER BY stage_id, c.name_ar`,
+    )
+      .bind(auth!.complexId)
+      .all<{
+        id: number;
+        name_ar: string;
+        stage_id: number;
+        default_capacity: number;
+        track_id: number | null;
+        track_name: string | null;
+        is_active: number;
+        teacher_id: number | null;
+        teacher_name: string | null;
+        student_count: number;
+      }>();
 
-  const items = (rows.results ?? []).map((r) => {
-    const cap = computeCapacity(r.default_capacity, r.student_count);
-    return {
-      ...r,
-      ...cap,
-      capacity_warning: capacityWarningMessage({
-        circle_id: r.id,
+    const items = (rows.results ?? []).map((r) => {
+      const cap = computeCapacity(r.default_capacity, r.student_count);
+      return {
+        ...r,
         ...cap,
-      }),
-    };
-  });
+        capacity_warning: capacityWarningMessage({
+          circle_id: r.id,
+          ...cap,
+        }),
+      };
+    });
 
-  return json({ items });
+    return json({ items });
+  } catch (error: unknown) {
+    console.error("[admin-gm] circles summary:", error);
+    return json(
+      {
+        error: "admin_circles_summary_error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Failed to load circles summary",
+      },
+      500,
+    );
+  }
 }
 
 export async function handleAdminCirclesCreate(
@@ -1014,6 +1029,28 @@ export async function handleAdminGmRouter(
   const path = url.pathname;
   const method = request.method;
 
+  try {
+    return await handleAdminGmRouterImpl(request, env, url, path, method);
+  } catch (error: unknown) {
+    console.error("[admin-gm] router:", error);
+    return json(
+      {
+        error: "admin_gm_error",
+        message:
+          error instanceof Error ? error.message : "Uncaught admin-gm error",
+      },
+      500,
+    );
+  }
+}
+
+async function handleAdminGmRouterImpl(
+  request: Request,
+  env: Env,
+  url: URL,
+  path: string,
+  method: string,
+): Promise<Response | null> {
   if (method === "GET" && path === "/api/admin/teachers") {
     return handleAdminTeachersList(request, env);
   }

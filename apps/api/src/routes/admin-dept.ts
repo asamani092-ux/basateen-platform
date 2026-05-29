@@ -1,17 +1,26 @@
 import type { Env } from "../types";
-import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 import {
-  loadUserScope,
-  parseStageScope,
-  STAGE_LABELS,
-  staffScopeBinds,
-  staffScopeWhere,
-  stageFilterBinds,
-  stageFilterWhere,
-  studentsInScopeBinds,
-  studentsInScopeWhere,
-  type ScopeMode,
-} from "../lib/dept-scope";
+  authUnauthorizedResponse,
+  getAuth,
+  requireAuth,
+  requireRoles,
+} from "../middleware/auth";
+import { hasTable, tableHasColumn } from "../lib/db-schema";
+import { STAGE_LABELS } from "../lib/dept-scope";
+import { randomMagicToken } from "../lib/magic-link";
+import {
+  upsertStudentAttendance,
+  type AttendanceStatus,
+} from "../lib/student-attendance-db";
+
+const ADMIN_ROLES = ["admin_supervisor", "super_admin"] as const;
+
+const STAGE_ID_TO_CIRCLE_STAGE: Record<number, string> = {
+  1: "tlaqeen",
+  2: "primary",
+  3: "middle",
+  4: "secondary",
+};
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
@@ -21,14 +30,91 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function parseStatus(raw: unknown): AttendanceStatus | null {
+  const s = String(raw ?? "").trim();
+  if (s === "present" || s === "absent" || s === "excused") return s;
+  return null;
+}
+
 async function requireAdminDept(auth: Awaited<ReturnType<typeof getAuth>>) {
   if (!requireAuth(auth)) return null;
-  if (!requireRoles(auth!, ["admin_supervisor"])) return null;
+  if (!requireRoles(auth, [...ADMIN_ROLES])) return null;
   return auth;
 }
 
-async function adminDeptScope(env: Env, userId: number): Promise<ScopeMode> {
-  return loadUserScope(env, userId);
+async function staffListSql(env: Env): Promise<{ sql: string; flat: boolean }> {
+  const hasRole = await tableHasColumn(env, "users", "role");
+  if (hasRole) {
+    return {
+      flat: false,
+      sql: `SELECT u.id AS user_id, u.full_name_ar, u.role,
+                   sa.status AS saved_status, sa.recorded_at
+            FROM users u
+            LEFT JOIN staff_attendance sa
+              ON sa.user_id = u.id AND sa.attendance_date = ? AND sa.complex_id = ?
+            WHERE u.complex_id = ? AND u.is_active = 1
+              AND u.role IN ('super_admin','admin_supervisor','edu_supervisor','prog_supervisor','teacher')
+            ORDER BY u.full_name_ar`,
+    };
+  }
+  return {
+    flat: true,
+    sql: `SELECT u.id AS user_id, u.full_name_ar,
+                 sa.status AS saved_status, sa.recorded_at
+          FROM users u
+          LEFT JOIN staff_attendance sa
+            ON sa.user_id = u.id AND sa.attendance_date = ? AND sa.complex_id = ?
+          WHERE u.complex_id = ? AND u.is_active = 1
+            AND (
+              COALESCE(u.is_admin, 0) = 1 OR COALESCE(u.is_educational, 0) = 1 OR
+              COALESCE(u.is_programs, 0) = 1 OR COALESCE(u.is_teacher, 0) = 1 OR
+              COALESCE(u.is_track_supervisor, 0) = 1
+            )
+          ORDER BY u.full_name_ar`,
+  };
+}
+
+async function assertCircleInComplex(
+  env: Env,
+  complexId: number,
+  circleId: number,
+): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `SELECT id FROM circles WHERE id = ? AND complex_id = ? AND is_active = 1`,
+  )
+    .bind(circleId, complexId)
+    .first<{ id: number }>();
+  return Boolean(row);
+}
+
+async function getMaxPledges(env: Env, complexId: number): Promise<number> {
+  const hasMax = await tableHasColumn(env, "complex_settings", "max_pledges_per_student");
+  if (!hasMax) return 3;
+  const row = await env.DB.prepare(
+    `SELECT max_pledges_per_student FROM complex_settings WHERE complex_id = ?`,
+  )
+    .bind(complexId)
+    .first<{ max_pledges_per_student: number }>();
+  return Number(row?.max_pledges_per_student ?? 3);
+}
+
+async function bumpPledgeSummary(env: Env, studentId: number): Promise<number> {
+  await env.DB.prepare(
+    `INSERT INTO student_disciplinary_summary (student_id, pledge_count, updated_at)
+     VALUES (?, 1, datetime('now'))
+     ON CONFLICT(student_id) DO UPDATE SET
+       pledge_count = pledge_count + 1,
+       updated_at = datetime('now')`,
+  )
+    .bind(studentId)
+    .run();
+
+  const row = await env.DB.prepare(
+    `SELECT pledge_count FROM student_disciplinary_summary WHERE student_id = ?`,
+  )
+    .bind(studentId)
+    .first<{ pledge_count: number }>();
+  return Number(row?.pledge_count ?? 0);
 }
 
 export async function handleAdminDeptRouter(
@@ -40,59 +126,30 @@ export async function handleAdminDeptRouter(
   if (!path.startsWith("/api/admin-dept/")) return null;
 
   const auth = await getAuth(request, env);
-  const adminDept = await requireAdminDept(auth);
-  if (!adminDept) {
-    if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
+  const admin = await requireAdminDept(auth);
+  if (!admin) {
+    if (!requireAuth(auth)) return authUnauthorizedResponse(request);
     return json({ error: "forbidden" }, 403);
   }
 
-  const scope = await adminDeptScope(env, adminDept.userId);
-
-  if (request.method === "GET" && path === "/api/admin-dept/scope") {
-    const row = await env.DB.prepare(
-      `SELECT supervisor_scope FROM users WHERE id = ?`,
-    )
-      .bind(adminDept.userId)
-      .first<{ supervisor_scope: string | null }>();
-    return json({
-      scope: parseStageScope(row?.supervisor_scope),
-      supervisor_scope: row?.supervisor_scope ?? "global",
-      stage_labels: STAGE_LABELS,
-    });
-  }
-
-  if (
-    request.method === "GET" &&
-    path === "/api/admin-dept/staff-attendance/today"
-  ) {
+  // GET /api/admin-dept/staff
+  if (request.method === "GET" && path === "/api/admin-dept/staff") {
     const date = url.searchParams.get("date")?.trim() || todayIso();
-    const staff = await env.DB.prepare(
-      `SELECT u.id, u.full_name_ar, u.role,
-              sa.status AS saved_status, sa.recorded_at
-       FROM users u
-       LEFT JOIN staff_attendance sa
-         ON sa.user_id = u.id AND sa.attendance_date = ? AND sa.complex_id = ?
-       WHERE ${staffScopeWhere(scope)}
-       ORDER BY u.role, u.full_name_ar`,
-    )
-      .bind(
-        date,
-        adminDept.complexId,
-        adminDept.complexId,
-        ...staffScopeBinds(adminDept.complexId, scope),
-      )
+    const { sql } = await staffListSql(env);
+    const rows = await env.DB.prepare(sql)
+      .bind(date, admin.complexId, admin.complexId)
       .all<{
-        id: number;
+        user_id: number;
         full_name_ar: string;
-        role: string;
+        role?: string;
         saved_status: string | null;
         recorded_at: string | null;
       }>();
 
-    const items = (staff.results ?? []).map((r) => ({
-      user_id: r.id,
+    const items = (rows.results ?? []).map((r) => ({
+      user_id: r.user_id,
       full_name_ar: r.full_name_ar,
-      role: r.role,
+      role: r.role ?? null,
       status: r.saved_status ?? "present",
       recorded_at: r.recorded_at,
     }));
@@ -100,552 +157,346 @@ export async function handleAdminDeptRouter(
     return json({ date, items, default_status: "present" });
   }
 
-  if (
-    request.method === "POST" &&
-    path === "/api/admin-dept/staff-attendance/init-today"
-  ) {
-    const date = todayIso();
-    const staff = await env.DB.prepare(
-      `SELECT u.id FROM users u WHERE ${staffScopeWhere(scope)}`,
-    )
-      .bind(adminDept.complexId, ...staffScopeBinds(adminDept.complexId, scope))
-      .all<{ id: number }>();
+  // POST /api/admin-dept/staff/attendance
+  if (request.method === "POST" && path === "/api/admin-dept/staff/attendance") {
+    let body: {
+      attendance_date?: string;
+      records?: Array<{ user_id?: number; status?: string }>;
+    };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
 
-    for (const row of staff.results ?? []) {
+    const date = body.attendance_date?.trim() || todayIso();
+    const records = body.records ?? [];
+    if (!Array.isArray(records) || records.length === 0) {
+      return json({ error: "records_required" }, 400);
+    }
+
+    let saved = 0;
+    for (const rec of records) {
+      const userId = Number(rec.user_id);
+      const status = parseStatus(rec.status) ?? "present";
+      if (!Number.isFinite(userId)) continue;
+      if (status === "present") {
+        await env.DB.prepare(
+          `DELETE FROM staff_attendance WHERE user_id = ? AND attendance_date = ? AND complex_id = ?`,
+        )
+          .bind(userId, date, admin.complexId)
+          .run();
+        saved++;
+        continue;
+      }
+      const staffOk = await env.DB.prepare(
+        `SELECT id FROM users WHERE id = ? AND complex_id = ? AND is_active = 1`,
+      )
+        .bind(userId, admin.complexId)
+        .first();
+      if (!staffOk) continue;
+
       await env.DB.prepare(
         `INSERT INTO staff_attendance (complex_id, user_id, attendance_date, status, recorded_by_user_id)
-         VALUES (?, ?, ?, 'present', ?)
-         ON CONFLICT(user_id, attendance_date) DO NOTHING`,
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, attendance_date) DO UPDATE SET
+           status = excluded.status,
+           recorded_by_user_id = excluded.recorded_by_user_id,
+           recorded_at = datetime('now')`,
       )
-        .bind(adminDept.complexId, row.id, date, adminDept.userId)
+        .bind(admin.complexId, userId, date, status, admin.userId)
         .run();
+      saved++;
     }
 
-    return json({ ok: true, date, count: staff.results?.length ?? 0 });
+    return json({ ok: true, attendance_date: date, saved });
   }
 
-  if (
-    request.method === "POST" &&
-    path === "/api/admin-dept/staff-attendance/upsert"
-  ) {
-    let body: { user_id?: number; status?: string; attendance_date?: string };
-    try {
-      body = await request.json();
-    } catch {
-      return json({ error: "invalid_json" }, 400);
+  // GET /api/admin-dept/students/attendance/:circleId
+  const circleAttGet = path.match(/^\/api\/admin-dept\/students\/attendance\/(\d+)$/);
+  if (request.method === "GET" && circleAttGet) {
+    const circleId = Number(circleAttGet[1]);
+    if (!(await assertCircleInComplex(env, admin.complexId, circleId))) {
+      return json({ error: "circle_not_found" }, 404);
     }
-    const userId = Number(body.user_id);
-    if (!Number.isFinite(userId)) return json({ error: "user_id_required" }, 400);
-    const status = body.status ?? "present";
-    if (!["present", "absent", "excused"].includes(status)) {
-      return json({ error: "invalid_status" }, 400);
-    }
-    const date = body.attendance_date?.trim() || todayIso();
 
-    const allowed = await env.DB.prepare(
-      `SELECT u.id FROM users u WHERE ${staffScopeWhere(scope)} AND u.id = ?`,
-    )
-      .bind(adminDept.complexId, ...staffScopeBinds(adminDept.complexId, scope), userId)
-      .first();
-
-    if (!allowed) return json({ error: "staff_out_of_scope" }, 403);
-
-    await env.DB.prepare(
-      `INSERT INTO staff_attendance (complex_id, user_id, attendance_date, status, recorded_by_user_id)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(user_id, attendance_date) DO UPDATE SET
-         status = excluded.status,
-         recorded_by_user_id = excluded.recorded_by_user_id,
-         recorded_at = datetime('now')`,
-    )
-      .bind(adminDept.complexId, userId, date, status, adminDept.userId)
-      .run();
-
-    return json({ ok: true, user_id: userId, status, attendance_date: date });
-  }
-
-  if (request.method === "GET" && path === "/api/admin-dept/applications") {
-    const stageWhere = stageFilterWhere(scope, "a.stage_id");
-    const status = url.searchParams.get("status") ?? "pending";
-    const binds: (number | string)[] = [
-      adminDept.complexId,
-      status,
-      ...stageFilterBinds(scope),
-    ];
-
+    const date = url.searchParams.get("date")?.trim() || todayIso();
     const rows = await env.DB.prepare(
-      `SELECT a.* FROM student_applications a
-       WHERE a.complex_id = ? AND a.status = ? AND ${stageWhere}
-       ORDER BY a.created_at DESC LIMIT 100`,
+      `SELECT s.id AS student_id, s.full_name_ar, s.stage_id,
+              COALESCE(sa.status, 'present') AS status,
+              sa.recorded_at, sa.source
+       FROM students s
+       LEFT JOIN student_attendance sa
+         ON sa.student_id = s.id AND sa.attendance_date = ?
+       WHERE s.complex_id = ? AND s.is_active = 1 AND s.current_circle_id = ?
+       ORDER BY s.full_name_ar`,
     )
-      .bind(...binds)
+      .bind(date, admin.complexId, circleId)
       .all();
 
-    return json({ items: rows.results ?? [] });
+    const circle = await env.DB.prepare(
+      `SELECT id, name_ar, stage FROM circles WHERE id = ?`,
+    )
+      .bind(circleId)
+      .first<{ id: number; name_ar: string; stage: string }>();
+
+    return json({
+      attendance_date: date,
+      circle,
+      items: rows.results ?? [],
+      default_status: "present",
+    });
   }
 
-  if (request.method === "POST" && path === "/api/admin-dept/applications") {
-    let body: Record<string, unknown>;
+  // POST /api/admin-dept/students/attendance
+  if (request.method === "POST" && path === "/api/admin-dept/students/attendance") {
+    let body: {
+      circle_id?: number;
+      attendance_date?: string;
+      records?: Array<{ student_id?: number; status?: string; notes?: string }>;
+    };
     try {
       body = await request.json();
     } catch {
       return json({ error: "invalid_json" }, 400);
     }
 
-    const required = [
-      "full_name_ar",
-      "phone",
-      "national_id",
-      "school_grade",
-      "stage_id",
-      "guardian_phone",
-    ] as const;
-    for (const k of required) {
-      const v = String(body[k] ?? "").trim();
-      if (!v) return json({ error: `missing_${k}` }, 400);
+    const circleId = Number(body.circle_id);
+    if (!Number.isFinite(circleId)) return json({ error: "circle_id_required" }, 400);
+    if (!(await assertCircleInComplex(env, admin.complexId, circleId))) {
+      return json({ error: "circle_not_found" }, 404);
     }
 
-    const stageId = Number(body.stage_id);
-    if (!Number.isFinite(stageId) || stageId < 1 || stageId > 4) {
-      return json({ error: "invalid_stage" }, 400);
-    }
-    if (scope.type === "stages" && !scope.stageIds.includes(stageId)) {
-      return json({ error: "stage_out_of_scope" }, 403);
+    const date = body.attendance_date?.trim() || todayIso();
+    const records = body.records ?? [];
+    if (!Array.isArray(records) || records.length === 0) {
+      return json({ error: "records_required" }, 400);
     }
 
-    const opt = (k: string) => {
-      const v = body[k];
-      if (v == null || String(v).trim() === "") return null;
-      return String(v).trim();
-    };
+    let saved = 0;
+    for (const rec of records) {
+      const studentId = Number(rec.student_id);
+      const status = parseStatus(rec.status);
+      if (!Number.isFinite(studentId) || !status) continue;
 
-    const ins = await env.DB.prepare(
-      `INSERT INTO student_applications (
-        complex_id, full_name_ar, phone, national_id, school_grade, stage_id, age,
-        guardian_phone, guardian_national_id, guardian_work, health_notes,
-        status, created_by_user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
-    )
-      .bind(
-        adminDept.complexId,
-        String(body.full_name_ar).trim(),
-        String(body.phone).trim(),
-        String(body.national_id).trim(),
-        String(body.school_grade).trim(),
-        stageId,
-        body.age != null && String(body.age).trim() !== ""
-          ? Number(body.age)
-          : null,
-        String(body.guardian_phone).trim(),
-        opt("guardian_national_id"),
-        opt("guardian_work"),
-        opt("health_notes"),
-        adminDept.userId,
+      const allowed = await env.DB.prepare(
+        `SELECT id FROM students
+         WHERE id = ? AND complex_id = ? AND is_active = 1 AND current_circle_id = ?`,
       )
-      .run();
+        .bind(studentId, admin.complexId, circleId)
+        .first();
 
-    return json({ ok: true, id: ins.meta.last_row_id });
+      if (!allowed) continue;
+
+      if (status === "present") {
+        await env.DB.prepare(
+          `DELETE FROM student_attendance WHERE student_id = ? AND attendance_date = ?`,
+        )
+          .bind(studentId, date)
+          .run();
+        saved++;
+        continue;
+      }
+
+      await upsertStudentAttendance(env, {
+        complexId: admin.complexId,
+        studentId,
+        attendanceDate: date,
+        status,
+        source: "admin_supervisor",
+        circleId,
+        recordedByUserId: admin.userId,
+        notes: rec.notes?.trim() ?? null,
+      });
+      saved++;
+    }
+
+    return json({ ok: true, attendance_date: date, circle_id: circleId, saved });
   }
 
-  const acceptMatch = path.match(
-    /^\/api\/admin-dept\/applications\/(\d+)\/accept$/,
-  );
-  if (request.method === "POST" && acceptMatch) {
-    const appId = Number(acceptMatch[1]);
-    const app = await env.DB.prepare(
-      `SELECT * FROM student_applications WHERE id = ? AND complex_id = ? AND status = 'pending'`,
+  // GET /api/admin-dept/students/absent-today
+  if (request.method === "GET" && path === "/api/admin-dept/students/absent-today") {
+    const date = url.searchParams.get("date")?.trim() || todayIso();
+    const circleIdParam = url.searchParams.get("circle_id");
+    const circleId = circleIdParam ? Number(circleIdParam) : null;
+
+    let sql = `
+      SELECT s.id AS student_id, s.full_name_ar, s.guardian_phone, s.stage_id,
+             sa.status, c.id AS circle_id, c.name_ar AS circle_name
+      FROM students s
+      INNER JOIN student_attendance sa
+        ON sa.student_id = s.id AND sa.attendance_date = ?
+      LEFT JOIN circles c ON c.id = s.current_circle_id
+      WHERE s.complex_id = ? AND s.is_active = 1
+        AND sa.status IN ('absent', 'excused')`;
+    const binds: (number | string)[] = [date, admin.complexId];
+
+    if (circleId != null && Number.isFinite(circleId)) {
+      sql += ` AND s.current_circle_id = ?`;
+      binds.push(circleId);
+    }
+
+    sql += ` ORDER BY c.name_ar, s.full_name_ar`;
+
+    const rows = await env.DB.prepare(sql).bind(...binds).all();
+
+    const hasTemplate = await tableHasColumn(
+      env,
+      "complex_settings",
+      "whatsapp_absence_template_ar",
+    );
+    let template =
+      "السلام عليكم، نود إبلاغكم بغياب الطالب {{student_name}} عن الحلقة اليوم {{date}}.";
+    if (hasTemplate) {
+      const t = await env.DB.prepare(
+        `SELECT whatsapp_absence_template_ar FROM complex_settings WHERE complex_id = ?`,
+      )
+        .bind(admin.complexId)
+        .first<{ whatsapp_absence_template_ar: string }>();
+      if (t?.whatsapp_absence_template_ar) template = t.whatsapp_absence_template_ar;
+    }
+
+    const items = (rows.results ?? []).map((r: Record<string, unknown>) => {
+      const name = String(r.full_name_ar ?? "");
+      const msg = template
+        .replace(/\{\{student_name\}\}/g, name)
+        .replace(/\{\{date\}\}/g, date);
+      const phone = String(r.guardian_phone ?? "").replace(/\D/g, "");
+      const waUrl = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}` : null;
+      return { ...r, whatsapp_message: msg, whatsapp_url: waUrl };
+    });
+
+    return json({ date, items, template });
+  }
+
+  // POST /api/admin-dept/admission
+  if (request.method === "POST" && path === "/api/admin-dept/admission") {
+    let body: {
+      full_name_ar?: string;
+      national_id?: string;
+      phone?: string;
+      school_grade?: string;
+      stage_id?: number;
+      age?: number | null;
+      guardian_phone?: string;
+      guardian_national_id?: string;
+      guardian_work?: string;
+      health_notes?: string;
+      circle_id?: number;
+      track_id?: number | null;
+      nationality?: string;
+      school_name?: string;
+    };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+
+    const fullName = body.full_name_ar?.trim();
+    const nationalId = body.national_id?.trim();
+    const guardianPhone = body.guardian_phone?.trim();
+    const stageId = Number(body.stage_id);
+    const circleId = Number(body.circle_id);
+
+    if (!fullName || !nationalId || !guardianPhone) {
+      return json({ error: "full_name_national_id_guardian_required" }, 400);
+    }
+    if (!Number.isFinite(stageId) || stageId < 1 || stageId > 4) {
+      return json({ error: "invalid_stage_id" }, 400);
+    }
+    if (!Number.isFinite(circleId)) {
+      return json({ error: "circle_id_required" }, 400);
+    }
+
+    const circle = await env.DB.prepare(
+      `SELECT id, stage FROM circles WHERE id = ? AND complex_id = ? AND is_active = 1`,
     )
-      .bind(appId, adminDept.complexId)
-      .first<Record<string, unknown>>();
+      .bind(circleId, admin.complexId)
+      .first<{ id: number; stage: string }>();
 
-    if (!app) return json({ error: "not_found" }, 404);
-    const stageId = Number(app.stage_id);
-    if (scope.type === "stages" && !scope.stageIds.includes(stageId)) {
-      return json({ error: "stage_out_of_scope" }, 403);
+    if (!circle) return json({ error: "circle_not_found" }, 404);
+
+    const expectedStage = STAGE_ID_TO_CIRCLE_STAGE[stageId];
+    if (circle.stage !== expectedStage) {
+      return json({ error: "circle_stage_mismatch", expected_stage: expectedStage }, 400);
     }
 
-    let studentId = app.student_id ? Number(app.student_id) : null;
+    const hasAdmissionStatus = await tableHasColumn(env, "students", "admission_status");
+    const trackId =
+      body.track_id != null && Number.isFinite(Number(body.track_id))
+        ? Number(body.track_id)
+        : null;
 
-    if (studentId) {
-      await env.DB.prepare(
-        `UPDATE students SET
-          full_name_ar = ?, phone = ?, national_id = ?, school_grade = ?,
-          stage_id = ?, age = ?, guardian_phone = ?, guardian_national_id = ?,
-          guardian_work = ?, health_notes = ?, admission_status = 'pending_placement',
-          is_active = 1, account_status = 'active'
-         WHERE id = ? AND complex_id = ?`,
-      )
-        .bind(
-          app.full_name_ar,
-          app.phone,
-          app.national_id,
-          app.school_grade,
-          stageId,
-          app.age,
-          app.guardian_phone,
-          app.guardian_national_id,
-          app.guardian_work,
-          app.health_notes,
-          studentId,
-          adminDept.complexId,
-        )
-        .run();
-    } else {
-      const ins = await env.DB.prepare(
-        `INSERT INTO students (
-          complex_id, full_name_ar, national_id, phone, school_grade, stage_id, age,
-          guardian_phone, guardian_national_id, guardian_work, health_notes,
-          admission_status, is_active, account_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_placement', 1, 'active')`,
-      )
-        .bind(
-          adminDept.complexId,
-          app.full_name_ar,
-          app.national_id,
-          app.phone,
-          app.school_grade,
-          stageId,
-          app.age,
-          app.guardian_phone,
-          app.guardian_national_id,
-          app.guardian_work,
-          app.health_notes,
-        )
-        .run();
-      studentId = ins.meta.last_row_id as number;
+    const insertSql = hasAdmissionStatus
+      ? `INSERT INTO students (
+           complex_id, full_name_ar, national_id, phone, nationality, school_name, school_grade,
+           stage_id, age, guardian_phone, guardian_national_id, guardian_work, health_notes,
+           current_circle_id, current_track_id, admission_status, account_status, is_active
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'active', 1)`
+      : `INSERT INTO students (
+           complex_id, full_name_ar, national_id, phone, nationality, school_name, school_grade,
+           stage_id, age, guardian_phone, guardian_national_id, guardian_work, health_notes,
+           current_circle_id, current_track_id, account_status, is_active
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 1)`;
+
+    const binds = [
+      admin.complexId,
+      fullName,
+      nationalId,
+      body.phone?.trim() ?? null,
+      body.nationality?.trim() ?? null,
+      body.school_name?.trim() ?? null,
+      body.school_grade?.trim() ?? null,
+      stageId,
+      body.age != null && Number.isFinite(Number(body.age)) ? Number(body.age) : null,
+      guardianPhone,
+      body.guardian_national_id?.trim() ?? null,
+      body.guardian_work?.trim() ?? null,
+      body.health_notes?.trim() ?? null,
+      circleId,
+      trackId,
+    ];
+
+    let ins;
+    try {
+      ins = await env.DB.prepare(insertSql).bind(...binds).run();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("UNIQUE") && msg.includes("national_id")) {
+        return json({ error: "national_id_exists" }, 409);
+      }
+      throw e;
     }
+
+    const studentId = ins.meta.last_row_id as number;
 
     await env.DB.prepare(
-      `UPDATE student_applications SET status = 'accepted', student_id = ?,
-        processed_at = datetime('now'), processed_by_user_id = ?
-       WHERE id = ?`,
+      `INSERT INTO student_circle_history (
+         student_id, old_circle_id, new_circle_id, old_track_id, new_track_id,
+         moved_by_user_id, reason
+       ) VALUES (?, NULL, ?, NULL, ?, ?, 'admission')`,
     )
-      .bind(studentId, adminDept.userId, appId)
+      .bind(studentId, circleId, trackId, admin.userId)
       .run();
 
     return json({
       ok: true,
       student_id: studentId,
-      admission_status: "pending_placement",
       stage_id: stageId,
+      stage_label: STAGE_LABELS[stageId],
+      circle_id: circleId,
+      admission_status: "active",
     });
   }
 
-  const rejectMatch = path.match(
-    /^\/api\/admin-dept\/applications\/(\d+)\/reject$/,
-  );
-  if (request.method === "POST" && rejectMatch) {
-    const appId = Number(rejectMatch[1]);
-    await env.DB.prepare(
-      `UPDATE student_applications SET status = 'rejected',
-        processed_at = datetime('now'), processed_by_user_id = ?
-       WHERE id = ? AND complex_id = ? AND status = 'pending'`,
-    )
-      .bind(adminDept.userId, appId, adminDept.complexId)
-      .run();
-
-    return json({ ok: true });
-  }
-
-  if (request.method === "GET" && path === "/api/admin-dept/disciplinary") {
-    const stageWhere = stageFilterWhere(scope, "s.stage_id");
-    const binds: (number | string)[] = [adminDept.complexId, ...stageFilterBinds(scope)];
-
-    const rows = await env.DB.prepare(
-      `SELECT s.id, s.full_name_ar, s.stage_id, s.account_status,
-              COALESCE(d.notice_count, 0) AS notice_count,
-              COALESCE(d.escalation_level, 'none') AS escalation_level,
-              COALESCE(d.pledge_archived, 0) AS pledge_archived,
-              (SELECT COUNT(*) FROM violations v WHERE v.student_id = s.id) AS violation_rows
-       FROM students s
-       LEFT JOIN student_disciplinary_state d ON d.student_id = s.id
-       WHERE s.complex_id = ? AND s.is_active = 1
-         AND (${stageWhere} OR s.stage_id IS NULL)
-       ORDER BY COALESCE(d.notice_count, 0) DESC, s.full_name_ar
-       LIMIT 80`,
-    )
-      .bind(...binds)
-      .all();
-
-    return json({ items: rows.results ?? [] });
-  }
-
-  const violMatch = path.match(
-    /^\/api\/admin-dept\/disciplinary\/(\d+)\/violation$/,
-  );
-  if (request.method === "POST" && violMatch) {
-    const studentId = Number(violMatch[1]);
-    let body: { description?: string };
-    try {
-      body = await request.json();
-    } catch {
-      body = {};
+  // POST /api/admin-dept/pledges
+  if (request.method === "POST" && path === "/api/admin-dept/pledges") {
+    if (!(await hasTable(env, "student_pledges"))) {
+      return json({ error: "migration_required", migration: "024_admin_department" }, 503);
     }
 
-    const st = await env.DB.prepare(
-      `SELECT id, stage_id FROM students WHERE id = ? AND complex_id = ?`,
-    )
-      .bind(studentId, adminDept.complexId)
-      .first<{ id: number; stage_id: number | null }>();
-
-    if (!st) return json({ error: "not_found" }, 404);
-    if (
-      scope.type === "stages" &&
-      st.stage_id != null &&
-      !scope.stageIds.includes(st.stage_id)
-    ) {
-      return json({ error: "stage_out_of_scope" }, 403);
-    }
-
-    const cur = await env.DB.prepare(
-      `SELECT notice_count, escalation_level FROM student_disciplinary_state WHERE student_id = ?`,
-    )
-      .bind(studentId)
-      .first<{ notice_count: number; escalation_level: string }>();
-
-    const count = Number(cur?.notice_count ?? 0) + 1;
-    let level: "notice" | "alert" | "summons" = "notice";
-    let escalation = "notice_1";
-    if (count === 2) {
-      level = "alert";
-      escalation = "notice_2";
-    } else if (count >= 3) {
-      level = "summons";
-      escalation = "summons";
-    }
-
-    await env.DB.prepare(
-      `INSERT INTO violations (student_id, level, description, created_by_user_id)
-       VALUES (?, ?, ?, ?)`,
-    )
-      .bind(studentId, level, body.description?.trim() ?? null, adminDept.userId)
-      .run();
-
-    await env.DB.prepare(
-      `INSERT INTO student_disciplinary_state (student_id, notice_count, escalation_level, updated_at)
-       VALUES (?, ?, ?, datetime('now'))
-       ON CONFLICT(student_id) DO UPDATE SET
-         notice_count = excluded.notice_count,
-         escalation_level = excluded.escalation_level,
-         updated_at = datetime('now')`,
-    )
-      .bind(studentId, count, escalation)
-      .run();
-
-    return json({ ok: true, notice_count: count, escalation_level: escalation, level });
-  }
-
-  const actionMatch = path.match(
-    /^\/api\/admin-dept\/disciplinary\/(\d+)\/action$/,
-  );
-  if (request.method === "POST" && actionMatch) {
-    const studentId = Number(actionMatch[1]);
-    let body: { action?: string; note?: string };
-    try {
-      body = await request.json();
-    } catch {
-      return json({ error: "invalid_json" }, 400);
-    }
-
-    const action = body.action;
-    if (
-      !["archive_pledge", "suspend", "dismiss", "transfer"].includes(action ?? "")
-    ) {
-      return json({ error: "invalid_action" }, 400);
-    }
-
-    if (action === "archive_pledge") {
-      await env.DB.prepare(
-        `INSERT INTO student_disciplinary_state (student_id, pledge_archived, updated_at)
-         VALUES (?, 1, datetime('now'))
-         ON CONFLICT(student_id) DO UPDATE SET pledge_archived = 1, updated_at = datetime('now')`,
-      )
-        .bind(studentId)
-        .run();
-      await env.DB.prepare(
-        `INSERT INTO violations (student_id, level, description, final_action, created_by_user_id)
-         VALUES (?, 'notice', ?, 'archive', ?)`,
-      )
-        .bind(studentId, body.note ?? "أرشفة التعهد", adminDept.userId)
-        .run();
-    } else if (action === "suspend") {
-      await env.DB.prepare(
-        `UPDATE students SET account_status = 'suspended' WHERE id = ? AND complex_id = ?`,
-      )
-        .bind(studentId, adminDept.complexId)
-        .run();
-      await env.DB.prepare(
-        `INSERT INTO violations (student_id, level, description, final_action, created_by_user_id)
-         VALUES (?, 'summons', ?, 'suspension', ?)`,
-      )
-        .bind(studentId, body.note ?? "تعليق مؤقت", adminDept.userId)
-        .run();
-    } else if (action === "dismiss") {
-      await env.DB.prepare(
-        `UPDATE students SET is_active = 0, account_status = 'dismissed' WHERE id = ? AND complex_id = ?`,
-      )
-        .bind(studentId, adminDept.complexId)
-        .run();
-      await env.DB.prepare(
-        `INSERT INTO violations (student_id, level, description, final_action, created_by_user_id)
-         VALUES (?, 'summons', ?, 'dismissal', ?)`,
-      )
-        .bind(studentId, body.note ?? "فصل الطالب", adminDept.userId)
-        .run();
-    } else if (action === "transfer") {
-      await env.DB.prepare(
-        `INSERT INTO violations (student_id, level, description, final_action, created_by_user_id)
-         VALUES (?, 'summons', ?, NULL, ?)`,
-      )
-        .bind(studentId, body.note ?? "نقل الطالب — يُكمل عبر نقل تراكمي", adminDept.userId)
-        .run();
-    }
-
-    return json({ ok: true, action });
-  }
-
-  if (request.method === "GET" && path === "/api/admin-dept/dashboard") {
-    const today = todayIso();
-    const stageWhere = stageFilterWhere(scope, "s.stage_id");
-    const stageBinds = stageFilterBinds(scope);
-
-    const activeStudents = await env.DB.prepare(
-      `SELECT COUNT(DISTINCT h.student_id) AS c
-       FROM student_circle_history h
-       JOIN students s ON s.id = h.student_id
-       WHERE h.to_at IS NULL AND h.frozen_at IS NULL AND s.complex_id = ?
-         AND (${stageWhere} OR s.stage_id IS NULL)`,
-    )
-      .bind(adminDept.complexId, ...stageBinds)
-      .first<{ c: number }>();
-
-    const presentToday = await env.DB.prepare(
-      `SELECT COUNT(DISTINCT tdm.student_id) AS c
-       FROM teacher_daily_marks tdm
-       JOIN students s ON s.id = tdm.student_id
-       WHERE tdm.mark_date = ? AND tdm.attendance_auto = 1 AND s.complex_id = ?
-         AND (${stageWhere} OR s.stage_id IS NULL)`,
-    )
-      .bind(today, adminDept.complexId, ...stageBinds)
-      .first<{ c: number }>();
-
-    const settings = await env.DB.prepare(
-      `SELECT graduates_count, huffadh_count FROM complex_settings WHERE complex_id = ?`,
-    )
-      .bind(adminDept.complexId)
-      .first<{ graduates_count: number; huffadh_count: number }>();
-
-    const pendingApps = await env.DB.prepare(
-      `SELECT COUNT(*) AS c FROM student_applications
-       WHERE complex_id = ? AND status = 'pending' AND ${stageFilterWhere(scope, "stage_id")}`,
-    )
-      .bind(adminDept.complexId, ...stageBinds)
-      .first<{ c: number }>();
-
-    const pendingPlacement = await env.DB.prepare(
-      `SELECT COUNT(*) AS c FROM students
-       WHERE complex_id = ? AND admission_status = 'pending_placement'
-         AND (${stageWhere} OR stage_id IS NULL)`,
-    )
-      .bind(adminDept.complexId, ...stageBinds)
-      .first<{ c: number }>();
-
-    const total = Number(activeStudents?.c ?? 0);
-    const present = Number(presentToday?.c ?? 0);
-
-    return json({
-      today,
-      kpis: {
-        active_students: total,
-        present_today: present,
-        attendance_rate_today:
-          total > 0 ? Math.round((present / total) * 1000) / 10 : 0,
-        graduates_count: settings?.graduates_count ?? 0,
-        huffadh_count: settings?.huffadh_count ?? 0,
-        pending_applications: Number(pendingApps?.c ?? 0),
-        pending_placement: Number(pendingPlacement?.c ?? 0),
-      },
-    });
-  }
-
-  if (
-    request.method === "GET" &&
-    path === "/api/admin-dept/student-attendance/today"
-  ) {
-    const date = url.searchParams.get("date")?.trim() || todayIso();
-    const scopeWhere = studentsInScopeWhere(scope);
-    const binds = [date, adminDept.complexId, ...studentsInScopeBinds(adminDept.complexId, scope)];
-
-    const rows = await env.DB.prepare(
-      `SELECT s.id AS student_id, s.full_name_ar, s.stage_id,
-              c.name_ar AS circle_name,
-              COALESCE(sda.status, 'present') AS status,
-              sda.recorded_at,
-              sda.source
-       FROM students s
-       LEFT JOIN student_circle_history h
-         ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL
-       LEFT JOIN circles c ON c.id = h.circle_id
-       LEFT JOIN student_daily_attendance sda
-         ON sda.student_id = s.id AND sda.attendance_date = ?
-       WHERE ${scopeWhere}
-       ORDER BY c.name_ar, s.full_name_ar`,
-    )
-      .bind(...binds)
-      .all<{
-        student_id: number;
-        full_name_ar: string;
-        stage_id: number | null;
-        circle_name: string | null;
-        status: string;
-        recorded_at: string | null;
-        source: string | null;
-      }>();
-
-    return json({
-      date,
-      items: rows.results ?? [],
-      default_status: "present",
-      scope,
-    });
-  }
-
-  if (
-    request.method === "POST" &&
-    path === "/api/admin-dept/student-attendance/init-today"
-  ) {
-    const date = todayIso();
-    const scopeWhere = studentsInScopeWhere(scope);
-    const students = await env.DB.prepare(
-      `SELECT s.id FROM students s WHERE ${scopeWhere}`,
-    )
-      .bind(...studentsInScopeBinds(adminDept.complexId, scope))
-      .all<{ id: number }>();
-
-    for (const row of students.results ?? []) {
-      await env.DB.prepare(
-        `INSERT INTO student_daily_attendance
-         (complex_id, student_id, attendance_date, status, source, recorded_by_user_id)
-         VALUES (?, ?, ?, 'present', 'admin_supervisor', ?)
-         ON CONFLICT(student_id, attendance_date) DO NOTHING`,
-      )
-        .bind(adminDept.complexId, row.id, date, adminDept.userId)
-        .run();
-    }
-
-    return json({ ok: true, date, count: students.results?.length ?? 0 });
-  }
-
-  if (
-    request.method === "POST" &&
-    path === "/api/admin-dept/student-attendance/upsert"
-  ) {
-    let body: {
-      student_id?: number;
-      status?: string;
-      attendance_date?: string;
-      notes?: string;
-    };
+    let body: { student_id?: number; reason_ar?: string; pledge_date?: string };
     try {
       body = await request.json();
     } catch {
@@ -653,74 +504,178 @@ export async function handleAdminDeptRouter(
     }
 
     const studentId = Number(body.student_id);
-    if (!Number.isFinite(studentId)) return json({ error: "student_id_required" }, 400);
-    const status = body.status ?? "present";
-    if (!["present", "absent", "excused"].includes(status)) {
-      return json({ error: "invalid_status" }, 400);
+    const reason = body.reason_ar?.trim();
+    const pledgeDate = body.pledge_date?.trim() || todayIso();
+
+    if (!Number.isFinite(studentId) || !reason) {
+      return json({ error: "student_id_and_reason_required" }, 400);
     }
-    const date = body.attendance_date?.trim() || todayIso();
-    const scopeWhere = studentsInScopeWhere(scope);
 
-    const allowed = await env.DB.prepare(
-      `SELECT s.id FROM students s WHERE ${scopeWhere} AND s.id = ?`,
+    const student = await env.DB.prepare(
+      `SELECT id, full_name_ar FROM students WHERE id = ? AND complex_id = ? AND is_active = 1`,
     )
-      .bind(...studentsInScopeBinds(adminDept.complexId, scope), studentId)
-      .first();
+      .bind(studentId, admin.complexId)
+      .first<{ id: number; full_name_ar: string }>();
 
-    if (!allowed) return json({ error: "student_out_of_scope" }, 403);
+    if (!student) return json({ error: "student_not_found" }, 404);
 
-    await env.DB.prepare(
-      `INSERT INTO student_daily_attendance
-       (complex_id, student_id, attendance_date, status, source, recorded_by_user_id, notes)
-       VALUES (?, ?, ?, ?, 'admin_supervisor', ?, ?)
-       ON CONFLICT(student_id, attendance_date) DO UPDATE SET
-         status = excluded.status,
-         source = 'admin_supervisor',
-         recorded_by_user_id = excluded.recorded_by_user_id,
-         notes = excluded.notes,
-         recorded_at = datetime('now')`,
+    const ins = await env.DB.prepare(
+      `INSERT INTO student_pledges (complex_id, student_id, reason_ar, pledge_date, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?)`,
     )
-      .bind(
-        adminDept.complexId,
-        studentId,
-        date,
-        status,
-        adminDept.userId,
-        body.notes?.trim() ?? null,
-      )
+      .bind(admin.complexId, studentId, reason, pledgeDate, admin.userId)
       .run();
 
-    await env.DB.prepare(
-      `INSERT INTO student_attendance_log
-       (student_id, attendance_date, status, source, recorded_by_user_id, notes)
-       VALUES (?, ?, ?, 'admin_supervisor', ?, ?)`,
-    )
-      .bind(studentId, date, status, adminDept.userId, body.notes?.trim() ?? null)
-      .run();
-
-    return json({ ok: true, student_id: studentId, status, attendance_date: date });
-  }
-
-  if (request.method === "GET" && path === "/api/admin-dept/tv-launch") {
-    const session = await env.DB.prepare(
-      `SELECT id, tv_launch_key, name_ar, session_date, status
-       FROM yom_himma_sessions
-       WHERE complex_id = ? AND status IN ('active', 'draft')
-       ORDER BY session_date DESC LIMIT 1`,
-    )
-      .bind(adminDept.complexId)
-      .first<{
-        id: number;
-        tv_launch_key: string;
-        name_ar: string;
-        session_date: string;
-        status: string;
-      }>();
+    const pledgeCount = await bumpPledgeSummary(env, studentId);
+    const maxPledges = await getMaxPledges(env, admin.complexId);
 
     return json({
-      session: session ?? null,
-      fallback_url: "/tv-live",
+      ok: true,
+      pledge_id: ins.meta.last_row_id,
+      student_id: studentId,
+      pledge_count: pledgeCount,
+      max_pledges: maxPledges,
+      threshold_reached: pledgeCount >= maxPledges,
+      alert:
+        pledgeCount >= maxPledges
+          ? `بلغ الطالب ${student.full_name_ar} الحد الأعلى للتعهدات (${maxPledges}).`
+          : null,
     });
+  }
+
+  // GET /api/admin-dept/pledges/:studentId
+  const pledgeGet = path.match(/^\/api\/admin-dept\/pledges\/(\d+)$/);
+  if (request.method === "GET" && pledgeGet) {
+    if (!(await hasTable(env, "student_pledges"))) {
+      return json({ error: "migration_required", migration: "024_admin_department" }, 503);
+    }
+
+    const studentId = Number(pledgeGet[1]);
+    const student = await env.DB.prepare(
+      `SELECT id, full_name_ar, stage_id, current_circle_id FROM students
+       WHERE id = ? AND complex_id = ?`,
+    )
+      .bind(studentId, admin.complexId)
+      .first();
+
+    if (!student) return json({ error: "student_not_found" }, 404);
+
+    const pledges = await env.DB.prepare(
+      `SELECT p.id, p.reason_ar, p.pledge_date, p.created_at, u.full_name_ar AS created_by_name
+       FROM student_pledges p
+       LEFT JOIN users u ON u.id = p.created_by_user_id
+       WHERE p.student_id = ?
+       ORDER BY p.pledge_date DESC, p.created_at DESC`,
+    )
+      .bind(studentId)
+      .all();
+
+    const summary = await env.DB.prepare(
+      `SELECT pledge_count FROM student_disciplinary_summary WHERE student_id = ?`,
+    )
+      .bind(studentId)
+      .first<{ pledge_count: number }>();
+
+    const pledgeCount = Number(summary?.pledge_count ?? pledges.results?.length ?? 0);
+    const maxPledges = await getMaxPledges(env, admin.complexId);
+
+    return json({
+      student,
+      pledges: pledges.results ?? [],
+      pledge_count: pledgeCount,
+      max_pledges: maxPledges,
+      threshold_reached: pledgeCount >= maxPledges,
+      stage_labels: STAGE_LABELS,
+    });
+  }
+
+  // POST /api/admin-dept/magic-links
+  if (request.method === "POST" && path === "/api/admin-dept/magic-links") {
+    if (!(await hasTable(env, "shared_access_tokens"))) {
+      return json({ error: "migration_required", migration: "024_admin_department" }, 503);
+    }
+
+    let body: {
+      circle_id?: number;
+      attendance_date?: string;
+      feature_name?: string;
+    };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+
+    const circleId = Number(body.circle_id);
+    const featureName = body.feature_name?.trim() || "student_attendance";
+    if (featureName !== "student_attendance") {
+      return json({ error: "unsupported_feature", allowed: ["student_attendance"] }, 400);
+    }
+    if (!Number.isFinite(circleId)) return json({ error: "circle_id_required" }, 400);
+    if (!(await assertCircleInComplex(env, admin.complexId, circleId))) {
+      return json({ error: "circle_not_found" }, 404);
+    }
+
+    const attendanceDate = body.attendance_date?.trim() || todayIso();
+    const token = randomMagicToken();
+    const context = JSON.stringify({
+      circle_id: circleId,
+      attendance_date: attendanceDate,
+      scope: "circle",
+    });
+
+    const ins = await env.DB.prepare(
+      `INSERT INTO shared_access_tokens (
+         complex_id, token, feature_name, context_data, is_active, created_by_user_id
+       ) VALUES (?, ?, ?, ?, 1, ?)`,
+    )
+      .bind(admin.complexId, token, featureName, context, admin.userId)
+      .run();
+
+    const linkId = ins.meta.last_row_id;
+    const publicPath = `/public/attendance/${token}`;
+
+    return json({
+      ok: true,
+      id: linkId,
+      token,
+      feature_name: featureName,
+      is_active: 1,
+      context_data: JSON.parse(context),
+      public_path: publicPath,
+      api_get: `/api/public/attendance/${token}`,
+      api_post: `/api/public/attendance/${token}`,
+    });
+  }
+
+  // PUT /api/admin-dept/magic-links/:id/toggle
+  const toggleMatch = path.match(/^\/api\/admin-dept\/magic-links\/(\d+)\/toggle$/);
+  if (request.method === "PUT" && toggleMatch) {
+    if (!(await hasTable(env, "shared_access_tokens"))) {
+      return json({ error: "migration_required", migration: "024_admin_department" }, 503);
+    }
+
+    const linkId = Number(toggleMatch[1]);
+    const row = await env.DB.prepare(
+      `SELECT id, is_active FROM shared_access_tokens
+       WHERE id = ? AND complex_id = ?`,
+    )
+      .bind(linkId, admin.complexId)
+      .first<{ id: number; is_active: number }>();
+
+    if (!row) return json({ error: "not_found" }, 404);
+
+    const nextActive = row.is_active === 1 ? 0 : 1;
+    await env.DB.prepare(
+      `UPDATE shared_access_tokens
+       SET is_active = ?,
+           deactivated_at = CASE WHEN ? = 0 THEN datetime('now') ELSE NULL END
+       WHERE id = ?`,
+    )
+      .bind(nextActive, nextActive, linkId)
+      .run();
+
+    return json({ ok: true, id: linkId, is_active: nextActive });
   }
 
   return json({ error: "Not Found", path }, 404);

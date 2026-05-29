@@ -40,6 +40,7 @@ import {
   handleAdminComplexSettingsPatch,
 } from "./routes/admin-gm-stats";
 import { handleAdminDeptRouter } from "./routes/admin-dept";
+import { handlePublicLinksRouter } from "./routes/public-links";
 import { handleEduDeptRouter } from "./routes/edu-dept";
 import { handleEduCompetitionsRouter } from "./routes/competitions";
 import { handleLiveLogRouter, handleYomHimmaLiveLogToken } from "./routes/live-log";
@@ -180,6 +181,9 @@ export async function handleRequest(
   const url = new URL(request.url);
 
   try {
+    const publicLink = await handlePublicLinksRouter(request, env, url);
+    if (publicLink) return withCors(publicLink, request, env);
+
     const dept = await dispatchDepartmentRouters(request, env, url);
     if (dept) return withCors(dept, request, env);
 

@@ -133,6 +133,81 @@ export interface ComplexSettings {
   school_days_json: string;
   graduates_count: number;
   huffadh_count: number;
+  max_pledges_per_student?: number;
+  whatsapp_absence_template_ar?: string;
+  updated_at: string;
+}
+
+/** Admin dept — direct admission (no applications queue) */
+export type StudentAdmissionStatus =
+  | "pending_placement"
+  | "active"
+  | "suspended"
+  | "archived";
+
+export type AttendanceSource =
+  | "teacher_auto"
+  | "edu_supervisor"
+  | "admin_supervisor"
+  | "magic_link";
+
+export type AttendanceStatus = "present" | "absent" | "excused";
+
+export interface StudentAttendance {
+  id: number;
+  complex_id: number;
+  student_id: number;
+  attendance_date: string;
+  status: AttendanceStatus;
+  source: AttendanceSource;
+  circle_id: number | null;
+  shared_token_id: number | null;
+  recorded_by_user_id: number | null;
+  recorded_at: string;
+  notes: string | null;
+}
+
+export interface StaffAttendance {
+  id: number;
+  complex_id: number;
+  user_id: number;
+  attendance_date: string;
+  status: AttendanceStatus | "late" | "leave";
+  notes: string | null;
+  recorded_by_user_id: number | null;
+  recorded_at: string;
+}
+
+export interface SharedAccessToken {
+  id: number;
+  complex_id: number;
+  token: string;
+  feature_name: string;
+  context_data: string;
+  is_active: number;
+  created_by_user_id: number;
+  created_at: string;
+  deactivated_at: string | null;
+  expires_at: string | null;
+  last_used_at: string | null;
+  use_count: number;
+}
+
+export interface StudentPledge {
+  id: number;
+  complex_id: number;
+  student_id: number;
+  reason_ar: string;
+  pledge_date: string;
+  created_by_user_id: number | null;
+  created_at: string;
+}
+
+export interface StudentDisciplinarySummary {
+  student_id: number;
+  pledge_count: number;
+  alert_sent_at: string | null;
+  account_action: "none" | "suspended" | "archived";
   updated_at: string;
 }
 

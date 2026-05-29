@@ -1,3 +1,5 @@
+import { normalizeStoredHomePath } from "../config/role-access";
+
 const SESSION_KEY = "basateen_session";
 
 const LEGACY_TOKEN_KEY = "basateen_token";
@@ -58,7 +60,7 @@ const MOCK_BY_MOBILE: Record<string, Omit<AuthUser, "mobile">> = {
     full_name_ar: "المشرف العام السيادي",
     role: "super_admin",
     sections: ["admin", "education", "programs"],
-    homePath: "/super-admin/staff",
+    homePath: "/admin-dept/reports",
   },
 
   "0500000001": {
@@ -71,7 +73,7 @@ const MOCK_BY_MOBILE: Record<string, Omit<AuthUser, "mobile">> = {
 
     sections: ["admin"],
 
-    homePath: "/super-admin/staff",
+    homePath: "/admin-dept/reports",
 
   },
 
@@ -113,7 +115,7 @@ const MOCK_BY_MOBILE: Record<string, Omit<AuthUser, "mobile">> = {
 
     sections: ["admin", "education", "programs"],
 
-    homePath: "/admin-dept/student-attendance",
+    homePath: "/admin-dept/staff-attendance",
 
   },
 
@@ -284,7 +286,13 @@ export function getSession(): AuthSession | null {
 
     if (!isValidSession(parsed)) return null;
 
-    return parsed;
+    const session = parsed as AuthSession;
+    const fixed = normalizeStoredHomePath(session.user.role, session.user.homePath);
+    if (fixed !== session.user.homePath) {
+      session.user.homePath = fixed;
+      localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    }
+    return session;
 
   } catch {
 

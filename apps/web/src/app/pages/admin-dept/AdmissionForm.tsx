@@ -169,7 +169,7 @@ export function AdmissionForm({ onSubmit, submitting }: Props) {
         className={ds.btnRound}
         style={tajawal}
       >
-        {submitting ? "جاري الحفظ…" : "تسجيل طلب جديد في الطابور"}
+        {submitting ? "جاري الحفظ…" : "تسجيل الطالب وتوجيهه للحلقة"}
       </Button>
     </form>
   );

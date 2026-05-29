@@ -7,6 +7,8 @@ export type NavItem = {
   roles: UserRole[];
 };
 
+const ADMIN_DEPT_ROLES: UserRole[] = ["admin_supervisor", "super_admin"];
+
 /** المشرف السيادي — إدارة المجمع */
 export const SUPER_ADMIN_NAV: NavItem[] = [
   { id: "staff", label: "إدارة الموظفين", path: "/super-admin/staff", roles: ["super_admin"] },
@@ -16,7 +18,7 @@ export const SUPER_ADMIN_NAV: NavItem[] = [
     path: "/super-admin/circles-setup",
     roles: ["super_admin"],
   },
-  { id: "statistics", label: "الإحصائيات", path: "/super-admin/statistics", roles: ["super_admin"] },
+  { id: "statistics", label: "إحصائيات المجمع", path: "/super-admin/statistics", roles: ["super_admin"] },
 ];
 
 /** القسم التعليمي */
@@ -39,37 +41,43 @@ export const EDU_DEPT_NAV: NavItem[] = [
   },
 ];
 
-/** القسم الإداري */
+/** القسم الإداري — مسارات v2.6 */
 export const ADMIN_DEPT_NAV: NavItem[] = [
   {
-    id: "student-attendance",
-    label: "حضور الطلاب",
-    path: "/admin-dept/student-attendance",
-    roles: ["admin_supervisor"],
+    id: "staff-attendance",
+    label: "تحضير المنسوبين",
+    path: "/admin-dept/staff-attendance",
+    roles: ADMIN_DEPT_ROLES,
   },
   {
-    id: "staff-attendance",
-    label: "حضور الموظفين",
-    path: "/admin-dept/staff-attendance",
-    roles: ["admin_supervisor"],
+    id: "student-attendance",
+    label: "تحضير الطلاب",
+    path: "/admin-dept/student-attendance",
+    roles: ADMIN_DEPT_ROLES,
+  },
+  {
+    id: "absent-whatsapp",
+    label: "واتساب الغياب",
+    path: "/admin-dept/absent-whatsapp",
+    roles: ADMIN_DEPT_ROLES,
   },
   {
     id: "admissions",
-    label: "طلبات القبول",
+    label: "القبول والتسجيل",
     path: "/admin-dept/admissions",
-    roles: ["admin_supervisor"],
+    roles: ADMIN_DEPT_ROLES,
   },
   {
-    id: "violations",
-    label: "المخالفات والتعهدات",
-    path: "/admin-dept/violations",
-    roles: ["admin_supervisor"],
+    id: "pledges",
+    label: "التعهدات والإجراءات",
+    path: "/admin-dept/pledges",
+    roles: ADMIN_DEPT_ROLES,
   },
   {
-    id: "dashboard",
-    label: "لوحة المشرف الإداري",
-    path: "/admin-dept/dashboard",
-    roles: ["admin_supervisor"],
+    id: "reports",
+    label: "المؤشرات والتقارير",
+    path: "/admin-dept/reports",
+    roles: ADMIN_DEPT_ROLES,
   },
 ];
 
@@ -80,7 +88,7 @@ export const PROG_DEPT_NAV: NavItem[] = [
   { id: "vault", label: "أرشيف البرامج", path: "/prog-dept/vault", roles: ["prog_supervisor"] },
 ];
 
-/** المعلم — تبويبات داخل /teacher */
+/** المعلم */
 export const TEACHER_NAV: NavItem[] = [
   { id: "daily", label: "شبكة الرصد السريع", path: "/teacher", roles: ["teacher"] },
 ];

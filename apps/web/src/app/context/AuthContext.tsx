@@ -15,6 +15,7 @@ import {
   type AuthSession,
   type AuthUser,
 } from "../lib/auth-store";
+import { clearApiToken } from "../lib/api-token";
 import { resetClientSession } from "../lib/session-reset";
 
 type AuthContextValue = {

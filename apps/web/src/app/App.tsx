@@ -26,11 +26,13 @@ import { QuizPrintPage } from "./pages/prog-supervisor/QuizPrintPage";
 import { ProgAnalyticsPage } from "./pages/prog-supervisor/ProgAnalyticsPage";
 import { ProgVaultPage } from "./pages/prog-supervisor/ProgVaultPage";
 import { QuizPublicPage } from "./pages/quiz/QuizPublicPage";
-import { AdmissionFunnelTab } from "./pages/admin-dept/AdmissionFunnelTab";
-import { ViolationsPledgesTab } from "./pages/admin-dept/ViolationsPledgesTab";
-import { SupervisorDashboardTab } from "./pages/admin-dept/SupervisorDashboardTab";
+import { PublicMagicLinkPage } from "./pages/public/PublicMagicLinkPage";
 import { StaffAttendancePage } from "./pages/admin-dept/StaffAttendancePage";
 import { StudentDailyAttendancePage } from "./pages/admin-dept/StudentDailyAttendancePage";
+import { AbsentWhatsappPage } from "./pages/admin-dept/AbsentWhatsappPage";
+import { AdmissionPage } from "./pages/admin-dept/AdmissionPage";
+import { PledgesPage } from "./pages/admin-dept/PledgesPage";
+import { AdminReportsPage } from "./pages/admin-dept/AdminReportsPage";
 import { StaffManagementPage } from "./pages/admin/StaffManagementPage";
 import { CirclesSetupPage } from "./pages/admin/CirclesSetupPage";
 import { StatisticsPage } from "./pages/admin/StatisticsPage";
@@ -44,6 +46,7 @@ export default function App() {
       <Route path="/tv-live" element={<TvLivePage />} />
       <Route path="/live-log/:token" element={<LiveLogPage />} />
       <Route path="/quiz/:quizId" element={<QuizPublicPage />} />
+      <Route path="/public/attendance/:token" element={<PublicMagicLinkPage />} />
 
       <Route element={<RequireAuth />}>
         <Route path="welcome" element={<WelcomePage />} />
@@ -82,11 +85,12 @@ export default function App() {
                 />
               </Route>
 
-              <Route path="admin-dept/student-attendance" element={<StudentDailyAttendancePage />} />
               <Route path="admin-dept/staff-attendance" element={<StaffAttendancePage />} />
-              <Route path="admin-dept/admissions" element={<AdmissionFunnelTab />} />
-              <Route path="admin-dept/violations" element={<ViolationsPledgesTab />} />
-              <Route path="admin-dept/dashboard" element={<SupervisorDashboardTab />} />
+              <Route path="admin-dept/student-attendance" element={<StudentDailyAttendancePage />} />
+              <Route path="admin-dept/absent-whatsapp" element={<AbsentWhatsappPage />} />
+              <Route path="admin-dept/admissions" element={<AdmissionPage />} />
+              <Route path="admin-dept/pledges" element={<PledgesPage />} />
+              <Route path="admin-dept/reports" element={<AdminReportsPage />} />
 
               <Route path="prog-dept" element={<ProgSupervisorLayout />}>
                 <Route index element={<Navigate to="quizzes" replace />} />
@@ -97,13 +101,14 @@ export default function App() {
                 <Route path="vault" element={<ProgVaultPage />} />
               </Route>
 
-              {/* Legacy paths → new department routes */}
               <Route path="admin/staff" element={<Navigate to="/super-admin/staff" replace />} />
               <Route path="admin/circles-setup" element={<Navigate to="/super-admin/circles-setup" replace />} />
               <Route path="admin/statistics" element={<Navigate to="/super-admin/statistics" replace />} />
               <Route path="edu-supervisor/*" element={<Navigate to="/edu-dept/dashboard" replace />} />
-              <Route path="general-supervisor/*" element={<Navigate to="/admin-dept/student-attendance" replace />} />
+              <Route path="general-supervisor/*" element={<Navigate to="/admin-dept/staff-attendance" replace />} />
               <Route path="prog-supervisor/*" element={<Navigate to="/prog-dept/quizzes" replace />} />
+              <Route path="admin-dept/dashboard" element={<Navigate to="/admin-dept/reports" replace />} />
+              <Route path="admin-dept/violations" element={<Navigate to="/admin-dept/pledges" replace />} />
               <Route path="dashboard" element={<AuthHomeRedirect />} />
             </Route>
           </Route>

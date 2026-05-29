@@ -13,7 +13,7 @@ import {
 } from "../../lib/auth-store";
 import { setApiToken } from "../../lib/api-token";
 import { api } from "../../lib/api-client";
-import { ROLE_HOME } from "../../config/role-access";
+import { roleHomePath } from "../../config/role-access";
 import { isUiDevPreview } from "../../lib/dev-preview";
 import { ds, tajawal } from "../../lib/design-system";
 
@@ -54,7 +54,7 @@ export function LoginPage() {
         sections: res.user.sections,
       },
       rawMobile || res.user.id.toString(),
-      ROLE_HOME[role] ?? "/welcome",
+      roleHomePath(role),
     );
     if (!authUser) {
       setError("تعذّر إنشاء الجلسة");

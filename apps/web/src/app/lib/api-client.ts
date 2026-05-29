@@ -764,6 +764,82 @@ export const api = {
       `/api/admin-dept/magic-links/${id}/toggle`,
       { method: "PUT", body: "{}" },
     ),
+  adminDeptAdmission: (body: {
+    full_name_ar: string;
+    national_id: string;
+    guardian_phone: string;
+    stage_id: number;
+    circle_id: number;
+    phone?: string;
+    school_grade?: string;
+    age?: number | null;
+    guardian_national_id?: string;
+    guardian_work?: string;
+    health_notes?: string;
+    track_id?: number | null;
+    nationality?: string;
+    school_name?: string;
+  }) =>
+    request<{
+      ok: boolean;
+      student_id: number;
+      stage_id: number;
+      stage_label: string;
+      circle_id: number;
+    }>("/api/admin-dept/admission", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  adminDeptAddPledge: (body: {
+    student_id: number;
+    reason_ar: string;
+    pledge_date?: string;
+  }) =>
+    request<{
+      ok: boolean;
+      pledge_id: number;
+      pledge_count: number;
+      max_pledges: number;
+      threshold_reached: boolean;
+      alert: string | null;
+    }>("/api/admin-dept/pledges", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  adminDeptPledgeReport: (studentId: number) =>
+    request<{
+      student: Record<string, unknown>;
+      pledges: Array<{
+        id: number;
+        reason_ar: string;
+        pledge_date: string;
+        created_at: string;
+        created_by_name?: string | null;
+      }>;
+      pledge_count: number;
+      max_pledges: number;
+      threshold_reached: boolean;
+    }>(`/api/admin-dept/pledges/${studentId}`),
+  publicAttendanceGet: (token: string) =>
+    request<{
+      token: string;
+      attendance_date: string;
+      circle: { id: number; name_ar: string; stage: string };
+      items: Array<{
+        student_id: number;
+        full_name_ar: string;
+        status: string;
+      }>;
+      default_status: string;
+    }>(`/api/public/attendance/${encodeURIComponent(token)}`),
+  publicAttendanceSave: (
+    token: string,
+    body: { records: Array<{ student_id: number; status: string }> },
+  ) =>
+    request<{ ok: boolean; saved: number }>(
+      `/api/public/attendance/${encodeURIComponent(token)}`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
   gsScope: () =>
     request<{
       scope: { type: string; stageIds?: number[] };

@@ -286,6 +286,82 @@ export function resolveDevPreviewMock<T>(
     return { ok: true, id: 1, is_active: 0 } as T;
   }
 
+  if (p === "/api/admin-dept/students/absent-today" && m === "GET") {
+    const items = previewStore
+      .getStudents()
+      .slice(0, 3)
+      .map((s) => ({
+        student_id: s.id,
+        full_name_ar: s.full_name_ar,
+        guardian_phone: s.guardian_phone ?? "966500000001",
+        status: "absent",
+        circle_name: s.circle_name,
+        whatsapp_url: `https://wa.me/966500000001?text=${encodeURIComponent("غياب تجريبي")}`,
+      }));
+    return { date, items, template: "غياب {{student_name}}" } as T;
+  }
+
+  if (p === "/api/admin-dept/admission" && m === "POST") {
+    return {
+      ok: true,
+      student_id: 901,
+      stage_id: 2,
+      stage_label: "ابتدائي",
+      circle_id: 1,
+    } as T;
+  }
+
+  if (p === "/api/admin-dept/pledges" && m === "POST") {
+    return {
+      ok: true,
+      pledge_id: 1,
+      pledge_count: 3,
+      max_pledges: 3,
+      threshold_reached: true,
+      alert: "تنبيه تجريبي: بلغ الحد",
+    } as T;
+  }
+
+  const pledgeGet = p.match(/^\/api\/admin-dept\/pledges\/(\d+)$/);
+  if (pledgeGet && m === "GET") {
+    const sid = Number(pledgeGet[1]);
+    const st = previewStore.findStudent(sid);
+    return {
+      student: st ?? { id: sid, full_name_ar: "طالب تجريبي" },
+      pledges: [
+        {
+          id: 1,
+          reason_ar: "تأخر",
+          pledge_date: date,
+          created_at: date,
+          created_by_name: "مشرف",
+        },
+      ],
+      pledge_count: 1,
+      max_pledges: 3,
+      threshold_reached: false,
+    } as T;
+  }
+
+  const pubAtt = p.match(/^\/api\/public\/attendance\/([^/]+)$/);
+  if (pubAtt && m === "GET") {
+    const token = pubAtt[1];
+    return {
+      token,
+      attendance_date: date,
+      circle: { id: 1, name_ar: "حلقة تجريبية", stage: "primary" },
+      items: previewStore.getStudents().slice(0, 5).map((s) => ({
+        student_id: s.id,
+        full_name_ar: s.full_name_ar,
+        status: "present",
+      })),
+      default_status: "present",
+    } as T;
+  }
+  if (pubAtt && m === "POST") {
+    return { ok: true, saved: 1 } as T;
+  }
+
   if (p === "/api/general-supervisor/applications" && m === "GET") {
     return { items: previewStore.getApplications() } as T;
   }

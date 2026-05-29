@@ -119,6 +119,73 @@ function renderNav(
   );
 }
 
+function SidebarBrand({ userName }: { userName?: string }) {
+  return (
+    <div className="p-6 border-b border-border flex items-center gap-3">
+      <img
+        src="/logo-light.png"
+        alt="مجمع حلقات البساتين"
+        className="h-12 w-auto object-contain shrink-0 dark:hidden"
+      />
+      <img
+        src="/logo-dark.png"
+        alt="مجمع حلقات البساتين"
+        className="h-12 w-auto object-contain shrink-0 hidden dark:block"
+      />
+      <div className="min-w-0">
+        <p className="font-bold text-sm text-foreground truncate" style={tajawal}>
+          منصة بساتين
+        </p>
+        <p className="text-[10px] text-muted-foreground" style={tajawal}>
+          مجمع حلقات البساتين
+        </p>
+        {userName && (
+          <p className="text-xs text-muted-foreground truncate" style={tajawal}>
+            {userName}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SidebarFooter({
+  onLogout,
+  onTv,
+}: {
+  onLogout: () => void;
+  onTv: () => void;
+}) {
+  return (
+    <div className="p-4 border-t border-border space-y-3 shrink-0">
+      <div className="flex items-center justify-center gap-2">
+        <ThemeToggle />
+        <Button
+          variant="outline"
+          size="icon"
+          className={ds.btnRound}
+          onClick={onLogout}
+          type="button"
+          title="تسجيل الخروج"
+          aria-label="تسجيل الخروج"
+        >
+          <LogOut className="w-5 h-5" />
+        </Button>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        onClick={onTv}
+        className={`w-full ${ds.btnRound}`}
+        style={tajawal}
+      >
+        <Tv className="w-4 h-4" />
+        شاشة التلفاز
+      </Button>
+    </div>
+  );
+}
+
 /** لوحة موحّدة لكل أدوار الموظفين (غير المعلم) */
 export function RoleShellLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -148,36 +215,9 @@ export function RoleShellLayout() {
     <div className="min-h-screen bg-background text-foreground" dir="rtl">
       <div className="min-h-screen flex">
         <aside className="w-64 shrink-0 bg-card border-l border-border hidden lg:flex flex-col print:hidden">
-          <div className="p-6 border-b border-border flex items-center gap-3">
-            <img
-              src="/logo-light.png"
-              alt="مجمع حلقات البساتين"
-              className="h-12 w-auto object-contain shrink-0"
-            />
-            <div>
-              <p className="font-bold text-sm text-foreground" style={tajawal}>
-                منصة بساتين
-              </p>
-              <p className="text-[10px] text-muted-foreground" style={tajawal}>
-                مجمع حلقات البساتين
-              </p>
-              <p className="text-xs text-muted-foreground" style={tajawal}>
-                {user?.full_name_ar}
-              </p>
-            </div>
-          </div>
-          <nav className="p-4 flex-1 overflow-y-auto space-y-1">{nav}</nav>
-          <div className="p-4 border-t border-border">
-            <Button
-              type="button"
-              onClick={launchTv}
-              className={`w-full ${ds.btnRound}`}
-              style={tajawal}
-            >
-              <Tv className="w-4 h-4" />
-              شاشة التلفاز
-            </Button>
-          </div>
+          <SidebarBrand userName={user?.full_name_ar} />
+          <nav className="p-4 flex-1 overflow-y-auto space-y-1 min-h-0">{nav}</nav>
+          <SidebarFooter onLogout={handleLogout} onTv={launchTv} />
         </aside>
 
         {mobileOpen && (
@@ -185,72 +225,52 @@ export function RoleShellLayout() {
             <button
               type="button"
               className="absolute inset-0 bg-black/40"
-              aria-label="إغلاق"
+              aria-label="إغلاق القائمة"
               onClick={() => setMobileOpen(false)}
             />
             <aside className="absolute right-0 top-0 bottom-0 w-72 max-w-[85vw] bg-card border-l border-border flex flex-col shadow-xl">
-              <div className="p-4 flex justify-between items-center border-b border-border">
-                <span className="font-bold" style={tajawal}>
+              <div className="p-4 flex justify-between items-center border-b border-border shrink-0">
+                <span className="font-bold text-sm" style={tajawal}>
                   القائمة
                 </span>
                 <Button
                   variant="ghost"
                   size="icon"
+                  className={ds.btnRound}
                   onClick={() => setMobileOpen(false)}
                   type="button"
+                  aria-label="إغلاق"
                 >
                   <X className="w-5 h-5" />
                 </Button>
               </div>
-              <nav className="p-4 flex-1 overflow-y-auto space-y-1">{nav}</nav>
+              <div className="px-4 py-3 border-b border-border shrink-0">
+                <p className="text-xs text-muted-foreground" style={tajawal}>
+                  {user?.full_name_ar}
+                </p>
+              </div>
+              <nav className="p-4 flex-1 overflow-y-auto space-y-1 min-h-0">
+                {nav}
+              </nav>
+              <SidebarFooter onLogout={handleLogout} onTv={launchTv} />
             </aside>
           </div>
         )}
 
-        <div className="flex-1 flex flex-col min-w-0">
-          <header className="bg-card border-b border-border shadow-sm sticky top-0 z-50 print:hidden">
-            <div className="px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className={`lg:hidden ${ds.btnRound}`}
-                  onClick={() => setMobileOpen(true)}
-                  type="button"
-                >
-                  <Menu className="w-5 h-5" />
-                </Button>
-                <h1 className="text-base sm:text-lg font-bold" style={tajawal}>
-                  منصة بساتين
-                </h1>
-              </div>
-              <div className="flex items-center gap-2">
-                <ThemeToggle />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className={`hidden sm:inline-flex ${ds.btnRound}`}
-                  onClick={launchTv}
-                  type="button"
-                  style={tajawal}
-                >
-                  <Tv className="w-4 h-4" />
-                  التلفاز
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className={ds.btnRound}
-                  onClick={handleLogout}
-                  type="button"
-                  title="خروج"
-                >
-                  <LogOut className="w-5 h-5" />
-                </Button>
-              </div>
-            </div>
-          </header>
-          <main className="flex-1 min-h-[50vh] p-4 sm:p-6 md:p-8 overflow-auto">
+        <div className="flex-1 flex flex-col min-w-0 min-h-screen">
+          <div className="lg:hidden sticky top-0 z-40 bg-background/95 backdrop-blur border-b border-border px-4 py-3 print:hidden">
+            <Button
+              variant="outline"
+              size="icon"
+              className={ds.btnRound}
+              onClick={() => setMobileOpen(true)}
+              type="button"
+              aria-label="فتح القائمة"
+            >
+              <Menu className="w-5 h-5" />
+            </Button>
+          </div>
+          <main className="flex-1 min-h-0 p-4 sm:p-6 md:p-8 overflow-auto">
             <DevPreviewBanner />
             <Outlet />
           </main>

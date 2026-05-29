@@ -87,10 +87,10 @@ export function MagicLinksManagerPage() {
     <div className="space-y-4 max-w-[1100px]">
       <div>
         <h2 className={ds.page.title} style={tajawal}>
-          إدارة روابط التحضير
+          روابط التحضير
         </h2>
         <p className={ds.page.description} style={tajawal}>
-          روابط تحضير الطلاب المصدرة للحلقات — نسخ أو حذف نهائي.
+          إدارة روابط تحضير الطلاب للحلقات — انسخ الرابط أو احذفه نهائياً.
         </p>
       </div>
 
@@ -111,10 +111,10 @@ export function MagicLinksManagerPage() {
             روابط التحضير النشطة
           </CardTitle>
           <CardDescription style={tajawal}>
-            انقر «نسخ» للحصول على الرابط الكامل.
+            مرّر المؤشر على الأيقونات لمعرفة الإجراء.
           </CardDescription>
         </CardHeader>
-        <CardContent className="p-0 sm:p-0">
+        <CardContent className="p-0">
           {loading ? (
             <p className="p-4 text-muted-foreground text-right" style={tajawal}>
               جاري التحميل…
@@ -128,19 +128,19 @@ export function MagicLinksManagerPage() {
               <Table className={ds.tableMin}>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className={`${ds.table.head} w-[22%]`} style={tajawal}>
+                    <TableHead className={`${ds.table.head} w-[24%]`} style={tajawal}>
                       الحلقة
                     </TableHead>
                     <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
                       التاريخ
                     </TableHead>
-                    <TableHead className={`${ds.table.head} w-[36%]`} style={tajawal}>
+                    <TableHead className={`${ds.table.head} w-[38%]`} style={tajawal}>
                       الرابط
                     </TableHead>
                     <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
                       الحالة
                     </TableHead>
-                    <TableHead className={ds.table.headActions} style={tajawal}>
+                    <TableHead className={`${ds.table.headActions} w-[120px]`} style={tajawal}>
                       إجراءات
                     </TableHead>
                   </TableRow>

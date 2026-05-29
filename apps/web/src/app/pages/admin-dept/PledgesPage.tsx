@@ -17,7 +17,10 @@ import { ds, tajawal } from "../../lib/design-system";
 
 export function PledgesPage() {
   const [modalOpen, setModalOpen] = useState(false);
-  const [studentId, setStudentId] = useState<number | null>(null);
+  /** بحث التقرير في الصفحة */
+  const [reportStudentId, setReportStudentId] = useState<number | null>(null);
+  /** طالب نموذج الإضافة — منفصل لتجنب تعارض مع حقل التقرير */
+  const [modalStudentId, setModalStudentId] = useState<number | null>(null);
   const [reason, setReason] = useState("");
   const [pledgeDate, setPledgeDate] = useState(() =>
     new Date().toISOString().slice(0, 10),
@@ -29,9 +32,17 @@ export function PledgesPage() {
     ReturnType<typeof api.adminDeptPledgeReport>
   > | null>(null);
 
+  function openAddModal() {
+    setError(null);
+    setModalStudentId(null);
+    setReason("");
+    setPledgeDate(new Date().toISOString().slice(0, 10));
+    setModalOpen(true);
+  }
+
   async function addPledge(e: React.FormEvent) {
     e.preventDefault();
-    if (!canUseApi() || studentId == null || !reason.trim()) {
+    if (!canUseApi() || modalStudentId == null || !reason.trim()) {
       setError("اختر الطالب وأدخل سبب التعهد");
       return;
     }
@@ -40,14 +51,16 @@ export function PledgesPage() {
     setAlertMsg(null);
     try {
       const res = await api.adminDeptAddPledge({
-        student_id: studentId,
+        student_id: modalStudentId,
         reason_ar: reason.trim(),
         pledge_date: pledgeDate,
       });
       if (res.threshold_reached && res.alert) setAlertMsg(res.alert);
       setReason("");
       setModalOpen(false);
-      await loadReport(studentId);
+      setModalStudentId(null);
+      setReportStudentId(modalStudentId);
+      await loadReport(modalStudentId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "فشل إضافة التعهد");
     } finally {
@@ -56,7 +69,7 @@ export function PledgesPage() {
   }
 
   async function loadReport(sid?: number) {
-    const id = sid ?? studentId;
+    const id = sid ?? reportStudentId;
     if (!canUseApi() || id == null) return;
     setError(null);
     try {
@@ -77,6 +90,14 @@ export function PledgesPage() {
     window.print();
   }
 
+  function isStudentSearchTarget(target: EventTarget | null) {
+    if (!(target instanceof HTMLElement)) return false;
+    return Boolean(
+      target.closest("[data-student-search-root]") ||
+        target.closest("[data-student-search-list]"),
+    );
+  }
+
   return (
     <div className="space-y-4 max-w-[900px]">
       <div className="print:hidden flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
@@ -90,11 +111,9 @@ export function PledgesPage() {
         </div>
         <Button
           type="button"
-          className={ds.btnRound}
-          onClick={() => {
-            setError(null);
-            setModalOpen(true);
-          }}
+          variant="default"
+          className={`${ds.btnRound} shrink-0`}
+          onClick={openAddModal}
           style={tajawal}
         >
           <Plus className="w-4 h-4" />
@@ -116,9 +135,10 @@ export function PledgesPage() {
       <div className={`${ds.card} p-4 print:hidden space-y-3`}>
         <Label style={tajawal}>بحث عن طالب لعرض سجل التعهدات</Label>
         <AdminStudentSearchCombobox
-          value={studentId}
+          id="pledge-report-student-search"
+          value={reportStudentId}
           onChange={(id) => {
-            setStudentId(id);
+            setReportStudentId(id);
             setReport(null);
             if (id != null) void loadReport(id);
           }}
@@ -127,7 +147,7 @@ export function PledgesPage() {
           type="button"
           variant="outline"
           className={ds.btnRound}
-          disabled={studentId == null}
+          disabled={reportStudentId == null}
           onClick={() => loadReport()}
           style={tajawal}
         >
@@ -137,8 +157,25 @@ export function PledgesPage() {
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent
-          className={`${ds.card} max-w-md rounded-2xl border-border bg-card`}
+          className={`${ds.card} max-w-md rounded-2xl border-border bg-card max-h-[min(90vh,640px)] overflow-y-auto`}
           dir="rtl"
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            requestAnimationFrame(() => {
+              document
+                .querySelector("#pledge-modal-student-search input")
+                ?.focus();
+            });
+          }}
+          onInteractOutside={(e) => {
+            if (isStudentSearchTarget(e.target)) e.preventDefault();
+          }}
+          onPointerDownOutside={(e) => {
+            if (isStudentSearchTarget(e.target)) e.preventDefault();
+          }}
+          onFocusOutside={(e) => {
+            if (isStudentSearchTarget(e.target)) e.preventDefault();
+          }}
         >
           <DialogHeader>
             <DialogTitle style={tajawal}>إضافة تعهد</DialogTitle>
@@ -149,11 +186,12 @@ export function PledgesPage() {
           <form onSubmit={addPledge} className="space-y-4">
             <div className="space-y-2">
               <Label style={tajawal}>الطالب *</Label>
-            <AdminStudentSearchCombobox
-              value={studentId}
-              onChange={(id) => setStudentId(id)}
-              disabled={submitting}
-            />
+              <AdminStudentSearchCombobox
+                id="pledge-modal-student-search"
+                value={modalStudentId}
+                onChange={(id) => setModalStudentId(id)}
+                disabled={submitting}
+              />
             </div>
             <div className="space-y-2">
               <Label style={tajawal}>تاريخ التعهد</Label>
@@ -175,6 +213,7 @@ export function PledgesPage() {
             </div>
             <Button
               type="submit"
+              variant="default"
               className={`w-full ${ds.btnRound}`}
               disabled={submitting}
               style={tajawal}

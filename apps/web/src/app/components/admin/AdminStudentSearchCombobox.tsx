@@ -18,6 +18,8 @@ type Props = {
   onChange: (studentId: number | null, student?: AdminStudentOption) => void;
   disabled?: boolean;
   placeholder?: string;
+  /** معرّف لمنع إغلاق Dialog عند التفاعل مع القائمة */
+  id?: string;
 };
 
 /**
@@ -28,6 +30,7 @@ export function AdminStudentSearchCombobox({
   onChange,
   disabled,
   placeholder = "اكتب اسم الطالب للبحث…",
+  id = "admin-student-search",
 }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -93,13 +96,13 @@ export function AdminStudentSearchCombobox({
 
   useEffect(() => {
     function onPointerDown(e: MouseEvent) {
-      if (!rootRef.current?.contains(e.target as Node)) {
-        setOpen(false);
-        if (selected) setQuery(selected.full_name_ar);
-      }
+      const target = e.target as Node;
+      if (rootRef.current?.contains(target)) return;
+      setOpen(false);
+      if (selected) setQuery(selected.full_name_ar);
     }
-    document.addEventListener("mousedown", onPointerDown);
-    return () => document.removeEventListener("mousedown", onPointerDown);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
   }, [selected]);
 
   function pick(student: AdminStudentOption) {
@@ -134,19 +137,37 @@ export function AdminStudentSearchCombobox({
     (loading || items.length > 0 || (query.trim().length > 0 && !selected));
 
   return (
-    <div ref={rootRef} className="relative w-full space-y-1">
+    <div
+      ref={rootRef}
+      id={id}
+      data-student-search-root=""
+      className="relative w-full space-y-1"
+    >
       <div className="flex gap-2">
         <Input
           ref={inputRef}
-          type="text"
+          type="search"
+          enterKeyHint="search"
           value={query}
           disabled={disabled}
           placeholder={placeholder}
-          className={cn("flex-1 text-right bg-background", ds.btnRound)}
+          className={cn("flex-1 text-right", ds.btnRound)}
           style={tajawal}
           autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           onChange={(e) => handleInputChange(e.target.value)}
           onFocus={() => setOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              setOpen(false);
+              return;
+            }
+            if (e.key === "Enter" && items.length === 1 && open) {
+              e.preventDefault();
+              pick(items[0]);
+            }
+          }}
         />
         {value != null && (
           <Button
@@ -165,8 +186,10 @@ export function AdminStudentSearchCombobox({
 
       {showList && (
         <div
-          className="absolute z-[100] mt-1 w-full rounded-xl border border-border bg-popover text-popover-foreground shadow-md max-h-56 overflow-y-auto"
+          className="absolute z-[200] mt-1 w-full rounded-xl border border-border bg-popover text-popover-foreground shadow-lg max-h-56 overflow-y-auto overscroll-contain"
           role="listbox"
+          data-student-search-list=""
+          onPointerDown={(e) => e.preventDefault()}
         >
           {loading && (
             <p

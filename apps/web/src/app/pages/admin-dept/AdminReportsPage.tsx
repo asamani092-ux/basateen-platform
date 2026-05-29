@@ -36,6 +36,19 @@ const STATUS_AR: Record<string, string> = {
   excused: "مستأذن",
 };
 
+const emptySummary = {
+  staff_total: 0,
+  staff_present: 0,
+  staff_absent: 0,
+  staff_present_pct: 0,
+  staff_absent_pct: 0,
+  students_total: 0,
+  students_present: 0,
+  students_absent: 0,
+  students_present_pct: 0,
+  students_absent_pct: 0,
+};
+
 export function AdminReportsPage() {
   const [preset, setPreset] = useState<DatePreset>("last7");
   const [customStart, setCustomStart] = useState(() => isoDate(new Date()));
@@ -43,14 +56,7 @@ export function AdminReportsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [summary, setSummary] = useState({
-    staff_total: 0,
-    staff_present: 0,
-    staff_present_pct: 0,
-    students_total: 0,
-    students_present: 0,
-    students_present_pct: 0,
-  });
+  const [summary, setSummary] = useState(emptySummary);
   const [items, setItems] = useState<
     Array<{ name: string; date: string; status: string; type: "staff" | "student" }>
   >([]);
@@ -76,7 +82,7 @@ export function AdminReportsPage() {
         status: statusFilter,
         type: "all",
       });
-      setSummary(res.summary);
+      setSummary({ ...emptySummary, ...res.summary });
       setItems(res.items ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل تحميل التقرير");
@@ -94,9 +100,12 @@ export function AdminReportsPage() {
     window.print();
   }
 
+  const staffAttendanceSub = `حاضر ${summary.staff_present} (${summary.staff_present_pct}%) · غائب/مستأذن ${summary.staff_absent} (${summary.staff_absent_pct}%) — آخر يوم`;
+  const studentAttendanceSub = `حاضر ${summary.students_present} (${summary.students_present_pct}%) · غائب/مستأذن ${summary.students_absent} (${summary.students_absent_pct}%) — آخر يوم`;
+
   return (
     <div className="space-y-6 max-w-[1200px]">
-      <div className="print:hidden flex flex-col gap-4">
+      <div className="admin-reports-screen-only flex flex-col gap-4">
         <div>
           <h2 className={ds.page.title} style={tajawal}>
             المؤشرات والتقارير
@@ -164,7 +173,7 @@ export function AdminReportsPage() {
 
           <div>
             <p className="text-sm font-semibold mb-2" style={tajawal}>
-              الحالة
+              حالة التصدير
             </p>
             <div className="flex flex-wrap gap-2">
               <Button
@@ -215,7 +224,7 @@ export function AdminReportsPage() {
       </div>
 
       {error && (
-        <p className={`${ds.alert.error} print:hidden`} style={tajawal}>
+        <p className={`${ds.alert.error} admin-reports-screen-only`} style={tajawal}>
           {error}
         </p>
       )}
@@ -232,37 +241,37 @@ export function AdminReportsPage() {
         </div>
 
         {loading ? (
-          <p className="text-muted-foreground print:hidden" style={tajawal}>
+          <p className="text-muted-foreground admin-reports-screen-only" style={tajawal}>
             جاري التحميل…
           </p>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 print:grid-cols-2 print:gap-3">
             <KpiCard
               icon={<Users className="w-5 h-5 text-primary" />}
-              label="عدد المنسوبين الكلي"
+              label="عدد المنسوبين الإجمالي"
               value={summary.staff_total}
             />
             <KpiCard
               icon={<Users className="w-5 h-5 text-primary" />}
               label="تحضير المنسوبين"
               value={summary.staff_present}
-              sub={`${summary.staff_present_pct}% من المسجلين`}
+              sub={staffAttendanceSub}
             />
             <KpiCard
               icon={<GraduationCap className="w-5 h-5 text-primary" />}
-              label="عدد الطلاب الكلي"
+              label="عدد الطلاب الإجمالي"
               value={summary.students_total}
             />
             <KpiCard
               icon={<GraduationCap className="w-5 h-5 text-primary" />}
               label="تحضير الطلاب"
               value={summary.students_present}
-              sub={`${summary.students_present_pct}% من المسجلين (آخر يوم)`}
+              sub={studentAttendanceSub}
             />
           </div>
         )}
 
-        <div className={`${ds.card} overflow-hidden`}>
+        <div className={`${ds.card} overflow-hidden print:shadow-none print:border`}>
           <div className="p-4 border-b border-border print:border-0">
             <h3 className={ds.page.section} style={tajawal}>
               التقرير التفصيلي
@@ -276,10 +285,18 @@ export function AdminReportsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead style={tajawal}>الاسم</TableHead>
-                  <TableHead style={tajawal}>التاريخ</TableHead>
-                  <TableHead style={tajawal}>الحالة</TableHead>
-                  <TableHead style={tajawal}>النوع</TableHead>
+                  <TableHead className="w-[28%] min-w-[140px]" style={tajawal}>
+                    الاسم
+                  </TableHead>
+                  <TableHead className="w-[18%] min-w-[100px]" style={tajawal}>
+                    التاريخ
+                  </TableHead>
+                  <TableHead className="w-[22%] min-w-[110px]" style={tajawal}>
+                    نوع الحساب
+                  </TableHead>
+                  <TableHead className="w-[20%] min-w-[100px]" style={tajawal}>
+                    الحالة
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -290,10 +307,10 @@ export function AdminReportsPage() {
                     </TableCell>
                     <TableCell style={tajawal}>{row.date}</TableCell>
                     <TableCell style={tajawal}>
-                      {STATUS_AR[row.status] ?? row.status}
+                      {row.type === "staff" ? "منسوب" : "طالب"}
                     </TableCell>
                     <TableCell style={tajawal}>
-                      {row.type === "staff" ? "منسوب" : "طالب"}
+                      {STATUS_AR[row.status] ?? row.status}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -302,20 +319,6 @@ export function AdminReportsPage() {
           )}
         </div>
       </div>
-
-      <style>{`
-        @media print {
-          body * { visibility: hidden; }
-          #admin-reports-print, #admin-reports-print * { visibility: visible; }
-          #admin-reports-print {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-          }
-          .print\\:hidden { display: none !important; }
-        }
-      `}</style>
     </div>
   );
 }
@@ -332,7 +335,7 @@ function KpiCard({
   sub?: string;
 }) {
   return (
-    <Card className={ds.card}>
+    <Card className={`${ds.card} print:break-inside-avoid`}>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium flex items-center gap-2" style={tajawal}>
           {icon}
@@ -344,7 +347,7 @@ function KpiCard({
           {value}
         </p>
         {sub && (
-          <p className="text-xs text-muted-foreground mt-1" style={tajawal}>
+          <p className="text-xs text-muted-foreground mt-1 leading-relaxed" style={tajawal}>
             {sub}
           </p>
         )}

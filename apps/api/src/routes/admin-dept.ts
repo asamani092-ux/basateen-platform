@@ -88,10 +88,9 @@ async function assertCircleInComplex(
   complexId: number,
   circleId: number,
 ): Promise<boolean> {
-  const hasActive = await tableHasColumn(env, "circles", "is_active");
-  let sql = `SELECT id FROM circles WHERE id = ? AND complex_id = ?`;
-  if (hasActive) sql += ` AND COALESCE(is_active, 1) = 1`;
-  const row = await env.DB.prepare(sql)
+  const row = await env.DB.prepare(
+    `SELECT id FROM circles WHERE id = ? AND complex_id = ?`,
+  )
     .bind(circleId, complexId)
     .first<{ id: number }>();
   return Boolean(row);
@@ -862,6 +861,9 @@ async function handleAdminDeptRouterImpl(
     const pct = (n: number, total: number) =>
       total > 0 ? Math.round((n / total) * 100) : 0;
 
+    const staffAbsent = Math.max(0, staffTotal - staffPresent);
+    const studentsAbsent = Math.max(0, studentsTotal - studentsPresent);
+
     return json({
       start_date: startDate,
       end_date: endDate,
@@ -869,10 +871,14 @@ async function handleAdminDeptRouterImpl(
       summary: {
         staff_total: staffTotal,
         staff_present: staffPresent,
+        staff_absent: staffAbsent,
         staff_present_pct: pct(staffPresent, staffTotal),
+        staff_absent_pct: pct(staffAbsent, staffTotal),
         students_total: studentsTotal,
         students_present: studentsPresent,
+        students_absent: studentsAbsent,
         students_present_pct: pct(studentsPresent, studentsTotal),
+        students_absent_pct: pct(studentsAbsent, studentsTotal),
       },
       items,
     });

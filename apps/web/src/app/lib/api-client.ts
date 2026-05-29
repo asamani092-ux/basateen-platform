@@ -70,6 +70,7 @@ export type CircleOption = {
   track_id: number | null;
   track_name: string | null;
   stage_id?: number;
+  stage?: string | null;
   student_count?: number;
   seats_remaining?: number;
   near_capacity?: boolean;
@@ -828,10 +829,14 @@ export const api = {
       summary: {
         staff_total: number;
         staff_present: number;
+        staff_absent: number;
         staff_present_pct: number;
+        staff_absent_pct: number;
         students_total: number;
         students_present: number;
+        students_absent: number;
         students_present_pct: number;
+        students_absent_pct: number;
       };
       items: Array<{
         name: string;

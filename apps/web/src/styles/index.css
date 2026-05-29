@@ -1,3 +1,31 @@
 @import './fonts.css';
 @import './tailwind.css';
 @import './theme.css';
+
+/* Admin reports — print only KPI cards + detail table */
+@media print {
+  body {
+    background: #fff !important;
+  }
+
+  .admin-reports-screen-only {
+    display: none !important;
+  }
+
+  aside,
+  header,
+  .admin-reports-screen-only,
+  [data-dev-preview-banner] {
+    display: none !important;
+  }
+
+  main {
+    padding: 0 !important;
+  }
+
+  #admin-reports-print {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+  }
+}

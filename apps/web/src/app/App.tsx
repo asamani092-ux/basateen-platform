@@ -29,8 +29,8 @@ import { QuizPublicPage } from "./pages/quiz/QuizPublicPage";
 import { AdmissionFunnelTab } from "./pages/admin-dept/AdmissionFunnelTab";
 import { ViolationsPledgesTab } from "./pages/admin-dept/ViolationsPledgesTab";
 import { SupervisorDashboardTab } from "./pages/admin-dept/SupervisorDashboardTab";
-import { StaffAttendanceGridTab } from "./pages/admin-dept/StaffAttendanceGridTab";
-import { GsStudentAttendancePage } from "./pages/admin-dept/GsStudentAttendancePage";
+import { StaffAttendancePage } from "./pages/admin-dept/StaffAttendancePage";
+import { StudentDailyAttendancePage } from "./pages/admin-dept/StudentDailyAttendancePage";
 import { StaffManagementPage } from "./pages/admin/StaffManagementPage";
 import { CirclesSetupPage } from "./pages/admin/CirclesSetupPage";
 import { StatisticsPage } from "./pages/admin/StatisticsPage";
@@ -82,8 +82,8 @@ export default function App() {
                 />
               </Route>
 
-              <Route path="admin-dept/student-attendance" element={<GsStudentAttendancePage />} />
-              <Route path="admin-dept/staff-attendance" element={<StaffAttendanceGridTab />} />
+              <Route path="admin-dept/student-attendance" element={<StudentDailyAttendancePage />} />
+              <Route path="admin-dept/staff-attendance" element={<StaffAttendancePage />} />
               <Route path="admin-dept/admissions" element={<AdmissionFunnelTab />} />
               <Route path="admin-dept/violations" element={<ViolationsPledgesTab />} />
               <Route path="admin-dept/dashboard" element={<SupervisorDashboardTab />} />

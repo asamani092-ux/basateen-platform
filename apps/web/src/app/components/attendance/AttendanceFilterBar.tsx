@@ -14,6 +14,8 @@ type Props = {
   shownCount: number;
   totalCount: number;
   hiddenDirty?: number;
+  /** إخفاء قائمة التجميع (مثلاً عند فلترة الحلقة مسبقاً) */
+  hideGroupFilter?: boolean;
 };
 
 export function AttendanceFilterBar({
@@ -26,6 +28,7 @@ export function AttendanceFilterBar({
   shownCount,
   totalCount,
   hiddenDirty = 0,
+  hideGroupFilter = false,
 }: Props) {
   return (
     <div className={`${ds.card} p-4 space-y-3`}>
@@ -41,24 +44,26 @@ export function AttendanceFilterBar({
             style={tajawal}
           />
         </div>
-        <div className="sm:w-56">
-          <label className="text-xs text-muted-foreground block mb-1" style={tajawal}>
-            {groupLabel}
-          </label>
-          <select
-            value={groupValue}
-            onChange={(e) => onGroupChange(e.target.value)}
-            className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-background"
-            style={tajawal}
-          >
-            <option value="">الكل</option>
-            {groupOptions.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        {!hideGroupFilter && (
+          <div className="sm:w-56">
+            <label className="text-xs text-muted-foreground block mb-1" style={tajawal}>
+              {groupLabel}
+            </label>
+            <select
+              value={groupValue}
+              onChange={(e) => onGroupChange(e.target.value)}
+              className="w-full rounded-xl border border-border px-3 py-2 text-sm bg-background"
+              style={tajawal}
+            >
+              <option value="">الكل</option>
+              {groupOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
       <p className="text-xs text-muted-foreground" style={tajawal}>
         يعرض {shownCount} من {totalCount}

@@ -48,6 +48,8 @@ FILES_UPGRADE=(
   "019_prog_supervisor.sql"
   "020_teacher_full.sql"
   "021_reciter_gate.sql"
+  "024_admin_department.sql"
+  "024_admin_department_alters.sql"
 )
 
 FILES_ALL=(

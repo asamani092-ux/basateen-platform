@@ -15,6 +15,7 @@ import { setApiToken } from "../../lib/api-token";
 import { api } from "../../lib/api-client";
 import { roleHomePath } from "../../config/role-access";
 import { isUiDevPreview } from "../../lib/dev-preview";
+import { ThemeToggle } from "../../components/ThemeToggle";
 import { ds, tajawal } from "../../lib/design-system";
 
 export function LoginPage() {
@@ -108,9 +109,12 @@ export function LoginPage() {
 
   return (
     <div
-      className="min-h-screen min-h-[100dvh] bg-background flex items-center justify-center p-4 sm:p-6"
+      className="min-h-screen min-h-[100dvh] bg-background text-foreground flex items-center justify-center p-4 sm:p-6 relative"
       dir="rtl"
     >
+      <div className="absolute top-4 left-4 sm:top-6 sm:left-6">
+        <ThemeToggle />
+      </div>
       <Card className={`w-full max-w-md ${ds.card}`}>
         <CardHeader className="text-center pb-2">
           <img

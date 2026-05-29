@@ -14,6 +14,7 @@ import {
 import { useAuth } from "../context/AuthContext";
 import type { UserRole } from "../lib/auth-store";
 import { DevPreviewBanner } from "../components/DevPreviewBanner";
+import { ThemeToggle } from "../components/ThemeToggle";
 import { ds, tajawal } from "../lib/design-system";
 
 function NavLinkItem({
@@ -224,6 +225,7 @@ export function RoleShellLayout() {
                 </h1>
               </div>
               <div className="flex items-center gap-2">
+                <ThemeToggle />
                 <Button
                   variant="outline"
                   size="sm"

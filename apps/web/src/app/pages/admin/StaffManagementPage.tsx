@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { UserCog, Users } from "lucide-react";
+import { StaffActionDialog } from "../../components/shared/StaffActionDialog";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import {
   Card,
@@ -33,6 +41,7 @@ import {
   type StaffTeacherRow,
 } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
+import { roleLabelAr } from "../../lib/role-labels";
 import { ds, tajawal } from "../../lib/design-system";
 
 type StaffTab = "teachers" | "supervisors";
@@ -88,8 +97,9 @@ export function StaffManagementPage() {
 function TeachersPanel() {
   const [items, setItems] = useState<StaffTeacherRow[]>([]);
   const [circles, setCircles] = useState<AdminCircleRow[]>([]);
-  const [showForm, setShowForm] = useState(false);
-  const [editId, setEditId] = useState<number | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [editTeacher, setEditTeacher] = useState<StaffTeacherRow | null>(null);
+  const [actionTeacher, setActionTeacher] = useState<StaffTeacherRow | null>(null);
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
   const [circleId, setCircleId] = useState("");
@@ -124,7 +134,7 @@ function TeachersPanel() {
     load();
   }, [load]);
 
-  async function submit(e: React.FormEvent) {
+  async function submitAdd(e: React.FormEvent) {
     e.preventDefault();
     if (!circleId) {
       setError("اختر حلقة للمعلم");
@@ -138,7 +148,7 @@ function TeachersPanel() {
         mobile: mobile.trim(),
         circle_id: Number(circleId),
       });
-      setShowForm(false);
+      setAddOpen(false);
       setName("");
       setMobile("");
       setCircleId("");
@@ -148,11 +158,6 @@ function TeachersPanel() {
     } finally {
       setSaving(false);
     }
-  }
-
-  async function toggleActive(id: number, active: number) {
-    await api.adminTeachersPatch(id, { is_active: active ? 0 : 1 });
-    await load();
   }
 
   return (
@@ -171,9 +176,12 @@ function TeachersPanel() {
           className={ds.btnRound}
           style={tajawal}
           type="button"
-          onClick={() => setShowForm((v) => !v)}
+          onClick={() => {
+            setError(null);
+            setAddOpen(true);
+          }}
         >
-          {showForm ? "إلغاء" : "إضافة معلم"}
+          إضافة معلم
         </Button>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -182,47 +190,92 @@ function TeachersPanel() {
             {error}
           </p>
         )}
-        {showForm && (
-          <form
-            onSubmit={submit}
-            className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-2xl border border-border bg-muted/30"
-          >
-            <div>
-              <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                الاسم *
-              </label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} required />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                الجوال *
-              </label>
-              <Input value={mobile} onChange={(e) => setMobile(e.target.value)} required />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                الحلقة *
-              </label>
-              <select
-                value={circleId}
-                onChange={(e) => setCircleId(e.target.value)}
-                required
-                className="w-full rounded-xl border border-border bg-background px-3 py-2"
-                style={tajawal}
-              >
-                <option value="">— اختر الحلقة —</option>
-                {circles.map((c) => (
-                  <option key={c.id} value={String(c.id)}>
-                    {c.name_ar} ({c.student_count}/{c.default_capacity})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
-              {saving ? "جاري الحفظ…" : "حفظ المعلم"}
-            </Button>
-          </form>
+
+        <Dialog open={addOpen} onOpenChange={setAddOpen}>
+          <DialogContent className="max-w-md rounded-2xl" dir="rtl">
+            <DialogHeader>
+              <DialogTitle style={tajawal}>إضافة معلم</DialogTitle>
+              <DialogDescription style={tajawal}>
+                الاسم، الجوال، والحلقة المرتبطة.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={submitAdd} className="grid grid-cols-1 gap-4">
+              <div>
+                <label className="block text-sm font-semibold mb-1" style={tajawal}>
+                  الاسم *
+                </label>
+                <Input value={name} onChange={(e) => setName(e.target.value)} required />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-1" style={tajawal}>
+                  الجوال *
+                </label>
+                <Input value={mobile} onChange={(e) => setMobile(e.target.value)} required />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-1" style={tajawal}>
+                  الحلقة *
+                </label>
+                <select
+                  value={circleId}
+                  onChange={(e) => setCircleId(e.target.value)}
+                  required
+                  className="w-full rounded-xl border border-border bg-background px-3 py-2"
+                  style={tajawal}
+                >
+                  <option value="">— اختر الحلقة —</option>
+                  {circles.map((c) => (
+                    <option key={c.id} value={String(c.id)}>
+                      {c.name_ar} ({c.student_count}/{c.default_capacity})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
+                {saving ? "جاري الحفظ…" : "حفظ المعلم"}
+              </Button>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        {editTeacher && (
+          <TeacherEditDialog
+            teacher={editTeacher}
+            circles={circles}
+            open
+            onOpenChange={(o) => {
+              if (!o) setEditTeacher(null);
+            }}
+            onSaved={() => {
+              setEditTeacher(null);
+              void load();
+            }}
+          />
         )}
+
+        {actionTeacher && (
+          <StaffActionDialog
+            open
+            onOpenChange={(o) => {
+              if (!o) setActionTeacher(null);
+            }}
+            personName={actionTeacher.full_name_ar}
+            isActive={Boolean(actionTeacher.is_active)}
+            onFreeze={async () => {
+              await api.adminTeachersPatch(actionTeacher.id, { is_active: 0 });
+              await load();
+            }}
+            onActivate={async () => {
+              await api.adminTeachersPatch(actionTeacher.id, { is_active: 1 });
+              await load();
+            }}
+            onDelete={async () => {
+              await api.adminTeachersDelete(actionTeacher.id);
+              await load();
+            }}
+          />
+        )}
+
         {loading ? (
           <p className="text-muted-foreground" style={tajawal}>
             جاري التحميل…
@@ -231,11 +284,21 @@ function TeachersPanel() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead style={tajawal}>الاسم</TableHead>
-                <TableHead style={tajawal}>الجوال</TableHead>
-                <TableHead style={tajawal}>الحلقة</TableHead>
-                <TableHead style={tajawal}>الحالة</TableHead>
-                <TableHead style={tajawal}>إجراء</TableHead>
+                <TableHead className="w-[24%]" style={tajawal}>
+                  الاسم
+                </TableHead>
+                <TableHead className="w-[18%]" style={tajawal}>
+                  الجوال
+                </TableHead>
+                <TableHead className="w-[22%]" style={tajawal}>
+                  الحلقة
+                </TableHead>
+                <TableHead className="w-[12%]" style={tajawal}>
+                  الحالة
+                </TableHead>
+                <TableHead className="w-[24%]" style={tajawal}>
+                  إجراء
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -249,12 +312,12 @@ function TeachersPanel() {
                       {t.is_active ? "نشط" : "مجمّد"}
                     </Badge>
                   </TableCell>
-                  <TableCell className="space-x-2 space-x-reverse">
+                  <TableCell className="flex flex-wrap gap-2">
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
-                      onClick={() => setEditId(editId === t.id ? null : t.id)}
+                      onClick={() => setEditTeacher(t)}
                     >
                       تعديل
                     </Button>
@@ -262,9 +325,9 @@ function TeachersPanel() {
                       type="button"
                       size="sm"
                       variant="outline"
-                      onClick={() => toggleActive(t.id, t.is_active)}
+                      onClick={() => setActionTeacher(t)}
                     >
-                      {t.is_active ? "تجميد" : "تفعيل"}
+                      تجميد / حذف
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -272,29 +335,23 @@ function TeachersPanel() {
             </TableBody>
           </Table>
         )}
-        {editId != null && (
-          <TeacherEditRow
-            teacher={items.find((x) => x.id === editId)!}
-            circles={circles}
-            onDone={() => {
-              setEditId(null);
-              load();
-            }}
-          />
-        )}
       </CardContent>
     </Card>
   );
 }
 
-function TeacherEditRow({
+function TeacherEditDialog({
   teacher,
   circles,
-  onDone,
+  open,
+  onOpenChange,
+  onSaved,
 }: {
   teacher: StaffTeacherRow;
   circles: AdminCircleRow[];
-  onDone: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSaved: () => void;
 }) {
   const [name, setName] = useState(teacher.full_name_ar);
   const [mobile, setMobile] = useState(teacher.mobile ?? "");
@@ -302,50 +359,70 @@ function TeacherEditRow({
     teacher.circle_id ? String(teacher.circle_id) : "",
   );
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  async function save() {
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
     setSaving(true);
-    await api.adminTeachersPatch(teacher.id, {
-      full_name_ar: name.trim(),
-      mobile: mobile.trim(),
-      circle_id: circleId ? Number(circleId) : undefined,
-    });
-    setSaving(false);
-    onDone();
+    setError(null);
+    try {
+      await api.adminTeachersPatch(teacher.id, {
+        full_name_ar: name.trim(),
+        mobile: mobile.trim(),
+        circle_id: circleId ? Number(circleId) : undefined,
+      });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "فشل الحفظ");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        save();
-      }}
-      className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 border rounded-2xl bg-muted/20"
-    >
-      <Input value={name} onChange={(e) => setName(e.target.value)} />
-      <Input value={mobile} onChange={(e) => setMobile(e.target.value)} />
-      <select
-        value={circleId}
-        onChange={(e) => setCircleId(e.target.value)}
-        className="rounded-xl border px-3 py-2"
-      >
-        <option value="">—</option>
-        {circles.map((c) => (
-          <option key={c.id} value={String(c.id)}>
-            {c.name_ar}
-          </option>
-        ))}
-      </select>
-      <Button type="submit" disabled={saving}>
-        حفظ
-      </Button>
-    </form>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md rounded-2xl" dir="rtl">
+        <DialogHeader>
+          <DialogTitle style={tajawal}>تعديل معلم</DialogTitle>
+          <DialogDescription style={tajawal}>{teacher.full_name_ar}</DialogDescription>
+        </DialogHeader>
+        {error && (
+          <p className="text-sm text-destructive" style={tajawal}>
+            {error}
+          </p>
+        )}
+        <form onSubmit={save} className="grid grid-cols-1 gap-3">
+          <Input value={name} onChange={(e) => setName(e.target.value)} />
+          <Input value={mobile} onChange={(e) => setMobile(e.target.value)} />
+          <select
+            value={circleId}
+            onChange={(e) => setCircleId(e.target.value)}
+            className="rounded-xl border px-3 py-2"
+            style={tajawal}
+          >
+            <option value="">—</option>
+            {circles.map((c) => (
+              <option key={c.id} value={String(c.id)}>
+                {c.name_ar}
+              </option>
+            ))}
+          </select>
+          <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
+            {saving ? "جاري الحفظ…" : "حفظ"}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 function SupervisorsPanel() {
   const [items, setItems] = useState<StaffSupervisorRow[]>([]);
-  const [showForm, setShowForm] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [editSupervisor, setEditSupervisor] = useState<StaffSupervisorRow | null>(null);
+  const [actionSupervisor, setActionSupervisor] = useState<StaffSupervisorRow | null>(
+    null,
+  );
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
   const [roleType, setRoleType] = useState(SUPERVISOR_TYPES[0].value);
@@ -377,7 +454,7 @@ function SupervisorsPanel() {
     load();
   }, [load]);
 
-  async function submit(e: React.FormEvent) {
+  async function submitAdd(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     setError(null);
@@ -388,7 +465,7 @@ function SupervisorsPanel() {
         role: roleType,
         supervisor_scope: scope,
       });
-      setShowForm(false);
+      setAddOpen(false);
       setName("");
       setMobile("");
       await load();
@@ -397,11 +474,6 @@ function SupervisorsPanel() {
     } finally {
       setSaving(false);
     }
-  }
-
-  async function toggleActive(id: number, active: number) {
-    await api.adminSupervisorsPatch(id, { is_active: active ? 0 : 1 });
-    await load();
   }
 
   return (
@@ -420,9 +492,12 @@ function SupervisorsPanel() {
           className={ds.btnRound}
           style={tajawal}
           type="button"
-          onClick={() => setShowForm((v) => !v)}
+          onClick={() => {
+            setError(null);
+            setAddOpen(true);
+          }}
         >
-          {showForm ? "إلغاء" : "إضافة مشرف"}
+          إضافة مشرف
         </Button>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -431,63 +506,109 @@ function SupervisorsPanel() {
             {error}
           </p>
         )}
-        {showForm && (
-          <form
-            onSubmit={submit}
-            className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-2xl border border-border bg-muted/30"
-          >
-            <div>
-              <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                الاسم *
-              </label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} required />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                الجوال *
-              </label>
-              <Input value={mobile} onChange={(e) => setMobile(e.target.value)} required />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                نوع المشرف *
-              </label>
-              <select
-                value={roleType}
-                onChange={(e) => setRoleType(e.target.value)}
-                className="w-full rounded-xl border border-border bg-background px-3 py-2"
+
+        <Dialog open={addOpen} onOpenChange={setAddOpen}>
+          <DialogContent className="max-w-md rounded-2xl" dir="rtl">
+            <DialogHeader>
+              <DialogTitle style={tajawal}>إضافة مشرف</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={submitAdd} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-semibold mb-1" style={tajawal}>
+                  الاسم *
+                </label>
+                <Input value={name} onChange={(e) => setName(e.target.value)} required />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-1" style={tajawal}>
+                  الجوال *
+                </label>
+                <Input value={mobile} onChange={(e) => setMobile(e.target.value)} required />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-1" style={tajawal}>
+                  نوع المشرف *
+                </label>
+                <select
+                  value={roleType}
+                  onChange={(e) => setRoleType(e.target.value)}
+                  className="w-full rounded-xl border border-border bg-background px-3 py-2"
+                  style={tajawal}
+                >
+                  {SUPERVISOR_TYPES.map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-1" style={tajawal}>
+                  نطاق المرحلة *
+                </label>
+                <select
+                  value={scope}
+                  onChange={(e) => setScope(e.target.value)}
+                  className="w-full rounded-xl border border-border bg-background px-3 py-2"
+                  style={tajawal}
+                >
+                  <option value={SCOPE_GLOBAL}>{stageLabel(SCOPE_GLOBAL)}</option>
+                  {EDUCATIONAL_STAGES.map((s) => (
+                    <option key={s.id} value={String(s.id)}>
+                      {s.name_ar}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Button
+                type="submit"
+                disabled={saving}
+                className={`sm:col-span-2 ${ds.btnRound}`}
                 style={tajawal}
               >
-                {SUPERVISOR_TYPES.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                نطاق المرحلة *
-              </label>
-              <select
-                value={scope}
-                onChange={(e) => setScope(e.target.value)}
-                className="w-full rounded-xl border border-border bg-background px-3 py-2"
-                style={tajawal}
-              >
-                <option value={SCOPE_GLOBAL}>{stageLabel(SCOPE_GLOBAL)}</option>
-                {EDUCATIONAL_STAGES.map((s) => (
-                  <option key={s.id} value={String(s.id)}>
-                    {s.name_ar}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
-              {saving ? "جاري الحفظ…" : "حفظ المشرف"}
-            </Button>
-          </form>
+                {saving ? "جاري الحفظ…" : "حفظ المشرف"}
+              </Button>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        {editSupervisor && (
+          <SupervisorEditDialog
+            supervisor={editSupervisor}
+            open
+            onOpenChange={(o) => {
+              if (!o) setEditSupervisor(null);
+            }}
+            onSaved={() => {
+              setEditSupervisor(null);
+              void load();
+            }}
+          />
         )}
+
+        {actionSupervisor && (
+          <StaffActionDialog
+            open
+            onOpenChange={(o) => {
+              if (!o) setActionSupervisor(null);
+            }}
+            personName={actionSupervisor.full_name_ar}
+            isActive={Boolean(actionSupervisor.is_active)}
+            onFreeze={async () => {
+              await api.adminSupervisorsPatch(actionSupervisor.id, { is_active: 0 });
+              await load();
+            }}
+            onActivate={async () => {
+              await api.adminSupervisorsPatch(actionSupervisor.id, { is_active: 1 });
+              await load();
+            }}
+            onDelete={async () => {
+              await api.adminSupervisorsDelete(actionSupervisor.id);
+              await load();
+            }}
+          />
+        )}
+
         {loading ? (
           <p className="text-muted-foreground" style={tajawal}>
             جاري التحميل…
@@ -496,12 +617,24 @@ function SupervisorsPanel() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead style={tajawal}>الاسم</TableHead>
-                <TableHead style={tajawal}>الجوال</TableHead>
-                <TableHead style={tajawal}>الدور</TableHead>
-                <TableHead style={tajawal}>النطاق</TableHead>
-                <TableHead style={tajawal}>الحالة</TableHead>
-                <TableHead style={tajawal}>إجراء</TableHead>
+                <TableHead className="w-[20%]" style={tajawal}>
+                  الاسم
+                </TableHead>
+                <TableHead className="w-[16%]" style={tajawal}>
+                  الجوال
+                </TableHead>
+                <TableHead className="w-[22%]" style={tajawal}>
+                  الدور
+                </TableHead>
+                <TableHead className="w-[18%]" style={tajawal}>
+                  النطاق
+                </TableHead>
+                <TableHead className="w-[12%]" style={tajawal}>
+                  الحالة
+                </TableHead>
+                <TableHead className="w-[12%]" style={tajawal}>
+                  إجراء
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -509,7 +642,7 @@ function SupervisorsPanel() {
                 <TableRow key={s.id}>
                   <TableCell style={tajawal}>{s.full_name_ar}</TableCell>
                   <TableCell style={tajawal}>{s.mobile ?? "—"}</TableCell>
-                  <TableCell style={tajawal}>{s.role}</TableCell>
+                  <TableCell style={tajawal}>{roleLabelAr(s.role)}</TableCell>
                   <TableCell style={tajawal}>
                     {s.supervisor_scope === SCOPE_GLOBAL
                       ? stageLabel(SCOPE_GLOBAL)
@@ -520,14 +653,22 @@ function SupervisorsPanel() {
                       {s.is_active ? "نشط" : "مجمّد"}
                     </Badge>
                   </TableCell>
-                  <TableCell className="gap-2 flex flex-wrap">
+                  <TableCell className="flex flex-wrap gap-2">
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
-                      onClick={() => toggleActive(s.id, s.is_active)}
+                      onClick={() => setEditSupervisor(s)}
                     >
-                      {s.is_active ? "تجميد" : "تفعيل"}
+                      تعديل
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setActionSupervisor(s)}
+                    >
+                      تجميد / حذف
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -537,5 +678,90 @@ function SupervisorsPanel() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function SupervisorEditDialog({
+  supervisor,
+  open,
+  onOpenChange,
+  onSaved,
+}: {
+  supervisor: StaffSupervisorRow;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(supervisor.full_name_ar);
+  const [mobile, setMobile] = useState(supervisor.mobile ?? "");
+  const [roleType, setRoleType] = useState(supervisor.role);
+  const [scope, setScope] = useState(supervisor.supervisor_scope ?? SCOPE_GLOBAL);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      await api.adminSupervisorsPatch(supervisor.id, {
+        full_name_ar: name.trim(),
+        mobile: mobile.trim(),
+        role: roleType,
+        supervisor_scope: scope,
+      });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "فشل الحفظ");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md rounded-2xl" dir="rtl">
+        <DialogHeader>
+          <DialogTitle style={tajawal}>تعديل مشرف</DialogTitle>
+        </DialogHeader>
+        {error && (
+          <p className="text-sm text-destructive" style={tajawal}>
+            {error}
+          </p>
+        )}
+        <form onSubmit={save} className="grid grid-cols-1 gap-3">
+          <Input value={name} onChange={(e) => setName(e.target.value)} />
+          <Input value={mobile} onChange={(e) => setMobile(e.target.value)} />
+          <select
+            value={roleType}
+            onChange={(e) => setRoleType(e.target.value)}
+            className="rounded-xl border px-3 py-2"
+            style={tajawal}
+          >
+            {SUPERVISOR_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={scope}
+            onChange={(e) => setScope(e.target.value)}
+            className="rounded-xl border px-3 py-2"
+            style={tajawal}
+          >
+            <option value={SCOPE_GLOBAL}>{stageLabel(SCOPE_GLOBAL)}</option>
+            {EDUCATIONAL_STAGES.map((s) => (
+              <option key={s.id} value={String(s.id)}>
+                {s.name_ar}
+              </option>
+            ))}
+          </select>
+          <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
+            {saving ? "جاري الحفظ…" : "حفظ"}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -49,7 +49,7 @@ export async function validateCircleStage(
 
   if (hasStageText) {
     const circle = await env.DB.prepare(
-      `SELECT id, stage FROM circles WHERE id = ? AND complex_id = ? AND is_active = 1`,
+      `SELECT id, stage FROM circles WHERE id = ? AND complex_id = ?`,
     )
       .bind(circleId, complexId)
       .first<{ id: number; stage: string }>();
@@ -62,7 +62,7 @@ export async function validateCircleStage(
 
   if (hasStageId) {
     const circle = await env.DB.prepare(
-      `SELECT id, stage_id FROM circles WHERE id = ? AND complex_id = ? AND is_active = 1`,
+      `SELECT id, stage_id FROM circles WHERE id = ? AND complex_id = ?`,
     )
       .bind(circleId, complexId)
       .first<{ id: number; stage_id: number }>();
@@ -74,7 +74,7 @@ export async function validateCircleStage(
   }
 
   const circle = await env.DB.prepare(
-    `SELECT id FROM circles WHERE id = ? AND complex_id = ? AND is_active = 1`,
+    `SELECT id FROM circles WHERE id = ? AND complex_id = ?`,
   )
     .bind(circleId, complexId)
     .first<{ id: number }>();

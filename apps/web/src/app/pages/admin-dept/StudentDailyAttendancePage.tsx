@@ -92,8 +92,15 @@ export function StudentDailyAttendancePage() {
   }, [circleId, date]);
 
   useEffect(() => {
+    if (!circleId) {
+      setRows([]);
+      setBaseline({});
+      setCircleName("");
+      setError(null);
+      return;
+    }
     loadStudents();
-  }, [loadStudents]);
+  }, [circleId, loadStudents]);
 
   function pickStatus(studentId: number, status: string) {
     setRows((prev) =>

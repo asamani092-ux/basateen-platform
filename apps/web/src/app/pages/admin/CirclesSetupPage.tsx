@@ -3,6 +3,13 @@ import { useSearchParams } from "react-router";
 import { CircleDot, Route } from "lucide-react";
 import { CircleCapacityBadge } from "../../components/admin/CircleCapacityBadge";
 import { Button } from "../../components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import {
   Card,
@@ -179,9 +186,9 @@ function CirclesPanel() {
           className={ds.btnRound}
           style={tajawal}
           type="button"
-          onClick={() => setShowForm((v) => !v)}
+          onClick={() => setShowForm(true)}
         >
-          {showForm ? "إلغاء" : "إضافة حلقة"}
+          إضافة حلقة
         </Button>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -190,11 +197,18 @@ function CirclesPanel() {
             {error}
           </p>
         )}
-        {showForm && (
-          <form
-            onSubmit={submit}
-            className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-2xl border border-border bg-muted/30"
+        <Dialog open={showForm} onOpenChange={setShowForm}>
+          <DialogContent
+            className="max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl"
+            dir="rtl"
           >
+            <DialogHeader>
+              <DialogTitle style={tajawal}>إضافة حلقة</DialogTitle>
+              <DialogDescription style={tajawal}>
+                اسم الحلقة، المرحلة، المعلم، والسعة الافتراضية.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={submit} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-semibold mb-1" style={tajawal}>
                 اسم الحلقة *
@@ -291,8 +305,9 @@ function CirclesPanel() {
             <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
               {saving ? "جاري الحفظ…" : "حفظ الحلقة"}
             </Button>
-          </form>
-        )}
+            </form>
+          </DialogContent>
+        </Dialog>
         {loading ? (
           <p className="text-muted-foreground" style={tajawal}>
             جاري التحميل…
@@ -493,9 +508,9 @@ function TracksPanel() {
           className={ds.btnRound}
           style={tajawal}
           type="button"
-          onClick={() => setShowForm((v) => !v)}
+          onClick={() => setShowForm(true)}
         >
-          {showForm ? "إلغاء" : "إضافة مسار"}
+          إضافة مسار
         </Button>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -504,11 +519,18 @@ function TracksPanel() {
             {error}
           </p>
         )}
-        {showForm && (
-          <form
-            onSubmit={submit}
-            className="space-y-4 p-4 rounded-2xl border border-border bg-muted/30"
+        <Dialog open={showForm} onOpenChange={setShowForm}>
+          <DialogContent
+            className="max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl"
+            dir="rtl"
           >
+            <DialogHeader>
+              <DialogTitle style={tajawal}>إضافة مسار</DialogTitle>
+              <DialogDescription style={tajawal}>
+                اسم المسار، المشرف، المراحل، والحلقات المرتبطة.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={submit} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-semibold mb-1" style={tajawal}>
@@ -596,8 +618,9 @@ function TracksPanel() {
             <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
               {saving ? "جاري الحفظ…" : "حفظ المسار"}
             </Button>
-          </form>
-        )}
+            </form>
+          </DialogContent>
+        </Dialog>
         {loading ? (
           <p className="text-muted-foreground" style={tajawal}>
             جاري التحميل…

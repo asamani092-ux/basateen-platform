@@ -1,11 +1,115 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router";
-import { LogOut, Menu, Tv, X } from "lucide-react";
+import { ChevronDown, LogOut, Menu, Tv, X } from "lucide-react";
 import { Button } from "../components/ui/button";
-import { isNavActive, navForRole } from "../config/routes";
+import {
+  isNavActive,
+  isNavGroup,
+  navForRole,
+  navGroupIsActive,
+  type NavEntry,
+  type NavGroup,
+  type NavItem,
+} from "../config/routes";
 import { useAuth } from "../context/AuthContext";
 import { DevPreviewBanner } from "../components/DevPreviewBanner";
 import { ds, tajawal } from "../lib/design-system";
+
+function NavLinkItem({
+  item,
+  pathname,
+  onNavigate,
+}: {
+  item: NavItem;
+  pathname: string;
+  onNavigate?: () => void;
+}) {
+  const active = isNavActive(item.path, pathname);
+  return (
+    <Link
+      to={item.path}
+      onClick={onNavigate}
+      className={active ? ds.nav.active : ds.nav.idle}
+      style={tajawal}
+    >
+      {item.label}
+    </Link>
+  );
+}
+
+function NavGroupBlock({
+  group,
+  pathname,
+  onNavigate,
+}: {
+  group: NavGroup;
+  pathname: string;
+  onNavigate?: () => void;
+}) {
+  const groupActive = navGroupIsActive(group, pathname);
+  const [open, setOpen] = useState(groupActive);
+
+  useEffect(() => {
+    if (groupActive) setOpen(true);
+  }, [groupActive, pathname]);
+
+  return (
+    <div className="space-y-1">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`w-full flex items-center justify-between gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition ${
+          groupActive
+            ? "bg-muted text-foreground"
+            : "text-foreground hover:bg-muted"
+        }`}
+        style={tajawal}
+        aria-expanded={open}
+      >
+        <span>{group.label}</span>
+        <ChevronDown
+          className={`w-4 h-4 shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && (
+        <div className="mr-2 pr-2 border-r-2 border-border space-y-1">
+          {group.children.map((child) => (
+            <NavLinkItem
+              key={child.path}
+              item={child}
+              pathname={pathname}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function renderNav(
+  entries: NavEntry[],
+  pathname: string,
+  onNavigate?: () => void,
+) {
+  return entries.map((entry) =>
+    isNavGroup(entry) ? (
+      <NavGroupBlock
+        key={entry.id}
+        group={entry}
+        pathname={pathname}
+        onNavigate={onNavigate}
+      />
+    ) : (
+      <NavLinkItem
+        key={entry.path}
+        item={entry}
+        pathname={pathname}
+        onNavigate={onNavigate}
+      />
+    ),
+  );
+}
 
 /** لوحة موحّدة لكل أدوار الموظفين (غير المعلم) */
 export function RoleShellLayout() {
@@ -25,29 +129,12 @@ export function RoleShellLayout() {
 
   const visibleNav = user ? navForRole(user.role) : [];
 
-  const nav = (
-    <>
-      {visibleNav.map((item) => {
-        const active = isNavActive(item.path, location.pathname);
-        return (
-          <Link
-            key={item.path}
-            to={item.path}
-            onClick={() => setMobileOpen(false)}
-            className={active ? ds.nav.active : ds.nav.idle}
-            style={tajawal}
-          >
-            {item.label}
-          </Link>
-        );
-      })}
-    </>
-  );
+  const nav = renderNav(visibleNav, location.pathname, () => setMobileOpen(false));
 
   return (
     <div className="min-h-screen bg-background text-foreground" dir="rtl">
       <div className="min-h-screen flex">
-        <aside className="w-64 shrink-0 bg-card border-l border-border hidden lg:flex flex-col">
+        <aside className="w-64 shrink-0 bg-card border-l border-border hidden lg:flex flex-col print:hidden">
           <div className="p-6 border-b border-border flex items-center gap-3">
             <img
               src="/logo-light.png"
@@ -81,7 +168,7 @@ export function RoleShellLayout() {
         </aside>
 
         {mobileOpen && (
-          <div className="fixed inset-0 z-[60] lg:hidden">
+          <div className="fixed inset-0 z-[60] lg:hidden print:hidden">
             <button
               type="button"
               className="absolute inset-0 bg-black/40"
@@ -108,7 +195,7 @@ export function RoleShellLayout() {
         )}
 
         <div className="flex-1 flex flex-col min-w-0">
-          <header className="bg-card border-b border-border sticky top-0 z-50">
+          <header className="bg-card border-b border-border sticky top-0 z-50 print:hidden">
             <div className="px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <Button

@@ -191,7 +191,7 @@ export async function handleAdminSupervisorsList(
                 END AS role,
                 COALESCE(stage_scope, 'global') AS supervisor_scope
          FROM users
-         WHERE complex_id = ? AND is_active = 1
+         WHERE complex_id = ?
            AND (
              COALESCE(is_track_supervisor, 0) = 1 OR COALESCE(is_educational, 0) = 1 OR
              COALESCE(is_programs, 0) = 1 OR COALESCE(is_admin, 0) = 1
@@ -931,8 +931,12 @@ export async function handleAdminTeachersPatch(
     return json({ error: "invalid_json" }, 400);
   }
 
+  const hasRole = await usersHaveRoleColumn(env);
+  const teacherFilter = hasRole
+    ? "role = 'teacher'"
+    : "COALESCE(is_teacher, 0) = 1";
   const user = await env.DB.prepare(
-    `SELECT id FROM users WHERE id = ? AND complex_id = ? AND role = 'teacher'`,
+    `SELECT id FROM users WHERE id = ? AND complex_id = ? AND ${teacherFilter}`,
   )
     .bind(userId, auth!.complexId)
     .first();
@@ -962,19 +966,73 @@ export async function handleAdminTeachersPatch(
   if (body.circle_id != null) {
     const circleId = Number(body.circle_id);
     if (Number.isFinite(circleId) && circleId > 0) {
-      await env.DB.prepare(`DELETE FROM teacher_assignments WHERE circle_id = ?`)
-        .bind(circleId)
-        .run();
-      await env.DB.prepare(`DELETE FROM teacher_assignments WHERE user_id = ?`)
-        .bind(userId)
-        .run();
-      await env.DB.prepare(
-        `INSERT INTO teacher_assignments (user_id, circle_id) VALUES (?, ?)`,
-      )
-        .bind(userId, circleId)
-        .run();
+      if (await hasTable(env, "teacher_assignments")) {
+        await env.DB.prepare(`DELETE FROM teacher_assignments WHERE circle_id = ?`)
+          .bind(circleId)
+          .run();
+        await env.DB.prepare(`DELETE FROM teacher_assignments WHERE user_id = ?`)
+          .bind(userId)
+          .run();
+        await env.DB.prepare(
+          `INSERT INTO teacher_assignments (user_id, circle_id) VALUES (?, ?)`,
+        )
+          .bind(userId, circleId)
+          .run();
+      } else if (await tableHasColumn(env, "circles", "teacher_id")) {
+        await env.DB.prepare(
+          `UPDATE circles SET teacher_id = NULL WHERE teacher_id = ? AND complex_id = ?`,
+        )
+          .bind(userId, auth!.complexId)
+          .run();
+        await env.DB.prepare(
+          `UPDATE circles SET teacher_id = ? WHERE id = ? AND complex_id = ?`,
+        )
+          .bind(userId, circleId, auth!.complexId)
+          .run();
+      }
     }
   }
+
+  return json({ ok: true });
+}
+
+export async function handleAdminTeachersDelete(
+  request: Request,
+  env: Env,
+  url: URL,
+): Promise<Response> {
+  const auth = await getAuth(request, env);
+  const denied = requireGm(auth);
+  if (denied) return denied;
+
+  const m = url.pathname.match(/^\/api\/admin\/teachers\/(\d+)$/);
+  const userId = m ? Number(m[1]) : NaN;
+  if (!Number.isFinite(userId)) return json({ error: "invalid_id" }, 400);
+
+  const hasRole = await usersHaveRoleColumn(env);
+  const teacherFilter = hasRole
+    ? "role = 'teacher'"
+    : "COALESCE(is_teacher, 0) = 1";
+  const user = await env.DB.prepare(
+    `SELECT id FROM users WHERE id = ? AND complex_id = ? AND ${teacherFilter}`,
+  )
+    .bind(userId, auth!.complexId)
+    .first();
+  if (!user) return json({ error: "teacher_not_found" }, 404);
+
+  if (await tableHasColumn(env, "circles", "teacher_id")) {
+    await env.DB.prepare(
+      `UPDATE circles SET teacher_id = NULL WHERE teacher_id = ? AND complex_id = ?`,
+    )
+      .bind(userId, auth!.complexId)
+      .run();
+  }
+  if (await hasTable(env, "teacher_assignments")) {
+    await env.DB.prepare(`DELETE FROM teacher_assignments WHERE user_id = ?`)
+      .bind(userId)
+      .run();
+  }
+  await env.DB.prepare(`DELETE FROM users WHERE id = ?`).bind(userId).run();
 
   return json({ ok: true });
 }
@@ -1005,8 +1063,15 @@ export async function handleAdminSupervisorsPatch(
     return json({ error: "invalid_json" }, 400);
   }
 
+  const hasRole = await usersHaveRoleColumn(env);
+  const supervisorFilter = hasRole
+    ? `role IN ('edu_supervisor','prog_supervisor','admin_supervisor', 'general_supervisor')`
+    : `(
+        COALESCE(is_track_supervisor, 0) = 1 OR COALESCE(is_educational, 0) = 1 OR
+        COALESCE(is_programs, 0) = 1 OR COALESCE(is_admin, 0) = 1
+      )`;
   const user = await env.DB.prepare(
-    `SELECT id FROM users WHERE id = ? AND complex_id = ? AND role IN ('edu_supervisor','prog_supervisor','admin_supervisor', 'general_supervisor')`,
+    `SELECT id FROM users WHERE id = ? AND complex_id = ? AND ${supervisorFilter}`,
   )
     .bind(userId, auth!.complexId)
     .first();
@@ -1044,6 +1109,37 @@ export async function handleAdminSupervisorsPatch(
       .run();
   }
 
+  return json({ ok: true });
+}
+
+export async function handleAdminSupervisorsDelete(
+  request: Request,
+  env: Env,
+  url: URL,
+): Promise<Response> {
+  const auth = await getAuth(request, env);
+  const denied = requireGm(auth);
+  if (denied) return denied;
+
+  const m = url.pathname.match(/^\/api\/admin\/supervisors\/(\d+)$/);
+  const userId = m ? Number(m[1]) : NaN;
+  if (!Number.isFinite(userId)) return json({ error: "invalid_id" }, 400);
+
+  const hasRole = await usersHaveRoleColumn(env);
+  const supervisorFilter = hasRole
+    ? `role IN ('edu_supervisor','prog_supervisor','admin_supervisor', 'general_supervisor')`
+    : `(
+        COALESCE(is_track_supervisor, 0) = 1 OR COALESCE(is_educational, 0) = 1 OR
+        COALESCE(is_programs, 0) = 1 OR COALESCE(is_admin, 0) = 1
+      )`;
+  const user = await env.DB.prepare(
+    `SELECT id FROM users WHERE id = ? AND complex_id = ? AND ${supervisorFilter}`,
+  )
+    .bind(userId, auth!.complexId)
+    .first();
+  if (!user) return json({ error: "supervisor_not_found" }, 404);
+
+  await env.DB.prepare(`DELETE FROM users WHERE id = ?`).bind(userId).run();
   return json({ ok: true });
 }
 
@@ -1110,8 +1206,14 @@ async function handleAdminGmRouterImpl(
   if (method === "PATCH" && /^\/api\/admin\/teachers\/\d+$/.test(path)) {
     return handleAdminTeachersPatch(request, env, url);
   }
+  if (method === "DELETE" && /^\/api\/admin\/teachers\/\d+$/.test(path)) {
+    return handleAdminTeachersDelete(request, env, url);
+  }
   if (method === "PATCH" && /^\/api\/admin\/supervisors\/\d+$/.test(path)) {
     return handleAdminSupervisorsPatch(request, env, url);
+  }
+  if (method === "DELETE" && /^\/api\/admin\/supervisors\/\d+$/.test(path)) {
+    return handleAdminSupervisorsDelete(request, env, url);
   }
 
   return null;

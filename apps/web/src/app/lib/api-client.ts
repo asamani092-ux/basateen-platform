@@ -556,6 +556,8 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
+  adminTeachersDelete: (id: number) =>
+    request<{ ok: boolean }>(`/api/admin/teachers/${id}`, { method: "DELETE" }),
   adminSupervisorsPatch: (
     id: number,
     body: {
@@ -570,6 +572,8 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
+  adminSupervisorsDelete: (id: number) =>
+    request<{ ok: boolean }>(`/api/admin/supervisors/${id}`, { method: "DELETE" }),
   adminStats: (period?: string) => {
     const qs = period ? `?period=${encodeURIComponent(period)}` : "";
     return request<{

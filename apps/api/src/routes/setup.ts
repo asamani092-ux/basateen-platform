@@ -4,7 +4,7 @@ import { hashPassword } from "../lib/password";
 
 const SOVEREIGN_EMAIL = "admin@basateen.win";
 const SOVEREIGN_MOBILE = "966500000000";
-const SOVEREIGN_NAME = "المشرف العام السيادي";
+const SOVEREIGN_NAME = "المشرف العام";
 const SOVEREIGN_PASSWORD = "Basateen-Sovereign-2026!";
 
 async function hasColumn(env: Env, table: string, column: string): Promise<boolean> {
@@ -147,6 +147,6 @@ export async function handleSeedUsers(
     },
     default_password: SOVEREIGN_PASSWORD,
     message:
-      "تم حقن المشرف السيادي الوحيد وتصفير الجلسات — استخدم هذا الحساب لاختبار الاتصال",
+      "تم حقن المشرف العام وتصفير الجلسات — استخدم هذا الحساب لاختبار الاتصال",
   });
 }

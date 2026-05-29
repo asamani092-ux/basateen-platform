@@ -633,14 +633,17 @@ async function handleAdminDeptRouterImpl(
     }
     await syncStudentPlacementColumns(env, studentId, circleId, trackId, stageId);
 
-    return json({
-      ok: true,
-      student_id: studentId,
-      stage_id: stageId,
-      stage_label: STAGE_LABELS[stageId],
-      circle_id: circleId,
-      admission_status: "active",
-    });
+    return json(
+      {
+        ok: true,
+        student_id: studentId,
+        stage_id: stageId,
+        stage_label: STAGE_LABELS[stageId],
+        circle_id: circleId,
+        admission_status: "active",
+      },
+      201,
+    );
   }
 
   // POST /api/admin-dept/pledges

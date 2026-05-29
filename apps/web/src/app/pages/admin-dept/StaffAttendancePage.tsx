@@ -15,6 +15,8 @@ import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { normalizeAttendanceStatus } from "../../lib/attendance-status";
 import { matchesArabicName } from "../../lib/attendance-search";
+import { ATTENDANCE_STATUS_BUTTONS } from "../../lib/attendance-status-ui";
+import { roleLabelAr } from "../../lib/role-labels";
 import { ds, tajawal } from "../../lib/design-system";
 
 type Row = {
@@ -23,27 +25,6 @@ type Row = {
   role: string | null;
   status: string;
 };
-
-const STATUS_OPTIONS = [
-  {
-    value: "present" as const,
-    label: "حاضر",
-    active: "bg-primary text-primary-foreground ring-2 ring-primary",
-    idle: "bg-primary/15 text-primary border border-primary/30",
-  },
-  {
-    value: "excused" as const,
-    label: "مستأذن",
-    active: "bg-amber-600 text-white ring-2 ring-amber-600",
-    idle: "bg-amber-50 text-amber-900 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-100",
-  },
-  {
-    value: "absent" as const,
-    label: "غائب",
-    active: "bg-destructive text-destructive-foreground ring-2 ring-destructive",
-    idle: "bg-destructive/10 text-destructive border border-destructive/30",
-  },
-];
 
 /**
  * تحضير المنسوبين — يستخدم design-system (system_D) + مكونات ui المعتمدة.
@@ -214,9 +195,15 @@ export function StaffAttendancePage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead style={tajawal}>الاسم</TableHead>
-                <TableHead style={tajawal}>الدور</TableHead>
-                <TableHead style={tajawal}>الحالة</TableHead>
+                <TableHead className="w-[32%] min-w-[140px]" style={tajawal}>
+                  الاسم
+                </TableHead>
+                <TableHead className="w-[22%] min-w-[100px]" style={tajawal}>
+                  الدور
+                </TableHead>
+                <TableHead className="w-[46%] min-w-[220px]" style={tajawal}>
+                  الحالة
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -226,11 +213,11 @@ export function StaffAttendancePage() {
                     {r.full_name_ar}
                   </TableCell>
                   <TableCell className="text-muted-foreground" style={tajawal}>
-                    {r.role ?? "—"}
+                    {roleLabelAr(r.role)}
                   </TableCell>
                   <TableCell>
-                    <div className="flex flex-wrap gap-2">
-                      {STATUS_OPTIONS.map((opt) => {
+                    <div className="flex flex-wrap gap-2 justify-end">
+                      {ATTENDANCE_STATUS_BUTTONS.map((opt) => {
                         const isActive = r.status === opt.value;
                         return (
                           <button

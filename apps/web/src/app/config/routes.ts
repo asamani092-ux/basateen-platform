@@ -7,9 +7,22 @@ export type NavItem = {
   roles: UserRole[];
 };
 
+export type NavGroup = {
+  id: string;
+  label: string;
+  roles: UserRole[];
+  children: NavItem[];
+};
+
+export type NavEntry = NavItem | NavGroup;
+
+export function isNavGroup(entry: NavEntry): entry is NavGroup {
+  return "children" in entry;
+}
+
 const ADMIN_DEPT_ROLES: UserRole[] = ["admin_supervisor", "super_admin"];
 
-/** المشرف السيادي — إدارة المجمع */
+/** المشرف العام — إدارة المجمع */
 export const SUPER_ADMIN_NAV: NavItem[] = [
   { id: "staff", label: "إدارة المنسوبين", path: "/super-admin/staff", roles: ["super_admin"] },
   {
@@ -92,15 +105,49 @@ export const TEACHER_NAV: NavItem[] = [
   { id: "daily", label: "شبكة الرصد السريع", path: "/teacher", roles: ["teacher"] },
 ];
 
+export const ADMIN_DEPT_GROUP: NavGroup = {
+  id: "admin-dept",
+  label: "القسم الإداري",
+  roles: ADMIN_DEPT_ROLES,
+  children: ADMIN_DEPT_NAV,
+};
+
 export const navItems: NavItem[] = [
   ...SUPER_ADMIN_NAV,
   ...EDU_DEPT_NAV,
   ...ADMIN_DEPT_NAV,
   ...PROG_DEPT_NAV,
+  ...TEACHER_NAV,
 ];
 
-export function navForRole(role: UserRole): NavItem[] {
+export function navForRole(role: UserRole): NavEntry[] {
+  const entries: NavEntry[] = [];
+  if (role === "super_admin") {
+    entries.push(...SUPER_ADMIN_NAV);
+    entries.push(ADMIN_DEPT_GROUP);
+    return entries;
+  }
+  if (role === "admin_supervisor") {
+    entries.push(ADMIN_DEPT_GROUP);
+    return entries;
+  }
+  if (role === "edu_supervisor") {
+    entries.push(...EDU_DEPT_NAV);
+    return entries;
+  }
+  if (role === "prog_supervisor") {
+    entries.push(...PROG_DEPT_NAV);
+    return entries;
+  }
+  if (role === "teacher") {
+    entries.push(...TEACHER_NAV);
+    return entries;
+  }
   return navItems.filter((item) => item.roles.includes(role));
+}
+
+export function navGroupIsActive(group: NavGroup, pathname: string): boolean {
+  return group.children.some((c) => isNavActive(c.path, pathname));
 }
 
 export function isNavActive(path: string, pathname: string): boolean {

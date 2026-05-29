@@ -1,6 +1,7 @@
 import type { Env } from "../types";
+import { tableHasColumn } from "./db-schema";
 
-/** O(1) — تجميد السجل المفتوح وإضافة حلقة جديدة */
+/** O(n) statements — تجميد السجل المفتوح وإضافة حلقة جديدة (يتكيف مع مخطط flat/legacy) */
 export async function assignStudentCircle(
   env: Env,
   studentId: number,
@@ -8,6 +9,29 @@ export async function assignStudentCircle(
   trackId: number | null,
   note: string | null,
 ): Promise<void> {
+  const hasNewCircle = await tableHasColumn(
+    env,
+    "student_circle_history",
+    "new_circle_id",
+  );
+  if (hasNewCircle) {
+    await env.DB.prepare(
+      `INSERT INTO student_circle_history
+        (student_id, new_circle_id, new_track_id, reason, moved_at)
+       VALUES (?, ?, ?, ?, datetime('now'))`,
+    )
+      .bind(studentId, circleId, trackId, note)
+      .run();
+    return;
+  }
+
+  const hasLegacyCircle = await tableHasColumn(
+    env,
+    "student_circle_history",
+    "circle_id",
+  );
+  if (!hasLegacyCircle) return;
+
   const current = await env.DB.prepare(
     `SELECT id, circle_id, track_id FROM student_circle_history
      WHERE student_id = ? AND to_at IS NULL AND frozen_at IS NULL

@@ -130,7 +130,7 @@ export function LoginPage() {
             منصة بساتين
           </h1>
           <p className="text-sm text-muted-foreground mt-2" style={tajawal}>
-            {useEmail ? "دخول المشرف السيادي بالإيميل" : "أدخل رقم الجوال المسجّل في D1"}
+            {useEmail ? "دخول المشرف العام بالإيميل" : "أدخل رقم الجوال المسجّل في D1"}
           </p>
         </CardHeader>
         <CardContent>
@@ -227,7 +227,7 @@ export function LoginPage() {
               setError(null);
             }}
           >
-            {useEmail ? "العودة لدخول الجوال" : "دخول بالإيميل (المشرف السيادي)"}
+            {useEmail ? "العودة لدخول الجوال" : "دخول بالإيميل (المشرف العام)"}
           </Button>
 
           {isUiDevPreview() && (

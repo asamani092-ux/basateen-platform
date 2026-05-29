@@ -487,6 +487,13 @@ export function resolveDevPreviewMock<T>(
   const tcScores = p.match(/^\/api\/edu-dept\/teacher-competitions\/(\d+)\/scores$/);
   if (tcScores && m === "POST") return { ok: true, saved: 1 } as T;
 
+  const previewDayRules = {
+    mistake_penalty: 1,
+    alert_penalty: 0.5,
+    lahn_penalty: 0.5,
+  };
+  const previewHizbs = [1, 2, 3, 4, 5];
+
   if (p === "/api/edu-dept/quranic-days" && m === "GET") {
     return {
       items: [
@@ -494,7 +501,9 @@ export function resolveDevPreviewMock<T>(
           id: 1,
           name_ar: "يوم الهمة",
           event_date: date,
-          deduction_rules: { mistake_penalty: 1, alert_penalty: 0.5 },
+          deduction_rules: previewDayRules,
+          fail_threshold: 3,
+          hizb_time_limit: 10,
           has_magic_link: true,
           is_active: 1,
           created_at: date,
@@ -505,6 +514,9 @@ export function resolveDevPreviewMock<T>(
   if (p === "/api/edu-dept/quranic-days" && m === "POST") {
     return { ok: true, id: 2 } as T;
   }
+  const qPatch = p.match(/^\/api\/edu-dept\/quranic-days\/(\d+)$/);
+  if (qPatch && m === "PATCH") return { ok: true } as T;
+  if (qPatch && m === "DELETE") return { ok: true } as T;
   const qMagic = p.match(/^\/api\/edu-dept\/quranic-days\/(\d+)\/magic-link$/);
   if (qMagic && m === "POST") {
     const tok = "preview-quranic-day";
@@ -513,28 +525,79 @@ export function resolveDevPreviewMock<T>(
       token: tok,
       public_path: `/public/quranic-day/${tok}`,
       api_get: `/api/public/quranic-day/${tok}`,
-      api_post: `/api/public/quranic-day/${tok}`,
+    } as T;
+  }
+  const qStudents = p.match(/^\/api\/edu-dept\/quranic-days\/(\d+)\/students$/);
+  if (qStudents && m === "GET") {
+    return {
+      items: previewStore.getStudents().slice(0, 3).map((s, i) => ({
+        id: i + 1,
+        student_id: s.id,
+        full_name_ar: s.full_name_ar,
+        stage_id: 2,
+        target_hizbs: previewHizbs,
+      })),
+    } as T;
+  }
+  if (qStudents && m === "POST") return { ok: true, target_hizbs: previewHizbs } as T;
+  const qStuSearch = p.match(/^\/api\/edu-dept\/quranic-days\/(\d+)\/students\/search$/);
+  if (qStuSearch && m === "GET") {
+    return {
+      items: previewStore.getStudents().slice(0, 5).map((s) => ({
+        id: s.id,
+        full_name_ar: s.full_name_ar,
+        stage_id: 2,
+      })),
     } as T;
   }
 
   const pubQ = p.match(/^\/api\/public\/quranic-day\/([^/]+)$/);
-  if (pubQ && m === "GET") {
+  if (pubQ && !p.includes("/students") && !p.includes("/records") && m === "GET") {
     return {
       token: pubQ[1],
       day: {
         id: 1,
         name_ar: "يوم الهمة (معاينة)",
         event_date: date,
-        deduction_rules: { mistake_penalty: 1, alert_penalty: 0.5 },
+        deduction_rules: previewDayRules,
+        fail_threshold: 3,
+        hizb_time_limit: 10,
       },
-      students: previewStore.getStudents().slice(0, 8).map((s) => ({
+    } as T;
+  }
+  const pubSearch = p.match(/^\/api\/public\/quranic-day\/([^/]+)\/students\/search$/);
+  if (pubSearch && m === "GET") {
+    return {
+      items: previewStore.getStudents().slice(0, 6).map((s) => ({
         student_id: s.id,
         full_name_ar: s.full_name_ar,
+        target_hizbs: previewHizbs,
       })),
     } as T;
   }
-  if (pubQ && m === "POST") {
-    return { ok: true } as T;
+  const pubStudent = p.match(/^\/api\/public\/quranic-day\/([^/]+)\/students\/(\d+)$/);
+  if (pubStudent && m === "GET") {
+    const sid = Number(pubStudent[2]);
+    const st = previewStore.findStudent(sid) ?? previewStore.getStudents()[0];
+    return {
+      student: {
+        student_id: st.id,
+        full_name_ar: st.full_name_ar,
+        target_hizbs: previewHizbs,
+      },
+      day: {
+        id: 1,
+        name_ar: "يوم الهمة (معاينة)",
+        event_date: date,
+        deduction_rules: previewDayRules,
+        fail_threshold: 3,
+        hizb_time_limit: 10,
+      },
+    } as T;
+  }
+  const pubRecord = p.match(/^\/api\/public\/quranic-day\/([^/]+)\/records$/);
+  if (pubRecord && m === "POST") {
+    return { ok: true, fail_threshold_exceeded: false } as T;
   }
 
   const pledgeGet = p.match(/^\/api\/admin-dept\/pledges\/(\d+)$/);

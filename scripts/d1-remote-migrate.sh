@@ -53,6 +53,7 @@ FILES_UPGRADE=(
   "025_admin_tweaks.sql"
   "026_edu_department_core.sql"
   "027_edu_mega_update.sql"
+  "028_quranic_day_refactor.sql"
 )
 
 FILES_ALL=(

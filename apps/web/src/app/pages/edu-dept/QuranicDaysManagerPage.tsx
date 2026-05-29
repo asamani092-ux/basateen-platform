@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { CalendarDays, Copy, Plus } from "lucide-react";
-import { TableIconAction } from "../../components/admin/TableIconAction";
+import {
+  TableActionsCell,
+  TableIconAction,
+} from "../../components/admin/TableIconAction";
 import { Button } from "../../components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
@@ -21,29 +26,61 @@ import {
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { ds, tajawal } from "../../lib/design-system";
+import { QuranicDayStudentsModal } from "./QuranicDayStudentsModal";
 
-type DayRow = {
+export type DayRow = {
   id: number;
   name_ar: string;
   event_date: string;
-  deduction_rules: { mistake_penalty: number; alert_penalty: number };
+  deduction_rules: {
+    mistake_penalty: number;
+    alert_penalty: number;
+    lahn_penalty: number;
+  };
+  fail_threshold: number;
+  hizb_time_limit: number;
   has_magic_link: boolean;
   is_active: number;
 };
+
+type DayForm = {
+  name_ar: string;
+  event_date: string;
+  mistake_penalty: number;
+  alert_penalty: number;
+  lahn_penalty: number;
+  fail_threshold: number;
+  hizb_time_limit: number;
+};
+
+const emptyForm = (): DayForm => ({
+  name_ar: "",
+  event_date: new Date().toISOString().slice(0, 10),
+  mistake_penalty: 1,
+  alert_penalty: 0.5,
+  lahn_penalty: 0.5,
+  fail_threshold: 3,
+  hizb_time_limit: 10,
+});
 
 export function QuranicDaysManagerPage() {
   const [items, setItems] = useState<DayRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [eventDate, setEventDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [mistakePenalty, setMistakePenalty] = useState(1);
-  const [alertPenalty, setAlertPenalty] = useState(0.5);
+
+  const [formOpen, setFormOpen] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [form, setForm] = useState<DayForm>(emptyForm);
   const [submitting, setSubmitting] = useState(false);
+
+  const [studentsDay, setStudentsDay] = useState<DayRow | null>(null);
   const [linkBusy, setLinkBusy] = useState<number | null>(null);
   const [lastLink, setLastLink] = useState("");
+
+  const [deleteTarget, setDeleteTarget] = useState<DayRow | null>(null);
+  const [deleteStep, setDeleteStep] = useState<0 | 1 | 2>(0);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const load = useCallback(async () => {
     if (!canUseApi()) {
@@ -66,24 +103,53 @@ export function QuranicDaysManagerPage() {
     load();
   }, [load]);
 
-  async function createDay(e: React.FormEvent) {
+  function openCreate() {
+    setEditId(null);
+    setForm(emptyForm());
+    setFormOpen(true);
+  }
+
+  function openEdit(d: DayRow) {
+    setEditId(d.id);
+    setForm({
+      name_ar: d.name_ar,
+      event_date: d.event_date,
+      mistake_penalty: d.deduction_rules.mistake_penalty,
+      alert_penalty: d.deduction_rules.alert_penalty,
+      lahn_penalty: d.deduction_rules.lahn_penalty ?? 0.5,
+      fail_threshold: d.fail_threshold,
+      hizb_time_limit: d.hizb_time_limit,
+    });
+    setFormOpen(true);
+  }
+
+  async function saveForm(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!form.name_ar.trim()) return;
     setSubmitting(true);
     setError(null);
+    setSuccess(null);
     try {
-      await api.eduDeptQuranicDayCreate({
-        name_ar: name.trim(),
-        event_date: eventDate,
-        mistake_penalty: mistakePenalty,
-        alert_penalty: alertPenalty,
-      });
-      setCreateOpen(false);
-      setName("");
-      setSuccess("تم إنشاء اليوم القرآني.");
+      const body = {
+        name_ar: form.name_ar.trim(),
+        event_date: form.event_date,
+        mistake_penalty: form.mistake_penalty,
+        alert_penalty: form.alert_penalty,
+        lahn_penalty: form.lahn_penalty,
+        fail_threshold: form.fail_threshold,
+        hizb_time_limit: form.hizb_time_limit,
+      };
+      if (editId != null) {
+        await api.eduDeptQuranicDayUpdate(editId, body);
+        setSuccess("تم تحديث اليوم القرآني.");
+      } else {
+        await api.eduDeptQuranicDayCreate(body);
+        setSuccess("تم إنشاء اليوم القرآني.");
+      }
+      setFormOpen(false);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "فشل الإنشاء");
+      setError(err instanceof Error ? err.message : "فشل الحفظ");
     } finally {
       setSubmitting(false);
     }
@@ -109,8 +175,34 @@ export function QuranicDaysManagerPage() {
     }
   }
 
+  function startDelete(d: DayRow) {
+    setDeleteTarget(d);
+    setDeleteStep(1);
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    if (deleteStep === 1) {
+      setDeleteStep(2);
+      return;
+    }
+    setDeleteBusy(true);
+    setError(null);
+    try {
+      await api.eduDeptQuranicDayDelete(deleteTarget.id);
+      setSuccess("تم حذف اليوم القرآني وجميع سجلاته.");
+      setDeleteTarget(null);
+      setDeleteStep(0);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "فشل الحذف");
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
   return (
-    <div className="space-y-6 max-w-[1000px]">
+    <div className="space-y-6 max-w-[1100px]">
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
         <div>
           <h2 className={`${ds.page.title} flex items-center gap-2`} style={tajawal}>
@@ -118,14 +210,14 @@ export function QuranicDaysManagerPage() {
             اليوم القرآني / يوم الهمة
           </h2>
           <p className={ds.page.description} style={tajawal}>
-            إنشاء الأيام المكثفة وقواعد الخصم وروابط المقرئين العامة.
+            إعدادات اليوم، تسجيل الطلاب مسبقاً، وروابط المقرئين.
           </p>
         </div>
         <Button
           type="button"
           variant="default"
           className={ds.btnRound}
-          onClick={() => setCreateOpen(true)}
+          onClick={openCreate}
           style={tajawal}
         >
           <Plus className="w-4 h-4" />
@@ -181,10 +273,10 @@ export function QuranicDaysManagerPage() {
                   التاريخ
                 </TableHead>
                 <TableHead className={ds.table.head} style={tajawal}>
-                  خصم خطأ / تنبيه
+                  حد الرسوب / وقت الحزب
                 </TableHead>
                 <TableHead className={ds.table.headActions} style={tajawal}>
-                  رابط
+                  إجراءات
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -197,17 +289,32 @@ export function QuranicDaysManagerPage() {
                   <TableCell className={ds.table.cell} style={tajawal}>
                     {d.event_date}
                   </TableCell>
-                  <TableCell className={ds.table.cell} style={tajawal}>
-                    {d.deduction_rules.mistake_penalty} / {d.deduction_rules.alert_penalty}
+                  <TableCell className={`${ds.table.cell} text-sm`} style={tajawal}>
+                    {d.fail_threshold} أخطاء · {d.hizb_time_limit} د
                   </TableCell>
-                  <TableCell className={ds.table.cell}>
+                  <TableActionsCell>
+                    <TableIconAction
+                      kind="edit"
+                      label="تعديل"
+                      onClick={() => openEdit(d)}
+                    />
+                    <TableIconAction
+                      kind="capacity"
+                      label="طلاب اليوم"
+                      onClick={() => setStudentsDay(d)}
+                    />
                     <TableIconAction
                       kind="copy"
-                      label={d.has_magic_link ? "نسخ / تجديد الرابط" : "توليد رابط المقرئين"}
+                      label="رابط المقرئ"
                       disabled={linkBusy === d.id}
                       onClick={() => generateLink(d.id)}
                     />
-                  </TableCell>
+                    <TableIconAction
+                      kind="delete"
+                      label="حذف"
+                      onClick={() => startDelete(d)}
+                    />
+                  </TableActionsCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -215,63 +322,134 @@ export function QuranicDaysManagerPage() {
         )}
       </div>
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className={`${ds.card} max-w-md rounded-2xl`} dir="rtl">
+      <Dialog open={formOpen} onOpenChange={setFormOpen}>
+        <DialogContent className={`${ds.card} max-w-lg rounded-2xl max-h-[90vh] overflow-y-auto`} dir="rtl">
           <DialogHeader>
-            <DialogTitle style={tajawal}>يوم قرآني جديد</DialogTitle>
+            <DialogTitle style={tajawal}>
+              {editId != null ? "تعديل اليوم القرآني" : "يوم قرآني جديد"}
+            </DialogTitle>
           </DialogHeader>
-          <form onSubmit={createDay} className="space-y-4">
-            <div className="space-y-2">
-              <Label style={tajawal}>اسم اليوم</Label>
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className={ds.btnRound}
-                required
-              />
-            </div>
-            <div className="space-y-2">
+          <form onSubmit={saveForm} className="space-y-3">
+            <Field label="اسم اليوم" value={form.name_ar} onChange={(v) => setForm((f) => ({ ...f, name_ar: v }))} />
+            <div className="space-y-1">
               <Label style={tajawal}>التاريخ</Label>
               <Input
                 type="date"
-                value={eventDate}
-                onChange={(e) => setEventDate(e.target.value)}
+                value={form.event_date}
+                onChange={(e) => setForm((f) => ({ ...f, event_date: e.target.value }))}
                 className={ds.btnRound}
               />
             </div>
-            <div className="space-y-2">
-              <Label style={tajawal}>خصم لكل خطأ</Label>
-              <Input
-                type="number"
-                step="0.1"
-                min={0}
-                value={mistakePenalty}
-                onChange={(e) => setMistakePenalty(Number(e.target.value))}
-                className={ds.btnRound}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label style={tajawal}>خصم لكل تنبيه</Label>
-              <Input
-                type="number"
-                step="0.1"
-                min={0}
-                value={alertPenalty}
-                onChange={(e) => setAlertPenalty(Number(e.target.value))}
-                className={ds.btnRound}
-              />
-            </div>
-            <Button
-              type="submit"
-              disabled={submitting}
-              className={`w-full ${ds.btnRound}`}
-              style={tajawal}
-            >
-              {submitting ? "جاري الحفظ…" : "إنشاء"}
+            <NumField label="خصم الخطأ" value={form.mistake_penalty} onChange={(v) => setForm((f) => ({ ...f, mistake_penalty: v }))} />
+            <NumField label="خصم التنبيه" value={form.alert_penalty} onChange={(v) => setForm((f) => ({ ...f, alert_penalty: v }))} />
+            <NumField label="خصم اللحن" value={form.lahn_penalty} onChange={(v) => setForm((f) => ({ ...f, lahn_penalty: v }))} />
+            <NumField label="حد الرسوب (أقصى أخطاء)" value={form.fail_threshold} step={1} onChange={(v) => setForm((f) => ({ ...f, fail_threshold: v }))} />
+            <NumField label="وقت الحزب (دقائق)" value={form.hizb_time_limit} step={1} onChange={(v) => setForm((f) => ({ ...f, hizb_time_limit: v }))} />
+            <Button type="submit" disabled={submitting} className={`w-full ${ds.btnRound}`} style={tajawal}>
+              {submitting ? "جاري الحفظ…" : "حفظ"}
             </Button>
           </form>
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={deleteTarget != null && deleteStep > 0}
+        onOpenChange={(o) => {
+          if (!o) {
+            setDeleteTarget(null);
+            setDeleteStep(0);
+          }
+        }}
+      >
+        <DialogContent className={`${ds.card} max-w-md rounded-2xl`} dir="rtl">
+          <DialogHeader>
+            <DialogTitle style={tajawal}>
+              {deleteStep === 1 ? "تأكيد الحذف" : "تأكيد نهائي"}
+            </DialogTitle>
+            <DialogDescription style={tajawal}>
+              {deleteStep === 1
+                ? `هل تريد حذف «${deleteTarget?.name_ar}»؟ سيتم حذف الطلاب المسجلين وسجلات الرصد.`
+                : `اضغط «حذف نهائياً» لتأكيد حذف «${deleteTarget?.name_ar}» — لا يمكن التراجع.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex gap-2 sm:justify-start">
+            <Button
+              type="button"
+              variant="outline"
+              className={ds.btnRound}
+              onClick={() => {
+                setDeleteTarget(null);
+                setDeleteStep(0);
+              }}
+              style={tajawal}
+            >
+              إلغاء
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              className={ds.btnRound}
+              disabled={deleteBusy}
+              onClick={() => confirmDelete()}
+              style={tajawal}
+            >
+              {deleteStep === 1 ? "متابعة" : deleteBusy ? "جاري الحذف…" : "حذف نهائياً"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {studentsDay && (
+        <QuranicDayStudentsModal
+          dayId={studentsDay.id}
+          dayName={studentsDay.name_ar}
+          open={Boolean(studentsDay)}
+          onOpenChange={(o) => !o && setStudentsDay(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label style={tajawal}>{label}</Label>
+      <Input value={value} onChange={(e) => onChange(e.target.value)} className={ds.btnRound} required />
+    </div>
+  );
+}
+
+function NumField({
+  label,
+  value,
+  onChange,
+  step = 0.1,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  step?: number;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label style={tajawal}>{label}</Label>
+      <Input
+        type="number"
+        step={step}
+        min={0}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className={ds.btnRound}
+      />
     </div>
   );
 }

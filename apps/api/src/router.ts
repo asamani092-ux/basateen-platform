@@ -43,10 +43,11 @@ import { handleAdminDeptRouter } from "./routes/admin-dept";
 import { handlePublicLinksRouter } from "./routes/public-links";
 import { handleEduDeptRouter } from "./routes/edu-dept";
 import { handleEduDeptCoreRouter } from "./routes/edu-dept-core";
+import { handleEduDeptMegaRouter } from "./routes/edu-dept-mega";
 import {
-  handleEduDeptMegaRouter,
+  handleEduQuranicDaysRouter,
   handlePublicQuranicDayRouter,
-} from "./routes/edu-dept-mega";
+} from "./routes/edu-quranic-days";
 import { handleEduCompetitionsRouter } from "./routes/competitions";
 import { handleLiveLogRouter, handleYomHimmaLiveLogToken } from "./routes/live-log";
 import { handleProgSupervisorRouter } from "./routes/prog-supervisor";
@@ -155,6 +156,12 @@ async function dispatchDepartmentRouters(
   if (eduMega) return eduMega;
   const eduMegaMain = await handleEduDeptMegaRouter(request, env, url);
   if (eduMegaMain) return eduMegaMain;
+
+  const eduQuranicUrl = eduUrl;
+  const eduQuranic = await handleEduQuranicDaysRouter(request, env, eduQuranicUrl);
+  if (eduQuranic) return eduQuranic;
+  const eduQuranicMain = await handleEduQuranicDaysRouter(request, env, url);
+  if (eduQuranicMain) return eduQuranicMain;
 
   const edu = await handleEduDeptRouter(request, env, eduUrl);
   if (edu) return edu;

@@ -1078,7 +1078,13 @@ export const api = {
         id: number;
         name_ar: string;
         event_date: string;
-        deduction_rules: { mistake_penalty: number; alert_penalty: number };
+        deduction_rules: {
+          mistake_penalty: number;
+          alert_penalty: number;
+          lahn_penalty: number;
+        };
+        fail_threshold: number;
+        hizb_time_limit: number;
         has_magic_link: boolean;
         is_active: number;
         created_at: string;
@@ -1089,22 +1095,72 @@ export const api = {
     event_date: string;
     mistake_penalty?: number;
     alert_penalty?: number;
+    lahn_penalty?: number;
+    fail_threshold?: number;
+    hizb_time_limit?: number;
   }) =>
     request<{ ok: boolean; id: number }>("/api/edu-dept/quranic-days", {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  eduDeptQuranicDayUpdate: (
+    id: number,
+    body: {
+      name_ar?: string;
+      event_date?: string;
+      mistake_penalty?: number;
+      alert_penalty?: number;
+      lahn_penalty?: number;
+      fail_threshold?: number;
+      hizb_time_limit?: number;
+      is_active?: number;
+    },
+  ) =>
+    request<{ ok: boolean }>(`/api/edu-dept/quranic-days/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  eduDeptQuranicDayDelete: (id: number) =>
+    request<{ ok: boolean }>(`/api/edu-dept/quranic-days/${id}`, { method: "DELETE" }),
   eduDeptQuranicDayMagicLink: (id: number) =>
     request<{
       ok: boolean;
       token: string;
       public_path: string;
       api_get: string;
-      api_post: string;
     }>(`/api/edu-dept/quranic-days/${id}/magic-link`, {
       method: "POST",
       body: JSON.stringify({}),
     }),
+  eduDeptQuranicDayStudents: (dayId: number) =>
+    request<{
+      items: Array<{
+        id: number;
+        student_id: number;
+        full_name_ar: string;
+        stage_id: number | null;
+        target_hizbs: number[];
+      }>;
+    }>(`/api/edu-dept/quranic-days/${dayId}/students`),
+  eduDeptQuranicDayStudentSearch: (dayId: number, q: string, stageIds: number[]) =>
+    request<{
+      items: Array<{ id: number; full_name_ar: string; stage_id: number | null }>;
+    }>(
+      `/api/edu-dept/quranic-days/${dayId}/students/search?q=${encodeURIComponent(q)}&stage_ids=${stageIds.join(",")}`,
+    ),
+  eduDeptQuranicDayEnrollStudent: (
+    dayId: number,
+    body: { student_id: number; hizb_from: number; hizb_to: number },
+  ) =>
+    request<{ ok: boolean; target_hizbs: number[] }>(
+      `/api/edu-dept/quranic-days/${dayId}/students`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  eduDeptQuranicDayRemoveStudent: (dayId: number, studentId: number) =>
+    request<{ ok: boolean }>(
+      `/api/edu-dept/quranic-days/${dayId}/students/${studentId}`,
+      { method: "DELETE" },
+    ),
   publicQuranicDayGet: (token: string) =>
     request<{
       token: string;
@@ -1112,23 +1168,62 @@ export const api = {
         id: number;
         name_ar: string;
         event_date: string;
-        deduction_rules: { mistake_penalty: number; alert_penalty: number };
+        deduction_rules: {
+          mistake_penalty: number;
+          alert_penalty: number;
+          lahn_penalty: number;
+        };
+        fail_threshold: number;
+        hizb_time_limit: number;
       };
-      students: Array<{ student_id: number; full_name_ar: string }>;
     }>(`/api/public/quranic-day/${encodeURIComponent(token)}`),
-  publicQuranicDaySave: (
+  publicQuranicDaySearchStudents: (token: string, q: string) =>
+    request<{
+      items: Array<{
+        student_id: number;
+        full_name_ar: string;
+        target_hizbs: number[];
+      }>;
+    }>(
+      `/api/public/quranic-day/${encodeURIComponent(token)}/students/search?q=${encodeURIComponent(q)}`,
+    ),
+  publicQuranicDayGetStudent: (token: string, studentId: number) =>
+    request<{
+      student: {
+        student_id: number;
+        full_name_ar: string;
+        target_hizbs: number[];
+      };
+      day: {
+        id: number;
+        name_ar: string;
+        event_date: string;
+        deduction_rules: {
+          mistake_penalty: number;
+          alert_penalty: number;
+          lahn_penalty: number;
+        };
+        fail_threshold: number;
+        hizb_time_limit: number;
+      };
+    }>(
+      `/api/public/quranic-day/${encodeURIComponent(token)}/students/${studentId}`,
+    ),
+  publicQuranicDaySaveRecord: (
     token: string,
     body: {
       student_id: number;
       hizb_number: number;
       mistakes: number;
       alerts: number;
+      lahn_count: number;
+      time_taken_seconds: number;
     },
   ) =>
-    request<{ ok: boolean }>(`/api/public/quranic-day/${encodeURIComponent(token)}`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    request<{ ok: boolean; fail_threshold_exceeded?: boolean }>(
+      `/api/public/quranic-day/${encodeURIComponent(token)}/records`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
   publicAttendanceGet: (token: string) =>
     request<{
       token: string;

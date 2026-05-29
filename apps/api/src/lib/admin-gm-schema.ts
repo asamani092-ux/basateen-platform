@@ -10,6 +10,105 @@ const STAGE_TEXT_TO_ID_SQL = `CASE c.stage
   ELSE 2
 END`;
 
+export const STAGE_ID_TO_CIRCLE_STAGE: Record<number, string> = {
+  1: "tlaqeen",
+  2: "primary",
+  3: "middle",
+  4: "secondary",
+};
+
+export async function createCircleRow(
+  env: Env,
+  complexId: number,
+  params: {
+    name_ar: string;
+    stage_id: number;
+    capacity: number;
+    teacher_id: number;
+    track_id: number | null;
+  },
+): Promise<number> {
+  const stageKey = STAGE_ID_TO_CIRCLE_STAGE[params.stage_id] ?? "primary";
+  const hasTeacherId = await tableHasColumn(env, "circles", "teacher_id");
+  const hasStageText = await tableHasColumn(env, "circles", "stage");
+  const hasStageId = await tableHasColumn(env, "circles", "stage_id");
+  const hasTrackId = await tableHasColumn(env, "circles", "track_id");
+  const hasDefaultCap = await tableHasColumn(env, "circles", "default_capacity");
+
+  if (hasTeacherId && hasStageText) {
+    const ins = await env.DB.prepare(
+      `INSERT INTO circles (complex_id, name_ar, teacher_id, stage, capacity)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+      .bind(
+        complexId,
+        params.name_ar,
+        params.teacher_id,
+        stageKey,
+        params.capacity,
+      )
+      .run();
+    return ins.meta.last_row_id as number;
+  }
+
+  const cols = ["complex_id", "name_ar", "capacity"];
+  const vals: (string | number | null)[] = [
+    complexId,
+    params.name_ar,
+    params.capacity,
+  ];
+  if (hasDefaultCap) {
+    cols.push("default_capacity");
+    vals.push(params.capacity);
+  }
+  if (hasStageId) {
+    cols.push("stage_id");
+    vals.push(params.stage_id);
+  }
+  if (hasTrackId && params.track_id != null) {
+    cols.push("track_id");
+    vals.push(params.track_id);
+  }
+
+  const ins = await env.DB.prepare(
+    `INSERT INTO circles (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`,
+  )
+    .bind(...vals)
+    .run();
+
+  const circleId = ins.meta.last_row_id as number;
+
+  if (await hasTable(env, "teacher_assignments")) {
+    await env.DB.prepare(`DELETE FROM teacher_assignments WHERE circle_id = ?`)
+      .bind(circleId)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO teacher_assignments (user_id, circle_id) VALUES (?, ?)`,
+    )
+      .bind(params.teacher_id, circleId)
+      .run();
+  }
+
+  if (
+    params.track_id != null &&
+    (await hasTable(env, "track_circles")) &&
+    Number.isFinite(params.track_id)
+  ) {
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO track_circles (track_id, circle_id) VALUES (?, ?)`,
+    )
+      .bind(params.track_id, circleId)
+      .run();
+    if (await tableHasColumn(env, "circles", "track_id")) {
+      await env.DB.prepare(`UPDATE circles SET track_id = ? WHERE id = ?`)
+        .bind(params.track_id, circleId)
+        .run();
+    }
+  }
+
+  return circleId;
+}
+
 export async function circleStageIdExpr(env: Env): Promise<string> {
   const hasStageId = await tableHasColumn(env, "circles", "stage_id");
   const hasStageText = await tableHasColumn(env, "circles", "stage");

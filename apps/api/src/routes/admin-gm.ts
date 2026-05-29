@@ -13,12 +13,18 @@ import {
   circleStudentCountSubquery,
   circleTeacherJoinSql,
   circleTrackSelectSql,
+  createCircleRow,
   teachersListSql,
 } from "../lib/admin-gm-schema";
 import { usersHaveRoleColumn } from "../lib/db-user";
 import { activePlacementSql, hasTable, tableHasColumn } from "../lib/db-schema";
 
 const GM_ONLY: UserRole[] = ["super_admin"];
+const CIRCLE_ADMIN_ROLES: UserRole[] = [
+  "super_admin",
+  "admin_supervisor",
+  "edu_supervisor",
+];
 const DEFAULT_PASSWORD = "Basateen123!";
 
 function json(data: unknown, status = 200): Response {
@@ -28,6 +34,14 @@ function json(data: unknown, status = 200): Response {
 function requireGm(auth: Awaited<ReturnType<typeof getAuth>>) {
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
   if (!requireRoles(auth, GM_ONLY)) return json({ error: "forbidden" }, 403);
+  return null;
+}
+
+function requireCircleAdmin(auth: Awaited<ReturnType<typeof getAuth>>) {
+  if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
+  if (!requireRoles(auth, CIRCLE_ADMIN_ROLES)) {
+    return json({ error: "forbidden" }, 403);
+  }
   return null;
 }
 
@@ -337,109 +351,121 @@ export async function handleAdminCirclesCreate(
   request: Request,
   env: Env,
 ): Promise<Response> {
-  const auth = await getAuth(request, env);
-  const denied = requireGm(auth);
-  if (denied) return denied;
-
-  let body: {
-    name_ar?: string;
-    stage_id?: number;
-    default_capacity?: number;
-    teacher_user_id?: number;
-    new_teacher?: { full_name_ar?: string; mobile?: string };
-    track_id?: number | null;
-  };
   try {
-    body = await request.json();
-  } catch {
-    return json({ error: "invalid_json" }, 400);
-  }
+    const auth = await getAuth(request, env);
+    const denied = requireCircleAdmin(auth);
+    if (denied) return denied;
 
-  if (!body.name_ar?.trim()) return json({ error: "name_required" }, 400);
-  const stageId = Number(body.stage_id);
-  if (!Number.isFinite(stageId) || stageId < 1 || stageId > 4) {
-    return json({ error: "invalid_stage_id" }, 400);
-  }
-  const defaultCapacity = Number(body.default_capacity);
-  if (!Number.isFinite(defaultCapacity) || defaultCapacity < 1) {
-    return json({ error: "default_capacity_required" }, 400);
-  }
-  let teacherId = Number(body.teacher_user_id);
-  if (!Number.isFinite(teacherId) || teacherId <= 0) {
-    if (
-      body.new_teacher?.full_name_ar?.trim() &&
-      body.new_teacher?.mobile?.trim()
-    ) {
-      const mobile = body.new_teacher.mobile.trim();
-      const passwordHash = await hashPassword(DEFAULT_PASSWORD);
-      const tIns = await env.DB.prepare(
-        `INSERT INTO users (complex_id, email, mobile, password_hash, full_name_ar, role)
-         VALUES (?, ?, ?, ?, ?, 'teacher')`,
-      )
-        .bind(
-          auth!.complexId,
-          emailForMobile(mobile, "teacher"),
-          mobile,
-          passwordHash,
-          body.new_teacher.full_name_ar.trim(),
-        )
-        .run();
-      teacherId = tIns.meta.last_row_id as number;
-      await env.DB.prepare(
-        `INSERT INTO user_sections (user_id, section) VALUES (?, 'education')`,
-      )
-        .bind(teacherId)
-        .run();
-    } else {
-      return json({ error: "teacher_required" }, 400);
+    let body: {
+      name_ar?: string;
+      stage_id?: number;
+      default_capacity?: number;
+      teacher_user_id?: number;
+      new_teacher?: { full_name_ar?: string; mobile?: string };
+      track_id?: number | null;
+    };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
     }
-  } else {
-    const teacher = await env.DB.prepare(
-      `SELECT id FROM users WHERE id = ? AND complex_id = ? AND role = 'teacher' AND is_active = 1`,
-    )
-      .bind(teacherId, auth!.complexId)
-      .first();
-    if (!teacher) return json({ error: "teacher_not_found" }, 404);
+
+    if (!body.name_ar?.trim()) return json({ error: "name_required" }, 400);
+    const stageId = Number(body.stage_id);
+    if (!Number.isFinite(stageId) || stageId < 1 || stageId > 4) {
+      return json({ error: "invalid_stage_id" }, 400);
+    }
+    const defaultCapacity = Number(body.default_capacity);
+    if (!Number.isFinite(defaultCapacity) || defaultCapacity < 1) {
+      return json({ error: "default_capacity_required" }, 400);
+    }
+
+    const hasRole = await usersHaveRoleColumn(env);
+    let teacherId = Number(body.teacher_user_id);
+
+    if (!Number.isFinite(teacherId) || teacherId <= 0) {
+      if (
+        body.new_teacher?.full_name_ar?.trim() &&
+        body.new_teacher?.mobile?.trim()
+      ) {
+        const mobile = body.new_teacher.mobile.trim();
+        const passwordHash = await hashPassword(DEFAULT_PASSWORD);
+        if (hasRole) {
+          const tIns = await env.DB.prepare(
+            `INSERT INTO users (complex_id, email, mobile, password_hash, full_name_ar, role)
+             VALUES (?, ?, ?, ?, ?, 'teacher')`,
+          )
+            .bind(
+              auth!.complexId,
+              emailForMobile(mobile, "teacher"),
+              mobile,
+              passwordHash,
+              body.new_teacher.full_name_ar.trim(),
+            )
+            .run();
+          teacherId = tIns.meta.last_row_id as number;
+          if (await hasTable(env, "user_sections")) {
+            await env.DB.prepare(
+              `INSERT INTO user_sections (user_id, section) VALUES (?, 'education')`,
+            )
+              .bind(teacherId)
+              .run();
+          }
+        } else {
+          const tIns = await env.DB.prepare(
+            `INSERT INTO users (complex_id, email, mobile, password_hash, full_name_ar, is_teacher)
+             VALUES (?, ?, ?, ?, ?, 1)`,
+          )
+            .bind(
+              auth!.complexId,
+              emailForMobile(mobile, "teacher"),
+              mobile,
+              passwordHash,
+              body.new_teacher.full_name_ar.trim(),
+            )
+            .run();
+          teacherId = tIns.meta.last_row_id as number;
+        }
+      } else {
+        return json({ error: "teacher_required" }, 400);
+      }
+    } else {
+      const teacherFilter = hasRole
+        ? "role = 'teacher'"
+        : "COALESCE(is_teacher, 0) = 1";
+      const teacher = await env.DB.prepare(
+        `SELECT id FROM users WHERE id = ? AND complex_id = ? AND ${teacherFilter} AND COALESCE(is_active, 1) = 1`,
+      )
+        .bind(teacherId, auth!.complexId)
+        .first();
+      if (!teacher) return json({ error: "teacher_not_found" }, 404);
+    }
+
+    const trackId =
+      body.track_id != null && body.track_id !== undefined
+        ? Number(body.track_id)
+        : null;
+
+    const circleId = await createCircleRow(env, auth!.complexId, {
+      name_ar: body.name_ar.trim(),
+      stage_id: stageId,
+      capacity: defaultCapacity,
+      teacher_id: teacherId,
+      track_id: Number.isFinite(trackId) ? trackId : null,
+    });
+
+    return json({ ok: true, id: circleId });
+  } catch (error: unknown) {
+    console.error("[admin-gm] circles create:", error);
+    return json(
+      {
+        error: "admin_circles_create_error",
+        message:
+          error instanceof Error ? error.message : "Failed to create circle",
+      },
+      500,
+    );
   }
-
-  const trackId =
-    body.track_id != null && body.track_id !== undefined
-      ? Number(body.track_id)
-      : null;
-
-  const ins = await env.DB.prepare(
-    `INSERT INTO circles (complex_id, track_id, name_ar, capacity, default_capacity, stage_id)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(
-      auth!.complexId,
-      trackId,
-      body.name_ar.trim(),
-      defaultCapacity,
-      defaultCapacity,
-      stageId,
-    )
-    .run();
-
-  const circleId = ins.meta.last_row_id as number;
-  await env.DB.prepare(`DELETE FROM teacher_assignments WHERE circle_id = ?`)
-    .bind(circleId)
-    .run();
-  await env.DB.prepare(
-    `INSERT INTO teacher_assignments (user_id, circle_id) VALUES (?, ?)`,
-  )
-    .bind(teacherId, circleId)
-    .run();
-
-  if (trackId) {
-    await env.DB.prepare(
-      `INSERT OR IGNORE INTO track_circles (track_id, circle_id) VALUES (?, ?)`,
-    )
-      .bind(trackId, circleId)
-      .run();
-  }
-
-  return json({ ok: true, id: circleId });
 }
 
 export async function handleAdminCirclesPatch(

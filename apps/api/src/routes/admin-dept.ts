@@ -11,6 +11,7 @@ import {
   syncStudentPlacementColumns,
   validateCircleStage,
 } from "../lib/admin-dept-schema";
+import { teachersListSql } from "../lib/admin-gm-schema";
 import { activePlacementSql, hasTable, tableHasColumn } from "../lib/db-schema";
 import { STAGE_LABELS } from "../lib/dept-scope";
 import { randomMagicToken } from "../lib/magic-link";
@@ -87,12 +88,60 @@ async function assertCircleInComplex(
   complexId: number,
   circleId: number,
 ): Promise<boolean> {
-  const row = await env.DB.prepare(
-    `SELECT id FROM circles WHERE id = ? AND complex_id = ? AND is_active = 1`,
-  )
+  const hasActive = await tableHasColumn(env, "circles", "is_active");
+  let sql = `SELECT id FROM circles WHERE id = ? AND complex_id = ?`;
+  if (hasActive) sql += ` AND COALESCE(is_active, 1) = 1`;
+  const row = await env.DB.prepare(sql)
     .bind(circleId, complexId)
     .first<{ id: number }>();
   return Boolean(row);
+}
+
+async function loadStudentsForCircleAttendance(
+  env: Env,
+  complexId: number,
+  circleId: number,
+  date: string,
+): Promise<{ items: unknown[]; attTable: string } | { error: Response }> {
+  if (!(await tableHasColumn(env, "students", "current_circle_id"))) {
+    return {
+      error: json(
+        {
+          error: "migration_required",
+          hint: "students.current_circle_id — run D1 migrate 025",
+        },
+        503,
+      ),
+    };
+  }
+
+  const attTable = await resolveAttendanceTableName(env);
+  if (!attTable) {
+    return {
+      error: json({ error: "migration_required", table: "student_attendance" }, 503),
+    };
+  }
+
+  const attSourceCol = (await tableHasColumn(env, attTable, "source"))
+    ? ", sa.source"
+    : "";
+
+  const rows = await env.DB.prepare(
+    `SELECT s.id AS student_id, s.full_name_ar,
+            COALESCE(s.stage_id, 0) AS stage_id,
+            COALESCE(sa.status, 'present') AS status,
+            sa.recorded_at${attSourceCol}
+     FROM students s
+     LEFT JOIN ${attTable} sa
+       ON sa.student_id = s.id AND sa.attendance_date = ?
+     WHERE s.complex_id = ? AND COALESCE(s.is_active, 1) = 1
+       AND s.current_circle_id = ?
+     ORDER BY s.full_name_ar`,
+  )
+    .bind(date, complexId, circleId)
+    .all();
+
+  return { items: rows.results ?? [], attTable };
 }
 
 async function getMaxPledges(env: Env, complexId: number): Promise<number> {
@@ -254,44 +303,28 @@ async function handleAdminDeptRouterImpl(
   const circleAttGet = path.match(/^\/api\/admin-dept\/students\/attendance\/(\d+)$/);
   if (request.method === "GET" && circleAttGet) {
     const circleId = Number(circleAttGet[1]);
+    if (!Number.isFinite(circleId)) {
+      return json({ error: "invalid_circle_id" }, 400);
+    }
     if (!(await assertCircleInComplex(env, admin.complexId, circleId))) {
       return json({ error: "circle_not_found" }, 404);
     }
 
     const date = url.searchParams.get("date")?.trim() || todayIso();
-    const attTable = await resolveAttendanceTableName(env);
-    if (!attTable) {
-      return json({ error: "migration_required", table: "student_attendance" }, 503);
-    }
-    const attSourceCol = (await tableHasColumn(env, attTable, "source"))
-      ? ", sa.source"
-      : "";
-    const scope = await studentCircleScopeSql(env);
-    const rows = await env.DB.prepare(
-      `SELECT s.id AS student_id, s.full_name_ar,
-              COALESCE(s.stage_id, 0) AS stage_id,
-              COALESCE(sa.status, 'present') AS status,
-              sa.recorded_at${attSourceCol}
-       FROM students s
-       ${scope.joinSql}
-       LEFT JOIN ${attTable} sa
-         ON sa.student_id = s.id AND sa.attendance_date = ?
-       WHERE s.complex_id = ? AND s.is_active = 1 AND ${scope.circlePredicate}
-       ORDER BY s.full_name_ar`,
-    )
-      .bind(
-        ...(scope.usesFlatColumn
-          ? [date, admin.complexId, circleId]
-          : [circleId, date, admin.complexId]),
-      )
-      .all();
+    const loaded = await loadStudentsForCircleAttendance(
+      env,
+      admin.complexId,
+      circleId,
+      date,
+    );
+    if ("error" in loaded) return loaded.error;
 
     const circle = await circleLabelRow(env, circleId);
 
     return json({
       attendance_date: date,
       circle,
-      items: rows.results ?? [],
+      items: loaded.items,
       default_status: "present",
     });
   }
@@ -327,18 +360,29 @@ async function handleAdminDeptRouterImpl(
       const status = parseStatus(rec.status);
       if (!Number.isFinite(studentId) || !status) continue;
 
-      const scope = await studentCircleScopeSql(env);
-      const allowed = await env.DB.prepare(
-        `SELECT s.id FROM students s
-         ${scope.joinSql}
-         WHERE s.id = ? AND s.complex_id = ? AND s.is_active = 1 AND ${scope.circlePredicate}`,
-      )
-        .bind(
-          ...(scope.usesFlatColumn
-            ? [studentId, admin.complexId, circleId]
-            : [circleId, studentId, admin.complexId]),
+      let allowed: { id: number } | null = null;
+      if (await tableHasColumn(env, "students", "current_circle_id")) {
+        allowed = await env.DB.prepare(
+          `SELECT id FROM students
+           WHERE id = ? AND complex_id = ? AND COALESCE(is_active, 1) = 1
+             AND current_circle_id = ?`,
         )
-        .first();
+          .bind(studentId, admin.complexId, circleId)
+          .first<{ id: number }>();
+      } else {
+        const scope = await studentCircleScopeSql(env);
+        allowed = await env.DB.prepare(
+          `SELECT s.id FROM students s
+           ${scope.joinSql}
+           WHERE s.id = ? AND s.complex_id = ? AND s.is_active = 1 AND ${scope.circlePredicate}`,
+        )
+          .bind(
+            ...(scope.usesFlatColumn
+              ? [studentId, admin.complexId, circleId]
+              : [circleId, studentId, admin.complexId]),
+          )
+          .first<{ id: number }>();
+      }
 
       if (!allowed) continue;
 
@@ -696,6 +740,141 @@ async function handleAdminDeptRouterImpl(
       max_pledges: maxPledges,
       threshold_reached: pledgeCount >= maxPledges,
       stage_labels: STAGE_LABELS,
+    });
+  }
+
+  // GET /api/admin-dept/reports
+  if (request.method === "GET" && path === "/api/admin-dept/reports") {
+    const startDate =
+      url.searchParams.get("startDate")?.trim() ||
+      url.searchParams.get("start_date")?.trim() ||
+      todayIso();
+    const endDate =
+      url.searchParams.get("endDate")?.trim() ||
+      url.searchParams.get("end_date")?.trim() ||
+      startDate;
+    const statusFilter = (
+      url.searchParams.get("status")?.trim() || "all"
+    ).toLowerCase();
+    const typeFilter = (
+      url.searchParams.get("type")?.trim() || "all"
+    ).toLowerCase();
+
+    const absentOnly = statusFilter === "absent_only" || statusFilter === "absent";
+    const includeStaff = typeFilter === "all" || typeFilter === "staff";
+    const includeStudents = typeFilter === "all" || typeFilter === "student";
+
+    type ReportRow = {
+      name: string;
+      date: string;
+      status: string;
+      type: "staff" | "student";
+    };
+    const items: ReportRow[] = [];
+
+    if (includeStaff && (await hasTable(env, "staff_attendance"))) {
+      let staffSql = `
+        SELECT u.full_name_ar AS name, sa.attendance_date AS date, sa.status
+        FROM staff_attendance sa
+        JOIN users u ON u.id = sa.user_id
+        WHERE sa.complex_id = ? AND sa.attendance_date BETWEEN ? AND ?`;
+      if (absentOnly) staffSql += ` AND sa.status IN ('absent', 'excused')`;
+      staffSql += ` ORDER BY sa.attendance_date DESC, u.full_name_ar`;
+      const staffRows = await env.DB.prepare(staffSql)
+        .bind(admin.complexId, startDate, endDate)
+        .all<{ name: string; date: string; status: string }>();
+      for (const r of staffRows.results ?? []) {
+        items.push({
+          name: r.name,
+          date: r.date,
+          status: r.status,
+          type: "staff",
+        });
+      }
+    }
+
+    const attTable = await resolveAttendanceTableName(env);
+    if (includeStudents && attTable) {
+      let stuSql = `
+        SELECT s.full_name_ar AS name, sa.attendance_date AS date, sa.status
+        FROM ${attTable} sa
+        JOIN students s ON s.id = sa.student_id
+        WHERE sa.complex_id = ? AND sa.attendance_date BETWEEN ? AND ?
+          AND COALESCE(s.is_active, 1) = 1`;
+      if (absentOnly) stuSql += ` AND sa.status IN ('absent', 'excused')`;
+      stuSql += ` ORDER BY sa.attendance_date DESC, s.full_name_ar`;
+      const stuRows = await env.DB.prepare(stuSql)
+        .bind(admin.complexId, startDate, endDate)
+        .all<{ name: string; date: string; status: string }>();
+      for (const r of stuRows.results ?? []) {
+        items.push({
+          name: r.name,
+          date: r.date,
+          status: r.status,
+          type: "student",
+        });
+      }
+    }
+
+    const staffRosterSql = await teachersListSql(env);
+    const staffAll = await env.DB.prepare(staffRosterSql)
+      .bind(admin.complexId)
+      .all<{ id: number }>();
+    const staffTotal = staffAll.results?.length ?? 0;
+
+    const staffOnEnd = await env.DB.prepare(
+      `SELECT user_id, status FROM staff_attendance
+       WHERE complex_id = ? AND attendance_date = ?`,
+    )
+      .bind(admin.complexId, endDate)
+      .all<{ user_id: number; status: string }>();
+    const staffStatusMap = new Map(
+      (staffOnEnd.results ?? []).map((r) => [r.user_id, r.status]),
+    );
+    let staffPresent = 0;
+    for (const u of staffAll.results ?? []) {
+      const st = staffStatusMap.get(u.id) ?? "present";
+      if (st === "present") staffPresent++;
+    }
+
+    const studentsTotalRow = await env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM students WHERE complex_id = ? AND COALESCE(is_active, 1) = 1`,
+    )
+      .bind(admin.complexId)
+      .first<{ c: number }>();
+    const studentsTotal = Number(studentsTotalRow?.c ?? 0);
+
+    let studentsPresent = studentsTotal;
+    if (attTable) {
+      const absentOnEnd = await env.DB.prepare(
+        `SELECT COUNT(DISTINCT student_id) AS c FROM ${attTable}
+         WHERE complex_id = ? AND attendance_date = ?
+           AND status IN ('absent', 'excused')`,
+      )
+        .bind(admin.complexId, endDate)
+        .first<{ c: number }>();
+      studentsPresent = Math.max(
+        0,
+        studentsTotal - Number(absentOnEnd?.c ?? 0),
+      );
+    }
+
+    const pct = (n: number, total: number) =>
+      total > 0 ? Math.round((n / total) * 100) : 0;
+
+    return json({
+      start_date: startDate,
+      end_date: endDate,
+      filters: { status: statusFilter, type: typeFilter },
+      summary: {
+        staff_total: staffTotal,
+        staff_present: staffPresent,
+        staff_present_pct: pct(staffPresent, staffTotal),
+        students_total: studentsTotal,
+        students_present: studentsPresent,
+        students_present_pct: pct(studentsPresent, studentsTotal),
+      },
+      items,
     });
   }
 

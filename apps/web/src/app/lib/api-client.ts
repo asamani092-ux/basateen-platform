@@ -809,6 +809,38 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  adminDeptReports: (params?: {
+    startDate?: string;
+    endDate?: string;
+    status?: "all" | "absent_only";
+    type?: "all" | "staff" | "student";
+  }) => {
+    const q = new URLSearchParams();
+    if (params?.startDate) q.set("startDate", params.startDate);
+    if (params?.endDate) q.set("endDate", params.endDate);
+    if (params?.status) q.set("status", params.status);
+    if (params?.type) q.set("type", params.type);
+    const qs = q.toString();
+    return request<{
+      start_date: string;
+      end_date: string;
+      filters: { status: string; type: string };
+      summary: {
+        staff_total: number;
+        staff_present: number;
+        staff_present_pct: number;
+        students_total: number;
+        students_present: number;
+        students_present_pct: number;
+      };
+      items: Array<{
+        name: string;
+        date: string;
+        status: string;
+        type: "staff" | "student";
+      }>;
+    }>(`/api/admin-dept/reports${qs ? `?${qs}` : ""}`);
+  },
   adminDeptPledgeReport: (studentId: number) =>
     request<{
       student: Record<string, unknown>;

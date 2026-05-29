@@ -43,6 +43,10 @@ import { handleAdminDeptRouter } from "./routes/admin-dept";
 import { handlePublicLinksRouter } from "./routes/public-links";
 import { handleEduDeptRouter } from "./routes/edu-dept";
 import { handleEduDeptCoreRouter } from "./routes/edu-dept-core";
+import {
+  handleEduDeptMegaRouter,
+  handlePublicQuranicDayRouter,
+} from "./routes/edu-dept-mega";
 import { handleEduCompetitionsRouter } from "./routes/competitions";
 import { handleLiveLogRouter, handleYomHimmaLiveLogToken } from "./routes/live-log";
 import { handleProgSupervisorRouter } from "./routes/prog-supervisor";
@@ -146,6 +150,12 @@ async function dispatchDepartmentRouters(
   const eduCoreMain = await handleEduDeptCoreRouter(request, env, url);
   if (eduCoreMain) return eduCoreMain;
 
+  const eduMegaUrl = eduUrl;
+  const eduMega = await handleEduDeptMegaRouter(request, env, eduMegaUrl);
+  if (eduMega) return eduMega;
+  const eduMegaMain = await handleEduDeptMegaRouter(request, env, url);
+  if (eduMegaMain) return eduMegaMain;
+
   const edu = await handleEduDeptRouter(request, env, eduUrl);
   if (edu) return edu;
   const eduDept = await handleEduDeptRouter(request, env, url);
@@ -188,6 +198,9 @@ export async function handleRequest(
   const url = new URL(request.url);
 
   try {
+    const publicQuranic = await handlePublicQuranicDayRouter(request, env, url);
+    if (publicQuranic) return withCors(publicQuranic, request, env);
+
     const publicLink = await handlePublicLinksRouter(request, env, url);
     if (publicLink) return withCors(publicLink, request, env);
 

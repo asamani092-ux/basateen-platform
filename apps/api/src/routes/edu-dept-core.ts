@@ -16,6 +16,7 @@ import { transferStudentCircle } from "../lib/edu-transfer";
 
 const EDU_SETTINGS_ROLES = ["edu_supervisor", "super_admin"] as const;
 const EDU_SUPERVISOR_ROLES = ["edu_supervisor", "super_admin"] as const;
+const TEACHER_ONLY_ROLES = ["teacher"] as const;
 const TEACHER_EDU_ROLES = ["teacher", "edu_supervisor", "super_admin"] as const;
 
 function json(data: unknown, status = 200): Response {
@@ -89,19 +90,25 @@ export async function handleEduDeptCoreRouter(
     }
     if (!(await hasTable(env, "edu_settings"))) return migrationRequired();
 
+    const hasRabt = await tableHasColumn(env, "edu_settings", "rabt_weight");
+
     if (request.method === "GET") {
       const row = await env.DB.prepare(
-        `SELECT weight_listening, weight_revision, weight_repeat, penalty_per_error, updated_at
-         FROM edu_settings WHERE complex_id = ?`,
+        hasRabt
+          ? `SELECT weight_listening, weight_revision, weight_repeat, rabt_weight, penalty_per_error, updated_at
+             FROM edu_settings WHERE complex_id = ?`
+          : `SELECT weight_listening, weight_revision, weight_repeat, penalty_per_error, updated_at
+             FROM edu_settings WHERE complex_id = ?`,
       )
         .bind(auth.complexId)
-        .first();
+        .first<Record<string, number>>();
       return json({
-        settings: row ?? {
-          weight_listening: 1,
-          weight_revision: 1,
-          weight_repeat: 1,
-          penalty_per_error: 0.5,
+        settings: {
+          weight_listening: row?.weight_listening ?? 1,
+          weight_revision: row?.weight_revision ?? 1,
+          weight_repeat: row?.weight_repeat ?? 1,
+          rabt_weight: hasRabt ? (row?.rabt_weight ?? 1) : 1,
+          penalty_per_error: row?.penalty_per_error ?? 0.5,
         },
       });
     }
@@ -116,19 +123,36 @@ export async function handleEduDeptCoreRouter(
       const wL = Number(body.weight_listening ?? 1);
       const wR = Number(body.weight_revision ?? 1);
       const wRep = Number(body.weight_repeat ?? 1);
+      const wRabt = Number(body.rabt_weight ?? 1);
       const pen = Number(body.penalty_per_error ?? 0.5);
-      await env.DB.prepare(
-        `INSERT INTO edu_settings (complex_id, weight_listening, weight_revision, weight_repeat, penalty_per_error, updated_at)
-         VALUES (?, ?, ?, ?, ?, datetime('now'))
-         ON CONFLICT(complex_id) DO UPDATE SET
-           weight_listening = excluded.weight_listening,
-           weight_revision = excluded.weight_revision,
-           weight_repeat = excluded.weight_repeat,
-           penalty_per_error = excluded.penalty_per_error,
-           updated_at = datetime('now')`,
-      )
-        .bind(auth.complexId, wL, wR, wRep, pen)
-        .run();
+      if (hasRabt) {
+        await env.DB.prepare(
+          `INSERT INTO edu_settings (complex_id, weight_listening, weight_revision, weight_repeat, rabt_weight, penalty_per_error, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(complex_id) DO UPDATE SET
+             weight_listening = excluded.weight_listening,
+             weight_revision = excluded.weight_revision,
+             weight_repeat = excluded.weight_repeat,
+             rabt_weight = excluded.rabt_weight,
+             penalty_per_error = excluded.penalty_per_error,
+             updated_at = datetime('now')`,
+        )
+          .bind(auth.complexId, wL, wR, wRep, wRabt, pen)
+          .run();
+      } else {
+        await env.DB.prepare(
+          `INSERT INTO edu_settings (complex_id, weight_listening, weight_revision, weight_repeat, penalty_per_error, updated_at)
+           VALUES (?, ?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(complex_id) DO UPDATE SET
+             weight_listening = excluded.weight_listening,
+             weight_revision = excluded.weight_revision,
+             weight_repeat = excluded.weight_repeat,
+             penalty_per_error = excluded.penalty_per_error,
+             updated_at = datetime('now')`,
+        )
+          .bind(auth.complexId, wL, wR, wRep, pen)
+          .run();
+      }
       return json({ ok: true });
     }
     return json({ error: "method_not_allowed" }, 405);
@@ -160,9 +184,9 @@ export async function handleEduDeptCoreRouter(
     return json({ items: items.results ?? [] });
   }
 
-  // --- Daily recitation ---
+  // --- Daily recitation (teacher only) ---
   if (path === "/api/edu-dept/daily-recitation") {
-    if (!requireRoles(auth, [...TEACHER_EDU_ROLES])) {
+    if (!requireRoles(auth, [...TEACHER_ONLY_ROLES])) {
       return json({ error: "forbidden" }, 403);
     }
     if (!(await hasTable(env, "edu_daily_recitation"))) return migrationRequired();
@@ -174,10 +198,8 @@ export async function handleEduDeptCoreRouter(
       if (!Number.isFinite(circleId) || circleId <= 0) {
         return json({ error: "circle_id_required" }, 400);
       }
-      if (auth.role === "teacher") {
-        const allowed = await teacherCircleIds(env, auth.userId);
-        if (!allowed.includes(circleId)) return json({ error: "forbidden" }, 403);
-      }
+      const allowed = await teacherCircleIds(env, auth.userId);
+      if (!allowed.includes(circleId)) return json({ error: "forbidden" }, 403);
       const students = await studentsInCircle(env, auth.complexId, circleId);
       const marks = await env.DB.prepare(
         `SELECT student_id, listened, repeated, revised, error_count, tune_errors, notes
@@ -237,10 +259,8 @@ export async function handleEduDeptCoreRouter(
       if (!Number.isFinite(cid) || cid <= 0) {
         return json({ error: "circle_id_required" }, 400);
       }
-      if (auth.role === "teacher") {
-        const allowed = await teacherCircleIds(env, auth.userId);
-        if (!allowed.includes(cid)) return json({ error: "forbidden" }, 403);
-      }
+      const allowedCircles = await teacherCircleIds(env, auth.userId);
+      if (!allowedCircles.includes(cid)) return json({ error: "forbidden" }, 403);
       const rows = body.rows ?? [];
       const stmts = rows.map((r) =>
         env.DB.prepare(

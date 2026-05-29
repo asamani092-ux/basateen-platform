@@ -52,6 +52,7 @@ FILES_UPGRADE=(
   "024_admin_department_alters.sql"
   "025_admin_tweaks.sql"
   "026_edu_department_core.sql"
+  "027_edu_mega_update.sql"
 )
 
 FILES_ALL=(

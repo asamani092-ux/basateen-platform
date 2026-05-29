@@ -12,6 +12,7 @@ export function EduSettingsPage() {
     weight_listening: 1,
     weight_revision: 1,
     weight_repeat: 1,
+    rabt_weight: 1,
     penalty_per_error: 0.5,
   });
   const [loading, setLoading] = useState(true);
@@ -33,6 +34,7 @@ export function EduSettingsPage() {
         weight_listening: Number(res.settings.weight_listening ?? 1),
         weight_revision: Number(res.settings.weight_revision ?? 1),
         weight_repeat: Number(res.settings.weight_repeat ?? 1),
+        rabt_weight: Number(res.settings.rabt_weight ?? 1),
         penalty_per_error: Number(res.settings.penalty_per_error ?? 0.5),
       });
     } catch (e) {
@@ -69,7 +71,7 @@ export function EduSettingsPage() {
           إعدادات التعليم
         </h2>
         <p className={ds.page.description} style={tajawal}>
-          أوزان تقييم المهام اليومية (السماع، التكرار، المراجعة، وخصم الأخطاء).
+          أوزان تقييم المهام اليومية (السماع، التكرار، المراجعة، الربط، وخصم الأخطاء).
         </p>
       </div>
 
@@ -105,6 +107,11 @@ export function EduSettingsPage() {
               label="درجة المراجعة"
               value={weights.weight_revision}
               onChange={(v) => setWeights((w) => ({ ...w, weight_revision: v }))}
+            />
+            <Field
+              label="درجة الربط"
+              value={weights.rabt_weight}
+              onChange={(v) => setWeights((w) => ({ ...w, rabt_weight: v }))}
             />
             <Field
               label="خصم لكل خطأ / لحن"

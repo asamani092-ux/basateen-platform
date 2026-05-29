@@ -393,6 +393,7 @@ export function resolveDevPreviewMock<T>(
         weight_listening: 1,
         weight_revision: 1,
         weight_repeat: 1,
+        rabt_weight: 1,
         penalty_per_error: 0.5,
       },
     } as T;
@@ -457,6 +458,82 @@ export function resolveDevPreviewMock<T>(
     return { ok: true, status: "approved" } as T;
   }
   if (p === "/api/edu-dept/transfers/manual" && m === "POST") {
+    return { ok: true } as T;
+  }
+
+  if (p === "/api/edu-dept/teacher-competitions" && m === "GET") {
+    return {
+      items: [{ id: 1, name_ar: "منافسة رمضان", start_date: date, end_date: null, created_at: date }],
+    } as T;
+  }
+  if (p === "/api/edu-dept/teacher-competitions" && m === "POST") {
+    return { ok: true, id: 2 } as T;
+  }
+  const tcDetail = p.match(/^\/api\/edu-dept\/teacher-competitions\/(\d+)$/);
+  if (tcDetail && m === "GET") {
+    const students = previewStore.getStudents().slice(0, 4);
+    return {
+      competition: { id: 1, name_ar: "منافسة تجريبية", start_date: date, end_date: null },
+      tasks: [
+        { id: 1, title_ar: "قراءة كتاب", weight_points: 2, sort_order: 1 },
+        { id: 2, title_ar: "حفظ إضافي", weight_points: 3, sort_order: 2 },
+      ],
+      students: students.map((s) => ({ id: s.id, full_name_ar: s.full_name_ar })),
+      scores: [],
+    } as T;
+  }
+  const tcTask = p.match(/^\/api\/edu-dept\/teacher-competitions\/(\d+)\/tasks$/);
+  if (tcTask && m === "POST") return { ok: true, id: 3 } as T;
+  const tcScores = p.match(/^\/api\/edu-dept\/teacher-competitions\/(\d+)\/scores$/);
+  if (tcScores && m === "POST") return { ok: true, saved: 1 } as T;
+
+  if (p === "/api/edu-dept/quranic-days" && m === "GET") {
+    return {
+      items: [
+        {
+          id: 1,
+          name_ar: "يوم الهمة",
+          event_date: date,
+          deduction_rules: { mistake_penalty: 1, alert_penalty: 0.5 },
+          has_magic_link: true,
+          is_active: 1,
+          created_at: date,
+        },
+      ],
+    } as T;
+  }
+  if (p === "/api/edu-dept/quranic-days" && m === "POST") {
+    return { ok: true, id: 2 } as T;
+  }
+  const qMagic = p.match(/^\/api\/edu-dept\/quranic-days\/(\d+)\/magic-link$/);
+  if (qMagic && m === "POST") {
+    const tok = "preview-quranic-day";
+    return {
+      ok: true,
+      token: tok,
+      public_path: `/public/quranic-day/${tok}`,
+      api_get: `/api/public/quranic-day/${tok}`,
+      api_post: `/api/public/quranic-day/${tok}`,
+    } as T;
+  }
+
+  const pubQ = p.match(/^\/api\/public\/quranic-day\/([^/]+)$/);
+  if (pubQ && m === "GET") {
+    return {
+      token: pubQ[1],
+      day: {
+        id: 1,
+        name_ar: "يوم الهمة (معاينة)",
+        event_date: date,
+        deduction_rules: { mistake_penalty: 1, alert_penalty: 0.5 },
+      },
+      students: previewStore.getStudents().slice(0, 8).map((s) => ({
+        student_id: s.id,
+        full_name_ar: s.full_name_ar,
+      })),
+    } as T;
+  }
+  if (pubQ && m === "POST") {
     return { ok: true } as T;
   }
 

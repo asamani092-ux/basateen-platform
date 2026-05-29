@@ -926,6 +926,7 @@ export const api = {
         weight_listening: number;
         weight_revision: number;
         weight_repeat: number;
+        rabt_weight: number;
         penalty_per_error: number;
       };
     }>("/api/edu-dept/settings"),
@@ -933,6 +934,7 @@ export const api = {
     weight_listening: number;
     weight_revision: number;
     weight_repeat: number;
+    rabt_weight: number;
     penalty_per_error: number;
   }) =>
     request<{ ok: boolean }>("/api/edu-dept/settings", {
@@ -1025,6 +1027,105 @@ export const api = {
     note?: string;
   }) =>
     request<{ ok: boolean }>("/api/edu-dept/transfers/manual", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  eduDeptTeacherCompetitionsList: () =>
+    request<{
+      items: Array<{
+        id: number;
+        name_ar: string;
+        start_date: string | null;
+        end_date: string | null;
+        created_at: string;
+      }>;
+    }>("/api/edu-dept/teacher-competitions"),
+  eduDeptTeacherCompetitionCreate: (body: {
+    name_ar: string;
+    start_date?: string;
+    end_date?: string;
+  }) =>
+    request<{ ok: boolean; id: number }>("/api/edu-dept/teacher-competitions", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  eduDeptTeacherCompetitionDetail: (id: number) =>
+    request<{
+      competition: { id: number; name_ar: string; start_date: string | null; end_date: string | null };
+      tasks: Array<{ id: number; title_ar: string; weight_points: number; sort_order: number }>;
+      students: Array<{ id: number; full_name_ar: string }>;
+      scores: Array<{ task_id: number; student_id: number; points: number }>;
+    }>(`/api/edu-dept/teacher-competitions/${id}`),
+  eduDeptTeacherCompetitionAddTask: (
+    compId: number,
+    body: { title_ar: string; weight_points?: number },
+  ) =>
+    request<{ ok: boolean; id: number }>(
+      `/api/edu-dept/teacher-competitions/${compId}/tasks`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  eduDeptTeacherCompetitionSaveScores: (
+    compId: number,
+    scores: Array<{ task_id: number; student_id: number; points: number }>,
+  ) =>
+    request<{ ok: boolean; saved: number }>(
+      `/api/edu-dept/teacher-competitions/${compId}/scores`,
+      { method: "POST", body: JSON.stringify({ scores }) },
+    ),
+  eduDeptQuranicDaysList: () =>
+    request<{
+      items: Array<{
+        id: number;
+        name_ar: string;
+        event_date: string;
+        deduction_rules: { mistake_penalty: number; alert_penalty: number };
+        has_magic_link: boolean;
+        is_active: number;
+        created_at: string;
+      }>;
+    }>("/api/edu-dept/quranic-days"),
+  eduDeptQuranicDayCreate: (body: {
+    name_ar: string;
+    event_date: string;
+    mistake_penalty?: number;
+    alert_penalty?: number;
+  }) =>
+    request<{ ok: boolean; id: number }>("/api/edu-dept/quranic-days", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  eduDeptQuranicDayMagicLink: (id: number) =>
+    request<{
+      ok: boolean;
+      token: string;
+      public_path: string;
+      api_get: string;
+      api_post: string;
+    }>(`/api/edu-dept/quranic-days/${id}/magic-link`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  publicQuranicDayGet: (token: string) =>
+    request<{
+      token: string;
+      day: {
+        id: number;
+        name_ar: string;
+        event_date: string;
+        deduction_rules: { mistake_penalty: number; alert_penalty: number };
+      };
+      students: Array<{ student_id: number; full_name_ar: string }>;
+    }>(`/api/public/quranic-day/${encodeURIComponent(token)}`),
+  publicQuranicDaySave: (
+    token: string,
+    body: {
+      student_id: number;
+      hizb_number: number;
+      mistakes: number;
+      alerts: number;
+    },
+  ) =>
+    request<{ ok: boolean }>(`/api/public/quranic-day/${encodeURIComponent(token)}`, {
       method: "POST",
       body: JSON.stringify(body),
     }),

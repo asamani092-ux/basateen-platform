@@ -12,6 +12,9 @@ import { LiveLogPage } from "./pages/live-log/LiveLogPage";
 import { EduSettingsPage } from "./pages/edu-dept/EduSettingsPage";
 import { DailyRecitationPage } from "./pages/edu-dept/DailyRecitationPage";
 import { StudentTransferPage } from "./pages/edu-dept/StudentTransferPage";
+import { TeacherCompetitionsPage } from "./pages/edu-dept/TeacherCompetitionsPage";
+import { QuranicDaysManagerPage } from "./pages/edu-dept/QuranicDaysManagerPage";
+import { PublicQuranicDayPage } from "./pages/public/PublicQuranicDayPage";
 import { MasterGridConsole } from "./pages/edu-supervisor/MasterGridConsole";
 import { EventsEngineConsole } from "./pages/edu-supervisor/EventsEngineConsole";
 import { StudentsPage } from "./pages/admin/StudentsPage";
@@ -48,6 +51,7 @@ export default function App() {
       <Route path="/live-log/:token" element={<LiveLogPage />} />
       <Route path="/quiz/:quizId" element={<QuizPublicPage />} />
       <Route path="/public/attendance/:token" element={<PublicMagicLinkPage />} />
+      <Route path="/public/quranic-day/:token" element={<PublicQuranicDayPage />} />
 
       <Route element={<RequireAuth />}>
         <Route path="welcome" element={<WelcomePage />} />
@@ -71,6 +75,8 @@ export default function App() {
                 <Route index element={<Navigate to="dashboard" replace />} />
                 <Route path="settings" element={<EduSettingsPage />} />
                 <Route path="daily-recitation" element={<DailyRecitationPage />} />
+                <Route path="teacher-competitions" element={<TeacherCompetitionsPage />} />
+                <Route path="quranic-days" element={<QuranicDaysManagerPage />} />
                 <Route path="transfer-requests" element={<StudentTransferPage />} />
                 <Route path="dashboard" element={<EduDashboardPage />} />
                 <Route path="master-grid" element={<MasterGridConsole />} />

@@ -32,6 +32,7 @@
     "db:local:024:core": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/024_admin_department.sql",
     "db:local:024:alters": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/024_admin_department_alters.sql",
     "db:local:026": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/026_edu_department_core.sql",
+    "db:local:027": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/027_edu_mega_update.sql",
     "db:local:all": "npm run db:local:001 && npm run db:local:002 && npm run db:local:003 && npm run db:local:004 && npm run db:local:005 && npm run db:local:006 && npm run db:local:007 && npm run db:local:008 && npm run db:local:009 && npm run db:local:010 && npm run db:local:011 && npm run db:local:012 && npm run db:local:013 && npm run db:local:014 && npm run db:local:015 && npm run db:local:016 && npm run db:local:017 && npm run db:local:018 && npm run db:local:019 && npm run db:local:020 && npm run db:local:023",
     "seed:edu-examples": "node ../../scripts/seed-edu-examples.mjs",
     "seed:prog-examples": "node ../../scripts/seed-prog-examples.mjs",

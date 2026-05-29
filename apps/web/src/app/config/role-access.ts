@@ -77,11 +77,23 @@ export const LEGACY_REDIRECTS: Record<string, string | "home"> = {
   "/teacher/daily-log": "/edu-dept/daily-recitation",
 };
 
+const TEACHER_ONLY_EDU_PATHS = [
+  "/edu-dept/daily-recitation",
+  "/edu-dept/teacher-competitions",
+];
+
 export function pathAllowedForRole(role: UserRole, pathname: string): boolean {
   if (pathname === "/login" || pathname === "/tv-live") return true;
   if (pathname.startsWith("/quiz/")) return true;
   if (pathname.startsWith("/live-log/")) return true;
   if (pathname.startsWith("/public/")) return true;
+
+  for (const prefix of TEACHER_ONLY_EDU_PATHS) {
+    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
+      return role === "teacher";
+    }
+  }
+
   for (const rule of PATH_RULES) {
     if (pathname === rule.prefix || pathname.startsWith(`${rule.prefix}/`)) {
       return rule.roles.includes(role);

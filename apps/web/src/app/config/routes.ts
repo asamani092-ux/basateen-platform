@@ -36,7 +36,19 @@ const EDU_DEPT_CORE_NAV: NavItem[] = [
     id: "daily-recitation",
     label: "الرصد اليومي",
     path: "/edu-dept/daily-recitation",
-    roles: ["teacher", "edu_supervisor", "super_admin"],
+    roles: ["teacher"],
+  },
+  {
+    id: "teacher-competitions",
+    label: "منافسات الحلقة",
+    path: "/edu-dept/teacher-competitions",
+    roles: ["teacher"],
+  },
+  {
+    id: "quranic-days",
+    label: "اليوم القرآني / يوم الهمة",
+    path: "/edu-dept/quranic-days",
+    roles: EDU_SUPERVISOR_ROLES,
   },
   {
     id: "transfer-requests",

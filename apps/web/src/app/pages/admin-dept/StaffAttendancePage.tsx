@@ -3,7 +3,6 @@ import { CheckCircle2 } from "lucide-react";
 import { AttendanceFilterBar } from "../../components/attendance/AttendanceFilterBar";
 import { Button } from "../../components/ui/button";
 import { Label } from "../../components/ui/label";
-import { Switch } from "../../components/ui/switch";
 import {
   Table,
   TableBody,
@@ -25,9 +24,25 @@ type Row = {
   status: string;
 };
 
-const NON_PRESENT: Array<{ value: "absent" | "excused"; label: string }> = [
-  { value: "absent", label: "غائب" },
-  { value: "excused", label: "مستأذن" },
+const STATUS_OPTIONS = [
+  {
+    value: "present" as const,
+    label: "حاضر",
+    active: "bg-primary text-primary-foreground ring-2 ring-primary",
+    idle: "bg-primary/15 text-primary border border-primary/30",
+  },
+  {
+    value: "excused" as const,
+    label: "مستأذن",
+    active: "bg-amber-600 text-white ring-2 ring-amber-600",
+    idle: "bg-amber-50 text-amber-900 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-100",
+  },
+  {
+    value: "absent" as const,
+    label: "غائب",
+    active: "bg-destructive text-destructive-foreground ring-2 ring-destructive",
+    idle: "bg-destructive/10 text-destructive border border-destructive/30",
+  },
 ];
 
 /**
@@ -79,10 +94,6 @@ export function StaffAttendancePage() {
     setRows((prev) =>
       prev.map((r) => (r.user_id === userId ? { ...r, status } : r)),
     );
-  }
-
-  function onPresentSwitch(userId: number, present: boolean) {
-    setStatus(userId, present ? "present" : "absent");
   }
 
   const roleOptions = useMemo(() => {
@@ -139,7 +150,7 @@ export function StaffAttendancePage() {
           تحضير المنسوبين
         </h2>
         <p className={ds.page.description} style={tajawal}>
-          الحالة الافتراضية «حاضر» — أوقف المفتاح لتسجيل غياب أو استئذان ثم احفظ.
+          الحالة الافتراضية «حاضر» — اختر مستأذن أو غائب ثم احفظ التحضير.
         </p>
       </div>
 
@@ -205,57 +216,42 @@ export function StaffAttendancePage() {
               <TableRow>
                 <TableHead style={tajawal}>الاسم</TableHead>
                 <TableHead style={tajawal}>الدور</TableHead>
-                <TableHead style={tajawal}>حاضر</TableHead>
-                <TableHead style={tajawal}>التفصيل</TableHead>
+                <TableHead style={tajawal}>الحالة</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredRows.map((r) => {
-                const isPresent = r.status === "present";
-                return (
-                  <TableRow key={r.user_id}>
-                    <TableCell className="font-medium" style={tajawal}>
-                      {r.full_name_ar}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground" style={tajawal}>
-                      {r.role ?? "—"}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Switch
-                          checked={isPresent}
-                          disabled={committing}
-                          onCheckedChange={(on) => onPresentSwitch(r.user_id, on)}
-                          aria-label={`حضور ${r.full_name_ar}`}
-                        />
-                        <span className="text-sm" style={tajawal}>
-                          {isPresent ? "حاضر" : "غير حاضر"}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {!isPresent && (
-                        <div className="flex flex-wrap gap-2">
-                          {NON_PRESENT.map((opt) => (
-                            <button
-                              key={opt.value}
-                              type="button"
-                              disabled={committing}
-                              onClick={() => setStatus(r.user_id, opt.value)}
-                              className={`min-w-[4rem] h-9 px-3 rounded-full text-xs font-medium touch-manipulation ${
-                                r.status === opt.value ? ds.tab.active : ds.tab.idle
-                              }`}
-                              style={tajawal}
-                            >
-                              {opt.label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
+              {filteredRows.map((r) => (
+                <TableRow key={r.user_id}>
+                  <TableCell className="font-medium" style={tajawal}>
+                    {r.full_name_ar}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground" style={tajawal}>
+                    {r.role ?? "—"}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-2">
+                      {STATUS_OPTIONS.map((opt) => {
+                        const isActive = r.status === opt.value;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            disabled={committing}
+                            onClick={() => setStatus(r.user_id, opt.value)}
+                            className={`min-w-[4.5rem] h-10 px-3 rounded-full text-sm font-medium touch-manipulation transition ${
+                              isActive ? opt.active : opt.idle
+                            }`}
+                            style={tajawal}
+                            aria-pressed={isActive}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
         )}

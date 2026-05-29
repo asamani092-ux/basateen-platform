@@ -100,6 +100,8 @@ export type AdminTrackRow = {
   name_ar: string;
   default_capacity: number;
   is_active: number;
+  supervisor_id?: number;
+  supervisor_name?: string | null;
   stage_ids: number[];
   circle_ids: number[];
   circles: Array<{ id: number; name_ar: string }>;
@@ -518,7 +520,8 @@ export const api = {
   adminTracksCreate: (body: {
     name_ar: string;
     default_capacity: number;
-    stage_ids: number[];
+    supervisor_id?: number;
+    stage_ids?: number[];
     circle_ids?: number[];
   }) =>
     request<{ ok: boolean; id: number }>("/api/admin/tracks", {

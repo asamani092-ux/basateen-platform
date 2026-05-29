@@ -50,7 +50,7 @@ export function StaffManagementPage() {
     <div className="space-y-6 max-w-[1600px] mx-auto">
       <div>
         <h2 className={ds.page.title} style={tajawal}>
-          إدارة الموظفين
+          إدارة المنسوبين
         </h2>
         <p className={ds.page.description} style={tajawal}>
           حصرياً للمدير العام — إضافة المعلمين والمشرفين وربط الجوال

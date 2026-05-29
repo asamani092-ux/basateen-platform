@@ -8,7 +8,7 @@ import {
 } from "../lib/circle-capacity";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 import { usersHaveRoleColumn } from "../lib/db-user";
-import { activePlacementSql, hasTable } from "../lib/db-schema";
+import { activePlacementSql, hasTable, tableHasColumn } from "../lib/db-schema";
 
 const GM_ONLY: UserRole[] = ["super_admin"];
 const DEFAULT_PASSWORD = "Basateen123!";
@@ -143,14 +143,36 @@ export async function handleAdminSupervisorsList(
   const denied = requireGm(auth);
   if (denied) return denied;
 
-  const rows = await env.DB.prepare(
-    `SELECT id, full_name_ar, mobile, role, COALESCE(supervisor_scope, 'global') AS supervisor_scope, is_active
-     FROM users
-     WHERE complex_id = ? AND role IN ('edu_supervisor', 'prog_supervisor', 'admin_supervisor', 'general_supervisor')
-     ORDER BY full_name_ar`,
-  )
-    .bind(auth!.complexId)
-    .all();
+  const hasRole = await usersHaveRoleColumn(env);
+  const rows = hasRole
+    ? await env.DB.prepare(
+        `SELECT id, full_name_ar, mobile, role, COALESCE(supervisor_scope, 'global') AS supervisor_scope, is_active
+         FROM users
+         WHERE complex_id = ? AND role IN ('edu_supervisor', 'prog_supervisor', 'admin_supervisor', 'general_supervisor')
+         ORDER BY full_name_ar`,
+      )
+        .bind(auth!.complexId)
+        .all()
+    : await env.DB.prepare(
+        `SELECT id, full_name_ar, mobile, is_active,
+                CASE
+                  WHEN COALESCE(is_track_supervisor, 0) = 1 THEN 'track_supervisor'
+                  WHEN COALESCE(is_educational, 0) = 1 THEN 'edu_supervisor'
+                  WHEN COALESCE(is_programs, 0) = 1 THEN 'prog_supervisor'
+                  WHEN COALESCE(is_admin, 0) = 1 THEN 'admin_supervisor'
+                  ELSE 'admin_supervisor'
+                END AS role,
+                COALESCE(stage_scope, 'global') AS supervisor_scope
+         FROM users
+         WHERE complex_id = ? AND is_active = 1
+           AND (
+             COALESCE(is_track_supervisor, 0) = 1 OR COALESCE(is_educational, 0) = 1 OR
+             COALESCE(is_programs, 0) = 1 OR COALESCE(is_admin, 0) = 1
+           )
+         ORDER BY full_name_ar`,
+      )
+        .bind(auth!.complexId)
+        .all();
 
   return json({ items: rows.results ?? [] });
 }
@@ -501,6 +523,63 @@ export async function handleAdminTracksList(
   const denied = requireGm(auth);
   if (denied) return denied;
 
+  const hasSupervisorCol = await tableHasColumn(env, "tracks", "supervisor_id");
+  const hasTrackStages = await hasTable(env, "track_stages");
+  const hasStudentsCurrentTrack = await tableHasColumn(
+    env,
+    "students",
+    "current_track_id",
+  );
+
+  if (hasSupervisorCol && !hasTrackStages) {
+    const tracks = await env.DB.prepare(
+      `SELECT t.id, t.name_ar, t.supervisor_id,
+              COALESCE(t.default_capacity, 20) AS default_capacity,
+              COALESCE(t.is_active, 1) AS is_active,
+              u.full_name_ar AS supervisor_name
+       FROM tracks t
+       LEFT JOIN users u ON u.id = t.supervisor_id
+       WHERE t.complex_id = ?
+       ORDER BY t.name_ar`,
+    )
+      .bind(auth!.complexId)
+      .all<{
+        id: number;
+        name_ar: string;
+        supervisor_id: number;
+        supervisor_name: string | null;
+        default_capacity: number;
+        is_active: number;
+      }>();
+
+    const items = [];
+    for (const t of tracks.results ?? []) {
+      let studentCount = 0;
+      if (hasStudentsCurrentTrack) {
+        const sc = await env.DB.prepare(
+          `SELECT COUNT(*) AS c FROM students
+           WHERE current_track_id = ? AND complex_id = ? AND is_active = 1`,
+        )
+          .bind(t.id, auth!.complexId)
+          .first<{ c: number }>();
+        studentCount = sc?.c ?? 0;
+      }
+      items.push({
+        id: t.id,
+        name_ar: t.name_ar,
+        default_capacity: t.default_capacity,
+        is_active: t.is_active,
+        supervisor_id: t.supervisor_id,
+        supervisor_name: t.supervisor_name,
+        stage_ids: [] as number[],
+        circle_ids: [] as number[],
+        circles: [] as Array<{ id: number; name_ar: string }>,
+        student_count: studentCount,
+      });
+    }
+    return json({ items });
+  }
+
   const tracks = await env.DB.prepare(
     `SELECT t.id, t.name_ar, COALESCE(t.default_capacity, 20) AS default_capacity,
             COALESCE(t.is_active, 1) AS is_active
@@ -516,36 +595,54 @@ export async function handleAdminTracksList(
       is_active: number;
     }>();
 
+  const activePlacement = await activePlacementSql(env, "h");
   const items = [];
   for (const t of tracks.results ?? []) {
-    const stages = await env.DB.prepare(
-      `SELECT stage_id FROM track_stages WHERE track_id = ? ORDER BY stage_id`,
-    )
-      .bind(t.id)
-      .all<{ stage_id: number }>();
+    const stages = hasTrackStages
+      ? await env.DB.prepare(
+          `SELECT stage_id FROM track_stages WHERE track_id = ? ORDER BY stage_id`,
+        )
+          .bind(t.id)
+          .all<{ stage_id: number }>()
+      : { results: [] as { stage_id: number }[] };
 
-    const circles = await env.DB.prepare(
-      `SELECT c.id, c.name_ar FROM track_circles tc
-       JOIN circles c ON c.id = tc.circle_id
-       WHERE tc.track_id = ?`,
-    )
-      .bind(t.id)
-      .all<{ id: number; name_ar: string }>();
+    const hasTrackCircles = await hasTable(env, "track_circles");
+    const circles = hasTrackCircles
+      ? await env.DB.prepare(
+          `SELECT c.id, c.name_ar FROM track_circles tc
+           JOIN circles c ON c.id = tc.circle_id
+           WHERE tc.track_id = ?`,
+        )
+          .bind(t.id)
+          .all<{ id: number; name_ar: string }>()
+      : { results: [] as { id: number; name_ar: string }[] };
 
-    const studentCount = await env.DB.prepare(
-      `SELECT COUNT(DISTINCT h.student_id) AS c
-       FROM student_circle_history h
-       WHERE h.track_id = ? AND h.to_at IS NULL AND h.frozen_at IS NULL`,
-    )
-      .bind(t.id)
-      .first<{ c: number }>();
+    let studentCount = 0;
+    if (hasStudentsCurrentTrack) {
+      const sc = await env.DB.prepare(
+        `SELECT COUNT(*) AS c FROM students
+         WHERE current_track_id = ? AND complex_id = ? AND is_active = 1`,
+      )
+        .bind(t.id, auth!.complexId)
+        .first<{ c: number }>();
+      studentCount = sc?.c ?? 0;
+    } else {
+      const sc = await env.DB.prepare(
+        `SELECT COUNT(DISTINCT h.student_id) AS c
+         FROM student_circle_history h
+         WHERE h.track_id = ? AND ${activePlacement}`,
+      )
+        .bind(t.id)
+        .first<{ c: number }>();
+      studentCount = sc?.c ?? 0;
+    }
 
     items.push({
       ...t,
       stage_ids: (stages.results ?? []).map((s) => s.stage_id),
       circle_ids: (circles.results ?? []).map((c) => c.id),
       circles: circles.results ?? [],
-      student_count: studentCount?.c ?? 0,
+      student_count: studentCount,
     });
   }
 
@@ -563,6 +660,7 @@ export async function handleAdminTracksCreate(
   let body: {
     name_ar?: string;
     default_capacity?: number;
+    supervisor_id?: number;
     stage_ids?: number[];
     circle_ids?: number[];
   };
@@ -578,38 +676,88 @@ export async function handleAdminTracksCreate(
     return json({ error: "default_capacity_required" }, 400);
   }
 
+  const hasSupervisorCol = await tableHasColumn(env, "tracks", "supervisor_id");
+  const hasTrackStages = await hasTable(env, "track_stages");
+
+  if (hasSupervisorCol && !hasTrackStages) {
+    const supervisorId = Number(body.supervisor_id);
+    if (!Number.isFinite(supervisorId)) {
+      return json({ error: "supervisor_required" }, 400);
+    }
+    const sup = await env.DB.prepare(
+      `SELECT id FROM users WHERE id = ? AND complex_id = ? AND is_active = 1`,
+    )
+      .bind(supervisorId, auth!.complexId)
+      .first<{ id: number }>();
+    if (!sup) return json({ error: "supervisor_not_found" }, 404);
+
+    const ins = await env.DB.prepare(
+      `INSERT INTO tracks (complex_id, name_ar, supervisor_id, default_capacity)
+       VALUES (?, ?, ?, ?)`,
+    )
+      .bind(auth!.complexId, body.name_ar.trim(), supervisorId, defaultCapacity)
+      .run();
+
+    return json({ ok: true, id: ins.meta.last_row_id as number });
+  }
+
   const stageIds = (body.stage_ids ?? []).filter(
     (s) => Number.isFinite(s) && s >= 1 && s <= 4,
   );
   if (stageIds.length === 0) return json({ error: "stage_ids_required" }, 400);
 
+  const cols = ["complex_id", "name_ar", "default_capacity"];
+  const vals: (string | number)[] = [
+    auth!.complexId,
+    body.name_ar.trim(),
+    defaultCapacity,
+  ];
+  if (hasSupervisorCol && body.supervisor_id != null) {
+    const supervisorId = Number(body.supervisor_id);
+    if (!Number.isFinite(supervisorId)) {
+      return json({ error: "supervisor_required" }, 400);
+    }
+    cols.push("supervisor_id");
+    vals.push(supervisorId);
+  }
+
   const ins = await env.DB.prepare(
-    `INSERT INTO tracks (complex_id, name_ar, default_capacity) VALUES (?, ?, ?)`,
+    `INSERT INTO tracks (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`,
   )
-    .bind(auth!.complexId, body.name_ar.trim(), defaultCapacity)
+    .bind(...vals)
     .run();
 
   const trackId = ins.meta.last_row_id as number;
 
-  for (const stageId of stageIds) {
-    await env.DB.prepare(
-      `INSERT OR IGNORE INTO track_stages (track_id, stage_id) VALUES (?, ?)`,
-    )
-      .bind(trackId, stageId)
-      .run();
+  if (hasTrackStages) {
+    for (const stageId of stageIds) {
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO track_stages (track_id, stage_id) VALUES (?, ?)`,
+      )
+        .bind(trackId, stageId)
+        .run();
+    }
   }
 
-  for (const circleId of body.circle_ids ?? []) {
-    const cid = Number(circleId);
-    if (!Number.isFinite(cid)) continue;
-    await env.DB.prepare(
-      `INSERT OR IGNORE INTO track_circles (track_id, circle_id) VALUES (?, ?)`,
-    )
-      .bind(trackId, cid)
-      .run();
-    await env.DB.prepare(`UPDATE circles SET track_id = ? WHERE id = ? AND complex_id = ?`)
-      .bind(trackId, cid, auth!.complexId)
-      .run();
+  const hasTrackCircles = await hasTable(env, "track_circles");
+  if (hasTrackCircles) {
+    for (const circleId of body.circle_ids ?? []) {
+      const cid = Number(circleId);
+      if (!Number.isFinite(cid)) continue;
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO track_circles (track_id, circle_id) VALUES (?, ?)`,
+      )
+        .bind(trackId, cid)
+        .run();
+      const hasCircleTrack = await tableHasColumn(env, "circles", "track_id");
+      if (hasCircleTrack) {
+        await env.DB.prepare(
+          `UPDATE circles SET track_id = ? WHERE id = ? AND complex_id = ?`,
+        )
+          .bind(trackId, cid, auth!.complexId)
+          .run();
+      }
+    }
   }
 
   return json({ ok: true, id: trackId });
@@ -666,7 +814,7 @@ export async function handleAdminTracksPatch(
       .bind(body.is_active ? 1 : 0, trackId)
       .run();
   }
-  if (body.stage_ids) {
+  if (body.stage_ids && (await hasTable(env, "track_stages"))) {
     await env.DB.prepare(`DELETE FROM track_stages WHERE track_id = ?`)
       .bind(trackId)
       .run();
@@ -680,10 +828,11 @@ export async function handleAdminTracksPatch(
       }
     }
   }
-  if (body.circle_ids) {
+  if (body.circle_ids && (await hasTable(env, "track_circles"))) {
     await env.DB.prepare(`DELETE FROM track_circles WHERE track_id = ?`)
       .bind(trackId)
       .run();
+    const hasCircleTrack = await tableHasColumn(env, "circles", "track_id");
     for (const cid of body.circle_ids) {
       const circleId = Number(cid);
       if (!Number.isFinite(circleId)) continue;
@@ -692,11 +841,13 @@ export async function handleAdminTracksPatch(
       )
         .bind(trackId, circleId)
         .run();
-      await env.DB.prepare(
-        `UPDATE circles SET track_id = ? WHERE id = ? AND complex_id = ?`,
-      )
-        .bind(trackId, circleId, auth!.complexId)
-        .run();
+      if (hasCircleTrack) {
+        await env.DB.prepare(
+          `UPDATE circles SET track_id = ? WHERE id = ? AND complex_id = ?`,
+        )
+          .bind(trackId, circleId, auth!.complexId)
+          .run();
+      }
     }
   }
 

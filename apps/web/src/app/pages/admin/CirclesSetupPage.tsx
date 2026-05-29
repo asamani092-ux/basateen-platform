@@ -23,6 +23,7 @@ import {
   api,
   type AdminCircleRow,
   type AdminTrackRow,
+  type StaffSupervisorRow,
   type StaffTeacherRow,
 } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
@@ -388,9 +389,11 @@ function CirclesPanel() {
 function TracksPanel() {
   const [items, setItems] = useState<AdminTrackRow[]>([]);
   const [circles, setCircles] = useState<AdminCircleRow[]>([]);
+  const [supervisors, setSupervisors] = useState<StaffSupervisorRow[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
   const [defaultCapacity, setDefaultCapacity] = useState("20");
+  const [supervisorId, setSupervisorId] = useState("");
   const [selectedStages, setSelectedStages] = useState<number[]>([3, 4]);
   const [selectedCircles, setSelectedCircles] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
@@ -406,12 +409,19 @@ function TracksPanel() {
     }
     setLoading(true);
     try {
-      const [tr, c] = await Promise.all([
+      const [tr, c, sup] = await Promise.all([
         api.adminTracks(),
         api.adminCirclesSummary(),
+        api.adminSupervisors(),
       ]);
       setItems(tr.items);
       setCircles(c.items);
+      const trackSup = (sup.items ?? []).filter((s) =>
+        ["track_supervisor", "admin_supervisor", "general_supervisor"].includes(
+          s.role,
+        ),
+      );
+      setSupervisors(trackSup.length > 0 ? trackSup : sup.items ?? []);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل التحميل");
@@ -438,6 +448,10 @@ function TracksPanel() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!supervisorId) {
+      setError("اختر مشرف المسار");
+      return;
+    }
     if (selectedStages.length === 0) {
       setError("اختر مرحلة واحدة على الأقل للمسار");
       return;
@@ -448,11 +462,13 @@ function TracksPanel() {
       await api.adminTracksCreate({
         name_ar: name.trim(),
         default_capacity: Number(defaultCapacity),
+        supervisor_id: Number(supervisorId),
         stage_ids: selectedStages,
         circle_ids: selectedCircles,
       });
       setShowForm(false);
       setName("");
+      setSupervisorId("");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "فشل الحفظ");
@@ -512,6 +528,30 @@ function TracksPanel() {
                   required
                 />
               </div>
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-semibold mb-1" style={tajawal}>
+                  مشرف المسار *
+                </label>
+                <select
+                  value={supervisorId}
+                  onChange={(e) => setSupervisorId(e.target.value)}
+                  className={`w-full border border-border px-3 py-2 ${ds.btnRound}`}
+                  required
+                  style={tajawal}
+                >
+                  <option value="">— اختر المشرف —</option>
+                  {supervisors.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.full_name_ar}
+                    </option>
+                  ))}
+                </select>
+                {supervisors.length === 0 && (
+                  <p className="text-xs text-muted-foreground mt-1" style={tajawal}>
+                    أضف مشرفاً من تبويب «المشرفون» في إدارة المنسوبين أولاً.
+                  </p>
+                )}
+              </div>
             </div>
             <div>
               <p className="text-sm font-semibold mb-2" style={tajawal}>
@@ -567,6 +607,7 @@ function TracksPanel() {
             <TableHeader>
               <TableRow>
                 <TableHead style={tajawal}>المسار</TableHead>
+                <TableHead style={tajawal}>مشرف المسار</TableHead>
                 <TableHead style={tajawal}>المراحل</TableHead>
                 <TableHead style={tajawal}>الحلقات</TableHead>
                 <TableHead style={tajawal}>الطلاب</TableHead>
@@ -577,7 +618,14 @@ function TracksPanel() {
                 <TableRow key={t.id}>
                   <TableCell style={tajawal}>{t.name_ar}</TableCell>
                   <TableCell style={tajawal}>
-                    {t.stage_ids.map((id) => stageLabel(id as StageId)).join(" · ")}
+                    {t.supervisor_name ?? "—"}
+                  </TableCell>
+                  <TableCell style={tajawal}>
+                    {t.stage_ids.length > 0
+                      ? t.stage_ids
+                          .map((id) => stageLabel(id as StageId))
+                          .join(" · ")
+                      : "—"}
                   </TableCell>
                   <TableCell style={tajawal}>
                     {t.circles.map((c) => c.name_ar).join("، ") || "—"}

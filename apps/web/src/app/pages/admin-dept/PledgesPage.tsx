@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { FileText, Printer } from "lucide-react";
+import { StudentSearchSelect } from "../../components/admin/StudentSearchSelect";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -8,7 +9,7 @@ import { canUseApi } from "../../lib/api-access";
 import { ds, tajawal } from "../../lib/design-system";
 
 export function PledgesPage() {
-  const [studentId, setStudentId] = useState("");
+  const [studentId, setStudentId] = useState<number | null>(null);
   const [reason, setReason] = useState("");
   const [pledgeDate, setPledgeDate] = useState(() =>
     new Date().toISOString().slice(0, 10),
@@ -22,9 +23,8 @@ export function PledgesPage() {
 
   async function addPledge(e: React.FormEvent) {
     e.preventDefault();
-    const sid = Number(studentId);
-    if (!canUseApi() || !Number.isFinite(sid) || !reason.trim()) {
-      setError("أدخل رقم الطالب وسبب التعهد");
+    if (!canUseApi() || studentId == null || !reason.trim()) {
+      setError("اختر الطالب وأدخل سبب التعهد");
       return;
     }
     setSubmitting(true);
@@ -32,13 +32,13 @@ export function PledgesPage() {
     setAlertMsg(null);
     try {
       const res = await api.adminDeptAddPledge({
-        student_id: sid,
+        student_id: studentId,
         reason_ar: reason.trim(),
         pledge_date: pledgeDate,
       });
       if (res.threshold_reached && res.alert) setAlertMsg(res.alert);
       setReason("");
-      await loadReport(sid);
+      await loadReport(studentId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "فشل إضافة التعهد");
     } finally {
@@ -47,8 +47,8 @@ export function PledgesPage() {
   }
 
   async function loadReport(sid?: number) {
-    const id = sid ?? Number(studentId);
-    if (!canUseApi() || !Number.isFinite(id)) return;
+    const id = sid ?? studentId;
+    if (!canUseApi() || id == null) return;
     setError(null);
     try {
       const res = await api.adminDeptPledgeReport(id);
@@ -95,14 +95,15 @@ export function PledgesPage() {
         className={`${ds.card} p-4 space-y-4 print:hidden`}
       >
         <div className="grid sm:grid-cols-2 gap-3">
-          <div className="space-y-2">
-            <Label style={tajawal}>رقم الطالب *</Label>
-            <Input
-              type="number"
+          <div className="space-y-2 sm:col-span-2">
+            <Label style={tajawal}>الطالب *</Label>
+            <StudentSearchSelect
               value={studentId}
-              onChange={(e) => setStudentId(e.target.value)}
-              className={ds.btnRound}
-              dir="ltr"
+              onChange={(id) => {
+                setStudentId(id);
+                setReport(null);
+              }}
+              disabled={submitting}
             />
           </div>
           <div className="space-y-2">
@@ -138,6 +139,7 @@ export function PledgesPage() {
             variant="outline"
             className={ds.btnRound}
             onClick={() => loadReport()}
+            disabled={studentId == null}
             style={tajawal}
           >
             <FileText className="w-4 h-4" />
@@ -154,8 +156,7 @@ export function PledgesPage() {
                 تقرير تعهدات الطالب
               </h3>
               <p className="text-sm text-muted-foreground" style={tajawal}>
-                {String(report.student?.full_name_ar ?? "")} — رقم{" "}
-                {String(report.student?.id ?? studentId)}
+                {String(report.student?.full_name_ar ?? "")}
               </p>
             </div>
             <Button

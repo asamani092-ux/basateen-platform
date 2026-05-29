@@ -35,7 +35,6 @@ import { PledgesPage } from "./pages/admin-dept/PledgesPage";
 import { AdminReportsPage } from "./pages/admin-dept/AdminReportsPage";
 import { StaffManagementPage } from "./pages/admin/StaffManagementPage";
 import { CirclesSetupPage } from "./pages/admin/CirclesSetupPage";
-import { StatisticsPage } from "./pages/admin/StatisticsPage";
 import { STAFF_ROLES } from "./config/role-access";
 
 export default function App() {
@@ -68,7 +67,10 @@ export default function App() {
                 element={<Navigate to="/super-admin/staff" replace />}
               />
               <Route path="super-admin/circles-setup" element={<CirclesSetupPage />} />
-              <Route path="super-admin/statistics" element={<StatisticsPage />} />
+              <Route
+                path="super-admin/statistics"
+                element={<Navigate to="/admin-dept/reports" replace />}
+              />
 
               <Route path="edu-dept" element={<EduSupervisorLayout />}>
                 <Route index element={<Navigate to="dashboard" replace />} />
@@ -103,7 +105,7 @@ export default function App() {
 
               <Route path="admin/staff" element={<Navigate to="/super-admin/staff" replace />} />
               <Route path="admin/circles-setup" element={<Navigate to="/super-admin/circles-setup" replace />} />
-              <Route path="admin/statistics" element={<Navigate to="/super-admin/statistics" replace />} />
+              <Route path="admin/statistics" element={<Navigate to="/admin-dept/reports" replace />} />
               <Route path="edu-supervisor/*" element={<Navigate to="/edu-dept/dashboard" replace />} />
               <Route path="general-supervisor/*" element={<Navigate to="/admin-dept/staff-attendance" replace />} />
               <Route path="prog-supervisor/*" element={<Navigate to="/prog-dept/quizzes" replace />} />

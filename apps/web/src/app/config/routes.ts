@@ -11,14 +11,13 @@ const ADMIN_DEPT_ROLES: UserRole[] = ["admin_supervisor", "super_admin"];
 
 /** المشرف السيادي — إدارة المجمع */
 export const SUPER_ADMIN_NAV: NavItem[] = [
-  { id: "staff", label: "إدارة الموظفين", path: "/super-admin/staff", roles: ["super_admin"] },
+  { id: "staff", label: "إدارة المنسوبين", path: "/super-admin/staff", roles: ["super_admin"] },
   {
     id: "circles-setup",
     label: "إعداد الحلقات والمسارات",
     path: "/super-admin/circles-setup",
     roles: ["super_admin"],
   },
-  { id: "statistics", label: "إحصائيات المجمع", path: "/super-admin/statistics", roles: ["super_admin"] },
 ];
 
 /** القسم التعليمي */

@@ -5,7 +5,13 @@ export function normalizeAttendanceStatus(raw: string | null | undefined): strin
     .toLowerCase();
   if (!t || t === "present" || t === "حاضر" || t === "p") return "present";
   if (t === "absent" || t === "غائب" || t === "a") return "absent";
-  if (t === "excused" || t === "معتذر" || t === "e" || t === "excuse") {
+  if (
+    t === "excused" ||
+    t === "معتذر" ||
+    t === "مستأذن" ||
+    t === "e" ||
+    t === "excuse"
+  ) {
     return "excused";
   }
   return "present";

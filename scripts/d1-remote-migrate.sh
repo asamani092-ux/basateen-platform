@@ -50,6 +50,7 @@ FILES_UPGRADE=(
   "021_reciter_gate.sql"
   "024_admin_department.sql"
   "024_admin_department_alters.sql"
+  "025_admin_tweaks.sql"
 )
 
 FILES_ALL=(

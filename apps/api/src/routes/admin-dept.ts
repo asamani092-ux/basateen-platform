@@ -5,10 +5,18 @@ import {
   requireAuth,
   requireRoles,
 } from "../middleware/auth";
-import { hasTable, tableHasColumn } from "../lib/db-schema";
+import {
+  circleLabelRow,
+  studentCircleScopeSql,
+  syncStudentPlacementColumns,
+  validateCircleStage,
+} from "../lib/admin-dept-schema";
+import { activePlacementSql, hasTable, tableHasColumn } from "../lib/db-schema";
 import { STAGE_LABELS } from "../lib/dept-scope";
 import { randomMagicToken } from "../lib/magic-link";
+import { assignStudentCircle } from "../lib/placement";
 import {
+  resolveAttendanceTableName,
   upsertStudentAttendance,
   type AttendanceStatus,
 } from "../lib/student-attendance-db";
@@ -99,22 +107,31 @@ async function getMaxPledges(env: Env, complexId: number): Promise<number> {
 }
 
 async function bumpPledgeSummary(env: Env, studentId: number): Promise<number> {
-  await env.DB.prepare(
-    `INSERT INTO student_disciplinary_summary (student_id, pledge_count, updated_at)
-     VALUES (?, 1, datetime('now'))
-     ON CONFLICT(student_id) DO UPDATE SET
-       pledge_count = pledge_count + 1,
-       updated_at = datetime('now')`,
-  )
-    .bind(studentId)
-    .run();
+  if (await hasTable(env, "student_disciplinary_summary")) {
+    await env.DB.prepare(
+      `INSERT INTO student_disciplinary_summary (student_id, pledge_count, updated_at)
+       VALUES (?, 1, datetime('now'))
+       ON CONFLICT(student_id) DO UPDATE SET
+         pledge_count = pledge_count + 1,
+         updated_at = datetime('now')`,
+    )
+      .bind(studentId)
+      .run();
+
+    const row = await env.DB.prepare(
+      `SELECT pledge_count FROM student_disciplinary_summary WHERE student_id = ?`,
+    )
+      .bind(studentId)
+      .first<{ pledge_count: number }>();
+    return Number(row?.pledge_count ?? 0);
+  }
 
   const row = await env.DB.prepare(
-    `SELECT pledge_count FROM student_disciplinary_summary WHERE student_id = ?`,
+    `SELECT COUNT(*) AS c FROM student_pledges WHERE student_id = ?`,
   )
     .bind(studentId)
-    .first<{ pledge_count: number }>();
-  return Number(row?.pledge_count ?? 0);
+    .first<{ c: number }>();
+  return Number(row?.c ?? 0);
 }
 
 export async function handleAdminDeptRouter(
@@ -125,6 +142,27 @@ export async function handleAdminDeptRouter(
   const path = url.pathname;
   if (!path.startsWith("/api/admin-dept/")) return null;
 
+  try {
+    return await handleAdminDeptRouterImpl(request, env, url, path);
+  } catch (error: unknown) {
+    console.error("[admin-dept] uncaught:", error);
+    return json(
+      {
+        error: "admin_dept_error",
+        message:
+          error instanceof Error ? error.message : "Uncaught admin-dept error",
+      },
+      500,
+    );
+  }
+}
+
+async function handleAdminDeptRouterImpl(
+  request: Request,
+  env: Env,
+  url: URL,
+  path: string,
+): Promise<Response | null> {
   const auth = await getAuth(request, env);
   const admin = await requireAdminDept(auth);
   if (!admin) {
@@ -221,24 +259,34 @@ export async function handleAdminDeptRouter(
     }
 
     const date = url.searchParams.get("date")?.trim() || todayIso();
+    const attTable = await resolveAttendanceTableName(env);
+    if (!attTable) {
+      return json({ error: "migration_required", table: "student_attendance" }, 503);
+    }
+    const attSourceCol = (await tableHasColumn(env, attTable, "source"))
+      ? ", sa.source"
+      : "";
+    const scope = await studentCircleScopeSql(env);
     const rows = await env.DB.prepare(
-      `SELECT s.id AS student_id, s.full_name_ar, s.stage_id,
+      `SELECT s.id AS student_id, s.full_name_ar,
+              COALESCE(s.stage_id, 0) AS stage_id,
               COALESCE(sa.status, 'present') AS status,
-              sa.recorded_at, sa.source
+              sa.recorded_at${attSourceCol}
        FROM students s
-       LEFT JOIN student_attendance sa
+       ${scope.joinSql}
+       LEFT JOIN ${attTable} sa
          ON sa.student_id = s.id AND sa.attendance_date = ?
-       WHERE s.complex_id = ? AND s.is_active = 1 AND s.current_circle_id = ?
+       WHERE s.complex_id = ? AND s.is_active = 1 AND ${scope.circlePredicate}
        ORDER BY s.full_name_ar`,
     )
-      .bind(date, admin.complexId, circleId)
+      .bind(
+        ...(scope.usesFlatColumn
+          ? [date, admin.complexId, circleId]
+          : [circleId, date, admin.complexId]),
+      )
       .all();
 
-    const circle = await env.DB.prepare(
-      `SELECT id, name_ar, stage FROM circles WHERE id = ?`,
-    )
-      .bind(circleId)
-      .first<{ id: number; name_ar: string; stage: string }>();
+    const circle = await circleLabelRow(env, circleId);
 
     return json({
       attendance_date: date,
@@ -279,21 +327,30 @@ export async function handleAdminDeptRouter(
       const status = parseStatus(rec.status);
       if (!Number.isFinite(studentId) || !status) continue;
 
+      const scope = await studentCircleScopeSql(env);
       const allowed = await env.DB.prepare(
-        `SELECT id FROM students
-         WHERE id = ? AND complex_id = ? AND is_active = 1 AND current_circle_id = ?`,
+        `SELECT s.id FROM students s
+         ${scope.joinSql}
+         WHERE s.id = ? AND s.complex_id = ? AND s.is_active = 1 AND ${scope.circlePredicate}`,
       )
-        .bind(studentId, admin.complexId, circleId)
+        .bind(
+          ...(scope.usesFlatColumn
+            ? [studentId, admin.complexId, circleId]
+            : [circleId, studentId, admin.complexId]),
+        )
         .first();
 
       if (!allowed) continue;
 
       if (status === "present") {
-        await env.DB.prepare(
-          `DELETE FROM student_attendance WHERE student_id = ? AND attendance_date = ?`,
-        )
-          .bind(studentId, date)
-          .run();
+        const attTable = await resolveAttendanceTableName(env);
+        if (attTable) {
+          await env.DB.prepare(
+            `DELETE FROM ${attTable} WHERE student_id = ? AND attendance_date = ?`,
+          )
+            .bind(studentId, date)
+            .run();
+        }
         saved++;
         continue;
       }
@@ -320,19 +377,44 @@ export async function handleAdminDeptRouter(
     const circleIdParam = url.searchParams.get("circle_id");
     const circleId = circleIdParam ? Number(circleIdParam) : null;
 
-    let sql = `
+    const attTable = await resolveAttendanceTableName(env);
+    if (!attTable) {
+      return json({ error: "migration_required", table: "student_attendance" }, 503);
+    }
+
+    const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
+    const activeHist = await activePlacementSql(env, "h");
+
+    let sql: string;
+    if (hasCurrentCircle) {
+      sql = `
       SELECT s.id AS student_id, s.full_name_ar, s.guardian_phone, s.stage_id,
              sa.status, c.id AS circle_id, c.name_ar AS circle_name
       FROM students s
-      INNER JOIN student_attendance sa
+      INNER JOIN ${attTable} sa
         ON sa.student_id = s.id AND sa.attendance_date = ?
       LEFT JOIN circles c ON c.id = s.current_circle_id
       WHERE s.complex_id = ? AND s.is_active = 1
         AND sa.status IN ('absent', 'excused')`;
+    } else {
+      sql = `
+      SELECT s.id AS student_id, s.full_name_ar, s.guardian_phone, s.stage_id,
+             sa.status, c.id AS circle_id, c.name_ar AS circle_name
+      FROM students s
+      INNER JOIN ${attTable} sa
+        ON sa.student_id = s.id AND sa.attendance_date = ?
+      INNER JOIN student_circle_history h
+        ON h.student_id = s.id AND ${activeHist}
+      LEFT JOIN circles c ON c.id = h.circle_id
+      WHERE s.complex_id = ? AND s.is_active = 1
+        AND sa.status IN ('absent', 'excused')`;
+    }
     const binds: (number | string)[] = [date, admin.complexId];
 
     if (circleId != null && Number.isFinite(circleId)) {
-      sql += ` AND s.current_circle_id = ?`;
+      sql += hasCurrentCircle
+        ? ` AND s.current_circle_id = ?`
+        : ` AND h.circle_id = ?`;
       binds.push(circleId);
     }
 
@@ -409,58 +491,90 @@ export async function handleAdminDeptRouter(
       return json({ error: "circle_id_required" }, 400);
     }
 
-    const circle = await env.DB.prepare(
-      `SELECT id, stage FROM circles WHERE id = ? AND complex_id = ? AND is_active = 1`,
-    )
-      .bind(circleId, admin.complexId)
-      .first<{ id: number; stage: string }>();
-
-    if (!circle) return json({ error: "circle_not_found" }, 404);
-
-    const expectedStage = STAGE_ID_TO_CIRCLE_STAGE[stageId];
-    if (circle.stage !== expectedStage) {
-      return json({ error: "circle_stage_mismatch", expected_stage: expectedStage }, 400);
+    const stageCheck = await validateCircleStage(
+      env,
+      circleId,
+      admin.complexId,
+      stageId,
+    );
+    if (!stageCheck.ok) {
+      if (stageCheck.error === "circle_not_found") {
+        return json({ error: "circle_not_found" }, 404);
+      }
+      return json(
+        {
+          error: "circle_stage_mismatch",
+          expected_stage: STAGE_ID_TO_CIRCLE_STAGE[stageId],
+        },
+        400,
+      );
     }
 
-    const hasAdmissionStatus = await tableHasColumn(env, "students", "admission_status");
     const trackId =
       body.track_id != null && Number.isFinite(Number(body.track_id))
         ? Number(body.track_id)
         : null;
 
-    const insertSql = hasAdmissionStatus
-      ? `INSERT INTO students (
-           complex_id, full_name_ar, national_id, phone, nationality, school_name, school_grade,
-           stage_id, age, guardian_phone, guardian_national_id, guardian_work, health_notes,
-           current_circle_id, current_track_id, admission_status, account_status, is_active
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'active', 1)`
-      : `INSERT INTO students (
-           complex_id, full_name_ar, national_id, phone, nationality, school_name, school_grade,
-           stage_id, age, guardian_phone, guardian_national_id, guardian_work, health_notes,
-           current_circle_id, current_track_id, account_status, is_active
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 1)`;
+    const hasStageId = await tableHasColumn(env, "students", "stage_id");
+    const hasGuardian = await tableHasColumn(env, "students", "guardian_phone");
+    if (!hasGuardian) {
+      return json({ error: "migration_required", hint: "students.guardian_phone" }, 503);
+    }
 
-    const binds = [
+    const insertCols = [
+      "complex_id",
+      "full_name_ar",
+      "national_id",
+      "guardian_phone",
+      "is_active",
+    ];
+    const insertVals: (string | number | null)[] = [
       admin.complexId,
       fullName,
       nationalId,
-      body.phone?.trim() ?? null,
-      body.nationality?.trim() ?? null,
-      body.school_name?.trim() ?? null,
-      body.school_grade?.trim() ?? null,
-      stageId,
-      body.age != null && Number.isFinite(Number(body.age)) ? Number(body.age) : null,
       guardianPhone,
-      body.guardian_national_id?.trim() ?? null,
-      body.guardian_work?.trim() ?? null,
-      body.health_notes?.trim() ?? null,
-      circleId,
-      trackId,
+      1,
     ];
 
+    const optionalPairs: Array<[string, string | number | null]> = [
+      ["phone", body.phone?.trim() ?? null],
+      ["nationality", body.nationality?.trim() ?? null],
+      ["school_name", body.school_name?.trim() ?? null],
+      ["school_grade", body.school_grade?.trim() ?? null],
+      ["age", body.age != null && Number.isFinite(Number(body.age)) ? Number(body.age) : null],
+      ["guardian_national_id", body.guardian_national_id?.trim() ?? null],
+      ["guardian_work", body.guardian_work?.trim() ?? null],
+      ["health_notes", body.health_notes?.trim() ?? null],
+    ];
+    if (hasStageId) optionalPairs.push(["stage_id", stageId]);
+    if (await tableHasColumn(env, "students", "current_circle_id")) {
+      optionalPairs.push(["current_circle_id", circleId]);
+    }
+    if (await tableHasColumn(env, "students", "current_track_id")) {
+      optionalPairs.push(["current_track_id", trackId]);
+    }
+    if (await tableHasColumn(env, "students", "admission_status")) {
+      optionalPairs.push(["admission_status", "active"]);
+    }
+    if (await tableHasColumn(env, "students", "account_status")) {
+      optionalPairs.push(["account_status", "active"]);
+    }
+
+    for (const [col, val] of optionalPairs) {
+      if (await tableHasColumn(env, "students", col)) {
+        insertCols.push(col);
+        insertVals.push(val);
+      }
+    }
+
+    const placeholders = insertCols.map(() => "?").join(", ");
     let ins;
     try {
-      ins = await env.DB.prepare(insertSql).bind(...binds).run();
+      ins = await env.DB.prepare(
+        `INSERT INTO students (${insertCols.join(", ")}) VALUES (${placeholders})`,
+      )
+        .bind(...insertVals)
+        .run();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes("UNIQUE") && msg.includes("national_id")) {
@@ -471,14 +585,10 @@ export async function handleAdminDeptRouter(
 
     const studentId = ins.meta.last_row_id as number;
 
-    await env.DB.prepare(
-      `INSERT INTO student_circle_history (
-         student_id, old_circle_id, new_circle_id, old_track_id, new_track_id,
-         moved_by_user_id, reason
-       ) VALUES (?, NULL, ?, NULL, ?, ?, 'admission')`,
-    )
-      .bind(studentId, circleId, trackId, admin.userId)
-      .run();
+    if (await hasTable(env, "student_circle_history")) {
+      await assignStudentCircle(env, studentId, circleId, trackId, "admission");
+    }
+    await syncStudentPlacementColumns(env, studentId, circleId, trackId, stageId);
 
     return json({
       ok: true,

@@ -36,13 +36,18 @@ export async function handleAdminTeachersList(
   const denied = requireGm(auth);
   if (denied) return denied;
 
+  const hasRole = await usersHaveRoleColumn(env);
+  const teacherFilter = hasRole
+    ? "u.role = 'teacher'"
+    : "COALESCE(u.is_teacher, 0) = 1";
+
   const rows = await env.DB.prepare(
     `SELECT u.id, u.full_name_ar, u.mobile, u.is_active,
             ta.circle_id, c.name_ar AS circle_name, COALESCE(c.stage_id, 2) AS stage_id
      FROM users u
      LEFT JOIN teacher_assignments ta ON ta.user_id = u.id
      LEFT JOIN circles c ON c.id = ta.circle_id
-     WHERE u.complex_id = ? AND u.role = 'teacher'
+     WHERE u.complex_id = ? AND ${teacherFilter}
      ORDER BY u.full_name_ar`,
   )
     .bind(auth!.complexId)
@@ -712,11 +717,17 @@ export async function handleAdminTracksCreate(
     body.name_ar.trim(),
     defaultCapacity,
   ];
-  if (hasSupervisorCol && body.supervisor_id != null) {
+  if (hasSupervisorCol) {
     const supervisorId = Number(body.supervisor_id);
     if (!Number.isFinite(supervisorId)) {
       return json({ error: "supervisor_required" }, 400);
     }
+    const sup = await env.DB.prepare(
+      `SELECT id FROM users WHERE id = ? AND complex_id = ? AND is_active = 1`,
+    )
+      .bind(supervisorId, auth!.complexId)
+      .first<{ id: number }>();
+    if (!sup) return json({ error: "supervisor_not_found" }, 404);
     cols.push("supervisor_id");
     vals.push(supervisorId);
   }

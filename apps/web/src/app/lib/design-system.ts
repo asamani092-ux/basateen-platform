@@ -20,6 +20,17 @@ export const ds = {
   dialog: "rounded-2xl border border-border bg-card text-card-foreground shadow-lg sm:max-w-lg",
   tableWrap: "w-full overflow-x-auto",
   tableMin: "min-w-[640px] w-full table-fixed",
+  table: {
+    head: "text-right align-middle font-medium",
+    cell: "text-right align-middle",
+    headActions: "text-center align-middle w-[120px]",
+    headActionsWide: "text-center align-middle w-[220px]",
+    actionsCell: "text-center align-middle w-[120px] p-2",
+    actionsCellWide: "text-center align-middle w-[220px] p-2",
+    actionsWrap: "flex items-center justify-center gap-0.5",
+    actionsWrapWide:
+      "flex flex-wrap items-center justify-center gap-0.5 max-w-[220px] mx-auto",
+  },
   nav: {
     active:
       "block px-4 py-2.5 rounded-xl text-sm bg-primary text-primary-foreground",

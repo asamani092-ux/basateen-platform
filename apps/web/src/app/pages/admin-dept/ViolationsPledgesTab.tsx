@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { Button } from "../../components/ui/button";
+import {
+  TableActionsCell,
+  TableIconAction,
+} from "../../components/admin/TableIconAction";
 import {
   Card,
   CardContent,
@@ -122,86 +125,65 @@ export function ViolationsPledgesTab() {
             <Table className={ds.tableMin}>
               <TableHeader>
                 <TableRow>
-                  <TableHead style={tajawal}>الطالب</TableHead>
-                  <TableHead style={tajawal}>المرحلة</TableHead>
-                  <TableHead style={tajawal}>التصعيد</TableHead>
-                  <TableHead style={tajawal}>إجراءات</TableHead>
+                  <TableHead className={`${ds.table.head} w-[24%]`} style={tajawal}>
+                    الطالب
+                  </TableHead>
+                  <TableHead className={`${ds.table.head} w-[16%]`} style={tajawal}>
+                    المرحلة
+                  </TableHead>
+                  <TableHead className={`${ds.table.head} w-[20%]`} style={tajawal}>
+                    التصعيد
+                  </TableHead>
+                  <TableHead className={ds.table.headActionsWide} style={tajawal}>
+                    إجراءات
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {items.map((row) => (
                   <TableRow key={row.id}>
-                    <TableCell style={tajawal}>{row.full_name_ar}</TableCell>
-                    <TableCell style={tajawal}>
+                    <TableCell className={ds.table.cell} style={tajawal}>
+                      {row.full_name_ar}
+                    </TableCell>
+                    <TableCell className={ds.table.cell} style={tajawal}>
                       {stageLabel(row.stage_id)}
                     </TableCell>
-                    <TableCell style={tajawal}>
+                    <TableCell className={ds.table.cell} style={tajawal}>
                       {ESC_LABELS[row.escalation_level] ?? row.escalation_level}
                       {row.notice_count > 0 ? ` (${row.notice_count})` : ""}
                     </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className={ds.btnRound}
-                          disabled={busyId === row.id}
-                          onClick={() => recordViolation(row.id)}
-                          style={tajawal}
-                        >
-                          تسجيل مخالفة
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className={ds.btnRound}
-                          disabled={busyId === row.id}
-                          onClick={() => action(row.id, "archive_pledge")}
-                          style={tajawal}
-                        >
-                          أرشفة التعهد
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className={ds.btnRound}
-                          disabled={busyId === row.id}
-                          onClick={() => action(row.id, "suspend")}
-                          style={tajawal}
-                        >
-                          تعليق
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          className={ds.btnRound}
-                          disabled={busyId === row.id}
-                          onClick={() => action(row.id, "dismiss")}
-                          style={tajawal}
-                        >
-                          فصل
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className={ds.btnRound}
-                          disabled={busyId === row.id}
-                          onClick={() => action(row.id, "transfer")}
-                          style={tajawal}
-                        >
-                          نقل
-                        </Button>
-                        <Button
-                          size="sm"
-                          className={ds.btnRound}
-                          disabled={printId === row.id}
-                          onClick={() => openPrint(row)}
-                          style={tajawal}
-                        >
-                          طباعة النموذج
-                        </Button>
-                      </div>
-                    </TableCell>
+                    <TableActionsCell wide>
+                      <TableIconAction
+                        kind="violation"
+                        disabled={busyId === row.id}
+                        onClick={() => recordViolation(row.id)}
+                      />
+                      <TableIconAction
+                        kind="archive"
+                        disabled={busyId === row.id}
+                        onClick={() => action(row.id, "archive_pledge")}
+                      />
+                      <TableIconAction
+                        kind="suspend"
+                        disabled={busyId === row.id}
+                        onClick={() => action(row.id, "suspend")}
+                      />
+                      <TableIconAction
+                        kind="dismiss"
+                        disabled={busyId === row.id}
+                        onClick={() => action(row.id, "dismiss")}
+                      />
+                      <TableIconAction
+                        kind="transfer"
+                        disabled={busyId === row.id}
+                        onClick={() => action(row.id, "transfer")}
+                      />
+                      <TableIconAction
+                        kind="print"
+                        disabled={printId === row.id}
+                        onClick={() => openPrint(row)}
+                      />
+                    </TableActionsCell>
                   </TableRow>
                 ))}
               </TableBody>

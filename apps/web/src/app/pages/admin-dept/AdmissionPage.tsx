@@ -105,7 +105,8 @@ export function AdmissionPage() {
         </div>
         <Button
           type="button"
-          className={ds.btnRound}
+          variant="default"
+          className={`${ds.btnRound} shrink-0`}
           onClick={() => {
             setError(null);
             setSuccess(null);

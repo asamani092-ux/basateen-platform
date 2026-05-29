@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { UserCog, Users } from "lucide-react";
+import {
+  TableActionsCell,
+  TableIconAction,
+} from "../../components/admin/TableIconAction";
 import { StaffActionDialog } from "../../components/shared/StaffActionDialog";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -57,13 +61,15 @@ export function StaffManagementPage() {
 
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto">
-      <div>
-        <h2 className={ds.page.title} style={tajawal}>
-          إدارة المنسوبين
-        </h2>
-        <p className={ds.page.description} style={tajawal}>
-          حصرياً للمدير العام — إضافة المعلمين والمشرفين وربط الجوال
-        </p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className={ds.page.title} style={tajawal}>
+            إدارة المنسوبين
+          </h2>
+          <p className={ds.page.description} style={tajawal}>
+            حصرياً للمدير العام — إضافة المعلمين والمشرفين وربط الجوال
+          </p>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -162,7 +168,7 @@ function TeachersPanel() {
 
   return (
     <Card className={ds.card}>
-      <CardHeader className="flex flex-row items-center justify-between gap-4">
+      <CardHeader className="flex flex-row items-start justify-between gap-4 border-b border-border pb-4">
         <div>
           <CardTitle className="flex items-center gap-2" style={tajawal}>
             <Users className="w-5 h-5 text-primary" />
@@ -173,7 +179,8 @@ function TeachersPanel() {
           </CardDescription>
         </div>
         <Button
-          className={ds.btnRound}
+          variant="default"
+          className={`${ds.btnRound} shrink-0`}
           style={tajawal}
           type="button"
           onClick={() => {
@@ -281,22 +288,22 @@ function TeachersPanel() {
             جاري التحميل…
           </p>
         ) : (
-          <Table>
+          <Table className={ds.tableMin}>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[24%]" style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[26%]`} style={tajawal}>
                   الاسم
                 </TableHead>
-                <TableHead className="w-[18%]" style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
                   الجوال
                 </TableHead>
-                <TableHead className="w-[22%]" style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[24%]`} style={tajawal}>
                   الحلقة
                 </TableHead>
-                <TableHead className="w-[12%]" style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
                   الحالة
                 </TableHead>
-                <TableHead className="w-[24%]" style={tajawal}>
+                <TableHead className={ds.table.headActions} style={tajawal}>
                   إجراء
                 </TableHead>
               </TableRow>
@@ -304,32 +311,30 @@ function TeachersPanel() {
             <TableBody>
               {items.map((t) => (
                 <TableRow key={t.id}>
-                  <TableCell style={tajawal}>{t.full_name_ar}</TableCell>
-                  <TableCell style={tajawal}>{t.mobile ?? "—"}</TableCell>
-                  <TableCell style={tajawal}>{t.circle_name ?? "—"}</TableCell>
-                  <TableCell>
+                  <TableCell className={ds.table.cell} style={tajawal}>
+                    {t.full_name_ar}
+                  </TableCell>
+                  <TableCell className={ds.table.cell} style={tajawal}>
+                    {t.mobile ?? "—"}
+                  </TableCell>
+                  <TableCell className={ds.table.cell} style={tajawal}>
+                    {t.circle_name ?? "—"}
+                  </TableCell>
+                  <TableCell className={ds.table.cell}>
                     <Badge variant={t.is_active ? "secondary" : "destructive"}>
                       {t.is_active ? "نشط" : "مجمّد"}
                     </Badge>
                   </TableCell>
-                  <TableCell className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
+                  <TableActionsCell>
+                    <TableIconAction
+                      kind="edit"
                       onClick={() => setEditTeacher(t)}
-                    >
-                      تعديل
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
+                    />
+                    <TableIconAction
+                      kind="freeze"
                       onClick={() => setActionTeacher(t)}
-                    >
-                      تجميد / حذف
-                    </Button>
-                  </TableCell>
+                    />
+                  </TableActionsCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -478,7 +483,7 @@ function SupervisorsPanel() {
 
   return (
     <Card className={ds.card}>
-      <CardHeader className="flex flex-row items-center justify-between gap-4">
+      <CardHeader className="flex flex-row items-start justify-between gap-4 border-b border-border pb-4">
         <div>
           <CardTitle className="flex items-center gap-2" style={tajawal}>
             <UserCog className="w-5 h-5 text-primary" />
@@ -489,7 +494,8 @@ function SupervisorsPanel() {
           </CardDescription>
         </div>
         <Button
-          className={ds.btnRound}
+          variant="default"
+          className={`${ds.btnRound} shrink-0`}
           style={tajawal}
           type="button"
           onClick={() => {
@@ -614,25 +620,25 @@ function SupervisorsPanel() {
             جاري التحميل…
           </p>
         ) : (
-          <Table>
+          <Table className={ds.tableMin}>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[20%]" style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[22%]`} style={tajawal}>
                   الاسم
                 </TableHead>
-                <TableHead className="w-[16%]" style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[16%]`} style={tajawal}>
                   الجوال
                 </TableHead>
-                <TableHead className="w-[22%]" style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[20%]`} style={tajawal}>
                   الدور
                 </TableHead>
-                <TableHead className="w-[18%]" style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
                   النطاق
                 </TableHead>
-                <TableHead className="w-[12%]" style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
                   الحالة
                 </TableHead>
-                <TableHead className="w-[12%]" style={tajawal}>
+                <TableHead className={ds.table.headActions} style={tajawal}>
                   إجراء
                 </TableHead>
               </TableRow>
@@ -640,37 +646,35 @@ function SupervisorsPanel() {
             <TableBody>
               {items.map((s) => (
                 <TableRow key={s.id}>
-                  <TableCell style={tajawal}>{s.full_name_ar}</TableCell>
-                  <TableCell style={tajawal}>{s.mobile ?? "—"}</TableCell>
-                  <TableCell style={tajawal}>{roleLabelAr(s.role)}</TableCell>
-                  <TableCell style={tajawal}>
+                  <TableCell className={ds.table.cell} style={tajawal}>
+                    {s.full_name_ar}
+                  </TableCell>
+                  <TableCell className={ds.table.cell} style={tajawal}>
+                    {s.mobile ?? "—"}
+                  </TableCell>
+                  <TableCell className={ds.table.cell} style={tajawal}>
+                    {roleLabelAr(s.role)}
+                  </TableCell>
+                  <TableCell className={ds.table.cell} style={tajawal}>
                     {s.supervisor_scope === SCOPE_GLOBAL
                       ? stageLabel(SCOPE_GLOBAL)
                       : stageLabel(Number(s.supervisor_scope) as StageId)}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className={ds.table.cell}>
                     <Badge variant={s.is_active ? "secondary" : "destructive"}>
                       {s.is_active ? "نشط" : "مجمّد"}
                     </Badge>
                   </TableCell>
-                  <TableCell className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
+                  <TableActionsCell>
+                    <TableIconAction
+                      kind="edit"
                       onClick={() => setEditSupervisor(s)}
-                    >
-                      تعديل
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
+                    />
+                    <TableIconAction
+                      kind="freeze"
                       onClick={() => setActionSupervisor(s)}
-                    >
-                      تجميد / حذف
-                    </Button>
-                  </TableCell>
+                    />
+                  </TableActionsCell>
                 </TableRow>
               ))}
             </TableBody>

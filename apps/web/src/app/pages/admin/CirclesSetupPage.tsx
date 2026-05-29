@@ -2,6 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { CircleDot, Route } from "lucide-react";
 import { CircleCapacityBadge } from "../../components/admin/CircleCapacityBadge";
+import {
+  TableActionsCell,
+  TableIconAction,
+} from "../../components/admin/TableIconAction";
 import { Button } from "../../components/ui/button";
 import {
   Dialog,
@@ -172,7 +176,7 @@ function CirclesPanel() {
 
   return (
     <Card className={ds.card}>
-      <CardHeader className="flex flex-row justify-between items-start gap-4">
+      <CardHeader className="flex flex-row items-start justify-between gap-4 border-b border-border pb-4">
         <div>
           <CardTitle className="flex items-center gap-2" style={tajawal}>
             <CircleDot className="w-5 h-5 text-primary" />
@@ -183,7 +187,8 @@ function CirclesPanel() {
           </CardDescription>
         </div>
         <Button
-          className={ds.btnRound}
+          variant="default"
+          className={`${ds.btnRound} shrink-0`}
           style={tajawal}
           type="button"
           onClick={() => setShowForm(true)}
@@ -313,48 +318,62 @@ function CirclesPanel() {
             جاري التحميل…
           </p>
         ) : (
-          <Table>
+          <Table className={ds.tableMin}>
             <TableHeader>
               <TableRow>
-                <TableHead style={tajawal}>اسم الحلقة</TableHead>
-                <TableHead style={tajawal}>المعلم</TableHead>
-                <TableHead style={tajawal}>المرحلة</TableHead>
-                <TableHead style={tajawal}>عدد الطلاب</TableHead>
-                <TableHead style={tajawal}>السعة</TableHead>
-                <TableHead style={tajawal}>تنبيه</TableHead>
-                <TableHead style={tajawal}>إجراء</TableHead>
+                <TableHead className={`${ds.table.head} w-[22%]`} style={tajawal}>
+                  اسم الحلقة
+                </TableHead>
+                <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
+                  المعلم
+                </TableHead>
+                <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
+                  المرحلة
+                </TableHead>
+                <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
+                  عدد الطلاب
+                </TableHead>
+                <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
+                  السعة
+                </TableHead>
+                <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
+                  تنبيه
+                </TableHead>
+                <TableHead className={ds.table.headActions} style={tajawal}>
+                  إجراء
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {items.map((c) => (
                 <TableRow key={c.id}>
-                  <TableCell style={tajawal}>{c.name_ar}</TableCell>
-                  <TableCell style={tajawal}>{c.teacher_name ?? "—"}</TableCell>
-                  <TableCell style={tajawal}>
+                  <TableCell className={ds.table.cell} style={tajawal}>
+                    {c.name_ar}
+                  </TableCell>
+                  <TableCell className={ds.table.cell} style={tajawal}>
+                    {c.teacher_name ?? "—"}
+                  </TableCell>
+                  <TableCell className={ds.table.cell} style={tajawal}>
                     {stageLabel(c.stage_id as StageId)}
                   </TableCell>
-                  <TableCell style={tajawal}>{c.student_count}</TableCell>
-                  <TableCell style={tajawal}>
+                  <TableCell className={ds.table.cell} style={tajawal}>
+                    {c.student_count}
+                  </TableCell>
+                  <TableCell className={ds.table.cell} style={tajawal}>
                     {c.student_count}/{c.default_capacity}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className={ds.table.cell}>
                     <CircleCapacityBadge circle={c} showFraction={false} />
                   </TableCell>
-                  <TableCell>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className={ds.btnRound}
+                  <TableActionsCell>
+                    <TableIconAction
+                      kind="capacity"
                       onClick={() => {
                         setEditId(c.id);
                         setEditCapacity(String(c.default_capacity));
                       }}
-                      style={tajawal}
-                    >
-                      تعديل السعة
-                    </Button>
-                  </TableCell>
+                    />
+                  </TableActionsCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -494,7 +513,7 @@ function TracksPanel() {
 
   return (
     <Card className={ds.card}>
-      <CardHeader className="flex flex-row justify-between items-start gap-4">
+      <CardHeader className="flex flex-row items-start justify-between gap-4 border-b border-border pb-4">
         <div>
           <CardTitle className="flex items-center gap-2" style={tajawal}>
             <Route className="w-5 h-5 text-primary" />
@@ -505,7 +524,8 @@ function TracksPanel() {
           </CardDescription>
         </div>
         <Button
-          className={ds.btnRound}
+          variant="default"
+          className={`${ds.btnRound} shrink-0`}
           style={tajawal}
           type="button"
           onClick={() => setShowForm(true)}
@@ -626,34 +646,48 @@ function TracksPanel() {
             جاري التحميل…
           </p>
         ) : (
-          <Table>
+          <Table className={ds.tableMin}>
             <TableHeader>
               <TableRow>
-                <TableHead style={tajawal}>المسار</TableHead>
-                <TableHead style={tajawal}>مشرف المسار</TableHead>
-                <TableHead style={tajawal}>المراحل</TableHead>
-                <TableHead style={tajawal}>الحلقات</TableHead>
-                <TableHead style={tajawal}>الطلاب</TableHead>
+                <TableHead className={`${ds.table.head} w-[22%]`} style={tajawal}>
+                  المسار
+                </TableHead>
+                <TableHead className={`${ds.table.head} w-[20%]`} style={tajawal}>
+                  مشرف المسار
+                </TableHead>
+                <TableHead className={`${ds.table.head} w-[24%]`} style={tajawal}>
+                  المراحل
+                </TableHead>
+                <TableHead className={`${ds.table.head} w-[20%]`} style={tajawal}>
+                  الحلقات
+                </TableHead>
+                <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
+                  الطلاب
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {items.map((t) => (
                 <TableRow key={t.id}>
-                  <TableCell style={tajawal}>{t.name_ar}</TableCell>
-                  <TableCell style={tajawal}>
+                  <TableCell className={ds.table.cell} style={tajawal}>
+                    {t.name_ar}
+                  </TableCell>
+                  <TableCell className={ds.table.cell} style={tajawal}>
                     {t.supervisor_name ?? "—"}
                   </TableCell>
-                  <TableCell style={tajawal}>
+                  <TableCell className={ds.table.cell} style={tajawal}>
                     {t.stage_ids.length > 0
                       ? t.stage_ids
                           .map((id) => stageLabel(id as StageId))
                           .join(" · ")
                       : "—"}
                   </TableCell>
-                  <TableCell style={tajawal}>
+                  <TableCell className={ds.table.cell} style={tajawal}>
                     {t.circles.map((c) => c.name_ar).join("، ") || "—"}
                   </TableCell>
-                  <TableCell style={tajawal}>{t.student_count}</TableCell>
+                  <TableCell className={ds.table.cell} style={tajawal}>
+                    {t.student_count}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

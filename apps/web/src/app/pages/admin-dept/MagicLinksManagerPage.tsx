@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { Copy, Trash2 } from "lucide-react";
-import { cn } from "../../components/ui/utils";
 import { DoubleConfirmDialog } from "../../components/shared/DoubleConfirmDialog";
+import {
+  TableActionsCell,
+  TableIconAction,
+} from "../../components/admin/TableIconAction";
 import { Badge } from "../../components/ui/badge";
-import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import {
   Table,
@@ -124,22 +125,22 @@ export function MagicLinksManagerPage() {
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <Table className="w-full min-w-[640px] table-fixed">
+              <Table className={ds.tableMin}>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="text-right w-[20%]" style={tajawal}>
+                    <TableHead className={`${ds.table.head} w-[22%]`} style={tajawal}>
                       الحلقة
                     </TableHead>
-                    <TableHead className="text-right w-[12%]" style={tajawal}>
+                    <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
                       التاريخ
                     </TableHead>
-                    <TableHead className="text-right w-[28%]" style={tajawal}>
+                    <TableHead className={`${ds.table.head} w-[36%]`} style={tajawal}>
                       الرابط
                     </TableHead>
-                    <TableHead className="text-right w-[12%]" style={tajawal}>
+                    <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
                       الحالة
                     </TableHead>
-                    <TableHead className="text-right w-[28%]" style={tajawal}>
+                    <TableHead className={ds.table.headActions} style={tajawal}>
                       إجراءات
                     </TableHead>
                   </TableRow>
@@ -150,19 +151,19 @@ export function MagicLinksManagerPage() {
                     return (
                       <TableRow key={row.id}>
                         <TableCell
-                          className="text-right font-medium align-middle truncate"
+                          className={`${ds.table.cell} font-medium truncate`}
                           style={tajawal}
                           title={row.circle_name ?? undefined}
                         >
                           {row.circle_name ?? "—"}
                         </TableCell>
                         <TableCell
-                          className="text-right align-middle whitespace-nowrap"
+                          className={`${ds.table.cell} whitespace-nowrap`}
                           style={tajawal}
                         >
                           {row.attendance_date ?? "—"}
                         </TableCell>
-                        <TableCell className="text-right align-middle">
+                        <TableCell className={ds.table.cell}>
                           <span
                             className="text-xs text-muted-foreground font-mono block truncate"
                             dir="ltr"
@@ -171,7 +172,7 @@ export function MagicLinksManagerPage() {
                             {shortenPath(row.public_path, 32)}
                           </span>
                         </TableCell>
-                        <TableCell className="text-right align-middle">
+                        <TableCell className={ds.table.cell}>
                           <Badge
                             variant={row.is_active ? "secondary" : "destructive"}
                             className="text-xs"
@@ -179,32 +180,16 @@ export function MagicLinksManagerPage() {
                             {row.is_active ? "مفعّل" : "مغلق"}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-right align-middle">
-                          <div className="flex flex-wrap gap-1 justify-end">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className={cn("h-7 px-2 text-xs", ds.btnRound)}
-                              onClick={() => copyLink(row.public_path)}
-                              style={tajawal}
-                            >
-                              <Copy className="w-3.5 h-3.5" />
-                              نسخ
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="destructive"
-                              className={cn("h-7 px-2 text-xs", ds.btnRound)}
-                              onClick={() => setDeleteId(row.id)}
-                              style={tajawal}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              حذف
-                            </Button>
-                          </div>
-                        </TableCell>
+                        <TableActionsCell>
+                          <TableIconAction
+                            kind="copy"
+                            onClick={() => copyLink(row.public_path)}
+                          />
+                          <TableIconAction
+                            kind="delete"
+                            onClick={() => setDeleteId(row.id)}
+                          />
+                        </TableActionsCell>
                       </TableRow>
                     );
                   })}

@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { MessageCircle } from "lucide-react";
+import {
+  TableActionsCell,
+  TableIconAction,
+} from "../../components/admin/TableIconAction";
 import { Button } from "../../components/ui/button";
 import { Label } from "../../components/ui/label";
 import {
@@ -139,49 +142,53 @@ export function AbsentWhatsappPage() {
           <Table className={ds.tableMin}>
             <TableHeader>
               <TableRow>
-                <TableHead style={tajawal}>الطالب</TableHead>
-                <TableHead style={tajawal}>الحلقة</TableHead>
-                <TableHead style={tajawal}>الحالة</TableHead>
-                <TableHead style={tajawal}>ولي الأمر</TableHead>
-                <TableHead style={tajawal}>واتساب</TableHead>
+                <TableHead className={`${ds.table.head} w-[24%]`} style={tajawal}>
+                  الطالب
+                </TableHead>
+                <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
+                  الحلقة
+                </TableHead>
+                <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
+                  الحالة
+                </TableHead>
+                <TableHead className={`${ds.table.head} w-[20%]`} style={tajawal}>
+                  ولي الأمر
+                </TableHead>
+                <TableHead className={ds.table.headActions} style={tajawal}>
+                  واتساب
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {items.map((r) => (
                 <TableRow key={r.student_id}>
-                  <TableCell className="font-medium" style={tajawal}>
+                  <TableCell className={`${ds.table.cell} font-medium`} style={tajawal}>
                     {r.full_name_ar}
                   </TableCell>
-                  <TableCell style={tajawal}>{r.circle_name ?? "—"}</TableCell>
-                  <TableCell style={tajawal}>
+                  <TableCell className={ds.table.cell} style={tajawal}>
+                    {r.circle_name ?? "—"}
+                  </TableCell>
+                  <TableCell className={ds.table.cell} style={tajawal}>
                     {r.status === "excused" ? "مستأذن" : "غائب"}
                   </TableCell>
-                  <TableCell dir="ltr" className="text-muted-foreground">
+                  <TableCell
+                    className={`${ds.table.cell} text-muted-foreground font-mono`}
+                    dir="ltr"
+                  >
                     {r.guardian_phone ?? "—"}
                   </TableCell>
-                  <TableCell>
+                  <TableActionsCell>
                     {r.whatsapp_url ? (
-                      <Button
-                        asChild
-                        size="sm"
-                        className={ds.btnRound}
-                        style={tajawal}
-                      >
-                        <a
-                          href={r.whatsapp_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <MessageCircle className="w-4 h-4" />
-                          إرسال واتساب
-                        </a>
-                      </Button>
+                      <TableIconAction
+                        kind="whatsapp"
+                        href={r.whatsapp_url}
+                      />
                     ) : (
                       <span className="text-xs text-muted-foreground" style={tajawal}>
-                        لا يوجد رقم
+                        —
                       </span>
                     )}
-                  </TableCell>
+                  </TableActionsCell>
                 </TableRow>
               ))}
             </TableBody>

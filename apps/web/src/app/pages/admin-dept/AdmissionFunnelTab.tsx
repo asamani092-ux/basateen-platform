@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "../../components/ui/button";
 import {
+  TableActionsCell,
+  TableIconAction,
+} from "../../components/admin/TableIconAction";
+import {
   Card,
   CardContent,
   CardDescription,
@@ -130,47 +134,50 @@ export function AdmissionFunnelTab() {
               <Table className={ds.tableMin}>
                 <TableHeader>
                   <TableRow>
-                    <TableHead style={tajawal}>الاسم</TableHead>
-                    <TableHead style={tajawal}>العمر</TableHead>
-                    <TableHead style={tajawal}>الجوال</TableHead>
-                    <TableHead style={tajawal}>المرحلة</TableHead>
-                    <TableHead style={tajawal}>إجراءات</TableHead>
+                    <TableHead className={`${ds.table.head} w-[26%]`} style={tajawal}>
+                      الاسم
+                    </TableHead>
+                    <TableHead className={`${ds.table.head} w-[10%]`} style={tajawal}>
+                      العمر
+                    </TableHead>
+                    <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
+                      الجوال
+                    </TableHead>
+                    <TableHead className={`${ds.table.head} w-[16%]`} style={tajawal}>
+                      المرحلة
+                    </TableHead>
+                    <TableHead className={ds.table.headActions} style={tajawal}>
+                      إجراءات
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {items.map((row) => (
                     <TableRow key={row.id}>
-                      <TableCell style={tajawal}>{row.full_name_ar}</TableCell>
-                      <TableCell style={tajawal}>{row.age ?? "—"}</TableCell>
-                      <TableCell dir="ltr">{row.phone}</TableCell>
-                      <TableCell style={tajawal}>
+                      <TableCell className={ds.table.cell} style={tajawal}>
+                        {row.full_name_ar}
+                      </TableCell>
+                      <TableCell className={ds.table.cell} style={tajawal}>
+                        {row.age ?? "—"}
+                      </TableCell>
+                      <TableCell className={`${ds.table.cell} font-mono`} dir="ltr">
+                        {row.phone}
+                      </TableCell>
+                      <TableCell className={ds.table.cell} style={tajawal}>
                         {stageLabel(row.stage_id)}
                       </TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-2">
-                          <Button
-                            type="button"
-                            size="sm"
-                            className={ds.btnRound}
-                            disabled={busyId === row.id}
-                            onClick={() => accept(row.id)}
-                            style={tajawal}
-                          >
-                            توجيه وقبول
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className={ds.btnRound}
-                            disabled={busyId === row.id}
-                            onClick={() => reject(row.id)}
-                            style={tajawal}
-                          >
-                            رفض/أرشفة
-                          </Button>
-                        </div>
-                      </TableCell>
+                      <TableActionsCell>
+                        <TableIconAction
+                          kind="accept"
+                          disabled={busyId === row.id}
+                          onClick={() => accept(row.id)}
+                        />
+                        <TableIconAction
+                          kind="reject"
+                          disabled={busyId === row.id}
+                          onClick={() => reject(row.id)}
+                        />
+                      </TableActionsCell>
                     </TableRow>
                   ))}
                 </TableBody>

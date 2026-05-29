@@ -681,6 +681,89 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  /** القسم الإداري — API v2.6 */
+  adminDeptStaff: (date?: string) => {
+    const qs = date ? `?date=${encodeURIComponent(date)}` : "";
+    return request<{
+      date: string;
+      items: Array<{
+        user_id: number;
+        full_name_ar: string;
+        role: string | null;
+        status: string;
+        recorded_at?: string | null;
+      }>;
+      default_status: string;
+    }>(`/api/admin-dept/staff${qs}`);
+  },
+  adminDeptSaveStaffAttendance: (body: {
+    attendance_date?: string;
+    records: Array<{ user_id: number; status: string }>;
+  }) =>
+    request<{ ok: boolean; attendance_date: string; saved: number }>(
+      "/api/admin-dept/staff/attendance",
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  adminDeptStudentAttendance: (circleId: number, date?: string) => {
+    const qs = date ? `?date=${encodeURIComponent(date)}` : "";
+    return request<{
+      attendance_date: string;
+      circle: { id: number; name_ar: string; stage: string } | null;
+      items: Array<{
+        student_id: number;
+        full_name_ar: string;
+        stage_id?: number | null;
+        status: string;
+        recorded_at?: string | null;
+        source?: string | null;
+      }>;
+      default_status: string;
+    }>(`/api/admin-dept/students/attendance/${circleId}${qs}`);
+  },
+  adminDeptSaveStudentAttendance: (body: {
+    circle_id: number;
+    attendance_date?: string;
+    records: Array<{ student_id: number; status: string; notes?: string }>;
+  }) =>
+    request<{ ok: boolean; attendance_date: string; circle_id: number; saved: number }>(
+      "/api/admin-dept/students/attendance",
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  adminDeptAbsentToday: (params?: { date?: string; circle_id?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.date) q.set("date", params.date);
+    if (params?.circle_id != null) q.set("circle_id", String(params.circle_id));
+    const qs = q.toString();
+    return request<{
+      date: string;
+      items: Array<Record<string, unknown>>;
+      template: string;
+    }>(`/api/admin-dept/students/absent-today${qs ? `?${qs}` : ""}`);
+  },
+  adminDeptCreateMagicLink: (body: {
+    circle_id: number;
+    attendance_date?: string;
+    feature_name?: string;
+  }) =>
+    request<{
+      ok: boolean;
+      id: number;
+      token: string;
+      feature_name: string;
+      is_active: number;
+      context_data: Record<string, unknown>;
+      public_path: string;
+      api_get: string;
+      api_post: string;
+    }>("/api/admin-dept/magic-links", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  adminDeptToggleMagicLink: (id: number) =>
+    request<{ ok: boolean; id: number; is_active: number }>(
+      `/api/admin-dept/magic-links/${id}/toggle`,
+      { method: "PUT", body: "{}" },
+    ),
   gsScope: () =>
     request<{
       scope: { type: string; stageIds?: number[] };

@@ -215,6 +215,79 @@ export function resolveDevPreviewMock<T>(
     return { ok: true } as T;
   }
 
+  if (p === "/api/admin-dept/staff" && m === "GET") {
+    const items = MOCK_STAFF.map((r) => ({
+      user_id: r.user_id,
+      full_name_ar: r.full_name_ar,
+      role: r.role,
+      status: previewStore.getStaffStatus(r.user_id, date, r.status),
+    }));
+    return { date, items, default_status: "present" } as T;
+  }
+
+  if (p === "/api/admin-dept/staff/attendance" && m === "POST") {
+    const body = bodyText ? JSON.parse(bodyText) : {};
+    const d = body.attendance_date ?? PREVIEW_TODAY();
+    for (const rec of body.records ?? []) {
+      const uid = Number(rec.user_id);
+      if (uid) previewStore.setStaffStatus(uid, d, rec.status ?? "present");
+    }
+    return { ok: true, attendance_date: d, saved: body.records?.length ?? 0 } as T;
+  }
+
+  const circleAtt = p.match(/^\/api\/admin-dept\/students\/attendance\/(\d+)$/);
+  if (circleAtt && m === "GET") {
+    const circleId = Number(circleAtt[1]);
+    const items = previewStore
+      .getStudentsForCircle(circleId)
+      .map((s) => ({
+        student_id: s.id,
+        full_name_ar: s.full_name_ar,
+        status: previewStore.getStudentStatus(s.id, date, "present"),
+      }));
+    return {
+      attendance_date: date,
+      circle: { id: circleId, name_ar: `حلقة ${circleId}`, stage: "primary" },
+      items,
+      default_status: "present",
+    } as T;
+  }
+
+  if (p === "/api/admin-dept/students/attendance" && m === "POST") {
+    const body = bodyText ? JSON.parse(bodyText) : {};
+    const d = body.attendance_date ?? PREVIEW_TODAY();
+    for (const rec of body.records ?? []) {
+      const sid = Number(rec.student_id);
+      if (sid) previewStore.setStudentStatus(sid, d, rec.status ?? "present");
+    }
+    return {
+      ok: true,
+      attendance_date: d,
+      circle_id: body.circle_id,
+      saved: body.records?.length ?? 0,
+    } as T;
+  }
+
+  if (p === "/api/admin-dept/magic-links" && m === "POST") {
+    const body = bodyText ? JSON.parse(bodyText) : {};
+    const token = `preview-${body.circle_id ?? 1}-${Date.now()}`;
+    return {
+      ok: true,
+      id: 1,
+      token,
+      feature_name: "student_attendance",
+      is_active: 1,
+      context_data: { circle_id: body.circle_id, attendance_date: date },
+      public_path: `/public/attendance/${token}`,
+      api_get: `/api/public/attendance/${token}`,
+      api_post: `/api/public/attendance/${token}`,
+    } as T;
+  }
+
+  if (p.match(/^\/api\/admin-dept\/magic-links\/\d+\/toggle$/) && m === "PUT") {
+    return { ok: true, id: 1, is_active: 0 } as T;
+  }
+
   if (p === "/api/general-supervisor/applications" && m === "GET") {
     return { items: previewStore.getApplications() } as T;
   }

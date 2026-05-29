@@ -51,6 +51,7 @@ export const LEGACY_REDIRECTS: Record<string, string | "home"> = {
   "/admin/staff": "/super-admin/staff",
   "/admin/circles-setup": "/super-admin/circles-setup",
   "/admin/statistics": "/admin-dept/reports",
+  "/super-admin/statistics": "/admin-dept/reports",
   "/edu-supervisor": "/edu-dept/dashboard",
   "/edu-supervisor/dashboard": "/edu-dept/dashboard",
   "/edu-supervisor/master-grid": "/edu-dept/master-grid",

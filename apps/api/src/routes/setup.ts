@@ -64,7 +64,7 @@ export async function handleSeedUsers(
           SOVEREIGN_MOBILE,
           password_hash,
           SOVEREIGN_NAME,
-          "general_manager" satisfies UserRole,
+          "super_admin" satisfies UserRole,
           "global",
           1,
         )
@@ -82,7 +82,7 @@ export async function handleSeedUsers(
           SOVEREIGN_MOBILE,
           password_hash,
           SOVEREIGN_NAME,
-          "general_manager",
+          "super_admin",
           1,
         )
         .run();
@@ -143,7 +143,7 @@ export async function handleSeedUsers(
       email: SOVEREIGN_EMAIL,
       mobile: SOVEREIGN_MOBILE,
       full_name_ar: SOVEREIGN_NAME,
-      role: "general_manager",
+      role: "super_admin",
     },
     default_password: SOVEREIGN_PASSWORD,
     message:

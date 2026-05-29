@@ -4,7 +4,6 @@ import { handleHealth } from "./routes/health";
 import { handleTvSummary } from "./routes/tv-summary";
 import { handleLogin, handleLoginMobile, handleMe } from "./routes/auth";
 import { handleSeedUsers } from "./routes/setup";
-import { handleSeedEduExamples } from "./routes/setup-edu-examples";
 import { handleStudentsList } from "./routes/students";
 import {
   handleStudentsBulkImport,
@@ -40,13 +39,12 @@ import {
   handleAdminComplexSettingsGet,
   handleAdminComplexSettingsPatch,
 } from "./routes/admin-gm-stats";
-import { handleGeneralSupervisorRouter } from "./routes/general-supervisor";
-import { handleEduSupervisorRouter } from "./routes/edu-supervisor";
+import { handleAdminDeptRouter } from "./routes/admin-dept";
+import { handleEduDeptRouter } from "./routes/edu-dept";
 import { handleEduCompetitionsRouter } from "./routes/competitions";
 import { handleLiveLogRouter, handleYomHimmaLiveLogToken } from "./routes/live-log";
 import { handleProgSupervisorRouter } from "./routes/prog-supervisor";
 import { handleQuizPublicRouter } from "./routes/quiz-public";
-import { handleSeedProgExamples } from "./routes/setup-prog-examples";
 
 type RouteHandler = (
   request: Request,
@@ -54,79 +52,123 @@ type RouteHandler = (
   url: URL,
 ) => Promise<Response> | Response;
 
-const routes: Array<{ method: string; pattern: RegExp; handler: RouteHandler }> = [
+/** Map new department API prefixes to legacy handlers during transition */
+function withPathPrefix(url: URL, fromPrefix: string, toPrefix: string): URL {
+  if (!url.pathname.startsWith(fromPrefix)) return url;
+  const next = new URL(url.toString());
+  next.pathname = toPrefix + url.pathname.slice(fromPrefix.length);
+  return next;
+}
+
+const sharedRoutes: Array<{ method: string; pattern: RegExp; handler: RouteHandler }> = [
   { method: "GET", pattern: /^\/api\/health$/, handler: handleHealth },
   { method: "GET", pattern: /^\/api\/tv\/summary$/, handler: handleTvSummary },
   { method: "POST", pattern: /^\/api\/auth\/login$/, handler: handleLogin },
-  {
-    method: "POST",
-    pattern: /^\/api\/auth\/login-mobile$/,
-    handler: handleLoginMobile,
-  },
+  { method: "POST", pattern: /^\/api\/auth\/login-mobile$/, handler: handleLoginMobile },
   { method: "GET", pattern: /^\/api\/auth\/me$/, handler: handleMe },
   { method: "POST", pattern: /^\/api\/setup\/seed-users$/, handler: handleSeedUsers },
-  {
-    method: "POST",
-    pattern: /^\/api\/setup\/seed-edu-examples$/,
-    handler: handleSeedEduExamples,
-  },
-  {
-    method: "POST",
-    pattern: /^\/api\/setup\/seed-prog-examples$/,
-    handler: handleSeedProgExamples,
-  },
   { method: "GET", pattern: /^\/api\/circles$/, handler: handleCirclesList },
   { method: "GET", pattern: /^\/api\/students$/, handler: handleStudentsList },
   { method: "GET", pattern: /^\/api\/students\/export$/, handler: handleStudentsExport },
   { method: "POST", pattern: /^\/api\/students\/bulk$/, handler: handleStudentsBulkImport },
-  {
-    method: "GET",
-    pattern: /^\/api\/students\/\d+$/,
-    handler: handleStudentDetail,
-  },
-  {
-    method: "POST",
-    pattern: /^\/api\/students\/\d+\/transfer$/,
-    handler: handleStudentTransfer,
-  },
+  { method: "GET", pattern: /^\/api\/students\/\d+$/, handler: handleStudentDetail },
+  { method: "POST", pattern: /^\/api\/students\/\d+\/transfer$/, handler: handleStudentTransfer },
   { method: "GET", pattern: /^\/api\/yom-himma$/, handler: handleYomHimmaList },
   { method: "POST", pattern: /^\/api\/yom-himma$/, handler: handleYomHimmaCreate },
+  { method: "GET", pattern: /^\/api\/yom-himma\/tv$/, handler: handleYomHimmaTv },
+  { method: "GET", pattern: /^\/api\/yom-himma\/\d+$/, handler: handleYomHimmaDetail },
+  { method: "POST", pattern: /^\/api\/yom-himma\/\d+\/audit$/, handler: handleYomHimmaUpsertAudit },
+  { method: "GET", pattern: /^\/api\/complex\/settings$/, handler: handleComplexSettingsGet },
+  { method: "PATCH", pattern: /^\/api\/complex\/settings$/, handler: handleComplexSettingsPatch },
+  { method: "GET", pattern: /^\/api\/teacher\/daily-marks$/, handler: handleTeacherDailyList },
+  { method: "POST", pattern: /^\/api\/teacher\/daily-marks$/, handler: handleTeacherDailyUpsert },
+];
+
+const superAdminStats: Array<{ method: string; path: string; handler: RouteHandler }> = [
+  { method: "GET", path: "/api/super-admin/stats", handler: handleAdminStats },
+  { method: "GET", path: "/api/admin/stats", handler: handleAdminStats },
   {
     method: "GET",
-    pattern: /^\/api\/yom-himma\/tv$/,
-    handler: handleYomHimmaTv,
+    path: "/api/super-admin/yom-himma-summary",
+    handler: handleAdminYomHimmaSummary,
   },
+  { method: "GET", path: "/api/admin/yom-himma-summary", handler: handleAdminYomHimmaSummary },
   {
     method: "GET",
-    pattern: /^\/api\/yom-himma\/\d+$/,
-    handler: handleYomHimmaDetail,
+    path: "/api/super-admin/staff-attendance",
+    handler: handleAdminStaffAttendanceList,
   },
+  { method: "GET", path: "/api/admin/staff-attendance", handler: handleAdminStaffAttendanceList },
   {
     method: "POST",
-    pattern: /^\/api\/yom-himma\/\d+\/audit$/,
-    handler: handleYomHimmaUpsertAudit,
+    path: "/api/super-admin/staff-attendance",
+    handler: handleAdminStaffAttendanceUpsert,
   },
+  { method: "POST", path: "/api/admin/staff-attendance", handler: handleAdminStaffAttendanceUpsert },
   {
     method: "GET",
-    pattern: /^\/api\/complex\/settings$/,
-    handler: handleComplexSettingsGet,
+    path: "/api/super-admin/complex-settings",
+    handler: handleAdminComplexSettingsGet,
   },
+  { method: "GET", path: "/api/admin/complex-settings", handler: handleAdminComplexSettingsGet },
   {
     method: "PATCH",
-    pattern: /^\/api\/complex\/settings$/,
-    handler: handleComplexSettingsPatch,
+    path: "/api/super-admin/complex-settings",
+    handler: handleAdminComplexSettingsPatch,
   },
-  {
-    method: "GET",
-    pattern: /^\/api\/teacher\/daily-marks$/,
-    handler: handleTeacherDailyList,
-  },
-  {
-    method: "POST",
-    pattern: /^\/api\/teacher\/daily-marks$/,
-    handler: handleTeacherDailyUpsert,
-  },
+  { method: "PATCH", path: "/api/admin/complex-settings", handler: handleAdminComplexSettingsPatch },
 ];
+
+async function dispatchDepartmentRouters(
+  request: Request,
+  env: Env,
+  url: URL,
+): Promise<Response | null> {
+  const superUrl = withPathPrefix(url, "/api/super-admin/", "/api/admin/");
+  const superAdmin = await handleAdminGmRouter(request, env, superUrl);
+  if (superAdmin) return superAdmin;
+  const legacyAdmin = await handleAdminGmRouter(request, env, url);
+  if (legacyAdmin) return legacyAdmin;
+
+  const adminDept = await handleAdminDeptRouter(request, env, url);
+  if (adminDept) return adminDept;
+
+  const legacyGsUrl = withPathPrefix(url, "/api/general-supervisor/", "/api/admin-dept/");
+  const legacyGs = await handleAdminDeptRouter(request, env, legacyGsUrl);
+  if (legacyGs) return legacyGs;
+
+  const eduUrl = withPathPrefix(url, "/api/edu-supervisor/", "/api/edu-dept/");
+  const edu = await handleEduDeptRouter(request, env, eduUrl);
+  if (edu) return edu;
+  const eduDept = await handleEduDeptRouter(request, env, url);
+  if (eduDept) return eduDept;
+
+  const broadcast = await handleLiveLogRouter(request, env, url);
+  if (broadcast) return broadcast;
+
+  const himmaLiveToken = await handleYomHimmaLiveLogToken(request, env, url);
+  if (himmaLiveToken) return himmaLiveToken;
+
+  const compUrl = withPathPrefix(url, "/api/edu-supervisor/", "/api/edu-dept/");
+  const eduCompLegacy = await handleEduCompetitionsRouter(request, env, compUrl);
+  if (eduCompLegacy) return eduCompLegacy;
+  const eduComp = await handleEduCompetitionsRouter(request, env, url);
+  if (eduComp) return eduComp;
+
+  const progUrl = withPathPrefix(url, "/api/prog-dept/", "/api/prog-supervisor/");
+  const prog = await handleProgSupervisorRouter(request, env, progUrl);
+  if (prog) return prog;
+  const legacyProg = await handleProgSupervisorRouter(request, env, url);
+  if (legacyProg) return legacyProg;
+
+  const teacher = await handleTeacherRouter(request, env, url);
+  if (teacher) return teacher;
+
+  const quizPublic = await handleQuizPublicRouter(request, env, url);
+  if (quizPublic) return quizPublic;
+
+  return null;
+}
 
 export async function handleRequest(
   request: Request,
@@ -138,7 +180,27 @@ export async function handleRequest(
   const url = new URL(request.url);
 
   try {
-    return await dispatchRequest(request, env, url);
+    const dept = await dispatchDepartmentRouters(request, env, url);
+    if (dept) return withCors(dept, request, env);
+
+    for (const r of superAdminStats) {
+      if (request.method === r.method && url.pathname === r.path) {
+        return withCors(await r.handler(request, env, url), request, env);
+      }
+    }
+
+    for (const route of sharedRoutes) {
+      if (request.method === route.method && route.pattern.test(url.pathname)) {
+        const response = await route.handler(request, env, url);
+        return withCors(response, request, env);
+      }
+    }
+
+    return withCors(
+      Response.json({ error: "Not Found", path: url.pathname }, { status: 404 }),
+      request,
+      env,
+    );
   } catch (error: unknown) {
     console.error("Router exception:", error);
     return withCors(
@@ -154,88 +216,4 @@ export async function handleRequest(
       env,
     );
   }
-}
-
-async function dispatchRequest(
-  request: Request,
-  env: Env,
-  url: URL,
-): Promise<Response> {
-  const adminGm = await handleAdminGmRouter(request, env, url);
-  if (adminGm) return withCors(adminGm, request, env);
-
-  const gsRoute = await handleGeneralSupervisorRouter(request, env, url);
-  if (gsRoute) return withCors(gsRoute, request, env);
-
-  const liveLog = await handleLiveLogRouter(request, env, url);
-  if (liveLog) return withCors(liveLog, request, env);
-
-  const himmaLiveToken = await handleYomHimmaLiveLogToken(request, env, url);
-  if (himmaLiveToken) return withCors(himmaLiveToken, request, env);
-
-  const eduComp = await handleEduCompetitionsRouter(request, env, url);
-  if (eduComp) return withCors(eduComp, request, env);
-
-  const eduRoute = await handleEduSupervisorRouter(request, env, url);
-  if (eduRoute) return withCors(eduRoute, request, env);
-
-  const quizPublic = await handleQuizPublicRouter(request, env, url);
-  if (quizPublic) return withCors(quizPublic, request, env);
-
-  const progRoute = await handleProgSupervisorRouter(request, env, url);
-  if (progRoute) return withCors(progRoute, request, env);
-
-  const teacherRoute = await handleTeacherRouter(request, env, url);
-  if (teacherRoute) return withCors(teacherRoute, request, env);
-
-  const adminStatsRoutes: Array<{
-    method: string;
-    path: string;
-    handler: RouteHandler;
-  }> = [
-    { method: "GET", path: "/api/admin/stats", handler: handleAdminStats },
-    {
-      method: "GET",
-      path: "/api/admin/yom-himma-summary",
-      handler: handleAdminYomHimmaSummary,
-    },
-    {
-      method: "GET",
-      path: "/api/admin/staff-attendance",
-      handler: handleAdminStaffAttendanceList,
-    },
-    {
-      method: "POST",
-      path: "/api/admin/staff-attendance",
-      handler: handleAdminStaffAttendanceUpsert,
-    },
-    {
-      method: "GET",
-      path: "/api/admin/complex-settings",
-      handler: handleAdminComplexSettingsGet,
-    },
-    {
-      method: "PATCH",
-      path: "/api/admin/complex-settings",
-      handler: handleAdminComplexSettingsPatch,
-    },
-  ];
-  for (const r of adminStatsRoutes) {
-    if (request.method === r.method && url.pathname === r.path) {
-      return withCors(await r.handler(request, env, url), request, env);
-    }
-  }
-
-  for (const route of routes) {
-    if (request.method === route.method && route.pattern.test(url.pathname)) {
-      const response = await route.handler(request, env, url);
-      return withCors(response, request, env);
-    }
-  }
-
-  return withCors(
-    Response.json({ error: "Not Found", path: url.pathname }, { status: 404 }),
-    request,
-    env,
-  );
 }

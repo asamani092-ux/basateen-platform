@@ -1,7 +1,7 @@
 import type { Env } from "../types";
 import { assignStudentCircle } from "../lib/placement";
 import { ADMIN_DATA_ROLES } from "../lib/roles";
-import { canManageCircle } from "../lib/scope";
+import { canManageCircle } from "../lib/dept-scope";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 
 export type StudentImportRow = {

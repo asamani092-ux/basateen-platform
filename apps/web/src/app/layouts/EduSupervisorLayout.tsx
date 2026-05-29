@@ -1,10 +1,8 @@
 import { Outlet } from "react-router";
-import { EduLegacyTabRedirect } from "../components/EduLegacyTabRedirect";
-import { EduScopeBanner } from "../components/edu/EduScopeBanner";
 import { useAuth } from "../context/AuthContext";
 import { ds, tajawal } from "../lib/design-system";
 
-/** غلاف صفحات المشرف التعليمي — القائمة في RoleShellLayout فقط */
+/** غلاف القسم التعليمي — القائمة في RoleShellLayout */
 export function EduSupervisorLayout() {
   const { user } = useAuth();
 
@@ -15,11 +13,9 @@ export function EduSupervisorLayout() {
           القسم التعليمي
         </h2>
         <p className={ds.page.description} style={tajawal}>
-          {user?.full_name_ar} — متابعة الخطط، القبول والتوزيع، محرك الفعاليات
+          {user?.full_name_ar} — القبول والتوزيع، محرك الفعاليات، ومتابعة الطلاب
         </p>
       </div>
-      <EduLegacyTabRedirect />
-      <EduScopeBanner />
       <Outlet />
     </div>
   );

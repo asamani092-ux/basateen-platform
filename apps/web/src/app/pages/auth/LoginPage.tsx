@@ -7,6 +7,7 @@ import { useAuth } from "../../context/AuthContext";
 import {
   loginWithApiUser,
   loginWithMobile,
+  normalizeClientRole,
   normalizeMobile,
   type UserRole,
 } from "../../lib/auth-store";
@@ -44,7 +45,7 @@ export function LoginPage() {
     rawMobile: string,
   ) {
     setApiToken(res.token);
-    const role = res.user.role as UserRole;
+    const role = normalizeClientRole(res.user.role);
     const authUser = loginWithApiUser(
       {
         id: res.user.id,

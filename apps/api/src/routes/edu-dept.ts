@@ -10,11 +10,11 @@ import {
   loadUserScope,
   studentsInScopeBinds,
   studentsInScopeWhere,
-} from "../lib/supervisor-scope";
-import { handleEduExtendedRoutes } from "./edu-extended";
+} from "../lib/dept-scope";
+import { handleEduDeptExtendedRoutes } from "./edu-dept-extended";
 
 const ACCEPT_ASSIGN_PATHS = new Set([
-  "/api/edu-supervisor/accept-assign",
+  "/api/edu-dept/accept-assign",
   "/api/v1/education/supervisor/accept-assign",
 ]);
 
@@ -26,13 +26,13 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-export async function handleEduSupervisorRouter(
+export async function handleEduDeptRouter(
   request: Request,
   env: Env,
   url: URL,
 ): Promise<Response | null> {
   const path = url.pathname;
-  if (!path.startsWith("/api/edu-supervisor/") && !ACCEPT_ASSIGN_PATHS.has(path)) return null;
+  if (!path.startsWith("/api/edu-dept/") && !path.startsWith("/api/edu-supervisor/") && !ACCEPT_ASSIGN_PATHS.has(path)) return null;
 
   const auth = await getAuth(request, env);
   if (!requireAuth(auth)) return authUnauthorizedResponse(request);
@@ -42,13 +42,14 @@ export async function handleEduSupervisorRouter(
 
   const scope = await loadUserScope(env, auth.userId);
 
-  const extended = await handleEduExtendedRoutes(
+  const extended = await handleEduDeptExtendedRoutes(
     request,
     env,
     url,
     { userId: auth.userId, complexId: auth.complexId },
     scope,
   );
+  if (extended) return extended;
 
   if (request.method === "POST" && ACCEPT_ASSIGN_PATHS.has(path)) {
     let body: {
@@ -112,7 +113,7 @@ export async function handleEduSupervisorRouter(
     });
   }
 
-  if (request.method === "GET" && path === "/api/edu-supervisor/scope") {
+  if (request.method === "GET" && path === "/api/edu-dept/scope") {
     const row = await env.DB.prepare(
       `SELECT supervisor_scope FROM users WHERE id = ?`,
     )
@@ -126,7 +127,7 @@ export async function handleEduSupervisorRouter(
 
   if (
     request.method === "GET" &&
-    path === "/api/edu-supervisor/student-attendance/today"
+    path === "/api/edu-dept/student-attendance/today"
   ) {
     const date = url.searchParams.get("date")?.trim() || todayIso();
     const scopeWhere = studentsInScopeWhere(scope);
@@ -168,7 +169,7 @@ export async function handleEduSupervisorRouter(
 
   if (
     request.method === "POST" &&
-    path === "/api/edu-supervisor/student-attendance/init-today"
+    path === "/api/edu-dept/student-attendance/init-today"
   ) {
     const date = todayIso();
     const scopeWhere = studentsInScopeWhere(scope);
@@ -194,7 +195,7 @@ export async function handleEduSupervisorRouter(
 
   if (
     request.method === "POST" &&
-    path === "/api/edu-supervisor/student-attendance/upsert"
+    path === "/api/edu-dept/student-attendance/upsert"
   ) {
     let body: {
       student_id?: number;
@@ -257,7 +258,7 @@ export async function handleEduSupervisorRouter(
     return json({ ok: true, student_id: studentId, status, attendance_date: date });
   }
 
-  if (request.method === "GET" && path === "/api/edu-supervisor/master-grid") {
+  if (request.method === "GET" && path === "/api/edu-dept/master-grid") {
     const pendingOnly = url.searchParams.get("pending_acceptance") === "1";
     const q = (url.searchParams.get("q") ?? "").trim();
     const scopeWhere = studentsInScopeWhere(scope);

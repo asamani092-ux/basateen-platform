@@ -17,7 +17,6 @@ import { StudentsPage } from "./pages/admin/StudentsPage";
 import { TransfersPage } from "./pages/admin/TransfersPage";
 import { AdminCirclesPage } from "./pages/admin/AdminCirclesPage";
 import { EduDashboardPage } from "./pages/edu-supervisor/EduDashboardPage";
-import { YomHimmaPage } from "./pages/edu-supervisor/YomHimmaPage";
 import { CompetitionDetailPage } from "./pages/edu-supervisor/CompetitionDetailPage";
 import { StudentProfilePage } from "./pages/edu-supervisor/StudentProfilePage";
 import { ProgSupervisorLayout } from "./layouts/ProgSupervisorLayout";
@@ -27,11 +26,11 @@ import { QuizPrintPage } from "./pages/prog-supervisor/QuizPrintPage";
 import { ProgAnalyticsPage } from "./pages/prog-supervisor/ProgAnalyticsPage";
 import { ProgVaultPage } from "./pages/prog-supervisor/ProgVaultPage";
 import { QuizPublicPage } from "./pages/quiz/QuizPublicPage";
-import { AdmissionFunnelTab } from "./pages/general-supervisor/AdmissionFunnelTab";
-import { ViolationsPledgesTab } from "./pages/general-supervisor/ViolationsPledgesTab";
-import { SupervisorDashboardTab } from "./pages/general-supervisor/SupervisorDashboardTab";
-import { StaffAttendanceGridTab } from "./pages/general-supervisor/StaffAttendanceGridTab";
-import { GsStudentAttendancePage } from "./pages/general-supervisor/GsStudentAttendancePage";
+import { AdmissionFunnelTab } from "./pages/admin-dept/AdmissionFunnelTab";
+import { ViolationsPledgesTab } from "./pages/admin-dept/ViolationsPledgesTab";
+import { SupervisorDashboardTab } from "./pages/admin-dept/SupervisorDashboardTab";
+import { StaffAttendanceGridTab } from "./pages/admin-dept/StaffAttendanceGridTab";
+import { GsStudentAttendancePage } from "./pages/admin-dept/GsStudentAttendancePage";
 import { StaffManagementPage } from "./pages/admin/StaffManagementPage";
 import { CirclesSetupPage } from "./pages/admin/CirclesSetupPage";
 import { StatisticsPage } from "./pages/admin/StatisticsPage";
@@ -53,57 +52,43 @@ export default function App() {
         <Route element={<RequireRole roles={["teacher"]} />}>
           <Route element={<TeacherLayout />}>
             <Route path="teacher" element={<TeacherHubPage />} />
-            <Route
-              path="teacher/daily-log"
-              element={<Navigate to="/teacher" replace />}
-            />
+            <Route path="teacher/daily-log" element={<Navigate to="/teacher" replace />} />
           </Route>
         </Route>
 
         <Route element={<RequireRole roles={STAFF_ROLES} />}>
           <Route element={<RequirePathAccess />}>
             <Route element={<RoleShellLayout />}>
-              <Route path="admin/staff" element={<StaffManagementPage />} />
+              <Route path="super-admin/staff" element={<StaffManagementPage />} />
               <Route
-                path="admin/staff-management"
-                element={<Navigate to="/admin/staff" replace />}
+                path="super-admin/staff-management"
+                element={<Navigate to="/super-admin/staff" replace />}
               />
-              <Route path="admin/circles-setup" element={<CirclesSetupPage />} />
-              <Route path="admin/statistics" element={<StatisticsPage />} />
+              <Route path="super-admin/circles-setup" element={<CirclesSetupPage />} />
+              <Route path="super-admin/statistics" element={<StatisticsPage />} />
 
-              <Route path="edu-supervisor" element={<EduSupervisorLayout />}>
+              <Route path="edu-dept" element={<EduSupervisorLayout />}>
                 <Route index element={<Navigate to="dashboard" replace />} />
                 <Route path="dashboard" element={<EduDashboardPage />} />
-                <Route
-                  path="attendance"
-                  element={<Navigate to="/edu-supervisor/dashboard" replace />}
-                />
-                <Route
-                  path="education"
-                  element={<Navigate to="/edu-supervisor/events-engine" replace />}
-                />
                 <Route path="master-grid" element={<MasterGridConsole />} />
-                <Route
-                  path="placement"
-                  element={<Navigate to="/edu-supervisor/master-grid" replace />}
-                />
                 <Route path="students" element={<StudentsPage />} />
                 <Route path="students/:studentId" element={<StudentProfilePage />} />
                 <Route path="transfers" element={<TransfersPage />} />
                 <Route path="circles" element={<AdminCirclesPage />} />
                 <Route path="events-engine" element={<EventsEngineConsole />} />
-                <Route path="yom-himma" element={<YomHimmaPage />} />
-                <Route
-                  path="competitions"
-                  element={<Navigate to="/edu-supervisor/events-engine" replace />}
-                />
                 <Route
                   path="competitions/:competitionId"
                   element={<CompetitionDetailPage />}
                 />
               </Route>
 
-              <Route path="prog-supervisor" element={<ProgSupervisorLayout />}>
+              <Route path="admin-dept/student-attendance" element={<GsStudentAttendancePage />} />
+              <Route path="admin-dept/staff-attendance" element={<StaffAttendanceGridTab />} />
+              <Route path="admin-dept/admissions" element={<AdmissionFunnelTab />} />
+              <Route path="admin-dept/violations" element={<ViolationsPledgesTab />} />
+              <Route path="admin-dept/dashboard" element={<SupervisorDashboardTab />} />
+
+              <Route path="prog-dept" element={<ProgSupervisorLayout />}>
                 <Route index element={<Navigate to="quizzes" replace />} />
                 <Route path="quizzes" element={<ProgQuizzesPage />} />
                 <Route path="quizzes/:quizId" element={<QuizEditorPage />} />
@@ -112,65 +97,13 @@ export default function App() {
                 <Route path="vault" element={<ProgVaultPage />} />
               </Route>
 
-              <Route
-                path="general-supervisor"
-                element={<Navigate to="/general-supervisor/student-attendance" replace />}
-              />
-              <Route
-                path="general-supervisor/student-attendance"
-                element={<GsStudentAttendancePage />}
-              />
-              <Route
-                path="general-supervisor/staff"
-                element={<StaffAttendanceGridTab />}
-              />
-              <Route
-                path="general-supervisor/admissions"
-                element={<AdmissionFunnelTab />}
-              />
-              <Route
-                path="general-supervisor/violations"
-                element={<ViolationsPledgesTab />}
-              />
-              <Route
-                path="general-supervisor/dashboard"
-                element={<SupervisorDashboardTab />}
-              />
-
-              <Route
-                path="admin/students"
-                element={<Navigate to="/edu-supervisor/students" replace />}
-              />
-              <Route
-                path="admin/students/import"
-                element={
-                  <Navigate to="/edu-supervisor/students?excel=1" replace />
-                }
-              />
-              <Route
-                path="admin/transfers"
-                element={<Navigate to="/edu-supervisor/transfers" replace />}
-              />
-              <Route
-                path="admin/circles"
-                element={<Navigate to="/edu-supervisor/circles" replace />}
-              />
-              <Route
-                path="admin/violations"
-                element={<Navigate to="/general-supervisor/violations" replace />}
-              />
-              <Route
-                path="education/himma"
-                element={<Navigate to="/edu-supervisor/yom-himma" replace />}
-              />
-              <Route
-                path="education/*"
-                element={<Navigate to="/edu-supervisor/events-engine" replace />}
-              />
-              <Route
-                path="programs/*"
-                element={<Navigate to="/prog-supervisor/quizzes" replace />}
-              />
+              {/* Legacy paths → new department routes */}
+              <Route path="admin/staff" element={<Navigate to="/super-admin/staff" replace />} />
+              <Route path="admin/circles-setup" element={<Navigate to="/super-admin/circles-setup" replace />} />
+              <Route path="admin/statistics" element={<Navigate to="/super-admin/statistics" replace />} />
+              <Route path="edu-supervisor/*" element={<Navigate to="/edu-dept/dashboard" replace />} />
+              <Route path="general-supervisor/*" element={<Navigate to="/admin-dept/student-attendance" replace />} />
+              <Route path="prog-supervisor/*" element={<Navigate to="/prog-dept/quizzes" replace />} />
               <Route path="dashboard" element={<AuthHomeRedirect />} />
             </Route>
           </Route>

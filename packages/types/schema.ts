@@ -4,11 +4,29 @@
  */
 
 export type UserRole =
-  | "teacher"
+  | "super_admin"
   | "edu_supervisor"
+  | "admin_supervisor"
   | "prog_supervisor"
-  | "general_supervisor"
-  | "general_manager";
+  | "teacher";
+
+/** Map legacy JWT/DB role strings to v3.2 department roles */
+export function normalizeUserRole(role: string): UserRole {
+  switch (role) {
+    case "general_manager":
+      return "super_admin";
+    case "general_supervisor":
+      return "admin_supervisor";
+    case "super_admin":
+    case "edu_supervisor":
+    case "admin_supervisor":
+    case "prog_supervisor":
+    case "teacher":
+      return role;
+    default:
+      return "teacher";
+  }
+}
 
 export type UserSection = "admin" | "education" | "programs";
 
@@ -208,11 +226,11 @@ export interface TeacherDailyMark {
 export type DbUserRow = User | (Omit<User, "role"> & UserFlatFlags & { role?: UserRole });
 
 export function resolveRoleFromUser(row: DbUserRow): UserRole {
-  if ("role" in row && row.role) return row.role;
+  if ("role" in row && row.role) return normalizeUserRole(String(row.role));
   const flat = row as UserFlatFlags;
-  if (flat.is_admin === 1) return "general_manager";
+  if (flat.is_admin === 1) return "super_admin";
   if (flat.is_educational === 1) return "edu_supervisor";
   if (flat.is_programs === 1) return "prog_supervisor";
   if (flat.is_teacher === 1) return "teacher";
-  return "general_manager";
+  return "super_admin";
 }

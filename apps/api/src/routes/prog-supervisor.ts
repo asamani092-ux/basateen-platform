@@ -3,13 +3,13 @@ import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 import { PROG_ROLES } from "../lib/roles";
 import {
   loadUserScope,
-  parseSupervisorScope,
+  parseStageScope,
   stageFilterBinds,
   stageFilterWhere,
   studentsInScopeBinds,
   studentsInScopeWhere,
   STAGE_LABELS,
-} from "../lib/supervisor-scope";
+} from "../lib/dept-scope";
 import { randomToken } from "../lib/quiz-scoring";
 import { writeProgAudit } from "../lib/prog-audit";
 

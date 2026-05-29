@@ -32,7 +32,7 @@ export async function handleAdminStats(
 ): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
-  if (!requireRoles(auth, ["general_manager"])) return json({ error: "forbidden" }, 403);
+  if (!requireRoles(auth, ["super_admin"])) return json({ error: "forbidden" }, 403);
 
   const period = url.searchParams.get("period") ?? "semester";
   const fromDate = periodStart(period);
@@ -70,7 +70,7 @@ export async function handleAdminStats(
 
   const supervisors = await env.DB.prepare(
     `SELECT COUNT(*) AS c FROM users
-     WHERE complex_id = ? AND role IN ('edu_supervisor','prog_supervisor','general_supervisor') AND is_active = 1`,
+     WHERE complex_id = ? AND role IN ('edu_supervisor','prog_supervisor','admin_supervisor', 'general_supervisor') AND is_active = 1`,
   )
     .bind(auth.complexId)
     .first<{ c: number }>();
@@ -145,7 +145,7 @@ export async function handleAdminYomHimmaSummary(
 ): Promise<Response> {
   const auth = await getAuth(_request, env);
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
-  if (!requireRoles(auth, ["general_manager"])) return json({ error: "forbidden" }, 403);
+  if (!requireRoles(auth, ["super_admin"])) return json({ error: "forbidden" }, 403);
 
   const sessions = await env.DB.prepare(
     `SELECT id, name_ar, session_date, status
@@ -187,7 +187,7 @@ export async function handleAdminStaffAttendanceList(
 ): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
-  if (!requireRoles(auth, ["general_manager"])) return json({ error: "forbidden" }, 403);
+  if (!requireRoles(auth, ["super_admin"])) return json({ error: "forbidden" }, 403);
 
   const from = url.searchParams.get("from") ?? new Date().toISOString().slice(0, 10);
   const to = url.searchParams.get("to") ?? from;
@@ -212,7 +212,7 @@ export async function handleAdminStaffAttendanceUpsert(
 ): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
-  if (!requireRoles(auth, ["general_manager"])) return json({ error: "forbidden" }, 403);
+  if (!requireRoles(auth, ["super_admin"])) return json({ error: "forbidden" }, 403);
 
   let body: {
     user_id?: number;
@@ -256,7 +256,7 @@ export async function handleAdminComplexSettingsGet(
 ): Promise<Response> {
   const auth = await getAuth(_request, env);
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
-  if (!requireRoles(auth, ["general_manager"])) return json({ error: "forbidden" }, 403);
+  if (!requireRoles(auth, ["super_admin"])) return json({ error: "forbidden" }, 403);
 
   const row = await env.DB.prepare(
     `SELECT semester_weeks, school_days_json, graduates_count, huffadh_count
@@ -291,7 +291,7 @@ export async function handleAdminComplexSettingsPatch(
 ): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
-  if (!requireRoles(auth, ["general_manager"])) return json({ error: "forbidden" }, 403);
+  if (!requireRoles(auth, ["super_admin"])) return json({ error: "forbidden" }, 403);
 
   let body: {
     semester_weeks?: number;

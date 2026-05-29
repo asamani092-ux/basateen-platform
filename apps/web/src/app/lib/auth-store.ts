@@ -5,16 +5,20 @@ const LEGACY_TOKEN_KEY = "basateen_token";
 
 
 export type UserRole =
-
-  | "teacher"
-
+  | "super_admin"
   | "edu_supervisor"
-
+  | "admin_supervisor"
   | "prog_supervisor"
+  | "teacher";
 
-  | "general_supervisor"
+const LEGACY_ROLE_MAP: Record<string, UserRole> = {
+  general_manager: "super_admin",
+  general_supervisor: "admin_supervisor",
+};
 
-  | "general_manager";
+export function normalizeClientRole(role: string): UserRole {
+  return LEGACY_ROLE_MAP[role] ?? (role as UserRole);
+}
 
 
 
@@ -52,9 +56,9 @@ const MOCK_BY_MOBILE: Record<string, Omit<AuthUser, "mobile">> = {
   "0500000000": {
     id: 1,
     full_name_ar: "المشرف العام السيادي",
-    role: "general_manager",
+    role: "super_admin",
     sections: ["admin", "education", "programs"],
-    homePath: "/admin/staff",
+    homePath: "/super-admin/staff",
   },
 
   "0500000001": {
@@ -63,11 +67,11 @@ const MOCK_BY_MOBILE: Record<string, Omit<AuthUser, "mobile">> = {
 
     full_name_ar: "عبدالله — مدير عام",
 
-    role: "general_manager",
+    role: "super_admin",
 
     sections: ["admin"],
 
-    homePath: "/admin/staff",
+    homePath: "/super-admin/staff",
 
   },
 
@@ -81,7 +85,7 @@ const MOCK_BY_MOBILE: Record<string, Omit<AuthUser, "mobile">> = {
 
     sections: ["admin", "education"],
 
-    homePath: "/edu-supervisor/dashboard",
+    homePath: "/edu-dept/dashboard",
 
   },
 
@@ -95,7 +99,7 @@ const MOCK_BY_MOBILE: Record<string, Omit<AuthUser, "mobile">> = {
 
     sections: ["programs"],
 
-    homePath: "/prog-supervisor",
+    homePath: "/prog-dept/quizzes",
 
   },
 
@@ -105,11 +109,11 @@ const MOCK_BY_MOBILE: Record<string, Omit<AuthUser, "mobile">> = {
 
     full_name_ar: "مشرف عام",
 
-    role: "general_supervisor",
+    role: "admin_supervisor",
 
     sections: ["admin", "education", "programs"],
 
-    homePath: "/general-supervisor/student-attendance",
+    homePath: "/admin-dept/student-attendance",
 
   },
 
@@ -161,13 +165,14 @@ function isValidSession(data: unknown): data is AuthSession {
 
     "prog_supervisor",
 
-    "general_supervisor",
+    "admin_supervisor",
 
-    "general_manager",
+    "super_admin",
 
   ];
 
-  return Boolean(u?.homePath && u?.role && u?.full_name_ar && u?.mobile) && roles.includes(u.role);
+  const role = normalizeClientRole(String(u.role));
+  return Boolean(u?.homePath && role && u?.full_name_ar && u?.mobile) && roles.includes(role);
 
 }
 
@@ -256,7 +261,7 @@ export function loginWithApiUser(
     id: apiUser.id,
     mobile,
     full_name_ar: apiUser.full_name_ar,
-    role: apiUser.role,
+    role: normalizeClientRole(String(apiUser.role)),
     sections: apiUser.sections ?? [],
     homePath,
   };

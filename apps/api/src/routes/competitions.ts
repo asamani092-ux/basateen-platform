@@ -6,7 +6,7 @@ import {
   stageFilterWhere,
   studentsInScopeBinds,
   studentsInScopeWhere,
-} from "../lib/supervisor-scope";
+} from "../lib/dept-scope";
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
@@ -49,7 +49,7 @@ export async function handleEduCompetitionsRouter(
   url: URL,
 ): Promise<Response | null> {
   const path = url.pathname;
-  if (!path.startsWith("/api/edu-supervisor/competitions")) return null;
+  if (!path.startsWith("/api/edu-dept/competitions")) return null;
 
   const auth = await getAuth(request, env);
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
@@ -59,7 +59,7 @@ export async function handleEduCompetitionsRouter(
 
   const scope = await loadUserScope(env, auth.userId);
 
-  if (request.method === "GET" && path === "/api/edu-supervisor/competitions") {
+  if (request.method === "GET" && path === "/api/edu-dept/competitions") {
     const stageWhere = stageFilterWhere(scope, "c.stage_id");
     const rows = await env.DB.prepare(
       `SELECT c.id, c.name_ar, c.start_date, c.end_date, c.status,
@@ -73,7 +73,7 @@ export async function handleEduCompetitionsRouter(
     return json({ items: rows.results ?? [] });
   }
 
-  if (request.method === "POST" && path === "/api/edu-supervisor/competitions") {
+  if (request.method === "POST" && path === "/api/edu-dept/competitions") {
     let body: {
       name_ar?: string;
       start_date?: string;
@@ -174,7 +174,7 @@ export async function handleEduCompetitionsRouter(
     return json({ ok: true, id: competitionId, tv_launch_key: tvKey });
   }
 
-  const detailMatch = path.match(/^\/api\/edu-supervisor\/competitions\/(\d+)$/);
+  const detailMatch = path.match(/^\/api\/edu-dept\/competitions\/(\d+)$/);
   if (request.method === "GET" && detailMatch) {
     const id = Number(detailMatch[1]);
     const row = await env.DB.prepare(
@@ -222,7 +222,7 @@ export async function handleEduCompetitionsRouter(
   }
 
   const liveTokenMatch = path.match(
-    /^\/api\/edu-supervisor\/competitions\/(\d+)\/live-log-token$/,
+    /^\/api\/edu-dept\/competitions\/(\d+)\/live-log-token$/,
   );
   if (request.method === "POST" && liveTokenMatch) {
     const id = Number(liveTokenMatch[1]);
@@ -237,7 +237,7 @@ export async function handleEduCompetitionsRouter(
   }
 
   const activateMatch = path.match(
-    /^\/api\/edu-supervisor\/competitions\/(\d+)\/activate$/,
+    /^\/api\/edu-dept\/competitions\/(\d+)\/activate$/,
   );
   if (request.method === "POST" && activateMatch) {
     const id = Number(activateMatch[1]);

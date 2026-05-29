@@ -40,7 +40,7 @@ export async function handleComplexSettingsPatch(
 ): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
-  if (!requireRoles(auth, ["general_manager"])) {
+  if (!requireRoles(auth, ["super_admin"])) {
     return json({ error: "forbidden" }, 403);
   }
 

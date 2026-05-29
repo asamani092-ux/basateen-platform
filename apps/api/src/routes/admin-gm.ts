@@ -10,7 +10,7 @@ import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 import { usersHaveRoleColumn } from "../lib/db-user";
 import { activePlacementSql, hasTable } from "../lib/db-schema";
 
-const GM_ONLY: UserRole[] = ["general_manager"];
+const GM_ONLY: UserRole[] = ["super_admin"];
 const DEFAULT_PASSWORD = "Basateen123!";
 
 function json(data: unknown, status = 200): Response {
@@ -146,7 +146,7 @@ export async function handleAdminSupervisorsList(
   const rows = await env.DB.prepare(
     `SELECT id, full_name_ar, mobile, role, COALESCE(supervisor_scope, 'global') AS supervisor_scope, is_active
      FROM users
-     WHERE complex_id = ? AND role IN ('edu_supervisor', 'prog_supervisor', 'general_supervisor')
+     WHERE complex_id = ? AND role IN ('edu_supervisor', 'prog_supervisor', 'admin_supervisor', 'general_supervisor')
      ORDER BY full_name_ar`,
   )
     .bind(auth!.complexId)
@@ -803,7 +803,7 @@ export async function handleAdminSupervisorsPatch(
   }
 
   const user = await env.DB.prepare(
-    `SELECT id FROM users WHERE id = ? AND complex_id = ? AND role IN ('edu_supervisor','prog_supervisor','general_supervisor')`,
+    `SELECT id FROM users WHERE id = ? AND complex_id = ? AND role IN ('edu_supervisor','prog_supervisor','admin_supervisor', 'general_supervisor')`,
   )
     .bind(userId, auth!.complexId)
     .first();

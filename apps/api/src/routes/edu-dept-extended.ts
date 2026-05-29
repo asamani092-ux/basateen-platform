@@ -1,14 +1,14 @@
 import type { Env } from "../types";
-import type { ScopeMode } from "../lib/supervisor-scope";
+import type { ScopeMode } from "../lib/dept-scope";
 import {
   loadUserScope,
-  parseSupervisorScope,
+  parseStageScope,
   stageFilterBinds,
   stageFilterWhere,
   studentsInScopeBinds,
   studentsInScopeWhere,
   STAGE_LABELS,
-} from "../lib/supervisor-scope";
+} from "../lib/dept-scope";
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
@@ -33,7 +33,7 @@ async function assertStudentInScope(
   return Boolean(row);
 }
 
-export async function handleEduExtendedRoutes(
+export async function handleEduDeptExtendedRoutes(
   request: Request,
   env: Env,
   url: URL,
@@ -43,7 +43,7 @@ export async function handleEduExtendedRoutes(
   const path = url.pathname;
   const method = request.method;
 
-  if (method === "GET" && path === "/api/edu-supervisor/dashboard") {
+  if (method === "GET" && path === "/api/edu-dept/dashboard") {
     const today = todayIso();
     const stageWhere = stageFilterWhere(scope, "s.stage_id");
     const binds = [auth.complexId, ...stageFilterBinds(scope)];
@@ -104,7 +104,7 @@ export async function handleEduExtendedRoutes(
     });
   }
 
-  const profileMatch = path.match(/^\/api\/edu-supervisor\/students\/(\d+)$/);
+  const profileMatch = path.match(/^\/api\/edu-dept\/students\/(\d+)$/);
   if (method === "GET" && profileMatch) {
     const studentId = Number(profileMatch[1]);
     if (!(await assertStudentInScope(env, auth.complexId, scope, studentId))) {
@@ -183,7 +183,7 @@ export async function handleEduExtendedRoutes(
     });
   }
 
-  const planMatch = path.match(/^\/api\/edu-supervisor\/students\/(\d+)\/plan$/);
+  const planMatch = path.match(/^\/api\/edu-dept\/students\/(\d+)\/plan$/);
   if (method === "PATCH" && planMatch) {
     const studentId = Number(planMatch[1]);
     if (!(await assertStudentInScope(env, auth.complexId, scope, studentId))) {
@@ -215,7 +215,7 @@ export async function handleEduExtendedRoutes(
   }
 
   const himmaPlanMatch = path.match(
-    /^\/api\/edu-supervisor\/students\/(\d+)\/apply-himma-plan$/,
+    /^\/api\/edu-dept\/students\/(\d+)\/apply-himma-plan$/,
   );
   if (method === "POST" && himmaPlanMatch) {
     const studentId = Number(himmaPlanMatch[1]);
@@ -285,7 +285,7 @@ export async function handleEduExtendedRoutes(
     return json({ ok: true, targets });
   }
 
-  if (method === "GET" && path === "/api/edu-supervisor/target-options") {
+  if (method === "GET" && path === "/api/edu-dept/target-options") {
     const students = await env.DB.prepare(
       `SELECT s.id, s.full_name_ar, s.stage_id, c.name_ar AS circle_name
        FROM students s
@@ -324,7 +324,7 @@ export async function handleEduExtendedRoutes(
 }
 
 export function scopeLabelFromRow(supervisor_scope: string | null): string {
-  const scope = parseSupervisorScope(supervisor_scope);
+  const scope = parseStageScope(supervisor_scope);
   if (scope.type === "global") return "كل المجمع";
   return scope.stageIds.map((id) => STAGE_LABELS[id]).join("، ");
 }

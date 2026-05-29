@@ -312,11 +312,11 @@ export const api = {
     ),
   competitionsList: () =>
     request<{ items: Array<Record<string, unknown>> }>(
-      "/api/edu-supervisor/competitions",
+      "/api/edu-dept/competitions",
     ),
   competitionsCreate: (body: Record<string, unknown>) =>
     request<{ ok: boolean; id: number; tv_launch_key: string }>(
-      "/api/edu-supervisor/competitions",
+      "/api/edu-dept/competitions",
       { method: "POST", body: JSON.stringify(body) },
     ),
   competitionsDetail: (id: number) =>
@@ -324,15 +324,15 @@ export const api = {
       competition: Record<string, unknown>;
       targets: Array<Record<string, unknown>>;
       plans: Array<Record<string, unknown>>;
-    }>(`/api/edu-supervisor/competitions/${id}`),
+    }>(`/api/edu-dept/competitions/${id}`),
   competitionsLiveLogToken: (id: number) =>
     request<{ ok: boolean; live_log_token: string; path: string }>(
-      `/api/edu-supervisor/competitions/${id}/live-log-token`,
+      `/api/edu-dept/competitions/${id}/live-log-token`,
       { method: "POST", body: "{}" },
     ),
   competitionsActivate: (id: number) =>
     request<{ ok: boolean }>(
-      `/api/edu-supervisor/competitions/${id}/activate`,
+      `/api/edu-dept/competitions/${id}/activate`,
       { method: "POST", body: "{}" },
     ),
   eduDashboard: () =>
@@ -345,12 +345,12 @@ export const api = {
         teacher_marks_today: number;
       };
       active_himma: { id: number; name_ar: string } | null;
-    }>("/api/edu-supervisor/dashboard"),
+    }>("/api/edu-dept/dashboard"),
   eduScope: () =>
     request<{
       supervisor_scope: string;
       scope: { type: string; stageIds?: number[] };
-    }>("/api/edu-supervisor/scope"),
+    }>("/api/edu-dept/scope"),
   eduStudentProfile: (studentId: number) =>
     request<{
       student: Record<string, unknown>;
@@ -358,18 +358,18 @@ export const api = {
       edu_plan: { targets: Record<string, unknown>; notes: string | null };
       teacher_marks: Array<Record<string, unknown>>;
       competitions_summary: Array<Record<string, unknown>>;
-    }>(`/api/edu-supervisor/students/${studentId}`),
+    }>(`/api/edu-dept/students/${studentId}`),
   eduStudentPlanPatch: (
     studentId: number,
     body: { targets?: Record<string, unknown>; notes?: string },
   ) =>
-    request<{ ok: boolean }>(`/api/edu-supervisor/students/${studentId}/plan`, {
+    request<{ ok: boolean }>(`/api/edu-dept/students/${studentId}/plan`, {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
   eduApplyHimmaPlan: (studentId: number, body: { session_id: number }) =>
     request<{ ok: boolean }>(
-      `/api/edu-supervisor/students/${studentId}/apply-himma-plan`,
+      `/api/edu-dept/students/${studentId}/apply-himma-plan`,
       { method: "POST", body: JSON.stringify(body) },
     ),
   eduTargetOptions: () =>
@@ -377,7 +377,7 @@ export const api = {
       students: Array<Record<string, unknown>>;
       circles: Array<Record<string, unknown>>;
       tracks: Array<Record<string, unknown>>;
-    }>("/api/edu-supervisor/target-options"),
+    }>("/api/edu-dept/target-options"),
   complexSettings: () =>
     request<{
       graduates_count: number;
@@ -669,7 +669,7 @@ export const api = {
       circles: CircleOption[];
       tracks: Array<{ id: number; name_ar: string }>;
       pending_filter_applied: boolean;
-    }>(`/api/edu-supervisor/master-grid${qs ? `?${qs}` : ""}`);
+    }>(`/api/edu-dept/master-grid${qs ? `?${qs}` : ""}`);
   },
   eduAcceptAssign: (body: {
     student_id: number;
@@ -677,7 +677,7 @@ export const api = {
     track_id?: number | null;
     note?: string;
   }) =>
-    request<{ ok: boolean; message: string }>("/api/edu-supervisor/accept-assign", {
+    request<{ ok: boolean; message: string }>("/api/edu-dept/accept-assign", {
       method: "POST",
       body: JSON.stringify(body),
     }),
@@ -686,7 +686,7 @@ export const api = {
       scope: { type: string; stageIds?: number[] };
       supervisor_scope: string;
       stage_labels: Record<number, string>;
-    }>("/api/general-supervisor/scope"),
+    }>("/api/admin-dept/scope"),
   gsStaffAttendanceToday: (date?: string) => {
     const qs = date ? `?date=${encodeURIComponent(date)}` : "";
     return request<{
@@ -698,11 +698,11 @@ export const api = {
         status: string;
       }>;
       default_status: string;
-    }>(`/api/general-supervisor/staff-attendance/today${qs}`);
+    }>(`/api/admin-dept/staff-attendance/today${qs}`);
   },
   gsStaffAttendanceInitToday: () =>
     request<{ ok: boolean; date: string; count: number }>(
-      "/api/general-supervisor/staff-attendance/init-today",
+      "/api/admin-dept/staff-attendance/init-today",
       { method: "POST", body: "{}" },
     ),
   gsStaffAttendanceUpsert: (body: {
@@ -711,33 +711,33 @@ export const api = {
     attendance_date?: string;
   }) =>
     request<{ ok: boolean }>(
-      "/api/general-supervisor/staff-attendance/upsert",
+      "/api/admin-dept/staff-attendance/upsert",
       { method: "POST", body: JSON.stringify(body) },
     ),
   gsApplications: (status = "pending") =>
     request<{ items: unknown[] }>(
-      `/api/general-supervisor/applications?status=${encodeURIComponent(status)}`,
+      `/api/admin-dept/applications?status=${encodeURIComponent(status)}`,
     ),
   gsApplicationCreate: (body: Record<string, unknown>) =>
     request<{ ok: boolean; id: number }>(
-      "/api/general-supervisor/applications",
+      "/api/admin-dept/applications",
       { method: "POST", body: JSON.stringify(body) },
     ),
   gsApplicationAccept: (id: number) =>
     request<{ ok: boolean; student_id: number }>(
-      `/api/general-supervisor/applications/${id}/accept`,
+      `/api/admin-dept/applications/${id}/accept`,
       { method: "POST", body: "{}" },
     ),
   gsApplicationReject: (id: number) =>
     request<{ ok: boolean }>(
-      `/api/general-supervisor/applications/${id}/reject`,
+      `/api/admin-dept/applications/${id}/reject`,
       { method: "POST", body: "{}" },
     ),
   gsDisciplinary: () =>
-    request<{ items: unknown[] }>("/api/general-supervisor/disciplinary"),
+    request<{ items: unknown[] }>("/api/admin-dept/disciplinary"),
   gsDisciplinaryViolation: (studentId: number, description?: string) =>
     request<{ ok: boolean }>(
-      `/api/general-supervisor/disciplinary/${studentId}/violation`,
+      `/api/admin-dept/disciplinary/${studentId}/violation`,
       {
         method: "POST",
         body: JSON.stringify({ description }),
@@ -749,7 +749,7 @@ export const api = {
     note?: string,
   ) =>
     request<{ ok: boolean }>(
-      `/api/general-supervisor/disciplinary/${studentId}/action`,
+      `/api/admin-dept/disciplinary/${studentId}/action`,
       { method: "POST", body: JSON.stringify({ action, note }) },
     ),
   gsDashboard: () =>
@@ -764,7 +764,7 @@ export const api = {
         pending_applications: number;
         pending_placement: number;
       };
-    }>("/api/general-supervisor/dashboard"),
+    }>("/api/admin-dept/dashboard"),
   gsTvLaunch: () =>
     request<{
       session: {
@@ -773,7 +773,7 @@ export const api = {
         name_ar: string;
       } | null;
       fallback_url: string;
-    }>("/api/general-supervisor/tv-launch"),
+    }>("/api/admin-dept/tv-launch"),
   gsStudentAttendanceToday: (date?: string) => {
     const qs = date ? `?date=${encodeURIComponent(date)}` : "";
     return request<{
@@ -787,11 +787,11 @@ export const api = {
       }>;
       scope: { type: string; stageIds?: number[] };
       default_status: string;
-    }>(`/api/general-supervisor/student-attendance/today${qs}`);
+    }>(`/api/admin-dept/student-attendance/today${qs}`);
   },
   gsStudentAttendanceInitToday: () =>
     request<{ ok: boolean; date: string; count: number }>(
-      "/api/general-supervisor/student-attendance/init-today",
+      "/api/admin-dept/student-attendance/init-today",
       { method: "POST", body: "{}" },
     ),
   gsStudentAttendanceUpsert: (body: {
@@ -801,7 +801,7 @@ export const api = {
     notes?: string;
   }) =>
     request<{ ok: boolean }>(
-      "/api/general-supervisor/student-attendance/upsert",
+      "/api/admin-dept/student-attendance/upsert",
       { method: "POST", body: JSON.stringify(body) },
     ),
   eduStudentAttendanceToday: (date?: string) => {
@@ -817,11 +817,11 @@ export const api = {
       }>;
       scope: { type: string; stageIds?: number[] };
       default_status: string;
-    }>(`/api/edu-supervisor/student-attendance/today${qs}`);
+    }>(`/api/edu-dept/student-attendance/today${qs}`);
   },
   eduStudentAttendanceInitToday: () =>
     request<{ ok: boolean; date: string; count: number }>(
-      "/api/edu-supervisor/student-attendance/init-today",
+      "/api/edu-dept/student-attendance/init-today",
       { method: "POST", body: "{}" },
     ),
   eduStudentAttendanceUpsert: (body: {
@@ -831,7 +831,7 @@ export const api = {
     notes?: string;
   }) =>
     request<{ ok: boolean }>(
-      "/api/edu-supervisor/student-attendance/upsert",
+      "/api/edu-dept/student-attendance/upsert",
       { method: "POST", body: JSON.stringify(body) },
     ),
 

@@ -1,15 +1,15 @@
 import type { AuthContext, Env, UserRole } from "../types";
 import type { DbUserRow } from "../../../../packages/types/schema";
-import { resolveRoleFromUser } from "../../../../packages/types/schema";
+import { normalizeUserRole, resolveRoleFromUser } from "../../../../packages/types/schema";
 
 const encoder = new TextEncoder();
 const authFailureFlags = new WeakMap<Request, "legacy_session_detected" | "unauthorized">();
 const VALID_ROLES: UserRole[] = [
-  "teacher",
+  "super_admin",
   "edu_supervisor",
+  "admin_supervisor",
   "prog_supervisor",
-  "general_supervisor",
-  "general_manager",
+  "teacher",
 ];
 
 function base64UrlEncode(data: ArrayBuffer | string): string {
@@ -119,12 +119,13 @@ async function verifyTokenWithReason(
     if (typeof payload.is_admin !== "undefined") {
       return { auth: null, reason: "legacy_session_detected" };
     }
+  const role = normalizeUserRole(String(payload.role ?? ""));
     if (
       typeof payload.sub !== "number" ||
       typeof payload.complexId !== "number" ||
       typeof payload.exp !== "number" ||
       typeof payload.role !== "string" ||
-      !VALID_ROLES.includes(payload.role as UserRole)
+      !VALID_ROLES.includes(role)
     ) {
       return { auth: null, reason: "legacy_session_detected" };
     }
@@ -134,7 +135,7 @@ async function verifyTokenWithReason(
     return {
       auth: {
         userId: payload.sub,
-        role: payload.role as UserRole,
+        role,
         complexId: payload.complexId,
       },
       reason: null,
@@ -178,10 +179,12 @@ export async function getAuth(
     authFailureFlags.set(request, "legacy_session_detected");
     return null;
   }
-  const role = hasRole
-    ? (userRow as { role: string }).role
-    : resolveRoleFromUser(userRow as DbUserRow);
-  if (!VALID_ROLES.includes(role as UserRole)) {
+  const role = normalizeUserRole(
+    hasRole
+      ? String((userRow as { role: string }).role)
+      : resolveRoleFromUser(userRow as DbUserRow),
+  );
+  if (!VALID_ROLES.includes(role)) {
     authFailureFlags.set(request, "legacy_session_detected");
     return null;
   }

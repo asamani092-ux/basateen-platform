@@ -1,6 +1,5 @@
 import { Navigate, Route, Routes } from "react-router";
 import { RoleShellLayout } from "./layouts/RoleShellLayout";
-import { TeacherLayout } from "./layouts/TeacherLayout";
 import { EduSupervisorLayout } from "./layouts/EduSupervisorLayout";
 import { RequireAuth } from "./components/RequireAuth";
 import { RequireRole } from "./components/RequireRole";
@@ -10,7 +9,9 @@ import { LoginPage } from "./pages/auth/LoginPage";
 import { WelcomePage } from "./pages/WelcomePage";
 import { TvLivePage } from "./pages/tv/TvLivePage";
 import { LiveLogPage } from "./pages/live-log/LiveLogPage";
-import { TeacherHubPage } from "./pages/teacher/TeacherHubPage";
+import { EduSettingsPage } from "./pages/edu-dept/EduSettingsPage";
+import { DailyRecitationPage } from "./pages/edu-dept/DailyRecitationPage";
+import { StudentTransferPage } from "./pages/edu-dept/StudentTransferPage";
 import { MasterGridConsole } from "./pages/edu-supervisor/MasterGridConsole";
 import { EventsEngineConsole } from "./pages/edu-supervisor/EventsEngineConsole";
 import { StudentsPage } from "./pages/admin/StudentsPage";
@@ -52,14 +53,7 @@ export default function App() {
         <Route path="welcome" element={<WelcomePage />} />
         <Route index element={<AuthHomeRedirect />} />
 
-        <Route element={<RequireRole roles={["teacher"]} />}>
-          <Route element={<TeacherLayout />}>
-            <Route path="teacher" element={<TeacherHubPage />} />
-            <Route path="teacher/daily-log" element={<Navigate to="/teacher" replace />} />
-          </Route>
-        </Route>
-
-        <Route element={<RequireRole roles={STAFF_ROLES} />}>
+        <Route element={<RequireRole roles={[...STAFF_ROLES, "teacher"]} />}>
           <Route element={<RequirePathAccess />}>
             <Route element={<RoleShellLayout />}>
               <Route path="super-admin/staff" element={<StaffManagementPage />} />
@@ -75,6 +69,9 @@ export default function App() {
 
               <Route path="edu-dept" element={<EduSupervisorLayout />}>
                 <Route index element={<Navigate to="dashboard" replace />} />
+                <Route path="settings" element={<EduSettingsPage />} />
+                <Route path="daily-recitation" element={<DailyRecitationPage />} />
+                <Route path="transfer-requests" element={<StudentTransferPage />} />
                 <Route path="dashboard" element={<EduDashboardPage />} />
                 <Route path="master-grid" element={<MasterGridConsole />} />
                 <Route path="students" element={<StudentsPage />} />
@@ -87,6 +84,9 @@ export default function App() {
                   element={<CompetitionDetailPage />}
                 />
               </Route>
+
+              <Route path="teacher" element={<Navigate to="/edu-dept/daily-recitation" replace />} />
+              <Route path="teacher/*" element={<Navigate to="/edu-dept/daily-recitation" replace />} />
 
               <Route path="admin-dept/staff-attendance" element={<StaffAttendancePage />} />
               <Route path="admin-dept/student-attendance" element={<StudentDailyAttendancePage />} />

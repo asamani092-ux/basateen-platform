@@ -898,6 +898,136 @@ export const api = {
       max_pledges: number;
       threshold_reached: boolean;
     }>(`/api/admin-dept/pledges/${studentId}`),
+  adminDeptTeacherEscalations: () =>
+    request<{
+      items: Array<{
+        id: number;
+        student_id: number;
+        student_name: string;
+        teacher_name: string;
+        notes: string | null;
+        created_at: string;
+      }>;
+    }>("/api/admin-dept/teacher-requests/escalations"),
+  adminDeptConvertEscalationToPledge: (requestId: number) =>
+    request<{
+      ok: boolean;
+      pledge_id: number;
+      pledge_count: number;
+      max_pledges: number;
+      threshold_reached: boolean;
+    }>(`/api/admin-dept/teacher-requests/${requestId}/convert-pledge`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  eduDeptSettingsGet: () =>
+    request<{
+      settings: {
+        weight_listening: number;
+        weight_revision: number;
+        weight_repeat: number;
+        penalty_per_error: number;
+      };
+    }>("/api/edu-dept/settings"),
+  eduDeptSettingsPatch: (body: {
+    weight_listening: number;
+    weight_revision: number;
+    weight_repeat: number;
+    penalty_per_error: number;
+  }) =>
+    request<{ ok: boolean }>("/api/edu-dept/settings", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  eduDeptTeacherCircles: () =>
+    request<{ items: Array<{ id: number; name_ar: string }> }>(
+      "/api/edu-dept/teacher/circles",
+    ),
+  eduDeptDailyRecitationGet: (circleId: number, date: string) =>
+    request<{
+      items: Array<{
+        student_id: number;
+        full_name_ar: string;
+        listened: boolean;
+        repeated: boolean;
+        revised: boolean;
+        error_count: number;
+        tune_errors: number;
+        notes: string;
+      }>;
+      date: string;
+      circle_id: number;
+    }>(
+      `/api/edu-dept/daily-recitation?circle_id=${circleId}&date=${encodeURIComponent(date)}`,
+    ),
+  eduDeptDailyRecitationSave: (body: {
+    circle_id: number;
+    recitation_date: string;
+    rows: Array<{
+      student_id: number;
+      listened?: boolean;
+      repeated?: boolean;
+      revised?: boolean;
+      error_count?: number;
+      tune_errors?: number;
+      notes?: string;
+    }>;
+  }) =>
+    request<{ ok: boolean; saved: number }>("/api/edu-dept/daily-recitation", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  eduDeptTeacherRequests: (params?: {
+    status?: string;
+    request_type?: "transfer" | "escalation";
+  }) => {
+    const q = new URLSearchParams();
+    if (params?.status) q.set("status", params.status);
+    if (params?.request_type) q.set("request_type", params.request_type);
+    const qs = q.toString();
+    return request<{
+      items: Array<{
+        id: number;
+        student_id: number;
+        student_name: string;
+        teacher_name: string;
+        request_type: string;
+        status: string;
+        notes: string | null;
+        target_circle_id: number | null;
+        target_circle_name: string | null;
+        created_at: string;
+      }>;
+    }>(`/api/edu-dept/teacher-requests${qs ? `?${qs}` : ""}`);
+  },
+  eduDeptCreateTeacherRequest: (body: {
+    student_id: number;
+    request_type: "transfer" | "escalation";
+    notes?: string;
+    target_circle_id?: number | null;
+  }) =>
+    request<{ ok: boolean; id: number }>("/api/edu-dept/teacher-requests", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  eduDeptResolveTeacherRequest: (
+    id: number,
+    body: { status: "approved" | "rejected"; target_circle_id?: number },
+  ) =>
+    request<{ ok: boolean; status: string }>(
+      `/api/edu-dept/teacher-requests/${id}`,
+      { method: "PATCH", body: JSON.stringify(body) },
+    ),
+  eduDeptManualTransfer: (body: {
+    student_id: number;
+    circle_id: number;
+    track_id?: number | null;
+    note?: string;
+  }) =>
+    request<{ ok: boolean }>("/api/edu-dept/transfers/manual", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   publicAttendanceGet: (token: string) =>
     request<{
       token: string;

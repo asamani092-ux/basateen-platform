@@ -5,7 +5,7 @@ export const ROLE_HOME: Record<UserRole, string> = {
   edu_supervisor: "/edu-dept/dashboard",
   admin_supervisor: "/admin-dept/staff-attendance",
   prog_supervisor: "/prog-dept/quizzes",
-  teacher: "/teacher",
+  teacher: "/edu-dept/daily-recitation",
 };
 
 /** مسار البداية الصحيح — يُصحّح الجلسات القديمة (general-supervisor وغيرها) */
@@ -34,7 +34,7 @@ export const STAFF_ROLES: UserRole[] = [
 
 const PATH_RULES: Array<{ prefix: string; roles: UserRole[] }> = [
   { prefix: "/super-admin", roles: ["super_admin"] },
-  { prefix: "/edu-dept", roles: ["edu_supervisor"] },
+  { prefix: "/edu-dept", roles: ["edu_supervisor", "super_admin", "teacher"] },
   { prefix: "/admin-dept", roles: ["admin_supervisor", "super_admin"] },
   { prefix: "/prog-dept", roles: ["prog_supervisor"] },
   { prefix: "/teacher", roles: ["teacher"] },
@@ -73,6 +73,8 @@ export const LEGACY_REDIRECTS: Record<string, string | "home"> = {
   "/admin-dept/violations": "/admin-dept/pledges",
   "/prog-supervisor": "/prog-dept/quizzes",
   "/dashboard": "home",
+  "/teacher": "/edu-dept/daily-recitation",
+  "/teacher/daily-log": "/edu-dept/daily-recitation",
 };
 
 export function pathAllowedForRole(role: UserRole, pathname: string): boolean {

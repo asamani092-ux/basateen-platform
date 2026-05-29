@@ -1096,5 +1096,86 @@ async function handleAdminDeptRouterImpl(
     return json({ ok: true, id: linkId, is_active: nextActive });
   }
 
+  // GET /api/admin-dept/teacher-requests/escalations
+  if (
+    request.method === "GET" &&
+    path === "/api/admin-dept/teacher-requests/escalations"
+  ) {
+    if (!(await hasTable(env, "teacher_requests"))) {
+      return json({ error: "migration_required", migration: "026_edu_department_core" }, 503);
+    }
+    const items = await env.DB.prepare(
+      `SELECT tr.id, tr.student_id, tr.teacher_user_id, tr.request_type, tr.status, tr.notes, tr.created_at,
+              s.full_name_ar AS student_name,
+              u.full_name_ar AS teacher_name
+       FROM teacher_requests tr
+       JOIN students s ON s.id = tr.student_id
+       JOIN users u ON u.id = tr.teacher_user_id
+       WHERE tr.complex_id = ? AND tr.request_type = 'escalation' AND tr.status = 'pending'
+       ORDER BY tr.created_at DESC`,
+    )
+      .bind(admin.complexId)
+      .all();
+    return json({ items: items.results ?? [] });
+  }
+
+  const convertPledge = path.match(
+    /^\/api\/admin-dept\/teacher-requests\/(\d+)\/convert-pledge$/,
+  );
+  if (request.method === "POST" && convertPledge) {
+    if (!(await hasTable(env, "teacher_requests"))) {
+      return json({ error: "migration_required", migration: "026_edu_department_core" }, 503);
+    }
+    if (!(await hasTable(env, "student_pledges"))) {
+      return json({ error: "migration_required", migration: "024_admin_department" }, 503);
+    }
+    const reqId = Number(convertPledge[1]);
+    const row = await env.DB.prepare(
+      `SELECT tr.id, tr.student_id, tr.notes, tr.status
+       FROM teacher_requests tr
+       WHERE tr.id = ? AND tr.complex_id = ? AND tr.request_type = 'escalation'`,
+    )
+      .bind(reqId, admin.complexId)
+      .first<{
+        id: number;
+        student_id: number;
+        notes: string | null;
+        status: string;
+      }>();
+    if (!row) return json({ error: "not_found" }, 404);
+    if (row.status !== "pending") return json({ error: "already_resolved" }, 409);
+
+    const reason =
+      row.notes?.trim() ||
+      "تصعيد من المعلم — تحويل إلى تعهد رسمي";
+    const pledgeDate = todayIso();
+
+    const ins = await env.DB.prepare(
+      `INSERT INTO student_pledges (complex_id, student_id, reason_ar, pledge_date, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+      .bind(admin.complexId, row.student_id, reason, pledgeDate, admin.userId)
+      .run();
+
+    await env.DB.prepare(
+      `UPDATE teacher_requests
+       SET status = 'approved', resolved_at = datetime('now'), resolved_by_user_id = ?
+       WHERE id = ?`,
+    )
+      .bind(admin.userId, reqId)
+      .run();
+
+    const pledgeCount = await bumpPledgeSummary(env, row.student_id);
+    const maxPledges = await getMaxPledges(env, admin.complexId);
+
+    return json({
+      ok: true,
+      pledge_id: ins.meta.last_row_id,
+      pledge_count: pledgeCount,
+      max_pledges: maxPledges,
+      threshold_reached: pledgeCount >= maxPledges,
+    });
+  }
+
   return json({ error: "Not Found", path }, 404);
 }

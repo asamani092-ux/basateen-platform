@@ -186,7 +186,7 @@ function SidebarFooter({
   );
 }
 
-/** لوحة موحّدة لكل أدوار الموظفين (غير المعلم) */
+/** لوحة موحّدة لكل أدوار الموظفين والمعلم */
 export function RoleShellLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();

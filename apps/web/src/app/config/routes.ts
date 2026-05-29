@@ -22,7 +22,31 @@ export function isNavGroup(entry: NavEntry): entry is NavGroup {
 
 const ADMIN_DEPT_ROLES: UserRole[] = ["admin_supervisor", "super_admin"];
 
-/** القسم التعليمي */
+const EDU_SUPERVISOR_ROLES: UserRole[] = ["edu_supervisor", "super_admin"];
+
+/** مرحلة 1 — أساسيات القسم التعليمي */
+const EDU_DEPT_CORE_NAV: NavItem[] = [
+  {
+    id: "edu-settings",
+    label: "إعدادات التعليم",
+    path: "/edu-dept/settings",
+    roles: EDU_SUPERVISOR_ROLES,
+  },
+  {
+    id: "daily-recitation",
+    label: "الرصد اليومي",
+    path: "/edu-dept/daily-recitation",
+    roles: ["teacher", "edu_supervisor", "super_admin"],
+  },
+  {
+    id: "transfer-requests",
+    label: "متابعة النقل",
+    path: "/edu-dept/transfer-requests",
+    roles: EDU_SUPERVISOR_ROLES,
+  },
+];
+
+/** القسم التعليمي — لوحات المشرف التعليمي */
 export const EDU_DEPT_NAV: NavItem[] = [
   { id: "dashboard", label: "لوحة المتابعة", path: "/edu-dept/dashboard", roles: ["edu_supervisor"] },
   {
@@ -41,6 +65,13 @@ export const EDU_DEPT_NAV: NavItem[] = [
     roles: ["edu_supervisor"],
   },
 ];
+
+export const EDU_DEPT_GROUP: NavGroup = {
+  id: "edu-dept",
+  label: "القسم التعليمي",
+  roles: ["edu_supervisor", "super_admin", "teacher"],
+  children: [...EDU_DEPT_CORE_NAV, ...EDU_DEPT_NAV],
+};
 
 /** القسم الإداري — مسارات v2.6 (كل التبويبات داخل القائمة المنسدلة) */
 export const ADMIN_DEPT_NAV: NavItem[] = [
@@ -110,9 +141,9 @@ export const PROG_DEPT_NAV: NavItem[] = [
   { id: "vault", label: "أرشيف البرامج", path: "/prog-dept/vault", roles: ["prog_supervisor"] },
 ];
 
-/** المعلم */
+/** @deprecated — المعلم يستخدم EDU_DEPT_GROUP */
 export const TEACHER_NAV: NavItem[] = [
-  { id: "daily", label: "شبكة الرصد السريع", path: "/teacher", roles: ["teacher"] },
+  { id: "daily", label: "الرصد اليومي", path: "/edu-dept/daily-recitation", roles: ["teacher"] },
 ];
 
 export const ADMIN_DEPT_GROUP: NavGroup = {
@@ -123,6 +154,7 @@ export const ADMIN_DEPT_GROUP: NavGroup = {
 };
 
 export const navItems: NavItem[] = [
+  ...EDU_DEPT_CORE_NAV,
   ...EDU_DEPT_NAV,
   ...ADMIN_DEPT_NAV,
   ...PROG_DEPT_NAV,
@@ -132,7 +164,7 @@ export const navItems: NavItem[] = [
 export function navForRole(role: UserRole): NavEntry[] {
   const entries: NavEntry[] = [];
   if (role === "super_admin") {
-    entries.push(ADMIN_DEPT_GROUP);
+    entries.push(ADMIN_DEPT_GROUP, EDU_DEPT_GROUP);
     return entries;
   }
   if (role === "admin_supervisor") {
@@ -140,7 +172,7 @@ export function navForRole(role: UserRole): NavEntry[] {
     return entries;
   }
   if (role === "edu_supervisor") {
-    entries.push(...EDU_DEPT_NAV);
+    entries.push(EDU_DEPT_GROUP);
     return entries;
   }
   if (role === "prog_supervisor") {
@@ -148,7 +180,7 @@ export function navForRole(role: UserRole): NavEntry[] {
     return entries;
   }
   if (role === "teacher") {
-    entries.push(...TEACHER_NAV);
+    entries.push(EDU_DEPT_GROUP);
     return entries;
   }
   return navItems.filter((item) => item.roles.includes(role));
@@ -159,8 +191,13 @@ export function navGroupIsActive(group: NavGroup, pathname: string): boolean {
 }
 
 export function isNavActive(path: string, pathname: string): boolean {
-  if (path === "/teacher") {
-    return pathname === "/teacher" || pathname.startsWith("/teacher/");
+  if (path === "/teacher" || path === "/edu-dept/daily-recitation") {
+    return (
+      pathname === "/teacher" ||
+      pathname.startsWith("/teacher/") ||
+      pathname === "/edu-dept/daily-recitation" ||
+      pathname.startsWith("/edu-dept/daily-recitation/")
+    );
   }
   if (path === "/edu-dept/events-engine") {
     return (

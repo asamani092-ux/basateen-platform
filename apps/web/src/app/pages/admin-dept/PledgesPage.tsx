@@ -11,9 +11,11 @@ import {
 } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { ds, tajawal } from "../../lib/design-system";
+import { TeacherEscalationsTab } from "./TeacherEscalationsTab";
 
 export function PledgesPage() {
   const [modalOpen, setModalOpen] = useState(false);
@@ -132,28 +134,104 @@ export function PledgesPage() {
         </p>
       )}
 
-      <div className={`${ds.card} p-4 print:hidden space-y-3`}>
-        <Label style={tajawal}>بحث عن طالب لعرض سجل التعهدات</Label>
-        <AdminStudentSearchCombobox
-          id="pledge-report-student-search"
-          value={reportStudentId}
-          onChange={(id) => {
-            setReportStudentId(id);
-            setReport(null);
-            if (id != null) void loadReport(id);
-          }}
-        />
-        <Button
-          type="button"
-          variant="outline"
-          className={ds.btnRound}
-          disabled={reportStudentId == null}
-          onClick={() => loadReport()}
-          style={tajawal}
-        >
-          عرض التقرير
-        </Button>
-      </div>
+      <Tabs defaultValue="pledges" className="w-full">
+        <TabsList className="w-full justify-start rounded-none border-b border-border bg-transparent p-0 h-auto flex-wrap print:hidden">
+          <TabsTrigger
+            value="pledges"
+            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-2"
+            style={tajawal}
+          >
+            <FileText className="w-4 h-4 ml-2 inline" />
+            سجل التعهدات
+          </TabsTrigger>
+          <TabsTrigger
+            value="escalations"
+            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-2"
+            style={tajawal}
+          >
+            تصعيدات المعلمين
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="pledges" className="mt-4 space-y-4">
+          <div className={`${ds.card} p-4 print:hidden space-y-3`}>
+            <Label style={tajawal}>بحث عن طالب لعرض سجل التعهدات</Label>
+            <AdminStudentSearchCombobox
+              id="pledge-report-student-search"
+              value={reportStudentId}
+              onChange={(id) => {
+                setReportStudentId(id);
+                setReport(null);
+                if (id != null) void loadReport(id);
+              }}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              className={ds.btnRound}
+              disabled={reportStudentId == null}
+              onClick={() => loadReport()}
+              style={tajawal}
+            >
+              عرض التقرير
+            </Button>
+          </div>
+
+          {report && (
+            <div id="pledge-print" className={`${ds.card} p-4 space-y-3`}>
+              <div className="flex justify-between items-start gap-2 print:hidden">
+                <div>
+                  <p className="font-bold" style={tajawal}>
+                    {(report.student as { full_name_ar?: string }).full_name_ar ??
+                      "الطالب"}
+                  </p>
+                  <p className="text-sm text-muted-foreground" style={tajawal}>
+                    عدد التعهدات: {report.pledge_count} / {report.max_pledges}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={ds.btnRound}
+                  onClick={printReport}
+                >
+                  <Printer className="w-4 h-4" />
+                  طباعة
+                </Button>
+              </div>
+              <ul className="space-y-2 text-sm">
+                {report.pledges.map((p) => (
+                  <li
+                    key={p.id}
+                    className="border-b border-border pb-2 flex justify-between gap-2"
+                    style={tajawal}
+                  >
+                    <span>{p.reason_ar}</span>
+                    <span className="text-muted-foreground shrink-0">
+                      {p.pledge_date}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="escalations" className="mt-4">
+          <div className={ds.card}>
+            <div className="p-4 border-b border-border">
+              <h3 className={ds.page.section} style={tajawal}>
+                تصعيدات المعلمين (معلقة)
+              </h3>
+              <p className="text-sm text-muted-foreground mt-1" style={tajawal}>
+                تحويل التصعيد إلى تعهد رسمي بنقرة واحدة.
+              </p>
+            </div>
+            <TeacherEscalationsTab />
+          </div>
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent
@@ -223,44 +301,6 @@ export function PledgesPage() {
           </form>
         </DialogContent>
       </Dialog>
-
-      {report && (
-        <div id="pledge-print" className={`${ds.card} p-4 space-y-3`}>
-          <div className="flex justify-between items-start gap-2 print:hidden">
-            <div>
-              <p className="font-bold" style={tajawal}>
-                {(report.student as { full_name_ar?: string }).full_name_ar ??
-                  "الطالب"}
-              </p>
-              <p className="text-sm text-muted-foreground" style={tajawal}>
-                عدد التعهدات: {report.pledge_count} / {report.max_pledges}
-              </p>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className={ds.btnRound}
-              onClick={printReport}
-            >
-              <Printer className="w-4 h-4" />
-              طباعة
-            </Button>
-          </div>
-          <ul className="space-y-2 text-sm">
-            {report.pledges.map((p) => (
-              <li
-                key={p.id}
-                className="border-b border-border pb-2 flex justify-between gap-2"
-                style={tajawal}
-              >
-                <span>{p.reason_ar}</span>
-                <span className="text-muted-foreground shrink-0">{p.pledge_date}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
     </div>
   );
 }

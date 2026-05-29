@@ -42,6 +42,7 @@ import {
 import { handleAdminDeptRouter } from "./routes/admin-dept";
 import { handlePublicLinksRouter } from "./routes/public-links";
 import { handleEduDeptRouter } from "./routes/edu-dept";
+import { handleEduDeptCoreRouter } from "./routes/edu-dept-core";
 import { handleEduCompetitionsRouter } from "./routes/competitions";
 import { handleLiveLogRouter, handleYomHimmaLiveLogToken } from "./routes/live-log";
 import { handleProgSupervisorRouter } from "./routes/prog-supervisor";
@@ -139,6 +140,12 @@ async function dispatchDepartmentRouters(
   if (legacyGs) return legacyGs;
 
   const eduUrl = withPathPrefix(url, "/api/edu-supervisor/", "/api/edu-dept/");
+  const eduCoreUrl = eduUrl;
+  const eduCore = await handleEduDeptCoreRouter(request, env, eduCoreUrl);
+  if (eduCore) return eduCore;
+  const eduCoreMain = await handleEduDeptCoreRouter(request, env, url);
+  if (eduCoreMain) return eduCoreMain;
+
   const edu = await handleEduDeptRouter(request, env, eduUrl);
   if (edu) return edu;
   const eduDept = await handleEduDeptRouter(request, env, url);

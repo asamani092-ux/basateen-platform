@@ -359,6 +359,107 @@ export function resolveDevPreviewMock<T>(
     } as T;
   }
 
+  if (p === "/api/admin-dept/teacher-requests/escalations" && m === "GET") {
+    return {
+      items: [
+        {
+          id: 1,
+          student_id: 1,
+          student_name: "طالب تجريبي",
+          teacher_name: "معلم تجريبي",
+          notes: "تصعيد تجريبي من الرصد اليومي",
+          created_at: `${date}T10:00:00`,
+        },
+      ],
+    } as T;
+  }
+
+  const convertEsc = p.match(
+    /^\/api\/admin-dept\/teacher-requests\/(\d+)\/convert-pledge$/,
+  );
+  if (convertEsc && m === "POST") {
+    return {
+      ok: true,
+      pledge_id: 2,
+      pledge_count: 2,
+      max_pledges: 3,
+      threshold_reached: false,
+    } as T;
+  }
+
+  if (p === "/api/edu-dept/settings" && m === "GET") {
+    return {
+      settings: {
+        weight_listening: 1,
+        weight_revision: 1,
+        weight_repeat: 1,
+        penalty_per_error: 0.5,
+      },
+    } as T;
+  }
+  if (p === "/api/edu-dept/settings" && m === "PATCH") {
+    return { ok: true } as T;
+  }
+
+  if (p === "/api/edu-dept/teacher/circles" && m === "GET") {
+    return {
+      items: PREVIEW_CIRCLES.slice(0, 2).map((c) => ({
+        id: c.id,
+        name_ar: c.name_ar,
+      })),
+    } as T;
+  }
+
+  if (p.startsWith("/api/edu-dept/daily-recitation") && m === "GET") {
+    const students = previewStore.getStudents().slice(0, 6);
+    return {
+      circle_id: 1,
+      date,
+      items: students.map((s) => ({
+        student_id: s.id,
+        full_name_ar: s.full_name_ar,
+        listened: false,
+        repeated: false,
+        revised: false,
+        error_count: 0,
+        tune_errors: 0,
+        notes: "",
+      })),
+    } as T;
+  }
+  if (p === "/api/edu-dept/daily-recitation" && m === "POST") {
+    return { ok: true, saved: 1 } as T;
+  }
+
+  if (p === "/api/edu-dept/teacher-requests" && m === "GET") {
+    return {
+      items: [
+        {
+          id: 10,
+          student_id: 1,
+          student_name: "طالب تجريبي",
+          teacher_name: "معلم",
+          request_type: "transfer",
+          status: "pending",
+          notes: "طلب نقل",
+          target_circle_id: 2,
+          target_circle_name: "حلقة ثانية",
+          created_at: date,
+        },
+      ],
+    } as T;
+  }
+  if (p === "/api/edu-dept/teacher-requests" && m === "POST") {
+    return { ok: true, id: 11 } as T;
+  }
+  const eduReqPatch = p.match(/^\/api\/edu-dept\/teacher-requests\/(\d+)$/);
+  if (eduReqPatch && m === "PATCH") {
+    return { ok: true, status: "approved" } as T;
+  }
+  if (p === "/api/edu-dept/transfers/manual" && m === "POST") {
+    return { ok: true } as T;
+  }
+
   const pledgeGet = p.match(/^\/api\/admin-dept\/pledges\/(\d+)$/);
   if (pledgeGet && m === "GET") {
     const sid = Number(pledgeGet[1]);

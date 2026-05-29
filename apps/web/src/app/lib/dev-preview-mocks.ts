@@ -238,13 +238,11 @@ export function resolveDevPreviewMock<T>(
   const circleAtt = p.match(/^\/api\/admin-dept\/students\/attendance\/(\d+)$/);
   if (circleAtt && m === "GET") {
     const circleId = Number(circleAtt[1]);
-    const items = previewStore
-      .getStudentsForCircle(circleId)
-      .map((s) => ({
-        student_id: s.id,
-        full_name_ar: s.full_name_ar,
-        status: previewStore.getStudentStatus(s.id, date, "present"),
-      }));
+    const items = previewStore.getStudents().map((s) => ({
+      student_id: s.id,
+      full_name_ar: s.full_name_ar,
+      status: previewStore.getStudentStatus(s.id, date, "present"),
+    }));
     return {
       attendance_date: date,
       circle: { id: circleId, name_ar: `حلقة ${circleId}`, stage: "primary" },

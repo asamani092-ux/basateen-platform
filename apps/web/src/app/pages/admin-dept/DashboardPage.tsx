@@ -11,7 +11,7 @@ export function GeneralSupervisorDashboardPage() {
     >
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Button asChild variant="default" className="rounded-xl">
-          <Link to="/edu-supervisor/circles">الحلقات والنقل</Link>
+          <Link to="/edu-dept/circles">الحلقات والنقل</Link>
         </Button>
         <Button asChild variant="default" className="rounded-xl">
           <Link to="/prog-supervisor/quizzes">الاختبارات</Link>

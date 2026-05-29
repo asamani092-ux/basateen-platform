@@ -4,7 +4,7 @@ import {
   estimatePlan,
   type PlanInputs,
 } from "../lib/plan-estimator";
-import { teacherCanAccessStudent } from "../lib/teacher-scope";
+import { teacherCanAccessStudent } from "../lib/dept-scope";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 
 const TEACHER_ROLES = ["teacher"] as const;

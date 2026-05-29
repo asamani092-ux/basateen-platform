@@ -2,7 +2,7 @@ import type { Env } from "../types";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 import {
   loadUserScope,
-  parseSupervisorScope,
+  parseStageScope,
   STAGE_LABELS,
   staffScopeBinds,
   staffScopeWhere,
@@ -11,7 +11,7 @@ import {
   studentsInScopeBinds,
   studentsInScopeWhere,
   type ScopeMode,
-} from "../lib/supervisor-scope";
+} from "../lib/dept-scope";
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
@@ -21,41 +21,41 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-async function requireGs(auth: Awaited<ReturnType<typeof getAuth>>) {
+async function requireAdminDept(auth: Awaited<ReturnType<typeof getAuth>>) {
   if (!requireAuth(auth)) return null;
-  if (!requireRoles(auth!, ["general_supervisor"])) return null;
+  if (!requireRoles(auth!, ["admin_supervisor"])) return null;
   return auth;
 }
 
-async function gsScope(env: Env, userId: number): Promise<ScopeMode> {
+async function adminDeptScope(env: Env, userId: number): Promise<ScopeMode> {
   return loadUserScope(env, userId);
 }
 
-export async function handleGeneralSupervisorRouter(
+export async function handleAdminDeptRouter(
   request: Request,
   env: Env,
   url: URL,
 ): Promise<Response | null> {
   const path = url.pathname;
-  if (!path.startsWith("/api/general-supervisor/")) return null;
+  if (!path.startsWith("/api/admin-dept/")) return null;
 
   const auth = await getAuth(request, env);
-  const gs = await requireGs(auth);
-  if (!gs) {
+  const adminDept = await requireAdminDept(auth);
+  if (!adminDept) {
     if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
     return json({ error: "forbidden" }, 403);
   }
 
-  const scope = await gsScope(env, gs.userId);
+  const scope = await adminDeptScope(env, adminDept.userId);
 
-  if (request.method === "GET" && path === "/api/general-supervisor/scope") {
+  if (request.method === "GET" && path === "/api/admin-dept/scope") {
     const row = await env.DB.prepare(
       `SELECT supervisor_scope FROM users WHERE id = ?`,
     )
-      .bind(gs.userId)
+      .bind(adminDept.userId)
       .first<{ supervisor_scope: string | null }>();
     return json({
-      scope: parseSupervisorScope(row?.supervisor_scope),
+      scope: parseStageScope(row?.supervisor_scope),
       supervisor_scope: row?.supervisor_scope ?? "global",
       stage_labels: STAGE_LABELS,
     });
@@ -63,7 +63,7 @@ export async function handleGeneralSupervisorRouter(
 
   if (
     request.method === "GET" &&
-    path === "/api/general-supervisor/staff-attendance/today"
+    path === "/api/admin-dept/staff-attendance/today"
   ) {
     const date = url.searchParams.get("date")?.trim() || todayIso();
     const staff = await env.DB.prepare(
@@ -77,9 +77,9 @@ export async function handleGeneralSupervisorRouter(
     )
       .bind(
         date,
-        gs.complexId,
-        gs.complexId,
-        ...staffScopeBinds(gs.complexId, scope),
+        adminDept.complexId,
+        adminDept.complexId,
+        ...staffScopeBinds(adminDept.complexId, scope),
       )
       .all<{
         id: number;
@@ -102,13 +102,13 @@ export async function handleGeneralSupervisorRouter(
 
   if (
     request.method === "POST" &&
-    path === "/api/general-supervisor/staff-attendance/init-today"
+    path === "/api/admin-dept/staff-attendance/init-today"
   ) {
     const date = todayIso();
     const staff = await env.DB.prepare(
       `SELECT u.id FROM users u WHERE ${staffScopeWhere(scope)}`,
     )
-      .bind(gs.complexId, ...staffScopeBinds(gs.complexId, scope))
+      .bind(adminDept.complexId, ...staffScopeBinds(adminDept.complexId, scope))
       .all<{ id: number }>();
 
     for (const row of staff.results ?? []) {
@@ -117,7 +117,7 @@ export async function handleGeneralSupervisorRouter(
          VALUES (?, ?, ?, 'present', ?)
          ON CONFLICT(user_id, attendance_date) DO NOTHING`,
       )
-        .bind(gs.complexId, row.id, date, gs.userId)
+        .bind(adminDept.complexId, row.id, date, adminDept.userId)
         .run();
     }
 
@@ -126,7 +126,7 @@ export async function handleGeneralSupervisorRouter(
 
   if (
     request.method === "POST" &&
-    path === "/api/general-supervisor/staff-attendance/upsert"
+    path === "/api/admin-dept/staff-attendance/upsert"
   ) {
     let body: { user_id?: number; status?: string; attendance_date?: string };
     try {
@@ -145,7 +145,7 @@ export async function handleGeneralSupervisorRouter(
     const allowed = await env.DB.prepare(
       `SELECT u.id FROM users u WHERE ${staffScopeWhere(scope)} AND u.id = ?`,
     )
-      .bind(gs.complexId, ...staffScopeBinds(gs.complexId, scope), userId)
+      .bind(adminDept.complexId, ...staffScopeBinds(adminDept.complexId, scope), userId)
       .first();
 
     if (!allowed) return json({ error: "staff_out_of_scope" }, 403);
@@ -158,17 +158,17 @@ export async function handleGeneralSupervisorRouter(
          recorded_by_user_id = excluded.recorded_by_user_id,
          recorded_at = datetime('now')`,
     )
-      .bind(gs.complexId, userId, date, status, gs.userId)
+      .bind(adminDept.complexId, userId, date, status, adminDept.userId)
       .run();
 
     return json({ ok: true, user_id: userId, status, attendance_date: date });
   }
 
-  if (request.method === "GET" && path === "/api/general-supervisor/applications") {
+  if (request.method === "GET" && path === "/api/admin-dept/applications") {
     const stageWhere = stageFilterWhere(scope, "a.stage_id");
     const status = url.searchParams.get("status") ?? "pending";
     const binds: (number | string)[] = [
-      gs.complexId,
+      adminDept.complexId,
       status,
       ...stageFilterBinds(scope),
     ];
@@ -184,7 +184,7 @@ export async function handleGeneralSupervisorRouter(
     return json({ items: rows.results ?? [] });
   }
 
-  if (request.method === "POST" && path === "/api/general-supervisor/applications") {
+  if (request.method === "POST" && path === "/api/admin-dept/applications") {
     let body: Record<string, unknown>;
     try {
       body = await request.json();
@@ -227,7 +227,7 @@ export async function handleGeneralSupervisorRouter(
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
     )
       .bind(
-        gs.complexId,
+        adminDept.complexId,
         String(body.full_name_ar).trim(),
         String(body.phone).trim(),
         String(body.national_id).trim(),
@@ -240,7 +240,7 @@ export async function handleGeneralSupervisorRouter(
         opt("guardian_national_id"),
         opt("guardian_work"),
         opt("health_notes"),
-        gs.userId,
+        adminDept.userId,
       )
       .run();
 
@@ -248,14 +248,14 @@ export async function handleGeneralSupervisorRouter(
   }
 
   const acceptMatch = path.match(
-    /^\/api\/general-supervisor\/applications\/(\d+)\/accept$/,
+    /^\/api\/admin-dept\/applications\/(\d+)\/accept$/,
   );
   if (request.method === "POST" && acceptMatch) {
     const appId = Number(acceptMatch[1]);
     const app = await env.DB.prepare(
       `SELECT * FROM student_applications WHERE id = ? AND complex_id = ? AND status = 'pending'`,
     )
-      .bind(appId, gs.complexId)
+      .bind(appId, adminDept.complexId)
       .first<Record<string, unknown>>();
 
     if (!app) return json({ error: "not_found" }, 404);
@@ -287,7 +287,7 @@ export async function handleGeneralSupervisorRouter(
           app.guardian_work,
           app.health_notes,
           studentId,
-          gs.complexId,
+          adminDept.complexId,
         )
         .run();
     } else {
@@ -299,7 +299,7 @@ export async function handleGeneralSupervisorRouter(
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_placement', 1, 'active')`,
       )
         .bind(
-          gs.complexId,
+          adminDept.complexId,
           app.full_name_ar,
           app.national_id,
           app.phone,
@@ -320,7 +320,7 @@ export async function handleGeneralSupervisorRouter(
         processed_at = datetime('now'), processed_by_user_id = ?
        WHERE id = ?`,
     )
-      .bind(studentId, gs.userId, appId)
+      .bind(studentId, adminDept.userId, appId)
       .run();
 
     return json({
@@ -332,7 +332,7 @@ export async function handleGeneralSupervisorRouter(
   }
 
   const rejectMatch = path.match(
-    /^\/api\/general-supervisor\/applications\/(\d+)\/reject$/,
+    /^\/api\/admin-dept\/applications\/(\d+)\/reject$/,
   );
   if (request.method === "POST" && rejectMatch) {
     const appId = Number(rejectMatch[1]);
@@ -341,15 +341,15 @@ export async function handleGeneralSupervisorRouter(
         processed_at = datetime('now'), processed_by_user_id = ?
        WHERE id = ? AND complex_id = ? AND status = 'pending'`,
     )
-      .bind(gs.userId, appId, gs.complexId)
+      .bind(adminDept.userId, appId, adminDept.complexId)
       .run();
 
     return json({ ok: true });
   }
 
-  if (request.method === "GET" && path === "/api/general-supervisor/disciplinary") {
+  if (request.method === "GET" && path === "/api/admin-dept/disciplinary") {
     const stageWhere = stageFilterWhere(scope, "s.stage_id");
-    const binds: (number | string)[] = [gs.complexId, ...stageFilterBinds(scope)];
+    const binds: (number | string)[] = [adminDept.complexId, ...stageFilterBinds(scope)];
 
     const rows = await env.DB.prepare(
       `SELECT s.id, s.full_name_ar, s.stage_id, s.account_status,
@@ -371,7 +371,7 @@ export async function handleGeneralSupervisorRouter(
   }
 
   const violMatch = path.match(
-    /^\/api\/general-supervisor\/disciplinary\/(\d+)\/violation$/,
+    /^\/api\/admin-dept\/disciplinary\/(\d+)\/violation$/,
   );
   if (request.method === "POST" && violMatch) {
     const studentId = Number(violMatch[1]);
@@ -385,7 +385,7 @@ export async function handleGeneralSupervisorRouter(
     const st = await env.DB.prepare(
       `SELECT id, stage_id FROM students WHERE id = ? AND complex_id = ?`,
     )
-      .bind(studentId, gs.complexId)
+      .bind(studentId, adminDept.complexId)
       .first<{ id: number; stage_id: number | null }>();
 
     if (!st) return json({ error: "not_found" }, 404);
@@ -418,7 +418,7 @@ export async function handleGeneralSupervisorRouter(
       `INSERT INTO violations (student_id, level, description, created_by_user_id)
        VALUES (?, ?, ?, ?)`,
     )
-      .bind(studentId, level, body.description?.trim() ?? null, gs.userId)
+      .bind(studentId, level, body.description?.trim() ?? null, adminDept.userId)
       .run();
 
     await env.DB.prepare(
@@ -436,7 +436,7 @@ export async function handleGeneralSupervisorRouter(
   }
 
   const actionMatch = path.match(
-    /^\/api\/general-supervisor\/disciplinary\/(\d+)\/action$/,
+    /^\/api\/admin-dept\/disciplinary\/(\d+)\/action$/,
   );
   if (request.method === "POST" && actionMatch) {
     const studentId = Number(actionMatch[1]);
@@ -466,45 +466,45 @@ export async function handleGeneralSupervisorRouter(
         `INSERT INTO violations (student_id, level, description, final_action, created_by_user_id)
          VALUES (?, 'notice', ?, 'archive', ?)`,
       )
-        .bind(studentId, body.note ?? "أرشفة التعهد", gs.userId)
+        .bind(studentId, body.note ?? "أرشفة التعهد", adminDept.userId)
         .run();
     } else if (action === "suspend") {
       await env.DB.prepare(
         `UPDATE students SET account_status = 'suspended' WHERE id = ? AND complex_id = ?`,
       )
-        .bind(studentId, gs.complexId)
+        .bind(studentId, adminDept.complexId)
         .run();
       await env.DB.prepare(
         `INSERT INTO violations (student_id, level, description, final_action, created_by_user_id)
          VALUES (?, 'summons', ?, 'suspension', ?)`,
       )
-        .bind(studentId, body.note ?? "تعليق مؤقت", gs.userId)
+        .bind(studentId, body.note ?? "تعليق مؤقت", adminDept.userId)
         .run();
     } else if (action === "dismiss") {
       await env.DB.prepare(
         `UPDATE students SET is_active = 0, account_status = 'dismissed' WHERE id = ? AND complex_id = ?`,
       )
-        .bind(studentId, gs.complexId)
+        .bind(studentId, adminDept.complexId)
         .run();
       await env.DB.prepare(
         `INSERT INTO violations (student_id, level, description, final_action, created_by_user_id)
          VALUES (?, 'summons', ?, 'dismissal', ?)`,
       )
-        .bind(studentId, body.note ?? "فصل الطالب", gs.userId)
+        .bind(studentId, body.note ?? "فصل الطالب", adminDept.userId)
         .run();
     } else if (action === "transfer") {
       await env.DB.prepare(
         `INSERT INTO violations (student_id, level, description, final_action, created_by_user_id)
          VALUES (?, 'summons', ?, NULL, ?)`,
       )
-        .bind(studentId, body.note ?? "نقل الطالب — يُكمل عبر نقل تراكمي", gs.userId)
+        .bind(studentId, body.note ?? "نقل الطالب — يُكمل عبر نقل تراكمي", adminDept.userId)
         .run();
     }
 
     return json({ ok: true, action });
   }
 
-  if (request.method === "GET" && path === "/api/general-supervisor/dashboard") {
+  if (request.method === "GET" && path === "/api/admin-dept/dashboard") {
     const today = todayIso();
     const stageWhere = stageFilterWhere(scope, "s.stage_id");
     const stageBinds = stageFilterBinds(scope);
@@ -516,7 +516,7 @@ export async function handleGeneralSupervisorRouter(
        WHERE h.to_at IS NULL AND h.frozen_at IS NULL AND s.complex_id = ?
          AND (${stageWhere} OR s.stage_id IS NULL)`,
     )
-      .bind(gs.complexId, ...stageBinds)
+      .bind(adminDept.complexId, ...stageBinds)
       .first<{ c: number }>();
 
     const presentToday = await env.DB.prepare(
@@ -526,20 +526,20 @@ export async function handleGeneralSupervisorRouter(
        WHERE tdm.mark_date = ? AND tdm.attendance_auto = 1 AND s.complex_id = ?
          AND (${stageWhere} OR s.stage_id IS NULL)`,
     )
-      .bind(today, gs.complexId, ...stageBinds)
+      .bind(today, adminDept.complexId, ...stageBinds)
       .first<{ c: number }>();
 
     const settings = await env.DB.prepare(
       `SELECT graduates_count, huffadh_count FROM complex_settings WHERE complex_id = ?`,
     )
-      .bind(gs.complexId)
+      .bind(adminDept.complexId)
       .first<{ graduates_count: number; huffadh_count: number }>();
 
     const pendingApps = await env.DB.prepare(
       `SELECT COUNT(*) AS c FROM student_applications
        WHERE complex_id = ? AND status = 'pending' AND ${stageFilterWhere(scope, "stage_id")}`,
     )
-      .bind(gs.complexId, ...stageBinds)
+      .bind(adminDept.complexId, ...stageBinds)
       .first<{ c: number }>();
 
     const pendingPlacement = await env.DB.prepare(
@@ -547,7 +547,7 @@ export async function handleGeneralSupervisorRouter(
        WHERE complex_id = ? AND admission_status = 'pending_placement'
          AND (${stageWhere} OR stage_id IS NULL)`,
     )
-      .bind(gs.complexId, ...stageBinds)
+      .bind(adminDept.complexId, ...stageBinds)
       .first<{ c: number }>();
 
     const total = Number(activeStudents?.c ?? 0);
@@ -570,11 +570,11 @@ export async function handleGeneralSupervisorRouter(
 
   if (
     request.method === "GET" &&
-    path === "/api/general-supervisor/student-attendance/today"
+    path === "/api/admin-dept/student-attendance/today"
   ) {
     const date = url.searchParams.get("date")?.trim() || todayIso();
     const scopeWhere = studentsInScopeWhere(scope);
-    const binds = [date, gs.complexId, ...studentsInScopeBinds(gs.complexId, scope)];
+    const binds = [date, adminDept.complexId, ...studentsInScopeBinds(adminDept.complexId, scope)];
 
     const rows = await env.DB.prepare(
       `SELECT s.id AS student_id, s.full_name_ar, s.stage_id,
@@ -612,24 +612,24 @@ export async function handleGeneralSupervisorRouter(
 
   if (
     request.method === "POST" &&
-    path === "/api/general-supervisor/student-attendance/init-today"
+    path === "/api/admin-dept/student-attendance/init-today"
   ) {
     const date = todayIso();
     const scopeWhere = studentsInScopeWhere(scope);
     const students = await env.DB.prepare(
       `SELECT s.id FROM students s WHERE ${scopeWhere}`,
     )
-      .bind(...studentsInScopeBinds(gs.complexId, scope))
+      .bind(...studentsInScopeBinds(adminDept.complexId, scope))
       .all<{ id: number }>();
 
     for (const row of students.results ?? []) {
       await env.DB.prepare(
         `INSERT INTO student_daily_attendance
          (complex_id, student_id, attendance_date, status, source, recorded_by_user_id)
-         VALUES (?, ?, ?, 'present', 'general_supervisor', ?)
+         VALUES (?, ?, ?, 'present', 'admin_supervisor', ?)
          ON CONFLICT(student_id, attendance_date) DO NOTHING`,
       )
-        .bind(gs.complexId, row.id, date, gs.userId)
+        .bind(adminDept.complexId, row.id, date, adminDept.userId)
         .run();
     }
 
@@ -638,7 +638,7 @@ export async function handleGeneralSupervisorRouter(
 
   if (
     request.method === "POST" &&
-    path === "/api/general-supervisor/student-attendance/upsert"
+    path === "/api/admin-dept/student-attendance/upsert"
   ) {
     let body: {
       student_id?: number;
@@ -664,7 +664,7 @@ export async function handleGeneralSupervisorRouter(
     const allowed = await env.DB.prepare(
       `SELECT s.id FROM students s WHERE ${scopeWhere} AND s.id = ?`,
     )
-      .bind(...studentsInScopeBinds(gs.complexId, scope), studentId)
+      .bind(...studentsInScopeBinds(adminDept.complexId, scope), studentId)
       .first();
 
     if (!allowed) return json({ error: "student_out_of_scope" }, 403);
@@ -672,20 +672,20 @@ export async function handleGeneralSupervisorRouter(
     await env.DB.prepare(
       `INSERT INTO student_daily_attendance
        (complex_id, student_id, attendance_date, status, source, recorded_by_user_id, notes)
-       VALUES (?, ?, ?, ?, 'general_supervisor', ?, ?)
+       VALUES (?, ?, ?, ?, 'admin_supervisor', ?, ?)
        ON CONFLICT(student_id, attendance_date) DO UPDATE SET
          status = excluded.status,
-         source = 'general_supervisor',
+         source = 'admin_supervisor',
          recorded_by_user_id = excluded.recorded_by_user_id,
          notes = excluded.notes,
          recorded_at = datetime('now')`,
     )
       .bind(
-        gs.complexId,
+        adminDept.complexId,
         studentId,
         date,
         status,
-        gs.userId,
+        adminDept.userId,
         body.notes?.trim() ?? null,
       )
       .run();
@@ -693,22 +693,22 @@ export async function handleGeneralSupervisorRouter(
     await env.DB.prepare(
       `INSERT INTO student_attendance_log
        (student_id, attendance_date, status, source, recorded_by_user_id, notes)
-       VALUES (?, ?, ?, 'general_supervisor', ?, ?)`,
+       VALUES (?, ?, ?, 'admin_supervisor', ?, ?)`,
     )
-      .bind(studentId, date, status, gs.userId, body.notes?.trim() ?? null)
+      .bind(studentId, date, status, adminDept.userId, body.notes?.trim() ?? null)
       .run();
 
     return json({ ok: true, student_id: studentId, status, attendance_date: date });
   }
 
-  if (request.method === "GET" && path === "/api/general-supervisor/tv-launch") {
+  if (request.method === "GET" && path === "/api/admin-dept/tv-launch") {
     const session = await env.DB.prepare(
       `SELECT id, tv_launch_key, name_ar, session_date, status
        FROM yom_himma_sessions
        WHERE complex_id = ? AND status IN ('active', 'draft')
        ORDER BY session_date DESC LIMIT 1`,
     )
-      .bind(gs.complexId)
+      .bind(adminDept.complexId)
       .first<{
         id: number;
         tv_launch_key: string;

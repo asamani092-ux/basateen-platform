@@ -4,7 +4,7 @@ import {
   getCircleCapacity,
   capacityWarningMessage,
 } from "../lib/circle-capacity";
-import { canManageCircle } from "../lib/scope";
+import { canManageCircle } from "../lib/dept-scope";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 
 type PlacementRow = {

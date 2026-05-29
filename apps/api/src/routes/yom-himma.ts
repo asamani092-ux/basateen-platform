@@ -33,7 +33,7 @@ function randomKey(): string {
 }
 
 function canAccessHimma(role: string): boolean {
-  return role === "general_manager" || role === "edu_supervisor";
+  return role === "super_admin" || role === "edu_supervisor";
 }
 
 export async function handleYomHimmaList(

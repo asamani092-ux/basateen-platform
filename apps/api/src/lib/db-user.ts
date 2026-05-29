@@ -1,4 +1,5 @@
 import type { Env, UserRole, UserRow } from "../types";
+import { normalizeUserRole } from "../../../../packages/types/schema";
 import { mobileLookupKeys, normalizeMobile } from "./mobile";
 
 let cachedHasRoleColumn: boolean | null = null;
@@ -33,11 +34,11 @@ export function resolveRoleFromFlat(row: {
   is_programs?: number | null;
   is_teacher?: number | null;
 }): UserRole {
-  if (row.is_admin === 1) return "general_manager";
+  if (row.is_admin === 1) return "super_admin";
   if (row.is_educational === 1) return "edu_supervisor";
   if (row.is_programs === 1) return "prog_supervisor";
   if (row.is_teacher === 1) return "teacher";
-  return "general_manager";
+  return "super_admin";
 }
 
 function sectionsFromFlatFlags(row: {
@@ -74,7 +75,7 @@ type RawUser = {
 function toUserRow(raw: RawUser): UserRow {
   const role =
     raw.role && typeof raw.role === "string"
-      ? (raw.role as UserRole)
+      ? normalizeUserRole(raw.role)
       : resolveRoleFromFlat(raw);
   return {
     id: raw.id,

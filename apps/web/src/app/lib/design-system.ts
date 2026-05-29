@@ -10,13 +10,13 @@ export const ds = {
     description: "text-sm text-muted-foreground mt-1",
     section: "text-lg font-semibold text-foreground",
   },
-  card: "rounded-3xl border border-border bg-card text-card-foreground shadow-sm",
+  card: "rounded-3xl border border-border bg-card text-card-foreground shadow-md shadow-slate-900/8",
   btnRound: "rounded-xl",
   /** حقول نص / تاريخ / قائمة منسدلة أصلية — ارتفاع وانحناء موحّد */
   field:
-    "h-9 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground shadow-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50",
+    "h-9 w-full rounded-xl border border-input bg-input-background px-3 py-2 text-sm text-foreground shadow-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50",
   select:
-    "h-9 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+    "h-9 w-full rounded-xl border border-input bg-input-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
   dialog: "rounded-2xl border border-border bg-card text-card-foreground shadow-lg sm:max-w-lg",
   tableWrap: "w-full overflow-x-auto",
   tableMin: "min-w-[640px] w-full table-fixed",
@@ -37,6 +37,6 @@ export const ds = {
   },
   tab: {
     active: "rounded-xl bg-primary text-primary-foreground",
-    idle: "rounded-xl border border-border bg-background text-foreground hover:bg-muted",
+    idle: "rounded-xl border border-input bg-input-background text-foreground hover:bg-muted",
   },
 } as const;

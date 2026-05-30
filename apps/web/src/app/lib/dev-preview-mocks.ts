@@ -506,6 +506,8 @@ export function resolveDevPreviewMock<T>(
   const tcTaskDel = p.match(/^\/api\/edu-dept\/teacher-competitions\/(\d+)\/tasks\/(\d+)$/);
   if (tcTaskDel && m === "DELETE") return { ok: true } as T;
   const tcDetail = p.match(/^\/api\/edu-dept\/teacher-competitions\/(\d+)$/);
+  if (tcDetail && m === "PATCH") return { ok: true } as T;
+  if (tcDetail && m === "DELETE") return { ok: true } as T;
   if (tcDetail && m === "GET") {
     const students = previewStore.getStudents().slice(0, 4);
     return {

@@ -171,10 +171,66 @@ export async function handleEduDeptMegaRouter(
     }
 
     const detailMatch = path.match(/^\/api\/edu-dept\/teacher-competitions\/(\d+)$/);
-    if (detailMatch && request.method === "GET") {
+    if (detailMatch) {
       const compId = Number(detailMatch[1]);
       if (!(await assertTeacherOwnsCompetition(env, compId, auth.userId, auth.complexId))) {
         return json({ error: "not_found" }, 404);
+      }
+
+      if (request.method === "PATCH") {
+        let body: { name_ar?: string; start_date?: string | null; end_date?: string | null };
+        try {
+          body = await request.json();
+        } catch {
+          return json({ error: "invalid_json" }, 400);
+        }
+        const name = body.name_ar != null ? String(body.name_ar).trim() : null;
+        if (name !== null && !name) return json({ error: "name_required" }, 400);
+        const start =
+          body.start_date === undefined
+            ? undefined
+            : body.start_date == null || body.start_date === ""
+              ? null
+              : String(body.start_date).trim();
+        const end =
+          body.end_date === undefined
+            ? undefined
+            : body.end_date == null || body.end_date === ""
+              ? null
+              : String(body.end_date).trim();
+        if (name !== null) {
+          await env.DB.prepare(`UPDATE teacher_competitions SET name_ar = ? WHERE id = ?`)
+            .bind(name, compId)
+            .run();
+        }
+        if (start !== undefined || end !== undefined) {
+          const row = await env.DB.prepare(
+            `SELECT start_date, end_date FROM teacher_competitions WHERE id = ?`,
+          )
+            .bind(compId)
+            .first<{ start_date: string | null; end_date: string | null }>();
+          await env.DB.prepare(
+            `UPDATE teacher_competitions SET start_date = ?, end_date = ? WHERE id = ?`,
+          )
+            .bind(
+              start !== undefined ? start : (row?.start_date ?? null),
+              end !== undefined ? end : (row?.end_date ?? null),
+              compId,
+            )
+            .run();
+        }
+        return json({ ok: true });
+      }
+
+      if (request.method === "DELETE") {
+        await env.DB.prepare(`DELETE FROM teacher_competitions WHERE id = ?`)
+          .bind(compId)
+          .run();
+        return json({ ok: true });
+      }
+
+      if (request.method !== "GET") {
+        return json({ error: "method_not_allowed" }, 405);
       }
 
       const loaded = await loadTeacherStudents(env, teacherAuth);

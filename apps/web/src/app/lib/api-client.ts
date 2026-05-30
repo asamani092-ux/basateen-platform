@@ -1082,6 +1082,18 @@ export const api = {
       students: Array<{ id: number; full_name_ar: string }>;
       scores: Array<{ task_id: number; student_id: number; points: number }>;
     }>(`/api/edu-dept/teacher-competitions/${id}`),
+  eduDeptTeacherCompetitionUpdate: (
+    id: number,
+    body: { name_ar?: string; start_date?: string | null; end_date?: string | null },
+  ) =>
+    request<{ ok: boolean }>(`/api/edu-dept/teacher-competitions/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  eduDeptTeacherCompetitionDelete: (id: number) =>
+    request<{ ok: boolean }>(`/api/edu-dept/teacher-competitions/${id}`, {
+      method: "DELETE",
+    }),
   eduDeptTeacherCompetitionAddTask: (
     compId: number,
     body: { title_ar: string; weight_points?: number },

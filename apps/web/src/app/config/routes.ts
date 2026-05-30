@@ -152,18 +152,47 @@ export const ADMIN_DEPT_NAV: NavItem[] = [
 /** @deprecated — استخدم ADMIN_DEPT_NAV داخل ADMIN_DEPT_GROUP */
 export const SUPER_ADMIN_NAV: NavItem[] = [];
 
+const PROG_DEPT_ROLES: UserRole[] = ["prog_supervisor", "super_admin"];
+
 /** قسم إشراف البرامج */
 export const PROG_DEPT_NAV: NavItem[] = [
-  { id: "quizzes", label: "الاختبارات", path: "/prog-dept/quizzes", roles: ["prog_supervisor"] },
-  { id: "analytics", label: "التحليلات", path: "/prog-dept/analytics", roles: ["prog_supervisor"] },
-  { id: "vault", label: "أرشيف البرامج", path: "/prog-dept/vault", roles: ["prog_supervisor"] },
   {
-    id: "daily-recitation",
-    label: "الرصد اليومي",
-    path: "/edu-dept/daily-recitation",
-    roles: ["prog_supervisor"],
+    id: "quizzes",
+    label: "منشئ الاختبارات",
+    path: "/prog-dept/quizzes",
+    roles: PROG_DEPT_ROLES,
+  },
+  {
+    id: "archive",
+    label: "أرشيف البرامج",
+    path: "/prog-dept/archive",
+    roles: PROG_DEPT_ROLES,
+  },
+  { id: "analytics", label: "التحليلات", path: "/prog-dept/analytics", roles: PROG_DEPT_ROLES },
+];
+
+export const PROG_DEPT_GROUP: NavGroup = {
+  id: "prog-dept",
+  label: "إشراف البرامج",
+  roles: PROG_DEPT_ROLES,
+  children: PROG_DEPT_NAV,
+};
+
+export const DISPLAY_DEPT_NAV: NavItem[] = [
+  {
+    id: "display-manager",
+    label: "إدارة الشاشات",
+    path: "/display-dept/manager",
+    roles: ["super_admin"],
   },
 ];
+
+export const DISPLAY_DEPT_GROUP: NavGroup = {
+  id: "display-dept",
+  label: "شاشات العرض",
+  roles: ["super_admin"],
+  children: DISPLAY_DEPT_NAV,
+};
 
 /** @deprecated — المعلم يستخدم EDU_DEPT_GROUP */
 export const TEACHER_NAV: NavItem[] = [
@@ -188,7 +217,7 @@ export const navItems: NavItem[] = [
 export function navForRole(role: UserRole): NavEntry[] {
   const entries: NavEntry[] = [];
   if (role === "super_admin") {
-    entries.push(ADMIN_DEPT_GROUP, EDU_DEPT_GROUP);
+    entries.push(ADMIN_DEPT_GROUP, EDU_DEPT_GROUP, PROG_DEPT_GROUP, DISPLAY_DEPT_GROUP);
     return entries;
   }
   if (role === "admin_supervisor") {
@@ -200,7 +229,7 @@ export function navForRole(role: UserRole): NavEntry[] {
     return entries;
   }
   if (role === "prog_supervisor") {
-    entries.push(...PROG_DEPT_NAV);
+    entries.push(PROG_DEPT_GROUP);
     return entries;
   }
   if (role === "teacher") {
@@ -234,7 +263,17 @@ export function isNavActive(path: string, pathname: string): boolean {
     return pathname === "/edu-dept/students" || pathname.startsWith("/edu-dept/students/");
   }
   if (path === "/prog-dept/quizzes") {
-    return pathname === "/prog-dept" || pathname.startsWith("/prog-dept/quizzes");
+    return (
+      pathname === "/prog-dept" ||
+      pathname.startsWith("/prog-dept/quizzes") ||
+      pathname.startsWith("/prog-dept/archive")
+    );
+  }
+  if (path === "/prog-dept/archive") {
+    return pathname === "/prog-dept/archive" || pathname.startsWith("/prog-dept/archive/");
+  }
+  if (path === "/display-dept/manager") {
+    return pathname === "/display-dept/manager" || pathname.startsWith("/display-dept/");
   }
   if (path === "/super-admin/staff") {
     return (

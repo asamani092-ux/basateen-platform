@@ -25,11 +25,14 @@ import { EduDashboardPage } from "./pages/edu-supervisor/EduDashboardPage";
 import { CompetitionDetailPage } from "./pages/edu-supervisor/CompetitionDetailPage";
 import { StudentProfilePage } from "./pages/edu-supervisor/StudentProfilePage";
 import { ProgSupervisorLayout } from "./layouts/ProgSupervisorLayout";
-import { ProgQuizzesPage } from "./pages/prog-supervisor/ProgQuizzesPage";
+import { QuizBuilderPage } from "./pages/prog-dept/QuizBuilderPage";
+import { ProgramsArchivePage } from "./pages/prog-dept/ProgramsArchivePage";
 import { QuizEditorPage } from "./pages/prog-supervisor/QuizEditorPage";
 import { QuizPrintPage } from "./pages/prog-supervisor/QuizPrintPage";
 import { ProgAnalyticsPage } from "./pages/prog-supervisor/ProgAnalyticsPage";
-import { ProgVaultPage } from "./pages/prog-supervisor/ProgVaultPage";
+import { DisplayManagerPage } from "./pages/display-dept/DisplayManagerPage";
+import { PublicQuizPage } from "./pages/public/PublicQuizPage";
+import { PublicLiveDisplayPage } from "./pages/public/PublicLiveDisplayPage";
 import { QuizPublicPage } from "./pages/quiz/QuizPublicPage";
 import { PublicMagicLinkPage } from "./pages/public/PublicMagicLinkPage";
 import { StaffAttendancePage } from "./pages/admin-dept/StaffAttendancePage";
@@ -51,6 +54,8 @@ export default function App() {
       <Route path="/tv-live" element={<TvLivePage />} />
       <Route path="/live-log/:token" element={<LiveLogPage />} />
       <Route path="/quiz/:quizId" element={<QuizPublicPage />} />
+      <Route path="/public/quiz/:id" element={<PublicQuizPage />} />
+      <Route path="/public/live-display" element={<PublicLiveDisplayPage />} />
       <Route path="/public/attendance/:token" element={<PublicMagicLinkPage />} />
       <Route path="/public/quranic-day/:token" element={<PublicQuranicDayPage />} />
 
@@ -106,12 +111,15 @@ export default function App() {
 
               <Route path="prog-dept" element={<ProgSupervisorLayout />}>
                 <Route index element={<Navigate to="quizzes" replace />} />
-                <Route path="quizzes" element={<ProgQuizzesPage />} />
+                <Route path="quizzes" element={<QuizBuilderPage />} />
                 <Route path="quizzes/:quizId" element={<QuizEditorPage />} />
                 <Route path="quizzes/:quizId/print" element={<QuizPrintPage />} />
+                <Route path="archive" element={<ProgramsArchivePage />} />
+                <Route path="vault" element={<Navigate to="/prog-dept/archive" replace />} />
                 <Route path="analytics" element={<ProgAnalyticsPage />} />
-                <Route path="vault" element={<ProgVaultPage />} />
               </Route>
+
+              <Route path="display-dept/manager" element={<DisplayManagerPage />} />
 
               <Route path="admin/staff" element={<Navigate to="/super-admin/staff" replace />} />
               <Route path="admin/circles-setup" element={<Navigate to="/super-admin/circles-setup" replace />} />

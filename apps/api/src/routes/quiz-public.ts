@@ -2,25 +2,40 @@ import type { Env } from "../types";
 import { normalizeMobile } from "../lib/mobile";
 import { randomToken, scoreQuizAttempt, type QuizQuestionRow } from "../lib/quiz-scoring";
 import { writeProgAudit } from "../lib/prog-audit";
+import { hasTable } from "../lib/db-schema";
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
 }
 
-async function loadQuiz(env: Env, quizId: number) {
+type QuizRow = {
+  id: number;
+  complex_id: number;
+  title_ar: string;
+  access_code: string | null;
+  status: string;
+  total_points: number;
+  show_score_instantly: number;
+  custom_success_message: string | null;
+  is_active: number;
+};
+
+async function loadQuiz(env: Env, quizId: number): Promise<QuizRow | null> {
   return env.DB.prepare(
-    `SELECT id, complex_id, title_ar, access_code, status, total_points
+    `SELECT id, complex_id, title_ar, access_code, status, total_points,
+            COALESCE(show_score_instantly, 1) AS show_score_instantly,
+            custom_success_message,
+            COALESCE(is_active, 1) AS is_active
      FROM quizzes WHERE id = ?`,
   )
     .bind(quizId)
-    .first<{
-      id: number;
-      complex_id: number;
-      title_ar: string;
-      access_code: string | null;
-      status: string;
-      total_points: number;
-    }>();
+    .first<QuizRow>();
+}
+
+function quizIsOpen(quiz: QuizRow): boolean {
+  if (quiz.status === "draft") return false;
+  if (quiz.is_active === 0) return false;
+  return quiz.status === "published" || quiz.is_active === 1;
 }
 
 async function loadQuestions(env: Env, quizId: number) {
@@ -50,12 +65,29 @@ async function resolveAttemptByToken(env: Env, quizId: number, token: string) {
     }>();
 }
 
+async function resolveResponseByToken(env: Env, quizId: number, token: string) {
+  if (!(await hasTable(env, "quiz_responses"))) return null;
+  return env.DB.prepare(
+    `SELECT id, student_name, student_phone, submitted_at, total_score, answers_json
+     FROM quiz_responses WHERE quiz_id = ? AND session_token = ?`,
+  )
+    .bind(quizId, token)
+    .first<{
+      id: number;
+      student_name: string;
+      student_phone: string;
+      submitted_at: string | null;
+      total_score: number;
+      answers_json: string;
+    }>();
+}
+
 function questionsForClient(questions: QuizQuestionRow[]) {
   return questions.map((q) => {
     let options: string[] = [];
     if (q.question_type === "true_false") {
       options = ["صح", "خطأ"];
-    } else {
+    } else if (q.question_type !== "text") {
       try {
         options = JSON.parse(q.options_json ?? "[]") as string[];
       } catch {
@@ -72,20 +104,44 @@ function questionsForClient(questions: QuizQuestionRow[]) {
   });
 }
 
+function resultPayload(quiz: QuizRow, scorePercent: number, earned: number, total: number) {
+  const showScore = quiz.show_score_instantly === 1;
+  const defaultThanks = "شكراً لك على مشاركتك في الاختبار.";
+  return {
+    show_score: showScore,
+    score_percent: showScore ? scorePercent : null,
+    total_score: showScore ? earned : null,
+    max_score: showScore ? total : null,
+    message: showScore
+      ? quiz.custom_success_message?.trim() ||
+        `أحسنت! درجتك ${scorePercent}% (${earned} من ${total})`
+      : quiz.custom_success_message?.trim() || defaultThanks,
+  };
+}
+
+function parseQuizAction(pathname: string) {
+  const m = pathname.match(/^\/api\/(?:public\/)?quiz\/(\d+)\/(public|gate|take|submit)$/);
+  if (!m) return null;
+  return {
+    quizId: Number(m[1]),
+    action: m[2] as "public" | "gate" | "take" | "submit",
+    useResponses: pathname.startsWith("/api/public/"),
+  };
+}
+
 export async function handleQuizPublicRouter(
   request: Request,
   env: Env,
   url: URL,
 ): Promise<Response | null> {
-  const publicMatch = url.pathname.match(/^\/api\/quiz\/(\d+)\/public$/);
-  const gateMatch = url.pathname.match(/^\/api\/quiz\/(\d+)\/gate$/);
-  const takeMatch = url.pathname.match(/^\/api\/quiz\/(\d+)\/take$/);
-  const submitMatch = url.pathname.match(/^\/api\/quiz\/(\d+)\/submit$/);
+  const parsed = parseQuizAction(url.pathname);
+  if (!parsed) return null;
 
-  if (publicMatch && request.method === "GET") {
-    const quizId = Number(publicMatch[1]);
+  const { quizId, action, useResponses } = parsed;
+
+  if (action === "public" && request.method === "GET") {
     const quiz = await loadQuiz(env, quizId);
-    if (!quiz || quiz.status === "draft") {
+    if (!quiz || !quizIsOpen(quiz)) {
       return json({ error: "not_found" }, 404);
     }
     return json({
@@ -93,30 +149,85 @@ export async function handleQuizPublicRouter(
       title_ar: quiz.title_ar,
       requires_access_code: Boolean(quiz.access_code?.trim()),
       status: quiz.status,
+      show_score_instantly: quiz.show_score_instantly === 1,
     });
   }
 
-  if (gateMatch && request.method === "POST") {
-    const quizId = Number(gateMatch[1]);
+  if (action === "gate" && request.method === "POST") {
     const quiz = await loadQuiz(env, quizId);
-    if (!quiz || quiz.status === "draft") {
+    if (!quiz || !quizIsOpen(quiz)) {
       return json({ error: "not_found" }, 404);
     }
 
-    let body: { identifier?: string; access_code?: string };
+    let body: {
+      identifier?: string;
+      student_name?: string;
+      student_phone?: string;
+      access_code?: string;
+    };
     try {
       body = await request.json();
     } catch {
       return json({ error: "invalid_json" }, 400);
     }
 
-    const identifier = body.identifier?.trim() ?? "";
     const code = body.access_code?.trim() ?? "";
-    if (!identifier) return json({ error: "identifier_required" }, 400);
-
     if (quiz.access_code?.trim() && code !== quiz.access_code.trim()) {
       return json({ error: "invalid_access_code" }, 403);
     }
+
+    if (useResponses) {
+      if (!(await hasTable(env, "quiz_responses"))) {
+        return json({ error: "migration_required" }, 503);
+      }
+      const name = body.student_name?.trim() ?? "";
+      const phoneRaw = body.student_phone?.trim() ?? "";
+      if (!name || !phoneRaw) {
+        return json({ error: "name_and_phone_required" }, 400);
+      }
+      const phone = normalizeMobile(phoneRaw) || phoneRaw;
+
+      const existing = await env.DB.prepare(
+        `SELECT session_token, submitted_at, total_score FROM quiz_responses
+         WHERE quiz_id = ? AND student_phone = ?`,
+      )
+        .bind(quizId, phone)
+        .first<{
+          session_token: string;
+          submitted_at: string | null;
+          total_score: number;
+        }>();
+
+      if (existing?.submitted_at) {
+        return json({ error: "already_submitted", total_score: existing.total_score }, 409);
+      }
+
+      let token = existing?.session_token;
+      if (!token) {
+        token = randomToken();
+        await env.DB.prepare(
+          `INSERT INTO quiz_responses (quiz_id, student_name, student_phone, session_token)
+           VALUES (?, ?, ?, ?)`,
+        )
+          .bind(quizId, name, phone, token)
+          .run();
+      } else {
+        await env.DB.prepare(
+          `UPDATE quiz_responses SET student_name = ? WHERE quiz_id = ? AND session_token = ?`,
+        )
+          .bind(name, quizId, token)
+          .run();
+      }
+
+      return json({
+        ok: true,
+        session_token: token,
+        student_name: name,
+      });
+    }
+
+    const identifier = body.identifier?.trim() ?? "";
+    if (!identifier) return json({ error: "identifier_required" }, 400);
 
     const mobile = normalizeMobile(identifier);
     let student:
@@ -159,10 +270,10 @@ export async function handleQuizPublicRouter(
       }>();
 
     if (existing?.submitted_at) {
-      return json({
-        error: "already_submitted",
-        score_percent: existing.score_percent,
-      }, 409);
+      return json(
+        { error: "already_submitted", score_percent: existing.score_percent },
+        409,
+      );
     }
 
     let token = existing?.attempt_token;
@@ -185,14 +296,39 @@ export async function handleQuizPublicRouter(
     });
   }
 
-  if (takeMatch && request.method === "GET") {
-    const quizId = Number(takeMatch[1]);
+  if (action === "take" && request.method === "GET") {
     const token = url.searchParams.get("token")?.trim();
     if (!token) return json({ error: "token_required" }, 400);
 
     const quiz = await loadQuiz(env, quizId);
-    if (!quiz || quiz.status === "draft") {
+    if (!quiz || !quizIsOpen(quiz)) {
       return json({ error: "not_found" }, 404);
+    }
+
+    if (useResponses) {
+      const response = await resolveResponseByToken(env, quizId, token);
+      if (!response) return json({ error: "invalid_token" }, 403);
+      if (response.submitted_at) {
+        return json({
+          already_submitted: true,
+          total_score: response.total_score,
+          student_name: response.student_name,
+          ...resultPayload(quiz, 0, response.total_score, quiz.total_points),
+        });
+      }
+      const questions = await loadQuestions(env, quizId);
+      let savedAnswers: Record<string, string> = {};
+      try {
+        savedAnswers = JSON.parse(response.answers_json || "{}") as Record<string, string>;
+      } catch {
+        savedAnswers = {};
+      }
+      return json({
+        quiz: { id: quiz.id, title_ar: quiz.title_ar },
+        student: { full_name_ar: response.student_name },
+        questions: questionsForClient(questions),
+        saved_answers: savedAnswers,
+      });
     }
 
     const attempt = await resolveAttemptByToken(env, quizId, token);
@@ -214,8 +350,7 @@ export async function handleQuizPublicRouter(
     });
   }
 
-  if (submitMatch && request.method === "POST") {
-    const quizId = Number(submitMatch[1]);
+  if (action === "submit" && request.method === "POST") {
     let body: { token?: string; answers?: Record<string, string> };
     try {
       body = await request.json();
@@ -229,15 +364,38 @@ export async function handleQuizPublicRouter(
     const quiz = await loadQuiz(env, quizId);
     if (!quiz) return json({ error: "not_found" }, 404);
 
+    const questions = await loadQuestions(env, quizId);
+    const answers = body.answers ?? {};
+    const { scorePercent, earned, total } = scoreQuizAttempt(questions, answers);
+
+    if (useResponses) {
+      const response = await resolveResponseByToken(env, quizId, token);
+      if (!response) return json({ error: "invalid_token" }, 403);
+      if (response.submitted_at) {
+        return json({ error: "already_submitted", total_score: response.total_score }, 409);
+      }
+
+      await env.DB.prepare(
+        `UPDATE quiz_responses SET
+           answers_json = ?,
+           total_score = ?,
+           submitted_at = datetime('now')
+         WHERE id = ?`,
+      )
+        .bind(JSON.stringify(answers), earned, response.id)
+        .run();
+
+      return json({
+        ok: true,
+        ...resultPayload(quiz, scorePercent, earned, total),
+      });
+    }
+
     const attempt = await resolveAttemptByToken(env, quizId, token);
     if (!attempt) return json({ error: "invalid_token" }, 403);
     if (attempt.submitted_at) {
       return json({ error: "already_submitted", score_percent: attempt.score_percent }, 409);
     }
-
-    const questions = await loadQuestions(env, quizId);
-    const answers = body.answers ?? {};
-    const { scorePercent } = scoreQuizAttempt(questions, answers);
 
     await env.DB.prepare(
       `UPDATE quiz_attempts SET
@@ -254,7 +412,11 @@ export async function handleQuizPublicRouter(
       student_id: attempt.student_id,
     });
 
-    return json({ ok: true, score_percent: scorePercent });
+    return json({
+      ok: true,
+      ...resultPayload(quiz, scorePercent, earned, total),
+      score_percent: scorePercent,
+    });
   }
 
   return null;

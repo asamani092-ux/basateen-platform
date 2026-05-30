@@ -12,6 +12,7 @@ import {
 } from "../lib/dept-scope";
 import { randomToken } from "../lib/quiz-scoring";
 import { writeProgAudit } from "../lib/prog-audit";
+import { hasTable } from "../lib/db-schema";
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
@@ -108,6 +109,9 @@ export async function handleProgSupervisorRouter(
     const stageWhere = stageFilterWhere(scope, "q.stage_id");
     const rows = await env.DB.prepare(
       `SELECT q.id, q.title_ar, q.status, q.access_code, q.total_points, q.created_at,
+              COALESCE(q.show_score_instantly, 1) AS show_score_instantly,
+              q.custom_success_message,
+              COALESCE(q.is_active, 1) AS is_active,
               (SELECT COUNT(*) FROM quiz_questions qq WHERE qq.quiz_id = q.id) AS question_count,
               (SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.quiz_id = q.id AND qa.submitted_at IS NOT NULL) AS attempts_count
        FROM quizzes q
@@ -120,7 +124,13 @@ export async function handleProgSupervisorRouter(
   }
 
   if (method === "POST" && path === "/api/prog-supervisor/quizzes") {
-    let body: { title_ar?: string; access_code?: string | null; stage_id?: number | null };
+    let body: {
+      title_ar?: string;
+      access_code?: string | null;
+      stage_id?: number | null;
+      show_score_instantly?: boolean;
+      custom_success_message?: string | null;
+    };
     try {
       body = await request.json();
     } catch {
@@ -130,9 +140,13 @@ export async function handleProgSupervisorRouter(
       return json({ error: "title_required" }, 400);
     }
 
+    const showScore = body.show_score_instantly === false ? 0 : 1;
+    const customMsg = body.custom_success_message?.trim() || null;
+
     const ins = await env.DB.prepare(
-      `INSERT INTO quizzes (complex_id, title_ar, access_code, status, stage_id, total_points, created_by_user_id)
-       VALUES (?, ?, ?, 'draft', ?, 0, ?)`,
+      `INSERT INTO quizzes (complex_id, title_ar, access_code, status, stage_id, total_points, created_by_user_id,
+         show_score_instantly, custom_success_message, is_active)
+       VALUES (?, ?, ?, 'draft', ?, 0, ?, ?, ?, 1)`,
     )
       .bind(
         auth.complexId,
@@ -140,6 +154,8 @@ export async function handleProgSupervisorRouter(
         body.access_code?.trim() || null,
         body.stage_id ?? null,
         auth.userId,
+        showScore,
+        customMsg,
       )
       .run();
 
@@ -189,6 +205,9 @@ export async function handleProgSupervisorRouter(
         access_code?: string | null;
         status?: string;
         stage_id?: number | null;
+        show_score_instantly?: boolean;
+        custom_success_message?: string | null;
+        is_active?: number;
       };
       try {
         body = await request.json();
@@ -196,20 +215,35 @@ export async function handleProgSupervisorRouter(
         return json({ error: "invalid_json" }, 400);
       }
 
+      const showScore =
+        body.show_score_instantly === undefined
+          ? null
+          : body.show_score_instantly
+            ? 1
+            : 0;
+
       await env.DB.prepare(
         `UPDATE quizzes SET
            title_ar = COALESCE(?, title_ar),
            access_code = ?,
            status = COALESCE(?, status),
            stage_id = COALESCE(?, stage_id),
+           show_score_instantly = COALESCE(?, show_score_instantly),
+           custom_success_message = COALESCE(?, custom_success_message),
+           is_active = COALESCE(?, is_active),
            updated_at = datetime('now')
          WHERE id = ? AND complex_id = ?`,
       )
         .bind(
           body.title_ar?.trim() ?? null,
-          body.access_code?.trim() ?? quiz.access_code,
+          body.access_code !== undefined ? body.access_code?.trim() || null : quiz.access_code,
           body.status ?? null,
           body.stage_id ?? null,
+          showScore,
+          body.custom_success_message !== undefined
+            ? body.custom_success_message?.trim() || null
+            : null,
+          body.is_active ?? null,
           quizId,
           auth.complexId,
         )
@@ -218,6 +252,71 @@ export async function handleProgSupervisorRouter(
       await writeProgAudit(env, auth.complexId, "quiz", quizId, "patch", auth.userId, body);
       return json({ ok: true });
     }
+
+    if (method === "DELETE") {
+      await env.DB.prepare(`DELETE FROM quizzes WHERE id = ? AND complex_id = ?`)
+        .bind(quizId, auth.complexId)
+        .run();
+      await writeProgAudit(env, auth.complexId, "quiz", quizId, "delete", auth.userId, {});
+      return json({ ok: true });
+    }
+  }
+
+  const responsesMatch = path.match(/^\/api\/prog-supervisor\/quizzes\/(\d+)\/responses$/);
+  if (responsesMatch && method === "GET") {
+    const quizId = Number(responsesMatch[1]);
+    const quiz = await env.DB.prepare(
+      `SELECT id FROM quizzes WHERE id = ? AND complex_id = ?`,
+    )
+      .bind(quizId, auth.complexId)
+      .first();
+    if (!quiz) return json({ error: "not_found" }, 404);
+
+    const items: Array<Record<string, unknown>> = [];
+
+    if (await hasTable(env, "quiz_responses")) {
+      const respRows = await env.DB.prepare(
+        `SELECT id, student_name, student_phone, total_score, submitted_at
+         FROM quiz_responses
+         WHERE quiz_id = ? AND submitted_at IS NOT NULL
+         ORDER BY submitted_at DESC`,
+      )
+        .bind(quizId)
+        .all();
+      for (const r of respRows.results ?? []) {
+        items.push({
+          source: "public",
+          student_name: r.student_name,
+          student_phone: r.student_phone,
+          total_score: r.total_score,
+          score_percent: null,
+          submitted_at: r.submitted_at,
+        });
+      }
+    }
+
+    const attemptRows = await env.DB.prepare(
+      `SELECT s.full_name_ar, s.phone, a.score_percent, a.submitted_at
+       FROM quiz_attempts a
+       JOIN students s ON s.id = a.student_id
+       WHERE a.quiz_id = ? AND a.submitted_at IS NOT NULL
+       ORDER BY a.submitted_at DESC`,
+    )
+      .bind(quizId)
+      .all();
+
+    for (const r of attemptRows.results ?? []) {
+      items.push({
+        source: "student",
+        student_name: r.full_name_ar,
+        student_phone: r.phone,
+        total_score: null,
+        score_percent: r.score_percent,
+        submitted_at: r.submitted_at,
+      });
+    }
+
+    return json({ items });
   }
 
   const questionsMatch = path.match(/^\/api\/prog-supervisor\/quizzes\/(\d+)\/questions$/);
@@ -254,13 +353,21 @@ export async function handleProgSupervisorRouter(
       const q = list[i];
       if (!q.prompt_ar?.trim()) continue;
       const qType =
-        q.question_type === "true_false" ? "true_false" : "mcq";
+        q.question_type === "true_false"
+          ? "true_false"
+          : q.question_type === "text"
+            ? "text"
+            : "mcq";
       let correct = (q.correct_answer ?? "").trim();
       if (qType === "true_false") {
         correct = correct === "خطأ" || correct === "false" ? "false" : "true";
       }
       const optionsJson =
-        qType === "mcq" ? JSON.stringify(q.options ?? []) : JSON.stringify(["صح", "خطأ"]);
+        qType === "mcq"
+          ? JSON.stringify(q.options ?? [])
+          : qType === "text"
+            ? "[]"
+            : JSON.stringify(["صح", "خطأ"]);
 
       await env.DB.prepare(
         `INSERT INTO quiz_questions (quiz_id, prompt_ar, points, correct_answer, question_type, options_json, sort_order)
@@ -305,7 +412,7 @@ export async function handleProgSupervisorRouter(
     }
 
     await env.DB.prepare(
-      `UPDATE quizzes SET status = 'published', updated_at = datetime('now') WHERE id = ?`,
+      `UPDATE quizzes SET status = 'published', is_active = 1, updated_at = datetime('now') WHERE id = ?`,
     )
       .bind(quizId)
       .run();
@@ -359,7 +466,8 @@ export async function handleProgSupervisorRouter(
 
     return json({
       ok: true,
-      public_path: `/quiz/${quizId}`,
+      public_path: `/public/quiz/${quizId}`,
+      legacy_path: `/quiz/${quizId}`,
       access_code: quiz.access_code,
       student_links: links,
     });
@@ -475,6 +583,134 @@ export async function handleProgSupervisorRouter(
       .run();
 
     return json({ ok: true });
+  }
+
+  if (method === "GET" && path === "/api/prog-supervisor/program-archives") {
+    if (!(await hasTable(env, "program_archives"))) {
+      return json({ error: "migration_required", table: "program_archives" }, 503);
+    }
+    const q = url.searchParams.get("q")?.trim() ?? "";
+    const typeFilter = url.searchParams.get("type")?.trim() ?? "";
+    const tag = url.searchParams.get("tag")?.trim() ?? "";
+    let sql = `SELECT * FROM program_archives WHERE complex_id = ?`;
+    const binds: (string | number)[] = [auth.complexId];
+    if (q) {
+      sql += ` AND (title LIKE ? OR description LIKE ? OR tags LIKE ?)`;
+      const like = `%${q}%`;
+      binds.push(like, like, like);
+    }
+    if (typeFilter === "link" || typeFilter === "file") {
+      sql += ` AND type = ?`;
+      binds.push(typeFilter);
+    }
+    if (tag) {
+      sql += ` AND tags LIKE ?`;
+      binds.push(`%${tag}%`);
+    }
+    sql += ` ORDER BY created_at DESC LIMIT 300`;
+    const rows = await env.DB.prepare(sql).bind(...binds).all();
+    return json({ items: rows.results ?? [] });
+  }
+
+  if (method === "POST" && path === "/api/prog-supervisor/program-archives") {
+    if (!(await hasTable(env, "program_archives"))) {
+      return json({ error: "migration_required", table: "program_archives" }, 503);
+    }
+    let body: {
+      title?: string;
+      type?: string;
+      file_url_or_link?: string;
+      description?: string;
+      tags?: string[];
+    };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+    const title = String(body.title ?? "").trim();
+    const itemType = body.type === "file" ? "file" : "link";
+    const urlValue = String(body.file_url_or_link ?? "").trim();
+    if (!title || !urlValue) return json({ error: "title_and_url_required" }, 400);
+    if (urlValue.length > 500_000) return json({ error: "payload_too_large" }, 400);
+
+    const ins = await env.DB.prepare(
+      `INSERT INTO program_archives (complex_id, title, type, file_url_or_link, description, tags, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(
+        auth.complexId,
+        title,
+        itemType,
+        urlValue,
+        body.description?.trim() ?? null,
+        JSON.stringify(body.tags ?? []),
+        auth.userId,
+      )
+      .run();
+    return json({ ok: true, id: ins.meta.last_row_id });
+  }
+
+  const archiveMatch = path.match(/^\/api\/prog-supervisor\/program-archives\/(\d+)$/);
+  if (archiveMatch) {
+    if (!(await hasTable(env, "program_archives"))) {
+      return json({ error: "migration_required", table: "program_archives" }, 503);
+    }
+    const archiveId = Number(archiveMatch[1]);
+    if (method === "DELETE") {
+      await env.DB.prepare(`DELETE FROM program_archives WHERE id = ? AND complex_id = ?`)
+        .bind(archiveId, auth.complexId)
+        .run();
+      return json({ ok: true });
+    }
+    if (method === "PATCH") {
+      let body: {
+        title?: string;
+        type?: string;
+        file_url_or_link?: string;
+        description?: string;
+        tags?: string[];
+      };
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: "invalid_json" }, 400);
+      }
+      const row = await env.DB.prepare(
+        `SELECT title, type, file_url_or_link, description, tags FROM program_archives WHERE id = ? AND complex_id = ?`,
+      )
+        .bind(archiveId, auth.complexId)
+        .first<{
+          title: string;
+          type: string;
+          file_url_or_link: string;
+          description: string | null;
+          tags: string;
+        }>();
+      if (!row) return json({ error: "not_found" }, 404);
+      const urlValue = body.file_url_or_link?.trim() ?? row.file_url_or_link;
+      if (urlValue.length > 500_000) return json({ error: "payload_too_large" }, 400);
+      await env.DB.prepare(
+        `UPDATE program_archives SET
+           title = ?,
+           type = ?,
+           file_url_or_link = ?,
+           description = ?,
+           tags = ?
+         WHERE id = ? AND complex_id = ?`,
+      )
+        .bind(
+          body.title?.trim() ?? row.title,
+          body.type === "file" ? "file" : body.type === "link" ? "link" : row.type,
+          urlValue,
+          body.description !== undefined ? body.description?.trim() ?? null : row.description,
+          body.tags ? JSON.stringify(body.tags) : row.tags,
+          archiveId,
+          auth.complexId,
+        )
+        .run();
+      return json({ ok: true });
+    }
   }
 
   if (method === "GET" && path === "/api/prog-supervisor/vault") {

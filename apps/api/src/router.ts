@@ -52,6 +52,8 @@ import { handleEduCompetitionsRouter } from "./routes/competitions";
 import { handleLiveLogRouter, handleYomHimmaLiveLogToken } from "./routes/live-log";
 import { handleProgSupervisorRouter } from "./routes/prog-supervisor";
 import { handleQuizPublicRouter } from "./routes/quiz-public";
+import { handleDisplayDeptRouter } from "./routes/display-dept";
+import { handlePublicLiveDisplayRouter } from "./routes/public-live-display";
 
 type RouteHandler = (
   request: Request,
@@ -186,11 +188,11 @@ async function dispatchDepartmentRouters(
   const legacyProg = await handleProgSupervisorRouter(request, env, url);
   if (legacyProg) return legacyProg;
 
+  const displayDept = await handleDisplayDeptRouter(request, env, url);
+  if (displayDept) return displayDept;
+
   const teacher = await handleTeacherRouter(request, env, url);
   if (teacher) return teacher;
-
-  const quizPublic = await handleQuizPublicRouter(request, env, url);
-  if (quizPublic) return quizPublic;
 
   return null;
 }
@@ -210,6 +212,12 @@ export async function handleRequest(
 
     const publicLink = await handlePublicLinksRouter(request, env, url);
     if (publicLink) return withCors(publicLink, request, env);
+
+    const publicLive = await handlePublicLiveDisplayRouter(request, env, url);
+    if (publicLive) return withCors(publicLive, request, env);
+
+    const quizPublic = await handleQuizPublicRouter(request, env, url);
+    if (quizPublic) return withCors(quizPublic, request, env);
 
     const dept = await dispatchDepartmentRouters(request, env, url);
     if (dept) return withCors(dept, request, env);

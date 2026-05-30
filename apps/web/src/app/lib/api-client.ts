@@ -1569,11 +1569,29 @@ export const api = {
     }>("/api/prog-supervisor/analytics"),
   progQuizzesList: () =>
     request<{ items: Array<Record<string, unknown>> }>("/api/prog-supervisor/quizzes"),
-  progQuizCreate: (body: { title_ar: string; access_code?: string | null }) =>
+  progQuizCreate: (body: {
+    title_ar: string;
+    access_code?: string | null;
+    show_score_instantly?: boolean;
+    custom_success_message?: string | null;
+  }) =>
     request<{ ok: boolean; id: number }>("/api/prog-supervisor/quizzes", {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  progQuizDelete: (id: number) =>
+    request<{ ok: boolean }>(`/api/prog-supervisor/quizzes/${id}`, { method: "DELETE" }),
+  progQuizResponses: (id: number) =>
+    request<{
+      items: Array<{
+        source: string;
+        student_name: string;
+        student_phone: string | null;
+        total_score: number | null;
+        score_percent: number | null;
+        submitted_at: string;
+      }>;
+    }>(`/api/prog-supervisor/quizzes/${id}/responses`),
   progQuizDetail: (id: number) =>
     request<{
       quiz: Record<string, unknown>;
@@ -1586,6 +1604,9 @@ export const api = {
       title_ar?: string;
       access_code?: string | null;
       status?: string;
+      show_score_instantly?: boolean;
+      custom_success_message?: string | null;
+      is_active?: number;
     },
   ) =>
     request<{ ok: boolean }>(`/api/prog-supervisor/quizzes/${id}`, {
@@ -1633,6 +1654,105 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ is_active: 0 }),
     }),
+  progProgramArchivesList: (params?: { q?: string; type?: string; tag?: string }) => {
+    const sp = new URLSearchParams();
+    if (params?.q?.trim()) sp.set("q", params.q.trim());
+    if (params?.type?.trim()) sp.set("type", params.type.trim());
+    if (params?.tag?.trim()) sp.set("tag", params.tag.trim());
+    const qs = sp.toString() ? `?${sp}` : "";
+    return request<{ items: Array<Record<string, unknown>> }>(
+      `/api/prog-supervisor/program-archives${qs}`,
+    );
+  },
+  progProgramArchiveCreate: (body: {
+    title: string;
+    type: "link" | "file";
+    file_url_or_link: string;
+    description?: string;
+    tags?: string[];
+  }) =>
+    request<{ ok: boolean; id: number }>("/api/prog-supervisor/program-archives", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  progProgramArchivePatch: (
+    id: number,
+    body: {
+      title?: string;
+      type?: "link" | "file";
+      file_url_or_link?: string;
+      description?: string;
+      tags?: string[];
+    },
+  ) =>
+    request<{ ok: boolean }>(`/api/prog-supervisor/program-archives/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  progProgramArchiveDelete: (id: number) =>
+    request<{ ok: boolean }>(`/api/prog-supervisor/program-archives/${id}`, {
+      method: "DELETE",
+    }),
+
+  displayMediaList: () =>
+    request<{
+      items: Array<{
+        id: number;
+        media_type: string;
+        media_url: string;
+        display_order: number;
+        is_active: number;
+        created_at: string;
+      }>;
+    }>("/api/display-dept/media"),
+  displayMediaCreate: (body: {
+    media_type: "image" | "gif" | "video";
+    media_url: string;
+    display_order?: number;
+    is_active?: number;
+  }) =>
+    request<{ ok: boolean; id: number }>("/api/display-dept/media", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  displayMediaPatch: (
+    id: number,
+    body: {
+      media_type?: string;
+      media_url?: string;
+      display_order?: number;
+      is_active?: number;
+    },
+  ) =>
+    request<{ ok: boolean }>(`/api/display-dept/media/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  displayMediaDelete: (id: number) =>
+    request<{ ok: boolean }>(`/api/display-dept/media/${id}`, { method: "DELETE" }),
+  displayMediaReorder: (order: number[]) =>
+    request<{ ok: boolean }>("/api/display-dept/media/reorder", {
+      method: "POST",
+      body: JSON.stringify({ order }),
+    }),
+
+  publicLiveDisplayMetrics: () =>
+    request<{
+      complex_name: string;
+      date: string;
+      updated_at: string;
+      metrics: {
+        attendance_present_today: number;
+        attendance_absent_today: number;
+        faces_cumulative: number;
+        active_pledges: number;
+      };
+      top_students: Array<{ full_name_ar: string; metric: number; label: string }>;
+    }>("/api/public/live-display/metrics"),
+  publicLiveDisplayMedia: () =>
+    request<{
+      items: Array<{ id: number; media_type: string; media_url: string; display_order: number }>;
+    }>("/api/public/live-display/media"),
   progActivitiesList: () =>
     request<{ items: Array<Record<string, unknown>> }>(
       "/api/prog-supervisor/activities",
@@ -1648,13 +1768,53 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  quizPublicMeta: (quizId: number) =>
+  quizPublicMeta: (quizId: number, usePublicPrefix = true) =>
     request<{
       quiz_id: number;
       title_ar: string;
       requires_access_code: boolean;
       status: string;
-    }>(`/api/quiz/${quizId}/public`),
+      show_score_instantly?: boolean;
+    }>(
+      usePublicPrefix
+        ? `/api/public/quiz/${quizId}/public`
+        : `/api/quiz/${quizId}/public`,
+    ),
+  publicQuizGate: (
+    quizId: number,
+    body: { student_name: string; student_phone: string; access_code?: string },
+  ) =>
+    request<{ ok: boolean; session_token: string; student_name: string }>(
+      `/api/public/quiz/${quizId}/gate`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  publicQuizTake: (quizId: number, token: string) =>
+    request<{
+      quiz: { id: number; title_ar: string };
+      student: { full_name_ar: string };
+      questions: Array<Record<string, unknown>>;
+      saved_answers?: Record<string, string>;
+      already_submitted?: boolean;
+      show_score?: boolean;
+      score_percent?: number | null;
+      total_score?: number | null;
+      message?: string;
+    }>(`/api/public/quiz/${quizId}/take?token=${encodeURIComponent(token)}`),
+  publicQuizSubmit: (
+    quizId: number,
+    body: { token: string; answers: Record<string, string> },
+  ) =>
+    request<{
+      ok: boolean;
+      show_score: boolean;
+      score_percent: number | null;
+      total_score: number | null;
+      max_score: number | null;
+      message: string;
+    }>(`/api/public/quiz/${quizId}/submit`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   quizGate: (quizId: number, body: { identifier: string; access_code?: string }) =>
     request<{
       ok: boolean;

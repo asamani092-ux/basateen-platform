@@ -1203,6 +1203,15 @@ export function resolveDevPreviewMock<T>(
     return { ok: true } as T;
   }
 
+  if (progQuizMatch && m === "DELETE") {
+    return { ok: true } as T;
+  }
+
+  const progResponses = p.match(/^\/api\/prog-supervisor\/quizzes\/(\d+)\/responses$/);
+  if (progResponses && m === "GET") {
+    return { items: [] } as T;
+  }
+
   const progQSave = p.match(/^\/api\/prog-supervisor\/quizzes\/(\d+)\/questions$/);
   if (progQSave && m === "PUT") {
     const qid = Number(progQSave[1]);
@@ -1230,6 +1239,97 @@ export function resolveDevPreviewMock<T>(
   const progLinks = p.match(/^\/api\/prog-supervisor\/quizzes\/(\d+)\/links$/);
   if (progLinks && m === "GET") {
     return progPreviewStore.getLinks(Number(progLinks[1])) as T;
+  }
+
+  if (p === "/api/prog-supervisor/program-archives" && m === "GET") {
+    return { items: [] } as T;
+  }
+  if (p === "/api/prog-supervisor/program-archives" && m === "POST") {
+    return { ok: true, id: 1 } as T;
+  }
+  if (p.match(/^\/api\/prog-supervisor\/program-archives\/\d+$/) && (m === "PATCH" || m === "DELETE")) {
+    return { ok: true } as T;
+  }
+
+  if (p === "/api/display-dept/media" && m === "GET") {
+    return { items: [] } as T;
+  }
+  if (p === "/api/display-dept/media" && m === "POST") {
+    return { ok: true, id: 1 } as T;
+  }
+  if (p.match(/^\/api\/display-dept\/media\/\d+$/) && (m === "PATCH" || m === "DELETE")) {
+    return { ok: true } as T;
+  }
+  if (p === "/api/display-dept/media/reorder" && m === "POST") {
+    return { ok: true } as T;
+  }
+
+  if (p === "/api/public/live-display/metrics" && m === "GET") {
+    return {
+      complex_name: "مجمع حلقات البساتين",
+      date: PREVIEW_TODAY(),
+      updated_at: new Date().toISOString(),
+      metrics: {
+        attendance_present_today: 120,
+        attendance_absent_today: 8,
+        faces_cumulative: 450,
+        active_pledges: 12,
+      },
+      top_students: previewStore.getStudents().slice(0, 3).map((s, i) => ({
+        full_name_ar: s.full_name_ar,
+        metric: 10 - i,
+        label: "وجه مقروء",
+      })),
+    } as T;
+  }
+  if (p === "/api/public/live-display/media" && m === "GET") {
+    return { items: [] } as T;
+  }
+
+  const publicQuizMeta = p.match(/^\/api\/public\/quiz\/(\d+)\/public$/);
+  if (publicQuizMeta && m === "GET") {
+    const qid = Number(publicQuizMeta[1]);
+    const quiz = progPreviewStore.getQuiz(qid);
+    if (!quiz) return { error: "not_found" } as T;
+    return {
+      quiz_id: qid,
+      title_ar: quiz.title_ar,
+      requires_access_code: Boolean(quiz.access_code),
+      status: quiz.status,
+      show_score_instantly: true,
+    } as T;
+  }
+  const publicQuizGate = p.match(/^\/api\/public\/quiz\/(\d+)\/gate$/);
+  if (publicQuizGate && m === "POST") {
+    return { ok: true, session_token: "preview-token", student_name: "طالب معاينة" } as T;
+  }
+  const publicQuizTake = p.match(/^\/api\/public\/quiz\/(\d+)\/take$/);
+  if (publicQuizTake && m === "GET") {
+    const qid = Number(publicQuizTake[1]);
+    const quiz = progPreviewStore.getQuiz(qid);
+    return {
+      quiz: { id: qid, title_ar: quiz?.title_ar ?? "اختبار" },
+      student: { full_name_ar: "طالب معاينة" },
+      questions: progPreviewStore.getQuestions(qid).map((q) => ({
+        id: q.id,
+        question_type: q.question_type,
+        prompt_ar: q.prompt_ar,
+        points: q.points,
+        options: JSON.parse(q.options_json || "[]"),
+      })),
+      saved_answers: {},
+    } as T;
+  }
+  const publicQuizSubmit = p.match(/^\/api\/public\/quiz\/(\d+)\/submit$/);
+  if (publicQuizSubmit && m === "POST") {
+    return {
+      ok: true,
+      show_score: true,
+      score_percent: 85,
+      total_score: 17,
+      max_score: 20,
+      message: "أحسنت! شكراً لمشاركتك.",
+    } as T;
   }
 
   if (p === "/api/prog-supervisor/vault" && m === "GET") {

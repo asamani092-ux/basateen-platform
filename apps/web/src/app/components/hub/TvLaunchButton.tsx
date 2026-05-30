@@ -1,4 +1,4 @@
-import { Tv } from "lucide-react";
+import { Monitor } from "lucide-react";
 import { Button } from "../ui/button";
 import { buildTvLaunchUrl } from "../../lib/tv-launch";
 import { ds, tajawal } from "../../lib/design-system";
@@ -27,7 +27,7 @@ export function TvLaunchButton({
       onClick={openTv}
       style={tajawal}
     >
-      <Tv className="w-4 h-4" />
+      <Monitor className="w-4 h-4" />
       {label}
     </Button>
   );

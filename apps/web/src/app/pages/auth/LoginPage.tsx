@@ -240,15 +240,7 @@ export function LoginPage() {
             </p>
           )}
 
-          <p className="text-center mt-4">
-            <Link
-              to="/tv-live"
-              className="text-sm text-primary hover:underline"
-              style={tajawal}
-            >
-              شاشة التلفاز (بدون دخول)
-            </Link>
-          </p>
+
         </CardContent>
       </Card>
     </div>

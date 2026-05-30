@@ -36,7 +36,7 @@ const EDU_DEPT_CORE_NAV: NavItem[] = [
     id: "daily-recitation",
     label: "الرصد اليومي",
     path: "/edu-dept/daily-recitation",
-    roles: ["teacher"],
+    roles: ["teacher", "edu_supervisor", "prog_supervisor"],
   },
   {
     id: "teacher-competitions",
@@ -157,6 +157,12 @@ export const PROG_DEPT_NAV: NavItem[] = [
   { id: "quizzes", label: "الاختبارات", path: "/prog-dept/quizzes", roles: ["prog_supervisor"] },
   { id: "analytics", label: "التحليلات", path: "/prog-dept/analytics", roles: ["prog_supervisor"] },
   { id: "vault", label: "أرشيف البرامج", path: "/prog-dept/vault", roles: ["prog_supervisor"] },
+  {
+    id: "daily-recitation",
+    label: "الرصد اليومي",
+    path: "/edu-dept/daily-recitation",
+    roles: ["prog_supervisor"],
+  },
 ];
 
 /** @deprecated — المعلم يستخدم EDU_DEPT_GROUP */

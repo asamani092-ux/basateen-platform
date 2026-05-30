@@ -18,6 +18,12 @@ const EDU_SETTINGS_ROLES = ["edu_supervisor", "super_admin"] as const;
 const EDU_SUPERVISOR_ROLES = ["edu_supervisor", "super_admin"] as const;
 const TEACHER_ONLY_ROLES = ["teacher"] as const;
 const TEACHER_EDU_ROLES = ["teacher", "edu_supervisor", "super_admin"] as const;
+const RECITATION_ROLES = [
+  "teacher",
+  "edu_supervisor",
+  "super_admin",
+  "prog_supervisor",
+] as const;
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
@@ -107,6 +113,133 @@ async function teacherCircleIds(
     .bind(userId)
     .all<{ circle_id: number }>();
   return (rows.results ?? []).map((r) => r.circle_id);
+}
+
+async function resolveRecitationCircles(
+  env: Env,
+  auth: { userId: number; complexId: number; role: string },
+): Promise<Array<{ id: number; name_ar: string }>> {
+  const hasIsActive = await tableHasColumn(env, "circles", "is_active");
+
+  if (auth.role === "teacher") {
+    const ids = await teacherCircleIds(env, auth.userId);
+    if (ids.length === 0) return [];
+    const ph = ids.map(() => "?").join(",");
+    const rows = await env.DB.prepare(
+      `SELECT id, name_ar FROM circles WHERE id IN (${ph})${
+        hasIsActive ? " AND is_active = 1" : ""
+      } ORDER BY name_ar`,
+    )
+      .bind(...ids)
+      .all<{ id: number; name_ar: string }>();
+    return rows.results ?? [];
+  }
+
+  if (auth.role === "prog_supervisor") {
+    const scope = await loadUserScope(env, auth.userId);
+    let sql = `SELECT c.id, c.name_ar FROM circles c WHERE c.complex_id = ?`;
+    const binds: (string | number)[] = [auth.complexId];
+    if (hasIsActive) sql += ` AND c.is_active = 1`;
+    if (scope.type === "stages") {
+      const ph = scope.stageIds.map(() => "?").join(",");
+      sql += ` AND c.stage_id IN (${ph})`;
+      binds.push(...scope.stageIds);
+    }
+    if (await hasTable(env, "supervisor_scopes")) {
+      const scoped = await env.DB.prepare(
+        `SELECT circle_id FROM supervisor_scopes WHERE user_id = ?`,
+      )
+        .bind(auth.userId)
+        .all<{ circle_id: number }>();
+      const circleIds = (scoped.results ?? []).map((r) => r.circle_id);
+      if (circleIds.length > 0) {
+        sql += ` AND c.id IN (${circleIds.map(() => "?").join(",")})`;
+        binds.push(...circleIds);
+      }
+    }
+    sql += ` ORDER BY c.name_ar`;
+    const rows = await env.DB.prepare(sql)
+      .bind(...binds)
+      .all<{ id: number; name_ar: string }>();
+    return rows.results ?? [];
+  }
+
+  let sql = `SELECT id, name_ar FROM circles WHERE complex_id = ?`;
+  const binds: (string | number)[] = [auth.complexId];
+  if (hasIsActive) sql += ` AND is_active = 1`;
+  if (auth.role === "edu_supervisor" && (await hasTable(env, "supervisor_scopes"))) {
+    sql += ` AND id IN (SELECT circle_id FROM supervisor_scopes WHERE user_id = ?)`;
+    binds.push(auth.userId);
+  }
+  sql += ` ORDER BY name_ar`;
+  const rows = await env.DB.prepare(sql)
+    .bind(...binds)
+    .all<{ id: number; name_ar: string }>();
+  return rows.results ?? [];
+}
+
+async function canAccessRecitationCircle(
+  env: Env,
+  auth: { userId: number; complexId: number; role: string },
+  circleId: number,
+): Promise<boolean> {
+  const circles = await resolveRecitationCircles(env, auth);
+  return circles.some((c) => c.id === circleId);
+}
+
+async function loadDailyRecitationItems(
+  env: Env,
+  complexId: number,
+  circleId: number,
+  date: string,
+) {
+  const students = await studentsInCircle(env, complexId, circleId);
+  const hasFace = await tableHasColumn(env, "edu_daily_recitation", "face_count");
+  const markCols = hasFace
+    ? `student_id, listened, repeated, revised, error_count, tune_errors, notes, face_count`
+    : `student_id, listened, repeated, revised, error_count, tune_errors, notes`;
+  const marks = await env.DB.prepare(
+    `SELECT ${markCols}
+     FROM edu_daily_recitation
+     WHERE circle_id = ? AND recitation_date = ?`,
+  )
+    .bind(circleId, date)
+    .all<{
+      student_id: number;
+      listened: number;
+      repeated: number;
+      revised: number;
+      error_count: number;
+      tune_errors: number;
+      notes: string | null;
+      face_count?: number;
+    }>();
+  const byStudent = new Map((marks.results ?? []).map((m) => [m.student_id, m]));
+  return students.map((s) => {
+    const m = byStudent.get(s.id);
+    return {
+      student_id: s.id,
+      full_name_ar: s.full_name_ar,
+      listened: Boolean(m?.listened),
+      repeated: Boolean(m?.repeated),
+      revised: Boolean(m?.revised),
+      error_count: m?.error_count ?? 0,
+      tune_errors: m?.tune_errors ?? 0,
+      face_count: hasFace ? Number(m?.face_count ?? 0) : 0,
+      notes: m?.notes ?? "",
+    };
+  });
+}
+
+function serverError(scope: string, err: unknown): Response {
+  console.error(`[edu-dept-core] ${scope}:`, err);
+  return json(
+    {
+      error: "api_internal_crash",
+      message: err instanceof Error ? err.message : "internal_error",
+    },
+    500,
+  );
 }
 
 export async function handleEduDeptCoreRouter(
@@ -221,152 +354,221 @@ export async function handleEduDeptCoreRouter(
     return json({ items: items.results ?? [] });
   }
 
-  // --- Daily recitation (teacher only) ---
+  // --- My students (auto circle for teacher; scoped circles for supervisors) ---
+  if (path === "/api/edu-dept/my-students" && request.method === "GET") {
+    if (!requireRoles(auth, [...RECITATION_ROLES])) {
+      return json({ error: "forbidden" }, 403);
+    }
+    if (!(await hasTable(env, "edu_daily_recitation"))) return migrationRequired();
+
+    try {
+      const date = url.searchParams.get("date")?.trim() || todayIso();
+      const circleParam = url.searchParams.get("circle_id");
+      const circles = await resolveRecitationCircles(env, auth);
+
+      if (circles.length === 0) {
+        return json({ error: "no_circle_assigned" }, 404);
+      }
+
+      let circleId: number;
+      if (auth.role === "teacher") {
+        if (circles.length !== 1) {
+          return json(
+            {
+              error: circles.length === 0 ? "no_circle_assigned" : "multiple_circles",
+              circles,
+            },
+            circles.length === 0 ? 404 : 409,
+          );
+        }
+        circleId = circles[0].id;
+      } else {
+        const requested = circleParam != null ? Number(circleParam) : NaN;
+        if (Number.isFinite(requested) && requested > 0) {
+          circleId = requested;
+        } else if (circles.length === 1) {
+          circleId = circles[0].id;
+        } else {
+          return json({
+            date,
+            circle_id: null,
+            circle_name: null,
+            circles,
+            items: [],
+            needs_circle_selection: true,
+          });
+        }
+        if (!(await canAccessRecitationCircle(env, auth, circleId))) {
+          return json({ error: "forbidden" }, 403);
+        }
+      }
+
+      const circle = circles.find((c) => c.id === circleId);
+      const items = await loadDailyRecitationItems(env, auth.complexId, circleId, date);
+      return json({
+        date,
+        circle_id: circleId,
+        circle_name: circle?.name_ar ?? "",
+        circles: auth.role === "teacher" ? circles : circles,
+        needs_circle_selection: false,
+        items,
+      });
+    } catch (err) {
+      return serverError("my-students", err);
+    }
+  }
+
+  // --- Daily recitation ---
   if (path === "/api/edu-dept/daily-recitation") {
-    if (!requireRoles(auth, [...TEACHER_ONLY_ROLES])) {
+    if (!requireRoles(auth, [...RECITATION_ROLES])) {
       return json({ error: "forbidden" }, 403);
     }
     if (!(await hasTable(env, "edu_daily_recitation"))) return migrationRequired();
 
     const date = url.searchParams.get("date") ?? todayIso();
-    const circleId = Number(url.searchParams.get("circle_id"));
+    const circleIdParam = Number(url.searchParams.get("circle_id"));
 
     if (request.method === "GET") {
-      if (!Number.isFinite(circleId) || circleId <= 0) {
-        return json({ error: "circle_id_required" }, 400);
+      try {
+        let circleId = circleIdParam;
+        if (auth.role === "teacher") {
+          const circles = await resolveRecitationCircles(env, auth);
+          if (circles.length !== 1) {
+            return json({ error: "use_my_students_endpoint" }, 400);
+          }
+          circleId = circles[0].id;
+        }
+        if (!Number.isFinite(circleId) || circleId <= 0) {
+          return json({ error: "circle_id_required" }, 400);
+        }
+        if (!(await canAccessRecitationCircle(env, auth, circleId))) {
+          return json({ error: "forbidden" }, 403);
+        }
+        const items = await loadDailyRecitationItems(env, auth.complexId, circleId, date);
+        return json({ items, date, circle_id: circleId });
+      } catch (err) {
+        return serverError("daily-recitation-get", err);
       }
-      const allowed = await teacherCircleIds(env, auth.userId);
-      if (!allowed.includes(circleId)) return json({ error: "forbidden" }, 403);
-      const students = await studentsInCircle(env, auth.complexId, circleId);
-      const hasFace = await tableHasColumn(env, "edu_daily_recitation", "face_count");
-      const markCols = hasFace
-        ? `student_id, listened, repeated, revised, error_count, tune_errors, notes, face_count`
-        : `student_id, listened, repeated, revised, error_count, tune_errors, notes`;
-      const marks = await env.DB.prepare(
-        `SELECT ${markCols}
-         FROM edu_daily_recitation
-         WHERE circle_id = ? AND recitation_date = ?`,
-      )
-        .bind(circleId, date)
-        .all<{
-          student_id: number;
-          listened: number;
-          repeated: number;
-          revised: number;
-          error_count: number;
-          tune_errors: number;
-          notes: string | null;
-          face_count?: number;
-        }>();
-      const byStudent = new Map(
-        (marks.results ?? []).map((m) => [m.student_id, m]),
-      );
-      const items = students.map((s) => {
-        const m = byStudent.get(s.id);
-        return {
-          student_id: s.id,
-          full_name_ar: s.full_name_ar,
-          listened: Boolean(m?.listened),
-          repeated: Boolean(m?.repeated),
-          revised: Boolean(m?.revised),
-          error_count: m?.error_count ?? 0,
-          tune_errors: m?.tune_errors ?? 0,
-          face_count: hasFace ? Number(m?.face_count ?? 0) : 0,
-          notes: m?.notes ?? "",
-        };
-      });
-      return json({ items, date, circle_id: circleId });
     }
 
     if (request.method === "POST") {
-      let body: {
-        circle_id?: number;
-        recitation_date?: string;
-        rows?: Array<{
-          student_id: number;
-          listened?: boolean;
-          repeated?: boolean;
-          revised?: boolean;
-          error_count?: number;
-          tune_errors?: number;
-          face_count?: number;
-          notes?: string;
-        }>;
-      };
       try {
-        body = await request.json();
-      } catch {
-        return json({ error: "invalid_json" }, 400);
-      }
-      const cid = Number(body.circle_id);
-      const recDate = body.recitation_date?.trim() || todayIso();
-      if (!Number.isFinite(cid) || cid <= 0) {
-        return json({ error: "circle_id_required" }, 400);
-      }
-      const allowedCircles = await teacherCircleIds(env, auth.userId);
-      if (!allowedCircles.includes(cid)) return json({ error: "forbidden" }, 403);
-      const hasFace = await tableHasColumn(env, "edu_daily_recitation", "face_count");
-      const rows = body.rows ?? [];
-      const stmts = rows.map((r) => {
-        if (hasFace) {
-          return env.DB.prepare(
-            `INSERT INTO edu_daily_recitation
-              (student_id, teacher_user_id, circle_id, recitation_date, listened, repeated, revised, error_count, tune_errors, face_count, notes, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-             ON CONFLICT(student_id, recitation_date) DO UPDATE SET
-               teacher_user_id = excluded.teacher_user_id,
-               circle_id = excluded.circle_id,
-               listened = excluded.listened,
-               repeated = excluded.repeated,
-               revised = excluded.revised,
-               error_count = excluded.error_count,
-               tune_errors = excluded.tune_errors,
-               face_count = excluded.face_count,
-               notes = excluded.notes,
-               updated_at = datetime('now')`,
-          ).bind(
-            r.student_id,
-            auth.userId,
-            cid,
-            recDate,
-            r.listened ? 1 : 0,
-            r.repeated ? 1 : 0,
-            r.revised ? 1 : 0,
-            Number(r.error_count ?? 0),
-            Number(r.tune_errors ?? 0),
-            Math.max(0, Math.floor(Number(r.face_count ?? 0))),
-            typeof r.notes === "string" ? r.notes.slice(0, 500) : null,
-          );
+        let body: {
+          circle_id?: number;
+          recitation_date?: string;
+          rows?: Array<{
+            student_id: number;
+            listened?: boolean;
+            repeated?: boolean;
+            revised?: boolean;
+            error_count?: number;
+            tune_errors?: number;
+            face_count?: number;
+            notes?: string;
+          }>;
+        };
+        try {
+          body = await request.json();
+        } catch {
+          return json({ error: "invalid_json" }, 400);
         }
-        return env.DB.prepare(
-          `INSERT INTO edu_daily_recitation
-            (student_id, teacher_user_id, circle_id, recitation_date, listened, repeated, revised, error_count, tune_errors, notes, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-           ON CONFLICT(student_id, recitation_date) DO UPDATE SET
-             teacher_user_id = excluded.teacher_user_id,
-             circle_id = excluded.circle_id,
-             listened = excluded.listened,
-             repeated = excluded.repeated,
-             revised = excluded.revised,
-             error_count = excluded.error_count,
-             tune_errors = excluded.tune_errors,
-             notes = excluded.notes,
-             updated_at = datetime('now')`,
-        ).bind(
-          r.student_id,
-          auth.userId,
-          cid,
-          recDate,
-          r.listened ? 1 : 0,
-          r.repeated ? 1 : 0,
-          r.revised ? 1 : 0,
-          Number(r.error_count ?? 0),
-          Number(r.tune_errors ?? 0),
-          typeof r.notes === "string" ? r.notes.slice(0, 500) : null,
-        );
-      });
-      if (stmts.length > 0) await env.DB.batch(stmts);
-      return json({ ok: true, saved: stmts.length });
+
+        let cid = Number(body.circle_id);
+        if (auth.role === "teacher") {
+          const circles = await resolveRecitationCircles(env, auth);
+          if (circles.length !== 1) {
+            return json({ error: "no_single_circle" }, 409);
+          }
+          cid = circles[0].id;
+        }
+        const recDate = body.recitation_date?.trim() || todayIso();
+        if (!Number.isFinite(cid) || cid <= 0) {
+          return json({ error: "circle_id_required" }, 400);
+        }
+        if (!(await canAccessRecitationCircle(env, auth, cid))) {
+          return json({ error: "forbidden" }, 403);
+        }
+
+        const rawRows = body.rows;
+        if (rawRows != null && !Array.isArray(rawRows)) {
+          return json({ error: "rows_must_be_array" }, 400);
+        }
+        const rows = Array.isArray(rawRows) ? rawRows : [];
+        const students = await studentsInCircle(env, auth.complexId, cid);
+        const studentIds = new Set(students.map((s) => s.id));
+
+        const hasFace = await tableHasColumn(env, "edu_daily_recitation", "face_count");
+        const stmts = rows
+          .filter((r) => studentIds.has(Number(r.student_id)))
+          .map((r) => {
+            if (hasFace) {
+              return env.DB.prepare(
+                `INSERT INTO edu_daily_recitation
+                  (student_id, teacher_user_id, circle_id, recitation_date, listened, repeated, revised, error_count, tune_errors, face_count, notes, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                 ON CONFLICT(student_id, recitation_date) DO UPDATE SET
+                   teacher_user_id = excluded.teacher_user_id,
+                   circle_id = excluded.circle_id,
+                   listened = excluded.listened,
+                   repeated = excluded.repeated,
+                   revised = excluded.revised,
+                   error_count = excluded.error_count,
+                   tune_errors = excluded.tune_errors,
+                   face_count = excluded.face_count,
+                   notes = excluded.notes,
+                   updated_at = datetime('now')`,
+              ).bind(
+                r.student_id,
+                auth.userId,
+                cid,
+                recDate,
+                r.listened ? 1 : 0,
+                r.repeated ? 1 : 0,
+                r.revised ? 1 : 0,
+                Number(r.error_count ?? 0),
+                Number(r.tune_errors ?? 0),
+                Math.max(0, Math.floor(Number(r.face_count ?? 0))),
+                typeof r.notes === "string" ? r.notes.slice(0, 500) : null,
+              );
+            }
+            return env.DB.prepare(
+              `INSERT INTO edu_daily_recitation
+                (student_id, teacher_user_id, circle_id, recitation_date, listened, repeated, revised, error_count, tune_errors, notes, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(student_id, recitation_date) DO UPDATE SET
+                 teacher_user_id = excluded.teacher_user_id,
+                 circle_id = excluded.circle_id,
+                 listened = excluded.listened,
+                 repeated = excluded.repeated,
+                 revised = excluded.revised,
+                 error_count = excluded.error_count,
+                 tune_errors = excluded.tune_errors,
+                 notes = excluded.notes,
+                 updated_at = datetime('now')`,
+            ).bind(
+              r.student_id,
+              auth.userId,
+              cid,
+              recDate,
+              r.listened ? 1 : 0,
+              r.repeated ? 1 : 0,
+              r.revised ? 1 : 0,
+              Number(r.error_count ?? 0),
+              Number(r.tune_errors ?? 0),
+              typeof r.notes === "string" ? r.notes.slice(0, 500) : null,
+            );
+          });
+
+        if (stmts.length > 0) {
+          const chunkSize = 50;
+          for (let i = 0; i < stmts.length; i += chunkSize) {
+            await env.DB.batch(stmts.slice(i, i + chunkSize));
+          }
+        }
+        return json({ ok: true, saved: stmts.length, circle_id: cid });
+      } catch (err) {
+        return serverError("daily-recitation-post", err);
+      }
     }
     return json({ error: "method_not_allowed" }, 405);
   }

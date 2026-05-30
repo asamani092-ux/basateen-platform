@@ -77,9 +77,14 @@ export const LEGACY_REDIRECTS: Record<string, string | "home"> = {
   "/teacher/daily-log": "/edu-dept/daily-recitation",
 };
 
-const TEACHER_ONLY_EDU_PATHS = [
-  "/edu-dept/daily-recitation",
-  "/edu-dept/teacher-competitions",
+const TEACHER_ONLY_EDU_PATHS = ["/edu-dept/teacher-competitions"];
+
+const RECITATION_EDU_PATH = "/edu-dept/daily-recitation";
+const RECITATION_ROLES: UserRole[] = [
+  "teacher",
+  "edu_supervisor",
+  "super_admin",
+  "prog_supervisor",
 ];
 
 export function pathAllowedForRole(role: UserRole, pathname: string): boolean {
@@ -92,6 +97,13 @@ export function pathAllowedForRole(role: UserRole, pathname: string): boolean {
     if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
       return role === "teacher";
     }
+  }
+
+  if (
+    pathname === RECITATION_EDU_PATH ||
+    pathname.startsWith(`${RECITATION_EDU_PATH}/`)
+  ) {
+    return RECITATION_ROLES.includes(role);
   }
 
   for (const rule of PATH_RULES) {

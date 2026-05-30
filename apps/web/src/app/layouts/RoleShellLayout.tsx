@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router";
-import { ChevronDown, LogOut, Menu, Tv, X } from "lucide-react";
+import { ChevronDown, LogOut, Menu, X } from "lucide-react";
 import { Button } from "../components/ui/button";
 import {
   isNavActive,
@@ -133,11 +133,11 @@ function SidebarBrand({ userName }: { userName?: string }) {
         className="h-12 w-auto object-contain shrink-0 hidden dark:block"
       />
       <div className="min-w-0">
-        <p className="font-bold text-sm text-foreground truncate" style={tajawal}>
-          منصة بساتين
+        <p className="font-bold text-base text-foreground truncate" style={tajawal}>
+          مجمع البساتين
         </p>
         <p className="text-[10px] text-muted-foreground" style={tajawal}>
-          مجمع حلقات البساتين
+          منصة بساتين
         </p>
         {userName && (
           <p className="text-xs text-muted-foreground truncate" style={tajawal}>
@@ -149,13 +149,7 @@ function SidebarBrand({ userName }: { userName?: string }) {
   );
 }
 
-function SidebarFooter({
-  onLogout,
-  onTv,
-}: {
-  onLogout: () => void;
-  onTv: () => void;
-}) {
+function SidebarFooter({ onLogout }: { onLogout: () => void }) {
   return (
     <div className="p-4 border-t border-border space-y-3 shrink-0">
       <div className="flex items-center justify-center gap-2">
@@ -172,16 +166,6 @@ function SidebarFooter({
           <LogOut className="w-5 h-5" />
         </Button>
       </div>
-      <Button
-        type="button"
-        variant="outline"
-        onClick={onTv}
-        className={`w-full ${ds.btnRound}`}
-        style={tajawal}
-      >
-        <Tv className="w-4 h-4" />
-        شاشة التلفاز
-      </Button>
     </div>
   );
 }
@@ -196,10 +180,6 @@ export function RoleShellLayout() {
   function handleLogout() {
     logout();
     navigate("/login", { replace: true });
-  }
-
-  function launchTv() {
-    window.open("/tv-live", "_blank", "noopener,noreferrer");
   }
 
   const visibleNav = user ? navForRole(user.role) : [];
@@ -217,7 +197,7 @@ export function RoleShellLayout() {
         <aside className="w-64 shrink-0 bg-card border-l border-border hidden lg:flex flex-col print:hidden">
           <SidebarBrand userName={user?.full_name_ar} />
           <nav className="p-4 flex-1 overflow-y-auto space-y-1 min-h-0">{nav}</nav>
-          <SidebarFooter onLogout={handleLogout} onTv={launchTv} />
+          <SidebarFooter onLogout={handleLogout} />
         </aside>
 
         {mobileOpen && (
@@ -252,13 +232,13 @@ export function RoleShellLayout() {
               <nav className="p-4 flex-1 overflow-y-auto space-y-1 min-h-0">
                 {nav}
               </nav>
-              <SidebarFooter onLogout={handleLogout} onTv={launchTv} />
+              <SidebarFooter onLogout={handleLogout} />
             </aside>
           </div>
         )}
 
         <div className="flex-1 flex flex-col min-w-0 min-h-screen">
-          <div className="lg:hidden sticky top-0 z-40 bg-background/95 backdrop-blur border-b border-border px-4 py-3 print:hidden">
+          <div className="lg:hidden sticky top-0 z-40 bg-background/95 backdrop-blur border-b border-border px-4 py-3 print:hidden flex items-center justify-between gap-3">
             <Button
               variant="outline"
               size="icon"
@@ -269,6 +249,10 @@ export function RoleShellLayout() {
             >
               <Menu className="w-5 h-5" />
             </Button>
+            <p className="font-bold text-sm truncate flex-1 text-center" style={tajawal}>
+              مجمع البساتين
+            </p>
+            <div className="w-10" aria-hidden />
           </div>
           <main className="flex-1 min-h-0 p-4 sm:p-6 md:p-8 overflow-auto">
             <DevPreviewBanner />

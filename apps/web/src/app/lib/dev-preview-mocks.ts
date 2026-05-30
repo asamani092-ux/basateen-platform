@@ -429,6 +429,27 @@ export function resolveDevPreviewMock<T>(
       })),
     } as T;
   }
+  if (p === "/api/edu-dept/my-students" && m === "GET") {
+    const students = previewStore.getStudents().slice(0, 6);
+    return {
+      date,
+      circle_id: 1,
+      circle_name: "حلقة تجريبية",
+      needs_circle_selection: false,
+      circles: PREVIEW_CIRCLES.slice(0, 3).map((c) => ({ id: c.id, name_ar: c.name_ar })),
+      items: students.map((s, i) => ({
+        student_id: s.id,
+        full_name_ar: s.full_name_ar,
+        listened: i % 2 === 0,
+        repeated: true,
+        revised: false,
+        error_count: i,
+        tune_errors: 0,
+        face_count: 2,
+        notes: "",
+      })),
+    } as T;
+  }
   if (p === "/api/edu-dept/daily-recitation" && m === "POST") {
     return { ok: true, saved: 1 } as T;
   }
@@ -470,14 +491,30 @@ export function resolveDevPreviewMock<T>(
   if (p === "/api/edu-dept/teacher-competitions" && m === "POST") {
     return { ok: true, id: 2 } as T;
   }
+  const tcLeader = p.match(/^\/api\/edu-dept\/teacher-competitions\/(\d+)\/leaderboard$/);
+  if (tcLeader && m === "GET") {
+    const students = previewStore.getStudents().slice(0, 5);
+    return {
+      items: students.map((s, i) => ({
+        rank: i + 1,
+        student_id: s.id,
+        full_name_ar: s.full_name_ar,
+        total_points: 10 - i * 2,
+      })),
+    } as T;
+  }
+  const tcTaskDel = p.match(/^\/api\/edu-dept\/teacher-competitions\/(\d+)\/tasks\/(\d+)$/);
+  if (tcTaskDel && m === "DELETE") return { ok: true } as T;
   const tcDetail = p.match(/^\/api\/edu-dept\/teacher-competitions\/(\d+)$/);
   if (tcDetail && m === "GET") {
     const students = previewStore.getStudents().slice(0, 4);
     return {
       competition: { id: 1, name_ar: "منافسة تجريبية", start_date: date, end_date: null },
       tasks: [
-        { id: 1, title_ar: "قراءة كتاب", weight_points: 2, sort_order: 1 },
-        { id: 2, title_ar: "حفظ إضافي", weight_points: 3, sort_order: 2 },
+        { id: 1, title_ar: "حفظ إضافي", weight_points: 2, sort_order: 1 },
+        { id: 2, title_ar: "مراجعة", weight_points: 2, sort_order: 2 },
+        { id: 3, title_ar: "حضور مبكر", weight_points: 1, sort_order: 3 },
+        { id: 4, title_ar: "أدب وسلوك", weight_points: 1, sort_order: 4 },
       ],
       students: students.map((s) => ({ id: s.id, full_name_ar: s.full_name_ar })),
       scores: [],

@@ -945,6 +945,30 @@ export const api = {
     request<{ items: Array<{ id: number; name_ar: string }> }>(
       "/api/edu-dept/teacher/circles",
     ),
+  eduDeptMyStudents: (params?: { date?: string; circle_id?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.date) q.set("date", params.date);
+    if (params?.circle_id != null) q.set("circle_id", String(params.circle_id));
+    const qs = q.toString();
+    return request<{
+      date: string;
+      circle_id: number | null;
+      circle_name: string | null;
+      needs_circle_selection: boolean;
+      circles: Array<{ id: number; name_ar: string }>;
+      items: Array<{
+        student_id: number;
+        full_name_ar: string;
+        listened: boolean;
+        repeated: boolean;
+        revised: boolean;
+        error_count: number;
+        tune_errors: number;
+        face_count: number;
+        notes: string;
+      }>;
+    }>(`/api/edu-dept/my-students${qs ? `?${qs}` : ""}`);
+  },
   eduDeptDailyRecitationGet: (circleId: number, date: string) =>
     request<{
       items: Array<{
@@ -977,7 +1001,7 @@ export const api = {
       notes?: string;
     }>;
   }) =>
-    request<{ ok: boolean; saved: number }>("/api/edu-dept/daily-recitation", {
+    request<{ ok: boolean; saved: number; circle_id?: number }>("/api/edu-dept/daily-recitation", {
       method: "POST",
       body: JSON.stringify(body),
     }),
@@ -1066,6 +1090,20 @@ export const api = {
       `/api/edu-dept/teacher-competitions/${compId}/tasks`,
       { method: "POST", body: JSON.stringify(body) },
     ),
+  eduDeptTeacherCompetitionDeleteTask: (compId: number, taskId: number) =>
+    request<{ ok: boolean }>(
+      `/api/edu-dept/teacher-competitions/${compId}/tasks/${taskId}`,
+      { method: "DELETE" },
+    ),
+  eduDeptTeacherCompetitionLeaderboard: (compId: number) =>
+    request<{
+      items: Array<{
+        rank: number;
+        student_id: number;
+        full_name_ar: string;
+        total_points: number;
+      }>;
+    }>(`/api/edu-dept/teacher-competitions/${compId}/leaderboard`),
   eduDeptTeacherCompetitionSaveScores: (
     compId: number,
     scores: Array<{ task_id: number; student_id: number; points: number }>,

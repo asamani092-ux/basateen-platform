@@ -2,7 +2,7 @@ import type { Env } from "../types";
 import { normalizeMobile } from "../lib/mobile";
 import { randomToken, scoreQuizAttempt, type QuizQuestionRow } from "../lib/quiz-scoring";
 import { writeProgAudit } from "../lib/prog-audit";
-import { hasTable } from "../lib/db-schema";
+import { hasTable, tableHasColumn } from "../lib/db-schema";
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
@@ -21,21 +21,59 @@ type QuizRow = {
 };
 
 async function loadQuiz(env: Env, quizId: number): Promise<QuizRow | null> {
-  return env.DB.prepare(
-    `SELECT id, complex_id, title_ar, access_code, status, total_points,
-            COALESCE(show_score_instantly, 1) AS show_score_instantly,
-            custom_success_message,
-            COALESCE(is_active, 1) AS is_active
+  const base = await env.DB.prepare(
+    `SELECT id, complex_id, title_ar, access_code, status, total_points
      FROM quizzes WHERE id = ?`,
   )
     .bind(quizId)
-    .first<QuizRow>();
+    .first<{
+      id: number;
+      complex_id: number;
+      title_ar: string;
+      access_code: string | null;
+      status: string;
+      total_points: number;
+    }>();
+
+  if (!base) return null;
+
+  let show_score_instantly = 1;
+  let custom_success_message: string | null = null;
+  let is_active = 1;
+
+  if (await tableHasColumn(env, "quizzes", "show_score_instantly")) {
+    const extra = await env.DB.prepare(
+      `SELECT show_score_instantly, custom_success_message,
+              COALESCE(is_active, 1) AS is_active
+       FROM quizzes WHERE id = ?`,
+    )
+      .bind(quizId)
+      .first<{
+        show_score_instantly: number;
+        custom_success_message: string | null;
+        is_active: number;
+      }>();
+    if (extra) {
+      show_score_instantly = Number(extra.show_score_instantly ?? 1);
+      custom_success_message = extra.custom_success_message;
+      is_active = Number(extra.is_active ?? 1);
+    }
+  }
+
+  return {
+    ...base,
+    show_score_instantly,
+    custom_success_message,
+    is_active,
+  };
 }
 
+/** متاح للعامة: رمز مرور معرّف، نشط، ومنشور (ليس draft) */
 function quizIsOpen(quiz: QuizRow): boolean {
-  if (quiz.status === "draft") return false;
+  if (!quiz.access_code?.trim()) return false;
   if (quiz.is_active === 0) return false;
-  return quiz.status === "published" || quiz.is_active === 1;
+  if (quiz.status === "draft") return false;
+  return true;
 }
 
 async function loadQuestions(env: Env, quizId: number) {
@@ -46,6 +84,22 @@ async function loadQuestions(env: Env, quizId: number) {
     .bind(quizId)
     .all<QuizQuestionRow>();
   return rows.results ?? [];
+}
+
+async function resolveResponseByToken(env: Env, quizId: number, token: string) {
+  if (!(await hasTable(env, "quiz_responses"))) return null;
+  return env.DB.prepare(
+    `SELECT id, student_name, submitted_at, total_score, answers_json
+     FROM quiz_responses WHERE quiz_id = ? AND session_token = ?`,
+  )
+    .bind(quizId, token)
+    .first<{
+      id: number;
+      student_name: string;
+      submitted_at: string | null;
+      total_score: number;
+      answers_json: string;
+    }>();
 }
 
 async function resolveAttemptByToken(env: Env, quizId: number, token: string) {
@@ -62,23 +116,6 @@ async function resolveAttemptByToken(env: Env, quizId: number, token: string) {
       submitted_at: string | null;
       score_percent: number | null;
       full_name_ar: string;
-    }>();
-}
-
-async function resolveResponseByToken(env: Env, quizId: number, token: string) {
-  if (!(await hasTable(env, "quiz_responses"))) return null;
-  return env.DB.prepare(
-    `SELECT id, student_name, student_phone, submitted_at, total_score, answers_json
-     FROM quiz_responses WHERE quiz_id = ? AND session_token = ?`,
-  )
-    .bind(quizId, token)
-    .first<{
-      id: number;
-      student_name: string;
-      student_phone: string;
-      submitted_at: string | null;
-      total_score: number;
-      answers_json: string;
     }>();
 }
 
@@ -125,8 +162,32 @@ function parseQuizAction(pathname: string) {
   return {
     quizId: Number(m[1]),
     action: m[2] as "public" | "gate" | "take" | "submit",
-    useResponses: pathname.startsWith("/api/public/"),
+    isPublicApi: pathname.startsWith("/api/public/"),
   };
+}
+
+async function gateWithAccessCodeOnly(env: Env, quiz: QuizRow, quizId: number, code: string) {
+  const expected = quiz.access_code?.trim() ?? "";
+  if (!expected) {
+    return json({ error: "quiz_not_configured" }, 503);
+  }
+  if (code !== expected) {
+    return json({ error: "invalid_access_code", message: "رمز المرور غير صحيح" }, 403);
+  }
+
+  if (!(await hasTable(env, "quiz_responses"))) {
+    return json({ error: "migration_required" }, 503);
+  }
+
+  const token = randomToken();
+  await env.DB.prepare(
+    `INSERT INTO quiz_responses (quiz_id, student_name, student_phone, session_token)
+     VALUES (?, ?, ?, ?)`,
+  )
+    .bind(quizId, "مشارك", token, token)
+    .run();
+
+  return json({ ok: true, session_token: token });
 }
 
 export async function handleQuizPublicRouter(
@@ -137,17 +198,17 @@ export async function handleQuizPublicRouter(
   const parsed = parseQuizAction(url.pathname);
   if (!parsed) return null;
 
-  const { quizId, action, useResponses } = parsed;
+  const { quizId, action, isPublicApi } = parsed;
 
   if (action === "public" && request.method === "GET") {
     const quiz = await loadQuiz(env, quizId);
     if (!quiz || !quizIsOpen(quiz)) {
-      return json({ error: "not_found" }, 404);
+      return json({ error: "not_found", message: "الاختبار غير متاح" }, 404);
     }
     return json({
       quiz_id: quiz.id,
       title_ar: quiz.title_ar,
-      requires_access_code: Boolean(quiz.access_code?.trim()),
+      requires_access_code: true,
       status: quiz.status,
       show_score_instantly: quiz.show_score_instantly === 1,
     });
@@ -156,15 +217,10 @@ export async function handleQuizPublicRouter(
   if (action === "gate" && request.method === "POST") {
     const quiz = await loadQuiz(env, quizId);
     if (!quiz || !quizIsOpen(quiz)) {
-      return json({ error: "not_found" }, 404);
+      return json({ error: "not_found", message: "الاختبار غير متاح" }, 404);
     }
 
-    let body: {
-      identifier?: string;
-      student_name?: string;
-      student_phone?: string;
-      access_code?: string;
-    };
+    let body: { access_code?: string; identifier?: string; student_name?: string; student_phone?: string };
     try {
       body = await request.json();
     } catch {
@@ -172,77 +228,31 @@ export async function handleQuizPublicRouter(
     }
 
     const code = body.access_code?.trim() ?? "";
-    if (quiz.access_code?.trim() && code !== quiz.access_code.trim()) {
-      return json({ error: "invalid_access_code" }, 403);
+
+    if (isPublicApi) {
+      if (!code) {
+        return json({ error: "access_code_required", message: "رمز المرور مطلوب" }, 400);
+      }
+      return gateWithAccessCodeOnly(env, quiz, quizId, code);
     }
 
-    if (useResponses) {
-      if (!(await hasTable(env, "quiz_responses"))) {
-        return json({ error: "migration_required" }, 503);
-      }
-      const name = body.student_name?.trim() ?? "";
-      const phoneRaw = body.student_phone?.trim() ?? "";
-      if (!name || !phoneRaw) {
-        return json({ error: "name_and_phone_required" }, 400);
-      }
-      const phone = normalizeMobile(phoneRaw) || phoneRaw;
-
-      const existing = await env.DB.prepare(
-        `SELECT session_token, submitted_at, total_score FROM quiz_responses
-         WHERE quiz_id = ? AND student_phone = ?`,
-      )
-        .bind(quizId, phone)
-        .first<{
-          session_token: string;
-          submitted_at: string | null;
-          total_score: number;
-        }>();
-
-      if (existing?.submitted_at) {
-        return json({ error: "already_submitted", total_score: existing.total_score }, 409);
-      }
-
-      let token = existing?.session_token;
-      if (!token) {
-        token = randomToken();
-        await env.DB.prepare(
-          `INSERT INTO quiz_responses (quiz_id, student_name, student_phone, session_token)
-           VALUES (?, ?, ?, ?)`,
-        )
-          .bind(quizId, name, phone, token)
-          .run();
-      } else {
-        await env.DB.prepare(
-          `UPDATE quiz_responses SET student_name = ? WHERE quiz_id = ? AND session_token = ?`,
-        )
-          .bind(name, quizId, token)
-          .run();
-      }
-
-      return json({
-        ok: true,
-        session_token: token,
-        student_name: name,
-      });
+    // مسار قديم /api/quiz — يبقى للتوافق مع الطلاب المسجّلين
+    if (quiz.access_code?.trim() && code !== quiz.access_code.trim()) {
+      return json({ error: "invalid_access_code", message: "رمز المرور غير صحيح" }, 403);
     }
 
     const identifier = body.identifier?.trim() ?? "";
     if (!identifier) return json({ error: "identifier_required" }, 400);
 
     const mobile = normalizeMobile(identifier);
-    let student:
-      | { id: number; full_name_ar: string }
-      | null
-      | undefined;
-
-    if (mobile) {
-      student = await env.DB.prepare(
-        `SELECT id, full_name_ar FROM students
-         WHERE complex_id = ? AND phone = ? AND is_active = 1 LIMIT 1`,
-      )
-        .bind(quiz.complex_id, mobile)
-        .first();
-    }
+    let student = mobile
+      ? await env.DB.prepare(
+          `SELECT id, full_name_ar FROM students
+           WHERE complex_id = ? AND phone = ? AND is_active = 1 LIMIT 1`,
+        )
+          .bind(quiz.complex_id, mobile)
+          .first<{ id: number; full_name_ar: string }>()
+      : null;
 
     if (!student) {
       const like = `%${identifier.replace(/\s+/g, "%")}%`;
@@ -302,10 +312,10 @@ export async function handleQuizPublicRouter(
 
     const quiz = await loadQuiz(env, quizId);
     if (!quiz || !quizIsOpen(quiz)) {
-      return json({ error: "not_found" }, 404);
+      return json({ error: "not_found", message: "الاختبار غير متاح" }, 404);
     }
 
-    if (useResponses) {
+    if (isPublicApi) {
       const response = await resolveResponseByToken(env, quizId, token);
       if (!response) return json({ error: "invalid_token" }, 403);
       if (response.submitted_at) {
@@ -317,6 +327,9 @@ export async function handleQuizPublicRouter(
         });
       }
       const questions = await loadQuestions(env, quizId);
+      if (questions.length === 0) {
+        return json({ error: "no_questions", message: "لا توجد أسئلة في هذا الاختبار" }, 404);
+      }
       let savedAnswers: Record<string, string> = {};
       try {
         savedAnswers = JSON.parse(response.answers_json || "{}") as Record<string, string>;
@@ -333,7 +346,6 @@ export async function handleQuizPublicRouter(
 
     const attempt = await resolveAttemptByToken(env, quizId, token);
     if (!attempt) return json({ error: "invalid_token" }, 403);
-
     if (attempt.submitted_at) {
       return json({
         already_submitted: true,
@@ -341,7 +353,6 @@ export async function handleQuizPublicRouter(
         full_name_ar: attempt.full_name_ar,
       });
     }
-
     const questions = await loadQuestions(env, quizId);
     return json({
       quiz: { id: quiz.id, title_ar: quiz.title_ar },
@@ -368,7 +379,7 @@ export async function handleQuizPublicRouter(
     const answers = body.answers ?? {};
     const { scorePercent, earned, total } = scoreQuizAttempt(questions, answers);
 
-    if (useResponses) {
+    if (isPublicApi) {
       const response = await resolveResponseByToken(env, quizId, token);
       if (!response) return json({ error: "invalid_token" }, 403);
       if (response.submitted_at) {

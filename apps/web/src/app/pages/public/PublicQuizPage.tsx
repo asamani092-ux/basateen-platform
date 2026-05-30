@@ -21,7 +21,6 @@ function storageKey(quizId: number) {
 
 type Draft = {
   token: string;
-  studentName: string;
   answers: Record<string, string>;
   step: number;
 };
@@ -50,10 +49,6 @@ export function PublicQuizPage() {
 
   const [phase, setPhase] = useState<"gate" | "take" | "done">("gate");
   const [title, setTitle] = useState("");
-  const [requiresCode, setRequiresCode] = useState(false);
-
-  const [studentName, setStudentName] = useState("");
-  const [studentPhone, setStudentPhone] = useState("");
   const [accessCode, setAccessCode] = useState("");
   const [sessionToken, setSessionToken] = useState("");
 
@@ -71,16 +66,10 @@ export function PublicQuizPage() {
   const persist = useCallback(
     (patch: Partial<Draft>) => {
       if (!quizId || !sessionToken) return;
-      const base = loadDraft(quizId) ?? {
-        token: sessionToken,
-        studentName,
-        answers,
-        step,
-      };
-      const next = { ...base, ...patch, token: sessionToken };
-      saveDraft(quizId, next);
+      const base = loadDraft(quizId) ?? { token: sessionToken, answers: {}, step: 0 };
+      saveDraft(quizId, { ...base, ...patch, token: sessionToken });
     },
-    [quizId, sessionToken, studentName, answers, step],
+    [quizId, sessionToken],
   );
 
   const loadTake = useCallback(
@@ -99,17 +88,17 @@ export function PublicQuizPage() {
           return;
         }
         setQuestions(res.questions as Question[]);
-        const merged = { ...(res.saved_answers ?? {}), ...answers };
-        setAnswers(merged);
+        setAnswers((prev) => ({ ...(res.saved_answers ?? {}), ...prev }));
         setPhase("take");
       } catch (e) {
-        setError(e instanceof Error ? e.message : "تعذّر تحميل الأسئلة");
+        const msg = e instanceof Error ? e.message : "تعذّر تحميل الأسئلة";
+        setError(msg.includes("404") ? "الاختبار غير متاح" : msg);
         setPhase("gate");
       } finally {
         setLoading(false);
       }
     },
-    [quizId, answers],
+    [quizId],
   );
 
   useEffect(() => {
@@ -118,14 +107,15 @@ export function PublicQuizPage() {
       .quizPublicMeta(quizId, true)
       .then((meta) => {
         setTitle(meta.title_ar);
-        setRequiresCode(meta.requires_access_code);
+        setError(null);
       })
-      .catch(() => setError("الاختبار غير متاح"));
+      .catch(() => {
+        setError("الاختبار غير متاح");
+      });
 
     const draft = loadDraft(quizId);
     if (draft?.token) {
       setSessionToken(draft.token);
-      setStudentName(draft.studentName);
       setAnswers(draft.answers ?? {});
       setStep(draft.step ?? 0);
       void loadTake(draft.token);
@@ -134,30 +124,32 @@ export function PublicQuizPage() {
 
   useEffect(() => {
     if (phase !== "take" || !quizId || !sessionToken) return;
-    persist({ answers, step, studentName });
-  }, [answers, step, phase, quizId, sessionToken, studentName, persist]);
+    persist({ answers, step });
+  }, [answers, step, phase, quizId, sessionToken, persist]);
 
   async function submitGate(e: React.FormEvent) {
     e.preventDefault();
     if (!quizId) return;
+    if (!accessCode.trim()) {
+      setError("رمز المرور غير صحيح");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      const res = await api.publicQuizGate(quizId, {
-        student_name: studentName.trim(),
-        student_phone: studentPhone.trim(),
-        access_code: accessCode.trim(),
-      });
+      const res = await api.publicQuizGate(quizId, { access_code: accessCode.trim() });
       setSessionToken(res.session_token);
-      saveDraft(quizId, {
-        token: res.session_token,
-        studentName: res.student_name,
-        answers: {},
-        step: 0,
-      });
+      saveDraft(quizId, { token: res.session_token, answers: {}, step: 0 });
       await loadTake(res.session_token);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل التحقق");
+      const msg = e instanceof Error ? e.message : "";
+      if (msg.includes("403") || msg.includes("invalid_access")) {
+        setError("رمز المرور غير صحيح");
+      } else if (msg.includes("404") || msg.includes("not_found")) {
+        setError("الاختبار غير متاح");
+      } else {
+        setError("رمز المرور غير صحيح");
+      }
     } finally {
       setLoading(false);
     }
@@ -186,9 +178,9 @@ export function PublicQuizPage() {
   return (
     <div
       dir="rtl"
-      className="min-h-screen min-h-[100dvh] bg-background text-foreground flex items-center justify-center p-4"
+      className="min-h-screen min-h-[100dvh] bg-background text-foreground flex items-center justify-center p-4 text-right"
     >
-      <div className={`${ds.card} w-full max-w-lg p-6 sm:p-8 text-right space-y-5`}>
+      <div className={`${ds.card} w-full max-w-lg p-6 sm:p-8 space-y-5`}>
         <div>
           <h1 className={ds.page.title} style={tajawal}>
             {title || "اختبار"}
@@ -198,26 +190,36 @@ export function PublicQuizPage() {
           </p>
         </div>
 
-        {error && <p className={ds.alert.error} style={tajawal}>{error}</p>}
+        {error && (
+          <p className={ds.alert.error} style={tajawal}>
+            {error}
+          </p>
+        )}
 
         {phase === "gate" && (
           <form onSubmit={submitGate} className="space-y-4">
             <div className="space-y-2">
-              <Label style={tajawal}>اسم الطالب</Label>
-              <Input className={ds.field} value={studentName} onChange={(e) => setStudentName(e.target.value)} required />
+              <Label htmlFor="quiz-access-code" style={tajawal}>
+                رمز المرور للاختبار
+              </Label>
+              <Input
+                id="quiz-access-code"
+                className={ds.field}
+                dir="ltr"
+                autoComplete="off"
+                value={accessCode}
+                onChange={(e) => setAccessCode(e.target.value)}
+                placeholder="أدخل رمز المرور"
+                required
+              />
             </div>
-            <div className="space-y-2">
-              <Label style={tajawal}>رقم الجوال</Label>
-              <Input className={ds.field} dir="ltr" value={studentPhone} onChange={(e) => setStudentPhone(e.target.value)} required />
-            </div>
-            {requiresCode && (
-              <div className="space-y-2">
-                <Label style={tajawal}>رمز الاختبار</Label>
-                <Input className={ds.field} dir="ltr" value={accessCode} onChange={(e) => setAccessCode(e.target.value)} required />
-              </div>
-            )}
-            <Button type="submit" disabled={loading} className={cn(ds.btnRound, "rounded-full w-full")} style={tajawal}>
-              {loading ? "جاري التحقق…" : "بدء الاختبار"}
+            <Button
+              type="submit"
+              disabled={loading}
+              className={cn(ds.btnRound, "rounded-full w-full")}
+              style={tajawal}
+            >
+              {loading ? "جاري التحقق…" : "دخول الاختبار"}
             </Button>
           </form>
         )}
@@ -265,7 +267,12 @@ export function PublicQuizPage() {
             )}
             <div className="flex gap-2 flex-row-reverse">
               {step > 0 && (
-                <Button type="button" variant="outline" className={cn(ds.btnRound, "rounded-full flex-1")} onClick={() => setStep((s) => s - 1)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={cn(ds.btnRound, "rounded-full flex-1")}
+                  onClick={() => setStep((s) => s - 1)}
+                >
                   السابق
                 </Button>
               )}
@@ -274,7 +281,6 @@ export function PublicQuizPage() {
                   type="button"
                   className={cn(ds.btnRound, "rounded-full flex-1")}
                   onClick={() => setStep((s) => s + 1)}
-                  disabled={!answers[String(current.id)]?.trim() && current.question_type !== "text"}
                 >
                   التالي
                 </Button>

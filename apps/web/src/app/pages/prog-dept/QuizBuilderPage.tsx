@@ -186,43 +186,55 @@ export function QuizBuilderPage() {
     }
   }
 
+  function buildQuestionPayload() {
+    return questions
+      .filter((q) => q.prompt_ar.trim())
+      .map((q, i) => ({
+        question_type: q.question_type,
+        prompt_ar: q.prompt_ar.trim(),
+        points: q.points,
+        correct_answer: q.correct_answer,
+        options: q.question_type === "mcq" ? q.options.filter(Boolean) : q.options,
+        sort_order: i,
+      }));
+  }
+
   async function saveQuiz(e: React.FormEvent) {
     e.preventDefault();
-    if (!titleAr.trim()) return;
+    if (!titleAr.trim()) {
+      setError("اسم الاختبار مطلوب");
+      return;
+    }
+    if (!accessCode.trim()) {
+      setError("رمز المرور للاختبار مطلوب");
+      return;
+    }
+    const payload = buildQuestionPayload();
+    if (payload.length === 0) {
+      setError("أضف سؤالاً واحداً على الأقل");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      let quizId = editId;
-      if (quizId == null) {
-        const created = await api.progQuizCreate({
+      if (editId == null) {
+        await api.progQuizCreate({
           title_ar: titleAr.trim(),
-          access_code: accessCode.trim() || null,
+          access_code: accessCode.trim(),
           show_score_instantly: showScore,
           custom_success_message: customMessage.trim() || null,
+          questions: payload,
         });
-        quizId = created.id;
       } else {
-        await api.progQuizPatch(quizId, {
+        await api.progQuizPatch(editId, {
           title_ar: titleAr.trim(),
-          access_code: accessCode.trim() || null,
+          access_code: accessCode.trim(),
           show_score_instantly: showScore,
           custom_success_message: customMessage.trim() || null,
         });
+        await api.progQuizQuestionsSave(editId, payload);
+        await api.progQuizPublish(editId);
       }
-      await api.progQuizQuestionsSave(
-        quizId,
-        questions
-          .filter((q) => q.prompt_ar.trim())
-          .map((q, i) => ({
-            question_type: q.question_type,
-            prompt_ar: q.prompt_ar.trim(),
-            points: q.points,
-            correct_answer: q.correct_answer,
-            options: q.question_type === "mcq" ? q.options.filter(Boolean) : q.options,
-            sort_order: i,
-          })),
-      );
-      await api.progQuizPublish(quizId);
       setFormOpen(false);
       setSuccess(editId ? "تم تحديث الاختبار ونشره." : "تم إنشاء الاختبار ونشره.");
       await load();
@@ -254,10 +266,10 @@ export function QuizBuilderPage() {
         <div>
           <h2 className={`${ds.page.title} flex items-center gap-2 justify-start`} style={tajawal}>
             <ClipboardList className="w-7 h-7 text-primary shrink-0" />
-            منشئ الاختبارات
+            إختبارات إشراف البرامج
           </h2>
           <p className={ds.page.description} style={tajawal}>
-            إنشاء الاختبارات، بناء الأسئلة، ومتابعة نتائج الطلاب.
+            إنشاء الاختبارات برمز مرور، بناء الأسئلة، ومتابعة النتائج.
           </p>
         </div>
         <Button
@@ -402,12 +414,13 @@ export function QuizBuilderPage() {
                 <Input className={ds.field} value={titleAr} onChange={(e) => setTitleAr(e.target.value)} required />
               </div>
               <div className="space-y-2">
-                <Label style={tajawal}>رمز المرور</Label>
+                <Label style={tajawal}>رمز المرور للاختبار *</Label>
                 <Input
                   className={ds.field}
                   dir="ltr"
                   value={accessCode}
                   onChange={(e) => setAccessCode(e.target.value)}
+                  required
                 />
               </div>
               <div className="flex items-center justify-between gap-3 rounded-xl border border-border p-3">

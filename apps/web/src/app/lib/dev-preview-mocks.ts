@@ -1182,9 +1182,30 @@ export function resolveDevPreviewMock<T>(
     const body = bodyText ? JSON.parse(bodyText) : {};
     const id = progPreviewStore.createQuiz(
       String(body.title_ar ?? "اختبار جديد"),
-      body.access_code ?? null,
+      body.access_code ?? "PREVIEW",
     );
-    return { ok: true, id } as T;
+    const qid = Number(id);
+    const list = (body.questions ?? []) as Array<Record<string, unknown>>;
+    if (list.length > 0) {
+      progPreviewStore.saveQuestions(
+        qid,
+        list.map((q, i) => ({
+          id: 100 + i,
+          question_type: (q.question_type === "true_false"
+            ? "true_false"
+            : q.question_type === "text"
+              ? "text"
+              : "mcq") as "mcq" | "true_false",
+          prompt_ar: String(q.prompt_ar ?? ""),
+          points: Number(q.points) || 1,
+          correct_answer: String(q.correct_answer ?? ""),
+          options_json: JSON.stringify(q.options ?? []),
+          sort_order: i,
+        })),
+      );
+      progPreviewStore.publishQuiz(qid);
+    }
+    return { ok: true, id: qid, total_points: list.length } as T;
   }
 
   const progQuizMatch = p.match(/^\/api\/prog-supervisor\/quizzes\/(\d+)$/);
@@ -1301,7 +1322,7 @@ export function resolveDevPreviewMock<T>(
   }
   const publicQuizGate = p.match(/^\/api\/public\/quiz\/(\d+)\/gate$/);
   if (publicQuizGate && m === "POST") {
-    return { ok: true, session_token: "preview-token", student_name: "طالب معاينة" } as T;
+    return { ok: true, session_token: "preview-token" } as T;
   }
   const publicQuizTake = p.match(/^\/api\/public\/quiz\/(\d+)\/take$/);
   if (publicQuizTake && m === "GET") {

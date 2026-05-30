@@ -158,7 +158,7 @@ const PROG_DEPT_ROLES: UserRole[] = ["prog_supervisor", "super_admin"];
 export const PROG_DEPT_NAV: NavItem[] = [
   {
     id: "quizzes",
-    label: "منشئ الاختبارات",
+    label: "إختبارات إشراف البرامج",
     path: "/prog-dept/quizzes",
     roles: PROG_DEPT_ROLES,
   },

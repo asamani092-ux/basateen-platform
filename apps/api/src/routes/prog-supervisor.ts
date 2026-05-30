@@ -19,9 +19,62 @@ function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
 }
 
-function scopeLabel(scope: Awaited<ReturnType<typeof loadUserScope>>): string {
+function criticalQuizError(err: unknown, context: string): Response {
+  console.error("[CRITICAL QUIZ ERROR]:", context, err);
+  const e = err instanceof Error ? err : new Error(String(err));
+  return json(
+    {
+      error: e.message || String(err),
+      stack: e.stack ?? null,
+      context,
+    },
+    500,
+  );
+}
+
+function asSqliteBool(value: unknown, defaultOne = true): number {
+  if (value === false || value === 0 || value === "0") return 0;
+  if (value === true || value === 1 || value === "1") return 1;
+  return defaultOne ? 1 : 0;
+}
+
+function scopeLabel(scope: ScopeMode): string {
   if (scope.type === "global") return "كل المجمع";
   return scope.stageIds.map((id) => STAGE_LABELS[id]).join("، ");
+}
+
+async function safeWriteProgAudit(
+  env: Env,
+  complexId: number,
+  entityType: string,
+  entityId: number,
+  action: string,
+  actorUserId: number | null,
+  payload?: unknown,
+): Promise<void> {
+  try {
+    if (!(await hasTable(env, "prog_audit_trail"))) return;
+    await writeProgAudit(env, complexId, entityType, entityId, action, actorUserId, payload);
+  } catch (err) {
+    console.warn("[CRITICAL QUIZ ERROR] prog audit skipped:", err);
+  }
+}
+
+function coerceOptionsArray(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return raw.map((o) => String(o).trim()).filter(Boolean);
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed.map((o) => String(o).trim()).filter(Boolean);
+      }
+    } catch {
+      return [raw.trim()];
+    }
+  }
+  return [];
 }
 
 async function recomputeQuizPoints(env: Env, quizId: number): Promise<number> {
@@ -78,9 +131,10 @@ function normalizeQuestionInput(
   if (qType === "true_false") {
     correct = correct === "خطأ" || correct === "false" ? "false" : "true";
   }
+  const optionList = coerceOptionsArray(q.options);
   const optionsJson =
     qType === "mcq"
-      ? JSON.stringify((q.options ?? []).map((o) => String(o).trim()).filter(Boolean))
+      ? JSON.stringify(optionList)
       : qType === "text"
         ? "[]"
         : JSON.stringify(["صح", "خطأ"]);
@@ -94,22 +148,28 @@ function normalizeQuestionInput(
   };
 }
 
-async function replaceQuizQuestions(
+async function insertOneQuizQuestion(
   env: Env,
   quizId: number,
-  questions: QuizQuestionInput[],
-): Promise<number> {
-  await env.DB.prepare(`DELETE FROM quiz_questions WHERE quiz_id = ?`).bind(quizId).run();
+  norm: {
+    prompt_ar: string;
+    question_type: string;
+    points: number;
+    correct_answer: string;
+    options_json: string;
+    sort_order: number;
+  },
+): Promise<void> {
+  const hasType = await tableHasColumn(env, "quiz_questions", "question_type");
+  const hasOpts = await tableHasColumn(env, "quiz_questions", "options_json");
+  const hasSort = await tableHasColumn(env, "quiz_questions", "sort_order");
 
-  const stmts: D1PreparedStatement[] = [];
-  for (let i = 0; i < questions.length; i++) {
-    const norm = normalizeQuestionInput(questions[i], i);
-    if (!norm) continue;
-    stmts.push(
-      env.DB.prepare(
-        `INSERT INTO quiz_questions (quiz_id, prompt_ar, points, correct_answer, question_type, options_json, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(
+  if (hasType && hasOpts && hasSort) {
+    await env.DB.prepare(
+      `INSERT INTO quiz_questions (quiz_id, prompt_ar, points, correct_answer, question_type, options_json, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(
         quizId,
         norm.prompt_ar,
         norm.points,
@@ -117,22 +177,36 @@ async function replaceQuizQuestions(
         norm.question_type,
         norm.options_json,
         norm.sort_order,
-      ),
-    );
+      )
+      .run();
+    return;
   }
 
-  if (stmts.length > 0) {
-    try {
-      const chunkSize = 40;
-      for (let i = 0; i < stmts.length; i += chunkSize) {
-        await env.DB.batch(stmts.slice(i, i + chunkSize));
-      }
-    } catch (batchErr) {
-      console.warn("quiz questions batch failed, falling back to sequential:", batchErr);
-      for (const stmt of stmts) {
-        await stmt.run();
-      }
-    }
+  await env.DB.prepare(
+    `INSERT INTO quiz_questions (quiz_id, prompt_ar, points, correct_answer)
+     VALUES (?, ?, ?, ?)`,
+  )
+    .bind(quizId, norm.prompt_ar, norm.points, norm.correct_answer)
+    .run();
+}
+
+async function replaceQuizQuestions(
+  env: Env,
+  quizId: number,
+  questions: QuizQuestionInput[],
+): Promise<number> {
+  await env.DB.prepare(`DELETE FROM quiz_questions WHERE quiz_id = ?`).bind(quizId).run();
+
+  let inserted = 0;
+  for (let i = 0; i < questions.length; i++) {
+    const norm = normalizeQuestionInput(questions[i], i);
+    if (!norm) continue;
+    await insertOneQuizQuestion(env, quizId, norm);
+    inserted += 1;
+  }
+
+  if (inserted === 0) {
+    throw new Error("no_valid_questions_after_normalize");
   }
 
   return recomputeQuizPoints(env, quizId);
@@ -191,42 +265,51 @@ async function insertQuizHeader(
     custom_success_message?: string | null;
   },
 ): Promise<number> {
-  const showScore = body.show_score_instantly === false ? 0 : 1;
-  const customMsg = body.custom_success_message?.trim() || null;
-  const hasShow = await tableHasColumn(env, "quizzes", "show_score_instantly");
-  const hasActive = await tableHasColumn(env, "quizzes", "is_active");
+  const showScore = asSqliteBool(body.show_score_instantly, true);
+  const customMsg =
+    body.custom_success_message === undefined || body.custom_success_message === null
+      ? null
+      : String(body.custom_success_message).trim() || null;
 
-  let ins;
-  if (hasShow && hasActive) {
-    ins = await env.DB.prepare(
-      `INSERT INTO quizzes (complex_id, title_ar, access_code, status, stage_id, total_points, created_by_user_id,
-         show_score_instantly, custom_success_message, is_active)
-       VALUES (?, ?, ?, 'published', ?, 0, ?, ?, ?, 1)`,
-    )
-      .bind(
-        auth.complexId,
-        body.title_ar,
-        body.access_code,
-        body.stage_id ?? null,
-        auth.userId,
-        showScore,
-        customMsg,
-      )
-      .run();
-  } else {
-    ins = await env.DB.prepare(
-      `INSERT INTO quizzes (complex_id, title_ar, access_code, status, stage_id, total_points, created_by_user_id)
-       VALUES (?, ?, ?, 'published', ?, 0, ?)`,
-    )
-      .bind(
-        auth.complexId,
-        body.title_ar,
-        body.access_code,
-        body.stage_id ?? null,
-        auth.userId,
-      )
-      .run();
+  const cols = ["complex_id", "title_ar", "total_points", "created_by_user_id"];
+  const vals: (string | number | null)[] = [
+    auth.complexId,
+    body.title_ar,
+    0,
+    auth.userId,
+  ];
+
+  if (await tableHasColumn(env, "quizzes", "access_code")) {
+    cols.push("access_code");
+    vals.push(body.access_code);
   }
+  if (await tableHasColumn(env, "quizzes", "status")) {
+    cols.push("status");
+    vals.push("published");
+  }
+  if (await tableHasColumn(env, "quizzes", "stage_id")) {
+    cols.push("stage_id");
+    vals.push(body.stage_id ?? null);
+  }
+  if (await tableHasColumn(env, "quizzes", "show_score_instantly")) {
+    cols.push("show_score_instantly");
+    vals.push(showScore);
+  }
+  if (await tableHasColumn(env, "quizzes", "custom_success_message")) {
+    cols.push("custom_success_message");
+    vals.push(customMsg);
+  }
+  if (await tableHasColumn(env, "quizzes", "is_active")) {
+    cols.push("is_active");
+    vals.push(1);
+  }
+
+  const placeholders = cols.map(() => "?").join(", ");
+  const ins = await env.DB.prepare(
+    `INSERT INTO quizzes (${cols.join(", ")}) VALUES (${placeholders})`,
+  )
+    .bind(...vals)
+    .run();
 
   return Number(ins.meta.last_row_id);
 }
@@ -257,17 +340,7 @@ export async function handleProgSupervisorRouter(
         scope_label: scopeLabel(scope),
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "scope_failed";
-      console.error("GET /api/prog-supervisor/scope:", err);
-      return json(
-        {
-          error: message,
-          supervisor_scope: "global",
-          scope: { type: "global" },
-          scope_label: "كل المجمع",
-        },
-        500,
-      );
+      return criticalQuizError(err, "GET /api/prog-supervisor/scope");
     }
   }
 
@@ -326,10 +399,24 @@ export async function handleProgSupervisorRouter(
          q.custom_success_message,
          COALESCE(q.is_active, 1) AS is_active`
       : "";
+    const hasAttempts = await hasTable(env, "quiz_attempts");
+    const attemptsSql = hasAttempts
+      ? `(SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.quiz_id = q.id AND qa.submitted_at IS NOT NULL)`
+      : `0`;
+    const hasQuestions = await hasTable(env, "quiz_questions");
+    const questionsSql = hasQuestions
+      ? `(SELECT COUNT(*) FROM quiz_questions qq WHERE qq.quiz_id = q.id)`
+      : `0`;
+
+    const hasStatus = await tableHasColumn(env, "quizzes", "status");
+    const hasAccess = await tableHasColumn(env, "quizzes", "access_code");
+    const statusCol = hasStatus ? "q.status" : `'published' AS status`;
+    const accessCol = hasAccess ? "q.access_code" : `NULL AS access_code`;
+
     const rows = await env.DB.prepare(
-      `SELECT q.id, q.title_ar, q.status, q.access_code, q.total_points, q.created_at${extraCols},
-              (SELECT COUNT(*) FROM quiz_questions qq WHERE qq.quiz_id = q.id) AS question_count,
-              (SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.quiz_id = q.id AND qa.submitted_at IS NOT NULL) AS attempts_count
+      `SELECT q.id, q.title_ar, ${statusCol}, ${accessCol}, q.total_points, q.created_at${extraCols},
+              ${questionsSql} AS question_count,
+              ${attemptsSql} AS attempts_count
        FROM quizzes q
        WHERE ${quizWhere}
        ORDER BY q.created_at DESC LIMIT 100`,
@@ -383,7 +470,7 @@ export async function handleProgSupervisorRouter(
       }
 
       await markQuizPublished(env, quizId);
-      await writeProgAudit(env, auth.complexId, "quiz", quizId, "create", auth.userId, {
+      await safeWriteProgAudit(env, auth.complexId, "quiz", quizId, "create", auth.userId, {
         title_ar: title,
         question_count: normalized.length,
       });
@@ -396,14 +483,7 @@ export async function handleProgSupervisorRouter(
           /* best-effort rollback */
         }
       }
-      console.error("prog-supervisor quiz create failed:", err);
-      return json(
-        {
-          error: "api_internal_crash",
-          message: err instanceof Error ? err.message : "quiz_create_failed",
-        },
-        500,
-      );
+      return criticalQuizError(err, "POST /api/prog-supervisor/quizzes");
     }
   }
 
@@ -492,7 +572,7 @@ export async function handleProgSupervisorRouter(
         )
         .run();
 
-      await writeProgAudit(env, auth.complexId, "quiz", quizId, "patch", auth.userId, body);
+      await safeWriteProgAudit(env, auth.complexId, "quiz", quizId, "patch", auth.userId, body);
       return json({ ok: true });
     }
 
@@ -500,7 +580,7 @@ export async function handleProgSupervisorRouter(
       await env.DB.prepare(`DELETE FROM quizzes WHERE id = ? AND complex_id = ?`)
         .bind(quizId, auth.complexId)
         .run();
-      await writeProgAudit(env, auth.complexId, "quiz", quizId, "delete", auth.userId, {});
+      await safeWriteProgAudit(env, auth.complexId, "quiz", quizId, "delete", auth.userId, {});
       return json({ ok: true });
     }
   }
@@ -586,19 +666,12 @@ export async function handleProgSupervisorRouter(
         return json({ error: "questions_required" }, 400);
       }
       await markQuizPublished(env, quizId);
-      await writeProgAudit(env, auth.complexId, "quiz", quizId, "questions_save", auth.userId, {
+      await safeWriteProgAudit(env, auth.complexId, "quiz", quizId, "questions_save", auth.userId, {
         count: list.length,
       });
       return json({ ok: true, total_points: total });
     } catch (err) {
-      console.error("prog-supervisor questions save failed:", err);
-      return json(
-        {
-          error: "api_internal_crash",
-          message: err instanceof Error ? err.message : "questions_save_failed",
-        },
-        500,
-      );
+      return criticalQuizError(err, "PUT /api/prog-supervisor/quizzes/:id/questions");
     }
   }
 
@@ -666,7 +739,7 @@ export async function handleProgSupervisorRouter(
       });
     }
 
-    await writeProgAudit(env, auth.complexId, "quiz", quizId, "publish", auth.userId, {
+    await safeWriteProgAudit(env, auth.complexId, "quiz", quizId, "publish", auth.userId, {
       link_count: links.length,
     });
 
@@ -993,9 +1066,7 @@ export async function handleProgSupervisorRouter(
 
     return json({ error: "Not Found", path }, 404);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "api_internal_crash";
-    console.error("prog-supervisor router error:", path, method, err);
-    return json({ error: message }, 500);
+    return criticalQuizError(err, `prog-supervisor ${method} ${path}`);
   }
 }
 

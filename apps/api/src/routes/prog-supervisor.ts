@@ -161,12 +161,14 @@ async function insertOneQuizQuestion(
   },
 ): Promise<void> {
   const hasType = await tableHasColumn(env, "quiz_questions", "question_type");
-  const hasOpts = await tableHasColumn(env, "quiz_questions", "options_json");
+  const hasOptsJson = await tableHasColumn(env, "quiz_questions", "options_json");
+  const hasOptsLegacy = await tableHasColumn(env, "quiz_questions", "options");
+  const optsCol = hasOptsJson ? "options_json" : hasOptsLegacy ? "options" : null;
   const hasSort = await tableHasColumn(env, "quiz_questions", "sort_order");
 
-  if (hasType && hasOpts && hasSort) {
+  if (hasType && optsCol && hasSort) {
     await env.DB.prepare(
-      `INSERT INTO quiz_questions (quiz_id, prompt_ar, points, correct_answer, question_type, options_json, sort_order)
+      `INSERT INTO quiz_questions (quiz_id, prompt_ar, points, correct_answer, question_type, ${optsCol}, sort_order)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
       .bind(

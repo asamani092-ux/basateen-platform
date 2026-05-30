@@ -11,9 +11,12 @@ export function ProgScopeBanner() {
       setLabel("معاينة — نطاق البرامج (معزول عن الرصد القرآني)");
       return;
     }
-    api.progScope().then((r) => setLabel(r.scope_label)).catch(() => {
-      setLabel(null);
-    });
+    api
+      .progScope()
+      .then((r) => setLabel(r.scope_label ?? "كل المجمع"))
+      .catch(() => {
+        setLabel("كل المجمع");
+      });
   }, []);
 
   if (!label) return null;

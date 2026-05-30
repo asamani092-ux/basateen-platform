@@ -24,6 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from "../../components/ui/table";
+import { toast } from "sonner";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { cn } from "../../components/ui/utils";
@@ -101,7 +102,9 @@ export function QuizBuilderPage() {
       const res = await api.progQuizzesList();
       setItems(res.items as QuizRow[]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل التحميل");
+      const msg = e instanceof Error ? e.message : "فشل التحميل";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -236,10 +239,14 @@ export function QuizBuilderPage() {
         await api.progQuizPublish(editId);
       }
       setFormOpen(false);
-      setSuccess(editId ? "تم تحديث الاختبار ونشره." : "تم إنشاء الاختبار ونشره.");
+      const okMsg = editId ? "تم تحديث الاختبار ونشره." : "تم إنشاء الاختبار ونشره.";
+      setSuccess(okMsg);
+      toast.success(okMsg);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "فشل الحفظ");
+      const msg = err instanceof Error ? err.message : "فشل الحفظ";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setSaving(false);
     }

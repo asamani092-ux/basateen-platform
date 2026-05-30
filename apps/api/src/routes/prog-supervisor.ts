@@ -2,13 +2,14 @@ import type { Env } from "../types";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 import { PROG_ROLES } from "../lib/roles";
 import {
-  loadUserScope,
-  parseStageScope,
+  safeLoadUserScope,
+  readSupervisorScopeString,
   stageFilterBinds,
   stageFilterWhere,
   studentsInScopeBinds,
   studentsInScopeWhere,
   STAGE_LABELS,
+  type ScopeMode,
 } from "../lib/dept-scope";
 import { randomToken } from "../lib/quiz-scoring";
 import { writeProgAudit } from "../lib/prog-audit";
@@ -121,13 +122,34 @@ async function replaceQuizQuestions(
   }
 
   if (stmts.length > 0) {
-    const chunkSize = 40;
-    for (let i = 0; i < stmts.length; i += chunkSize) {
-      await env.DB.batch(stmts.slice(i, i + chunkSize));
+    try {
+      const chunkSize = 40;
+      for (let i = 0; i < stmts.length; i += chunkSize) {
+        await env.DB.batch(stmts.slice(i, i + chunkSize));
+      }
+    } catch (batchErr) {
+      console.warn("quiz questions batch failed, falling back to sequential:", batchErr);
+      for (const stmt of stmts) {
+        await stmt.run();
+      }
     }
   }
 
   return recomputeQuizPoints(env, quizId);
+}
+
+function quizListScopeSql(
+  scope: ScopeMode,
+  hasQuizStageId: boolean,
+): { where: string; binds: number[] } {
+  if (!hasQuizStageId) {
+    return { where: "q.complex_id = ?", binds: [] };
+  }
+  const stageWhere = stageFilterWhere(scope, "q.stage_id");
+  return {
+    where: `q.complex_id = ? AND (${stageWhere} OR q.stage_id IS NULL)`,
+    binds: stageFilterBinds(scope),
+  };
 }
 
 async function markQuizPublished(env: Env, quizId: number): Promise<void> {
@@ -223,21 +245,40 @@ export async function handleProgSupervisorRouter(
     return json({ error: "forbidden" }, 403);
   }
 
-  const scope = await loadUserScope(env, auth.userId);
   const method = request.method;
 
   if (method === "GET" && path === "/api/prog-supervisor/scope") {
-    const row = await env.DB.prepare(
-      `SELECT supervisor_scope FROM users WHERE id = ?`,
-    )
-      .bind(auth.userId)
-      .first<{ supervisor_scope: string | null }>();
-    return json({
-      supervisor_scope: row?.supervisor_scope ?? "global",
-      scope,
-      scope_label: scopeLabel(scope),
-    });
+    try {
+      const scope = await safeLoadUserScope(env, auth.userId);
+      const supervisor_scope = await readSupervisorScopeString(env, auth.userId);
+      return json({
+        supervisor_scope,
+        scope,
+        scope_label: scopeLabel(scope),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "scope_failed";
+      console.error("GET /api/prog-supervisor/scope:", err);
+      return json(
+        {
+          error: message,
+          supervisor_scope: "global",
+          scope: { type: "global" },
+          scope_label: "كل المجمع",
+        },
+        500,
+      );
+    }
   }
+
+  let scope: ScopeMode = { type: "global" };
+  try {
+    scope = await safeLoadUserScope(env, auth.userId);
+  } catch (err) {
+    console.error("prog-supervisor scope preload:", err);
+  }
+
+  try {
 
   if (method === "GET" && path === "/api/prog-supervisor/target-options") {
     const students = await env.DB.prepare(
@@ -277,7 +318,8 @@ export async function handleProgSupervisorRouter(
   }
 
   if (method === "GET" && path === "/api/prog-supervisor/quizzes") {
-    const stageWhere = stageFilterWhere(scope, "q.stage_id");
+    const hasQuizStage = await tableHasColumn(env, "quizzes", "stage_id");
+    const { where: quizWhere, binds: quizScopeBinds } = quizListScopeSql(scope, hasQuizStage);
     const hasShow = await tableHasColumn(env, "quizzes", "show_score_instantly");
     const extraCols = hasShow
       ? `, COALESCE(q.show_score_instantly, 1) AS show_score_instantly,
@@ -289,10 +331,10 @@ export async function handleProgSupervisorRouter(
               (SELECT COUNT(*) FROM quiz_questions qq WHERE qq.quiz_id = q.id) AS question_count,
               (SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.quiz_id = q.id AND qa.submitted_at IS NOT NULL) AS attempts_count
        FROM quizzes q
-       WHERE q.complex_id = ? AND (${stageWhere} OR q.stage_id IS NULL)
+       WHERE ${quizWhere}
        ORDER BY q.created_at DESC LIMIT 100`,
     )
-      .bind(auth.complexId, ...stageFilterBinds(scope))
+      .bind(auth.complexId, ...quizScopeBinds)
       .all();
     return json({ items: rows.results ?? [] });
   }
@@ -949,13 +991,18 @@ export async function handleProgSupervisorRouter(
     return json({ ok: true });
   }
 
-  return json({ error: "Not Found", path }, 404);
+    return json({ error: "Not Found", path }, 404);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "api_internal_crash";
+    console.error("prog-supervisor router error:", path, method, err);
+    return json({ error: message }, 500);
+  }
 }
 
 async function handleAnalytics(
   env: Env,
   complexId: number,
-  scope: Awaited<ReturnType<typeof loadUserScope>>,
+  scope: ScopeMode,
   url: URL,
 ): Promise<Response> {
   const scopeStudentWhere = studentsInScopeWhere(scope);

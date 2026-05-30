@@ -23,23 +23,45 @@ export function parseStageScope(raw: string | null | undefined): ScopeMode {
 }
 
 export async function loadUserScope(env: Env, userId: number): Promise<ScopeMode> {
-  const hasSupervisorScope = await tableHasColumn(env, "users", "supervisor_scope");
-  const hasStageScope = await tableHasColumn(env, "users", "stage_scope");
-  if (hasSupervisorScope) {
-    const row = await env.DB.prepare(
-      `SELECT supervisor_scope FROM users WHERE id = ?`,
-    )
-      .bind(userId)
-      .first<{ supervisor_scope: string | null }>();
-    return parseStageScope(row?.supervisor_scope);
+  const raw = await readSupervisorScopeString(env, userId);
+  return parseStageScope(raw);
+}
+
+/** لا يرمي استثناء — يعود لنطاق عام عند أي فشل */
+export async function safeLoadUserScope(env: Env, userId: number): Promise<ScopeMode> {
+  try {
+    return await loadUserScope(env, userId);
+  } catch (err) {
+    console.error("safeLoadUserScope failed:", err);
+    return { type: "global" };
   }
-  if (hasStageScope) {
-    const row = await env.DB.prepare(`SELECT stage_scope FROM users WHERE id = ?`)
-      .bind(userId)
-      .first<{ stage_scope: string | null }>();
-    return parseStageScope(row?.stage_scope);
+}
+
+export async function readSupervisorScopeString(
+  env: Env,
+  userId: number,
+): Promise<string> {
+  try {
+    const hasSupervisorScope = await tableHasColumn(env, "users", "supervisor_scope");
+    if (hasSupervisorScope) {
+      const row = await env.DB.prepare(
+        `SELECT supervisor_scope FROM users WHERE id = ?`,
+      )
+        .bind(userId)
+        .first<{ supervisor_scope: string | null }>();
+      return (row?.supervisor_scope ?? "global").trim() || "global";
+    }
+    const hasStageScope = await tableHasColumn(env, "users", "stage_scope");
+    if (hasStageScope) {
+      const row = await env.DB.prepare(`SELECT stage_scope FROM users WHERE id = ?`)
+        .bind(userId)
+        .first<{ stage_scope: string | null }>();
+      return (row?.stage_scope ?? "global").trim() || "global";
+    }
+  } catch (err) {
+    console.error("readSupervisorScopeString failed:", err);
   }
-  return { type: "global" };
+  return "global";
 }
 
 const ACTIVE_PLACEMENT = "h.to_at IS NULL";

@@ -6,6 +6,11 @@ import {
   requireRoles,
 } from "../middleware/auth";
 import { hasTable, tableHasColumn } from "../lib/db-schema";
+import {
+  resolveTeacherPrimaryCircle,
+  studentsInTeacherCircle,
+  TEACHER_NO_CIRCLE_ACCOUNT_MSG,
+} from "../lib/teacher-circle";
 
 const TEACHER_ONLY = ["teacher"] as const;
 
@@ -36,48 +41,6 @@ function serverError(scope: string, err: unknown): Response {
   );
 }
 
-async function teacherCircleIds(env: Env, userId: number): Promise<number[]> {
-  const rows = await env.DB.prepare(
-    `SELECT circle_id FROM teacher_assignments WHERE user_id = ?`,
-  )
-    .bind(userId)
-    .all<{ circle_id: number }>();
-  return (rows.results ?? []).map((r) => r.circle_id);
-}
-
-async function studentsForTeacher(
-  env: Env,
-  complexId: number,
-  teacherUserId: number,
-): Promise<Array<{ id: number; full_name_ar: string }>> {
-  const circleIds = await teacherCircleIds(env, teacherUserId);
-  if (circleIds.length === 0) return [];
-  const hasFlat = await tableHasColumn(env, "students", "current_circle_id");
-  const ph = circleIds.map(() => "?").join(",");
-  if (hasFlat) {
-    const rows = await env.DB.prepare(
-      `SELECT id, full_name_ar FROM students
-       WHERE complex_id = ? AND is_active = 1 AND current_circle_id IN (${ph})
-       ORDER BY full_name_ar`,
-    )
-      .bind(complexId, ...circleIds)
-      .all<{ id: number; full_name_ar: string }>();
-    return rows.results ?? [];
-  }
-  const rows = await env.DB.prepare(
-    `SELECT DISTINCT s.id, s.full_name_ar
-     FROM students s
-     INNER JOIN student_circle_history h
-       ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL
-       AND h.circle_id IN (${ph})
-     WHERE s.complex_id = ? AND s.is_active = 1
-     ORDER BY s.full_name_ar`,
-  )
-    .bind(...circleIds, complexId)
-    .all<{ id: number; full_name_ar: string }>();
-  return rows.results ?? [];
-}
-
 async function assertTeacherOwnsCompetition(
   env: Env,
   competitionId: number,
@@ -95,13 +58,42 @@ async function assertTeacherOwnsCompetition(
 
 async function seedDefaultTasks(env: Env, compId: number): Promise<void> {
   if (!(await hasTable(env, "competition_tasks"))) return;
-  const stmts = DEFAULT_COMPETITION_TASKS.map((t, i) =>
-    env.DB.prepare(
-      `INSERT INTO competition_tasks (competition_id, title_ar, weight_points, sort_order)
-       VALUES (?, ?, ?, ?)`,
-    ).bind(compId, t.title_ar, t.weight_points, i + 1),
-  );
-  if (stmts.length > 0) await env.DB.batch(stmts);
+  const hasSort = await tableHasColumn(env, "competition_tasks", "sort_order");
+  for (let i = 0; i < DEFAULT_COMPETITION_TASKS.length; i++) {
+    const t = DEFAULT_COMPETITION_TASKS[i];
+    try {
+      if (hasSort) {
+        await env.DB.prepare(
+          `INSERT INTO competition_tasks (competition_id, title_ar, weight_points, sort_order)
+           VALUES (?, ?, ?, ?)`,
+        )
+          .bind(compId, t.title_ar, t.weight_points, i + 1)
+          .run();
+      } else {
+        await env.DB.prepare(
+          `INSERT INTO competition_tasks (competition_id, title_ar, weight_points)
+           VALUES (?, ?, ?)`,
+        )
+          .bind(compId, t.title_ar, t.weight_points)
+          .run();
+      }
+    } catch (e) {
+      console.error("[edu-dept-mega] seedDefaultTasks row:", e);
+    }
+  }
+}
+
+type TeacherAuth = { userId: number; complexId: number };
+
+async function loadTeacherStudents(
+  env: Env,
+  auth: TeacherAuth,
+): Promise<{ students: Array<{ id: number; full_name_ar: string }> } | Response> {
+  const students = await studentsInTeacherCircle(env, auth.complexId, auth.userId);
+  if (students === null) {
+    return json({ error: TEACHER_NO_CIRCLE_ACCOUNT_MSG }, 400);
+  }
+  return { students };
 }
 
 export async function handleEduDeptMegaRouter(
@@ -118,6 +110,8 @@ export async function handleEduDeptMegaRouter(
   if (!requireRoles(auth, [...TEACHER_ONLY])) return json({ error: "forbidden" }, 403);
   if (!(await hasTable(env, "teacher_competitions"))) return migrationRequired();
 
+  const teacherAuth: TeacherAuth = { userId: auth.userId, complexId: auth.complexId };
+
   try {
     if (path === "/api/edu-dept/teacher-competitions" && request.method === "GET") {
       const rows = await env.DB.prepare(
@@ -128,7 +122,16 @@ export async function handleEduDeptMegaRouter(
       )
         .bind(auth.userId, auth.complexId)
         .all();
-      return json({ items: rows.results ?? [] });
+      const circle = await resolveTeacherPrimaryCircle(
+        env,
+        auth.userId,
+        auth.complexId,
+      );
+      return json({
+        items: rows.results ?? [],
+        circle_id: circle?.id ?? null,
+        circle_name: circle?.name_ar ?? null,
+      });
     }
 
     if (path === "/api/edu-dept/teacher-competitions" && request.method === "POST") {
@@ -140,6 +143,16 @@ export async function handleEduDeptMegaRouter(
       }
       const name = String(body.name_ar ?? "").trim();
       if (!name) return json({ error: "name_required" }, 400);
+
+      const circle = await resolveTeacherPrimaryCircle(
+        env,
+        auth.userId,
+        auth.complexId,
+      );
+      if (!circle) {
+        return json({ error: TEACHER_NO_CIRCLE_ACCOUNT_MSG }, 400);
+      }
+
       const ins = await env.DB.prepare(
         `INSERT INTO teacher_competitions (complex_id, teacher_user_id, name_ar, start_date, end_date)
          VALUES (?, ?, ?, ?, ?)`,
@@ -154,7 +167,7 @@ export async function handleEduDeptMegaRouter(
         .run();
       const compId = Number(ins.meta.last_row_id);
       await seedDefaultTasks(env, compId);
-      return json({ ok: true, id: compId });
+      return json({ ok: true, id: compId, circle_id: circle.id });
     }
 
     const detailMatch = path.match(/^\/api\/edu-dept\/teacher-competitions\/(\d+)$/);
@@ -163,29 +176,34 @@ export async function handleEduDeptMegaRouter(
       if (!(await assertTeacherOwnsCompetition(env, compId, auth.userId, auth.complexId))) {
         return json({ error: "not_found" }, 404);
       }
+
+      const loaded = await loadTeacherStudents(env, teacherAuth);
+      if (loaded instanceof Response) return loaded;
+      const { students } = loaded;
+
       const comp = await env.DB.prepare(
         `SELECT id, name_ar, start_date, end_date FROM teacher_competitions WHERE id = ?`,
       )
         .bind(compId)
         .first();
 
-      let tasks: { results?: unknown[] } = { results: [] };
+      let tasks: { results?: Array<{ id: number; title_ar: string; weight_points: number; sort_order?: number }> } =
+        { results: [] };
       if (await hasTable(env, "competition_tasks")) {
+        const hasSort = await tableHasColumn(env, "competition_tasks", "sort_order");
+        const orderCol = hasSort ? "sort_order, id" : "id";
         tasks = await env.DB.prepare(
-          `SELECT id, title_ar, weight_points, sort_order
-           FROM competition_tasks WHERE competition_id = ? ORDER BY sort_order, id`,
+          `SELECT id, title_ar, weight_points${hasSort ? ", sort_order" : ""}
+           FROM competition_tasks WHERE competition_id = ? ORDER BY ${orderCol}`,
         )
           .bind(compId)
           .all();
       }
 
-      const students = await studentsForTeacher(env, auth.complexId, auth.userId);
-      const taskIds = (tasks.results ?? []).map((t: { id: number }) => t.id);
+      const taskRows = tasks.results ?? [];
+      const taskIds = taskRows.map((t) => t.id);
       let scores: Array<{ task_id: number; student_id: number; points: number }> = [];
-      if (
-        taskIds.length > 0 &&
-        (await hasTable(env, "student_comp_scores"))
-      ) {
+      if (taskIds.length > 0 && (await hasTable(env, "student_comp_scores"))) {
         const ph = taskIds.map(() => "?").join(",");
         const scoreRows = await env.DB.prepare(
           `SELECT task_id, student_id, points FROM student_comp_scores
@@ -196,11 +214,18 @@ export async function handleEduDeptMegaRouter(
         scores = scoreRows.results ?? [];
       }
 
+      const circle = await resolveTeacherPrimaryCircle(
+        env,
+        auth.userId,
+        auth.complexId,
+      );
+
       return json({
         competition: comp,
-        tasks: tasks.results ?? [],
+        tasks: taskRows,
         students,
         scores,
+        circle_id: circle?.id ?? null,
       });
     }
 
@@ -212,9 +237,12 @@ export async function handleEduDeptMegaRouter(
       if (!(await assertTeacherOwnsCompetition(env, compId, auth.userId, auth.complexId))) {
         return json({ error: "not_found" }, 404);
       }
-      const students = await studentsForTeacher(env, auth.complexId, auth.userId);
-      const scoreMap = new Map<number, number>();
 
+      const loaded = await loadTeacherStudents(env, teacherAuth);
+      if (loaded instanceof Response) return loaded;
+      const { students } = loaded;
+
+      const scoreMap = new Map<number, number>();
       if (
         (await hasTable(env, "competition_tasks")) &&
         (await hasTable(env, "student_comp_scores"))
@@ -234,13 +262,17 @@ export async function handleEduDeptMegaRouter(
       }
 
       const items = students
-        .map((s, idx) => ({
+        .map((s) => ({
           rank: 0,
           student_id: s.id,
           full_name_ar: s.full_name_ar,
           total_points: scoreMap.get(s.id) ?? 0,
         }))
-        .sort((a, b) => b.total_points - a.total_points || a.full_name_ar.localeCompare(b.full_name_ar, "ar"))
+        .sort(
+          (a, b) =>
+            b.total_points - a.total_points ||
+            a.full_name_ar.localeCompare(b.full_name_ar, "ar"),
+        )
         .map((row, i) => ({ ...row, rank: i + 1 }));
 
       return json({ items });
@@ -253,6 +285,16 @@ export async function handleEduDeptMegaRouter(
       if (!(await assertTeacherOwnsCompetition(env, compId, auth.userId, auth.complexId))) {
         return json({ error: "not_found" }, 404);
       }
+
+      const circle = await resolveTeacherPrimaryCircle(
+        env,
+        auth.userId,
+        auth.complexId,
+      );
+      if (!circle) {
+        return json({ error: TEACHER_NO_CIRCLE_ACCOUNT_MSG }, 400);
+      }
+
       let body: { title_ar?: string; weight_points?: number };
       try {
         body = await request.json();
@@ -262,18 +304,29 @@ export async function handleEduDeptMegaRouter(
       const title = String(body.title_ar ?? "").trim();
       if (!title) return json({ error: "title_required" }, 400);
       const w = Number(body.weight_points ?? 1);
-      const maxRow = await env.DB.prepare(
-        `SELECT COALESCE(MAX(sort_order), 0) AS m FROM competition_tasks WHERE competition_id = ?`,
-      )
-        .bind(compId)
-        .first<{ m: number }>();
-      const sortOrder = (maxRow?.m ?? 0) + 1;
-      const ins = await env.DB.prepare(
-        `INSERT INTO competition_tasks (competition_id, title_ar, weight_points, sort_order)
-         VALUES (?, ?, ?, ?)`,
-      )
-        .bind(compId, title, Number.isFinite(w) ? w : 1, sortOrder)
-        .run();
+      const hasSort = await tableHasColumn(env, "competition_tasks", "sort_order");
+      let sortOrder = 1;
+      if (hasSort) {
+        const maxRow = await env.DB.prepare(
+          `SELECT COALESCE(MAX(sort_order), 0) AS m FROM competition_tasks WHERE competition_id = ?`,
+        )
+          .bind(compId)
+          .first<{ m: number }>();
+        sortOrder = (maxRow?.m ?? 0) + 1;
+      }
+      const ins = hasSort
+        ? await env.DB.prepare(
+            `INSERT INTO competition_tasks (competition_id, title_ar, weight_points, sort_order)
+             VALUES (?, ?, ?, ?)`,
+          )
+            .bind(compId, title, Number.isFinite(w) ? w : 1, sortOrder)
+            .run()
+        : await env.DB.prepare(
+            `INSERT INTO competition_tasks (competition_id, title_ar, weight_points)
+             VALUES (?, ?, ?)`,
+          )
+            .bind(compId, title, Number.isFinite(w) ? w : 1)
+            .run();
       return json({ ok: true, id: ins.meta.last_row_id });
     }
 
@@ -311,6 +364,11 @@ export async function handleEduDeptMegaRouter(
       if (!(await assertTeacherOwnsCompetition(env, compId, auth.userId, auth.complexId))) {
         return json({ error: "not_found" }, 404);
       }
+
+      const loaded = await loadTeacherStudents(env, teacherAuth);
+      if (loaded instanceof Response) return loaded;
+      const { students } = loaded;
+
       let body: {
         scores?: Array<{ task_id: number; student_id: number; points: number }>;
       };
@@ -331,7 +389,6 @@ export async function handleEduDeptMegaRouter(
         .bind(compId)
         .all<{ id: number }>();
       const validTaskIds = new Set((taskRows.results ?? []).map((t) => t.id));
-      const students = await studentsForTeacher(env, auth.complexId, auth.userId);
       const validStudentIds = new Set(students.map((s) => s.id));
 
       const stmts = list

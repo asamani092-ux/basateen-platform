@@ -575,6 +575,19 @@ export function resolveDevPreviewMock<T>(
       })),
     } as T;
   }
+  const pubSummary = p.match(/^\/api\/public\/quranic-day\/([^/]+)\/students\/(\d+)\/summary$/);
+  if (pubSummary && m === "GET") {
+    const st = previewStore.getStudents()[0];
+    return {
+      student_name: st.full_name_ar,
+      hizbs_read: 3,
+      total_mistakes: 2,
+      total_alerts: 1,
+      total_lahn: 0,
+      fail_threshold: 3,
+      status: "passed",
+    } as T;
+  }
   const pubStudent = p.match(/^\/api\/public\/quranic-day\/([^/]+)\/students\/(\d+)$/);
   if (pubStudent && m === "GET") {
     const sid = Number(pubStudent[2]);
@@ -584,6 +597,7 @@ export function resolveDevPreviewMock<T>(
         student_id: st.id,
         full_name_ar: st.full_name_ar,
         target_hizbs: previewHizbs,
+        completed_hizbs: [1, 2],
       },
       day: {
         id: 1,
@@ -597,7 +611,32 @@ export function resolveDevPreviewMock<T>(
   }
   const pubRecord = p.match(/^\/api\/public\/quranic-day\/([^/]+)\/records$/);
   if (pubRecord && m === "POST") {
-    return { ok: true, fail_threshold_exceeded: false } as T;
+    return { ok: true, fail_threshold_exceeded: false, completed_hizbs: [1, 2, 3] } as T;
+  }
+
+  if (p === "/api/edu-dept/reports/progress" && m === "GET") {
+    const students = previewStore.getStudents().slice(0, 5);
+    return {
+      date,
+      summary: {
+        avg_quality: 78.5,
+        top_circle: { circle_id: 1, circle_name: "حلقة تجريبية", avg_quality: 82 },
+        active_students: 4,
+        total_records: students.length,
+      },
+      circles: PREVIEW_CIRCLES.slice(0, 3).map((c) => ({ id: c.id, name_ar: c.name_ar })),
+      items: students.map((s, i) => ({
+        student_id: s.id,
+        full_name_ar: s.full_name_ar,
+        circle_id: 1,
+        circle_name: "حلقة تجريبية",
+        quality_pct: 70 + i * 5,
+        listened: true,
+        repeated: i % 2 === 0,
+        revised: true,
+        error_count: i,
+      })),
+    } as T;
   }
 
   const pledgeGet = p.match(/^\/api\/admin-dept\/pledges\/(\d+)$/);

@@ -491,5 +491,146 @@ export async function handleEduDeptCoreRouter(
     return json({ ok: true });
   }
 
+  // --- Progress reports (supervisors) ---
+  if (path === "/api/edu-dept/reports/progress" && request.method === "GET") {
+    if (!requireRoles(auth, [...EDU_SUPERVISOR_ROLES])) {
+      return json({ error: "forbidden" }, 403);
+    }
+    if (!(await hasTable(env, "edu_daily_recitation"))) return migrationRequired();
+
+    const date = url.searchParams.get("date")?.trim() || todayIso();
+    const circleIdParam = url.searchParams.get("circle_id");
+    const circleFilter =
+      circleIdParam != null && circleIdParam !== ""
+        ? Number(circleIdParam)
+        : null;
+
+    const hasRabt = await tableHasColumn(env, "edu_settings", "rabt_weight");
+    const settingsRow = await env.DB.prepare(
+      hasRabt
+        ? `SELECT weight_listening, weight_revision, weight_repeat, rabt_weight, penalty_per_error
+           FROM edu_settings WHERE complex_id = ?`
+        : `SELECT weight_listening, weight_revision, weight_repeat, penalty_per_error
+           FROM edu_settings WHERE complex_id = ?`,
+    )
+      .bind(auth.complexId)
+      .first<Record<string, number>>();
+
+    const wL = Number(settingsRow?.weight_listening ?? 1);
+    const wRev = Number(settingsRow?.weight_revision ?? 1);
+    const wRep = Number(settingsRow?.weight_repeat ?? 1);
+    const wRabt = hasRabt ? Number(settingsRow?.rabt_weight ?? 1) : 1;
+    const pen = Number(settingsRow?.penalty_per_error ?? 0.5);
+    const maxScore = wL + wRev + wRep + wRabt;
+
+    let sql = `
+      SELECT dr.student_id, dr.listened, dr.repeated, dr.revised,
+             dr.error_count, dr.tune_errors, dr.circle_id,
+             s.full_name_ar, c.name_ar AS circle_name
+      FROM edu_daily_recitation dr
+      INNER JOIN students s ON s.id = dr.student_id AND s.complex_id = ?
+      LEFT JOIN circles c ON c.id = dr.circle_id
+      WHERE dr.recitation_date = ?`;
+    const binds: (string | number)[] = [auth.complexId, date];
+    if (circleFilter != null && Number.isFinite(circleFilter) && circleFilter > 0) {
+      sql += ` AND dr.circle_id = ?`;
+      binds.push(circleFilter);
+    }
+    sql += ` ORDER BY s.full_name_ar`;
+
+    const rows = await env.DB.prepare(sql)
+      .bind(...binds)
+      .all<{
+        student_id: number;
+        listened: number;
+        repeated: number;
+        revised: number;
+        error_count: number;
+        tune_errors: number;
+        circle_id: number;
+        full_name_ar: string;
+        circle_name: string | null;
+      }>();
+
+    type CircleAgg = { sum: number; count: number; name: string };
+    const circleMap = new Map<number, CircleAgg>();
+    let qualitySum = 0;
+    let activeCount = 0;
+
+    const items = (rows.results ?? []).map((r) => {
+      const listened = Boolean(r.listened);
+      const repeated = Boolean(r.repeated);
+      const revised = Boolean(r.revised);
+      const rabtBonus = listened && repeated && revised ? wRabt : 0;
+      const earned =
+        (listened ? wL : 0) +
+        (repeated ? wRep : 0) +
+        (revised ? wRev : 0) +
+        rabtBonus;
+      const penalties = pen * (Number(r.error_count) + Number(r.tune_errors));
+      const raw = maxScore > 0 ? ((earned - penalties) / maxScore) * 100 : 0;
+      const quality_pct = Math.round(Math.max(0, Math.min(100, raw)) * 10) / 10;
+
+      if (listened || repeated || revised) activeCount += 1;
+      qualitySum += quality_pct;
+
+      const cid = r.circle_id;
+      const cname = r.circle_name ?? "—";
+      const prev = circleMap.get(cid) ?? { sum: 0, count: 0, name: cname };
+      prev.sum += quality_pct;
+      prev.count += 1;
+      prev.name = cname;
+      circleMap.set(cid, prev);
+
+      return {
+        student_id: r.student_id,
+        full_name_ar: r.full_name_ar,
+        circle_id: r.circle_id,
+        circle_name: cname,
+        quality_pct,
+        listened,
+        repeated,
+        revised,
+        error_count: r.error_count,
+      };
+    });
+
+    const rowCount = items.length;
+    const avgQuality =
+      rowCount > 0 ? Math.round((qualitySum / rowCount) * 10) / 10 : 0;
+
+    let topCircle: { circle_id: number; circle_name: string; avg_quality: number } | null =
+      null;
+    for (const [cid, agg] of circleMap) {
+      if (agg.count === 0) continue;
+      const avg = agg.sum / agg.count;
+      if (!topCircle || avg > topCircle.avg_quality) {
+        topCircle = {
+          circle_id: cid,
+          circle_name: agg.name,
+          avg_quality: Math.round(avg * 10) / 10,
+        };
+      }
+    }
+
+    const circles = await env.DB.prepare(
+      `SELECT id, name_ar FROM circles WHERE complex_id = ? AND is_active = 1 ORDER BY name_ar`,
+    )
+      .bind(auth.complexId)
+      .all<{ id: number; name_ar: string }>();
+
+    return json({
+      date,
+      summary: {
+        avg_quality: avgQuality,
+        top_circle: topCircle,
+        active_students: activeCount,
+        total_records: rowCount,
+      },
+      circles: circles.results ?? [],
+      items,
+    });
+  }
+
   return null;
 }

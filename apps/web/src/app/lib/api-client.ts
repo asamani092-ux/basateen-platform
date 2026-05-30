@@ -1193,6 +1193,7 @@ export const api = {
         student_id: number;
         full_name_ar: string;
         target_hizbs: number[];
+        completed_hizbs: number[];
       };
       day: {
         id: number;
@@ -1220,10 +1221,53 @@ export const api = {
       time_taken_seconds: number;
     },
   ) =>
-    request<{ ok: boolean; fail_threshold_exceeded?: boolean }>(
+    request<{
+      ok: boolean;
+      fail_threshold_exceeded?: boolean;
+      completed_hizbs: number[];
+    }>(
       `/api/public/quranic-day/${encodeURIComponent(token)}/records`,
       { method: "POST", body: JSON.stringify(body) },
     ),
+  publicQuranicDayStudentSummary: (token: string, studentId: number) =>
+    request<{
+      student_name: string;
+      hizbs_read: number;
+      total_mistakes: number;
+      total_alerts: number;
+      total_lahn: number;
+      fail_threshold: number;
+      status: "passed" | "failed" | "none";
+    }>(
+      `/api/public/quranic-day/${encodeURIComponent(token)}/students/${studentId}/summary`,
+    ),
+  eduDeptReportsProgress: (params?: { date?: string; circle_id?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.date) q.set("date", params.date);
+    if (params?.circle_id != null) q.set("circle_id", String(params.circle_id));
+    const qs = q.toString();
+    return request<{
+      date: string;
+      summary: {
+        avg_quality: number;
+        top_circle: { circle_id: number; circle_name: string; avg_quality: number } | null;
+        active_students: number;
+        total_records: number;
+      };
+      circles: Array<{ id: number; name_ar: string }>;
+      items: Array<{
+        student_id: number;
+        full_name_ar: string;
+        circle_id: number;
+        circle_name: string;
+        quality_pct: number;
+        listened: boolean;
+        repeated: boolean;
+        revised: boolean;
+        error_count: number;
+      }>;
+    }>(`/api/edu-dept/reports/progress${qs ? `?${qs}` : ""}`);
+  },
   publicAttendanceGet: (token: string) =>
     request<{
       token: string;

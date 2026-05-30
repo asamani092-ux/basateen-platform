@@ -130,6 +130,59 @@ async function assertDayInComplex(
   return Boolean(row);
 }
 
+async function completedHizbsForStudent(
+  env: Env,
+  dayId: number,
+  studentId: number,
+): Promise<number[]> {
+  if (!(await hasTable(env, "quranic_day_records"))) return [];
+  const rows = await env.DB.prepare(
+    `SELECT hizb_number FROM quranic_day_records
+     WHERE quranic_day_id = ? AND student_id = ?
+     ORDER BY hizb_number`,
+  )
+    .bind(dayId, studentId)
+    .all<{ hizb_number: number }>();
+  return (rows.results ?? []).map((r) => r.hizb_number);
+}
+
+async function studentSessionSummary(
+  env: Env,
+  dayId: number,
+  studentId: number,
+  failThreshold: number,
+) {
+  const agg = await env.DB.prepare(
+    `SELECT COUNT(*) AS hizbs_read,
+            COALESCE(SUM(mistakes), 0) AS total_mistakes,
+            COALESCE(SUM(alerts), 0) AS total_alerts,
+            COALESCE(SUM(lahn_count), 0) AS total_lahn,
+            COALESCE(MAX(mistakes), 0) AS max_mistakes
+     FROM quranic_day_records
+     WHERE quranic_day_id = ? AND student_id = ?`,
+  )
+    .bind(dayId, studentId)
+    .first<{
+      hizbs_read: number;
+      total_mistakes: number;
+      total_alerts: number;
+      total_lahn: number;
+      max_mistakes: number;
+    }>();
+
+  const hizbsRead = Number(agg?.hizbs_read ?? 0);
+  const maxMistakes = Number(agg?.max_mistakes ?? 0);
+  const failed = hizbsRead > 0 && maxMistakes >= failThreshold;
+
+  return {
+    hizbs_read: hizbsRead,
+    total_mistakes: Number(agg?.total_mistakes ?? 0),
+    total_alerts: Number(agg?.total_alerts ?? 0),
+    total_lahn: Number(agg?.total_lahn ?? 0),
+    status: failed ? ("failed" as const) : hizbsRead > 0 ? ("passed" as const) : ("none" as const),
+  };
+}
+
 /** Public reciter API — no auth */
 export async function handlePublicQuranicDayRouter(
   request: Request,
@@ -178,6 +231,39 @@ export async function handlePublicQuranicDayRouter(
     return json({ items });
   }
 
+  const summaryMatch = url.pathname.match(
+    /^\/api\/public\/quranic-day\/([^/]+)\/students\/(\d+)\/summary$/,
+  );
+  if (summaryMatch && request.method === "GET") {
+    if (!(await hasTable(env, "quranic_day_students"))) return migrationRequired();
+    const token = decodeURIComponent(summaryMatch[1]);
+    const studentId = Number(summaryMatch[2]);
+    const loaded = await loadDayByToken(env, token);
+    if ("error" in loaded && loaded.error) return loaded.error;
+    const day = loaded.day!;
+
+    const row = await env.DB.prepare(
+      `SELECT s.full_name_ar FROM quranic_day_students qds
+       INNER JOIN students s ON s.id = qds.student_id
+       WHERE qds.quranic_day_id = ? AND qds.student_id = ?`,
+    )
+      .bind(day.id, studentId)
+      .first<{ full_name_ar: string }>();
+    if (!row) return json({ error: "student_not_enrolled" }, 404);
+
+    const summary = await studentSessionSummary(
+      env,
+      day.id,
+      studentId,
+      day.fail_threshold,
+    );
+    return json({
+      student_name: row.full_name_ar,
+      fail_threshold: day.fail_threshold,
+      ...summary,
+    });
+  }
+
   const studentMatch = url.pathname.match(
     /^\/api\/public\/quranic-day\/([^/]+)\/students\/(\d+)$/,
   );
@@ -200,11 +286,14 @@ export async function handlePublicQuranicDayRouter(
 
     if (!row) return json({ error: "student_not_enrolled" }, 404);
 
+    const completed = await completedHizbsForStudent(env, day.id, studentId);
+
     return json({
       student: {
         student_id: row.student_id,
         full_name_ar: row.full_name_ar,
         target_hizbs: parseTargetHizbs(row.target_hizbs),
+        completed_hizbs: completed,
       },
       day: dayPayload(day),
     });
@@ -288,9 +377,12 @@ export async function handlePublicQuranicDayRouter(
         .run();
     }
 
+    const completed = await completedHizbsForStudent(env, day.id, studentId);
+
     return json({
       ok: true,
       fail_threshold_exceeded: mistakes >= day.fail_threshold,
+      completed_hizbs: completed,
     });
   }
 

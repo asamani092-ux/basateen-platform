@@ -45,6 +45,12 @@ const EDU_DEPT_CORE_NAV: NavItem[] = [
     roles: ["teacher"],
   },
   {
+    id: "edu-reports",
+    label: "التقارير والمتابعة",
+    path: "/edu-dept/reports",
+    roles: EDU_SUPERVISOR_ROLES,
+  },
+  {
     id: "quranic-days",
     label: "اليوم القرآني / يوم الهمة",
     path: "/edu-dept/quranic-days",

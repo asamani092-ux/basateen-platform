@@ -2,14 +2,22 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router";
 import {
   AlertTriangle,
+  Check,
   CheckCircle2,
   Clock,
   Loader2,
+  Lock,
   Minus,
   Music2,
   Plus,
 } from "lucide-react";
 import { Button } from "../../components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { api } from "../../lib/api-client";
@@ -23,16 +31,60 @@ type DayConfig = {
   hizb_time_limit: number;
 };
 
-type StudentPick = {
+type StudentState = {
   student_id: number;
   full_name_ar: string;
   target_hizbs: number[];
+  completed_hizbs: number[];
 };
+
+type PersistedSession = {
+  student_id: number;
+  full_name_ar: string;
+  target_hizbs: number[];
+  completed_hizbs: number[];
+  activeHizb: number | null;
+  ratingOpen: boolean;
+  mistakes: number;
+  alerts: number;
+  lahn: number;
+  elapsedSec: number;
+  timerRunning: boolean;
+  timerSavedAt: number | null;
+};
+
+type SessionSummary = Awaited<ReturnType<typeof api.publicQuranicDayStudentSummary>>;
+
+function storageKey(token: string) {
+  return `basateen-quranic-session-${token}`;
+}
+
+function readSession(token: string): PersistedSession | null {
+  try {
+    const raw = localStorage.getItem(storageKey(token));
+    if (!raw) return null;
+    return JSON.parse(raw) as PersistedSession;
+  } catch {
+    return null;
+  }
+}
+
+function writeSession(token: string, data: PersistedSession | null) {
+  if (!data) {
+    localStorage.removeItem(storageKey(token));
+    return;
+  }
+  localStorage.setItem(storageKey(token), JSON.stringify(data));
+}
 
 function formatTimer(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = sec % 60;
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function nextAvailableHizb(student: StudentState): number | null {
+  return student.target_hizbs.find((h) => !student.completed_hizbs.includes(h)) ?? null;
 }
 
 export function PublicQuranicDayPage() {
@@ -41,12 +93,14 @@ export function PublicQuranicDayPage() {
   const [day, setDay] = useState<DayConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [savedFlash, setSavedFlash] = useState(false);
+  const [infoMsg, setInfoMsg] = useState<string | null>(null);
 
   const [query, setQuery] = useState("");
-  const [searchItems, setSearchItems] = useState<StudentPick[]>([]);
+  const [searchItems, setSearchItems] = useState<
+    Array<{ student_id: number; full_name_ar: string; target_hizbs: number[] }>
+  >([]);
   const [searchLoading, setSearchLoading] = useState(false);
-  const [student, setStudent] = useState<StudentPick | null>(null);
+  const [student, setStudent] = useState<StudentState | null>(null);
 
   const [activeHizb, setActiveHizb] = useState<number | null>(null);
   const [ratingOpen, setRatingOpen] = useState(false);
@@ -59,8 +113,47 @@ export function PublicQuranicDayPage() {
   const [elapsedSec, setElapsedSec] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startedAtRef = useRef<number | null>(null);
+  const restoredRef = useRef(false);
 
   const [saving, setSaving] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [summary, setSummary] = useState<SessionSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+
+  const persistSnapshot = useCallback((): PersistedSession | null => {
+    if (!student) return null;
+    return {
+      student_id: student.student_id,
+      full_name_ar: student.full_name_ar,
+      target_hizbs: student.target_hizbs,
+      completed_hizbs: student.completed_hizbs,
+      activeHizb,
+      ratingOpen,
+      mistakes,
+      alerts,
+      lahn,
+      elapsedSec,
+      timerRunning,
+      timerSavedAt: timerRunning ? Date.now() : null,
+    };
+  }, [
+    student,
+    activeHizb,
+    ratingOpen,
+    mistakes,
+    alerts,
+    lahn,
+    elapsedSec,
+    timerRunning,
+  ]);
+
+  useEffect(() => {
+    if (!token || !student) {
+      writeSession(token, null);
+      return;
+    }
+    writeSession(token, persistSnapshot());
+  }, [token, student, persistSnapshot]);
 
   const loadDay = useCallback(async () => {
     if (!token) return;
@@ -82,9 +175,60 @@ export function PublicQuranicDayPage() {
     }
   }, [token]);
 
+  const refreshStudent = useCallback(
+    async (studentId: number) => {
+      const res = await api.publicQuranicDayGetStudent(token, studentId);
+      setStudent({
+        student_id: res.student.student_id,
+        full_name_ar: res.student.full_name_ar,
+        target_hizbs: res.student.target_hizbs,
+        completed_hizbs: res.student.completed_hizbs ?? [],
+      });
+      setDay({
+        name_ar: res.day.name_ar,
+        event_date: res.day.event_date,
+        fail_threshold: res.day.fail_threshold,
+        hizb_time_limit: res.day.hizb_time_limit,
+      });
+      return res;
+    },
+    [token],
+  );
+
   useEffect(() => {
     loadDay();
   }, [loadDay]);
+
+  useEffect(() => {
+    if (!token || loading || restoredRef.current) return;
+    restoredRef.current = true;
+    const saved = readSession(token);
+    if (!saved?.student_id) return;
+
+    void (async () => {
+      try {
+        await refreshStudent(saved.student_id);
+        setQuery(saved.full_name_ar);
+        if (saved.ratingOpen && saved.activeHizb != null) {
+          setActiveHizb(saved.activeHizb);
+          setRatingOpen(true);
+          setMistakes(saved.mistakes);
+          setAlerts(saved.alerts);
+          setLahn(saved.lahn);
+          let elapsed = saved.elapsedSec;
+          if (saved.timerRunning && saved.timerSavedAt) {
+            elapsed += Math.floor((Date.now() - saved.timerSavedAt) / 1000);
+            startedAtRef.current = Date.now() - elapsed * 1000;
+            setTimerRunning(true);
+          }
+          setElapsedSec(elapsed);
+          setInfoMsg("تم استرجاع جلسة الرصد من الجلسة السابقة.");
+        }
+      } catch {
+        writeSession(token, null);
+      }
+    })();
+  }, [token, loading, refreshStudent]);
 
   useEffect(() => {
     if (!token || query.trim().length < 1) {
@@ -132,12 +276,12 @@ export function PublicQuranicDayPage() {
   }
 
   function startTimer() {
-    startedAtRef.current = Date.now();
-    setElapsedSec(0);
+    startedAtRef.current = Date.now() - elapsedSec * 1000;
     setTimerRunning(true);
   }
 
-  function openHizb(h: number) {
+  function openHizb(h: number, st: StudentState) {
+    if (st.completed_hizbs.includes(h)) return;
     setActiveHizb(h);
     setRatingOpen(true);
     setMistakes(0);
@@ -146,6 +290,7 @@ export function PublicQuranicDayPage() {
     setTimerRunning(false);
     setElapsedSec(0);
     startedAtRef.current = null;
+    setInfoMsg(null);
   }
 
   function closeRating() {
@@ -154,34 +299,25 @@ export function PublicQuranicDayPage() {
     setActiveHizb(null);
   }
 
-  async function pickStudent(s: StudentPick) {
+  async function pickStudent(s: { student_id: number; full_name_ar: string }) {
     setQuery(s.full_name_ar);
     setSearchItems([]);
     setError(null);
+    setInfoMsg(null);
     try {
-      const res = await api.publicQuranicDayGetStudent(token, s.student_id);
-      setStudent({
-        student_id: res.student.student_id,
-        full_name_ar: res.student.full_name_ar,
-        target_hizbs: res.student.target_hizbs,
-      });
-      setDay({
-        name_ar: res.day.name_ar,
-        event_date: res.day.event_date,
-        fail_threshold: res.day.fail_threshold,
-        hizb_time_limit: res.day.hizb_time_limit,
-      });
+      await refreshStudent(s.student_id);
       closeRating();
     } catch (e) {
       setError(e instanceof Error ? e.message : "تعذر تحميل بيانات الطالب");
     }
   }
 
-  function resetSession() {
+  function clearStudentSession() {
     closeRating();
     setStudent(null);
     setQuery("");
     setSearchItems([]);
+    writeSession(token, null);
   }
 
   async function saveAndClose() {
@@ -199,17 +335,43 @@ export function PublicQuranicDayPage() {
         time_taken_seconds: timeSec,
       });
       if (res.fail_threshold_exceeded) {
-        setError("تنبيه: تجاوز حد الرسوب — تم الحفظ.");
+        setError("تنبيه: تجاوز حد الرسوب في هذا الحزب — تم الحفظ.");
       }
-      setSavedFlash(true);
-      closeRating();
-      setStudent(null);
-      setQuery("");
-      setTimeout(() => setSavedFlash(false), 2500);
+
+      const updated: StudentState = {
+        ...student,
+        completed_hizbs: res.completed_hizbs,
+      };
+      setStudent(updated);
+
+      const next = nextAvailableHizb(updated);
+      if (next != null) {
+        openHizb(next, updated);
+        setInfoMsg(`تم الحفظ — الحزب ${next} جاهز للقراءة.`);
+      } else {
+        closeRating();
+        setInfoMsg("اكتملت جميع أحزاب هذا الطالب لهذا اليوم.");
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل الحفظ");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function endStudentSession() {
+    if (!student) return;
+    setSummaryLoading(true);
+    setError(null);
+    try {
+      const res = await api.publicQuranicDayStudentSummary(token, student.student_id);
+      setSummary(res);
+      setSummaryOpen(true);
+      clearStudentSession();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "تعذر إنهاء الجلسة");
+    } finally {
+      setSummaryLoading(false);
     }
   }
 
@@ -231,7 +393,10 @@ export function PublicQuranicDayPage() {
         </header>
 
         {loading && (
-          <p className="text-center text-muted-foreground text-sm flex justify-center gap-2" style={tajawal}>
+          <p
+            className="text-center text-muted-foreground text-sm flex justify-center gap-2"
+            style={tajawal}
+          >
             <Loader2 className="w-4 h-4 animate-spin" />
             جاري التحميل…
           </p>
@@ -242,11 +407,9 @@ export function PublicQuranicDayPage() {
             {error}
           </p>
         )}
-
-        {savedFlash && (
-          <p className="flex items-center justify-center gap-2 text-primary font-medium text-sm" style={tajawal}>
-            <CheckCircle2 className="w-5 h-5" />
-            تم الحفظ — جاهز للطالب التالي
+        {infoMsg && !error && (
+          <p className={cn(ds.alert.info, "text-center text-sm")} style={tajawal}>
+            {infoMsg}
           </p>
         )}
 
@@ -264,7 +427,10 @@ export function PublicQuranicDayPage() {
                   autoFocus
                 />
                 {searchLoading && (
-                  <p className="text-xs text-muted-foreground flex items-center gap-1" style={tajawal}>
+                  <p
+                    className="text-xs text-muted-foreground flex items-center gap-1"
+                    style={tajawal}
+                  >
                     <Loader2 className="w-3 h-3 animate-spin" />
                     جاري البحث…
                   </p>
@@ -290,40 +456,71 @@ export function PublicQuranicDayPage() {
 
             {student && (
               <div className="space-y-4">
-                <div className={`${ds.card} p-4 flex justify-between items-center gap-2`}>
-                  <div>
-                    <p className="font-bold" style={tajawal}>
-                      {student.full_name_ar}
-                    </p>
-                    <p className="text-xs text-muted-foreground" style={tajawal}>
-                      {student.target_hizbs.length} حزب في النطاق
-                    </p>
+                <div className={`${ds.card} p-4 space-y-3`}>
+                  <div className="flex justify-between items-start gap-2">
+                    <div>
+                      <p className="font-bold" style={tajawal}>
+                        {student.full_name_ar}
+                      </p>
+                      <p className="text-xs text-muted-foreground" style={tajawal}>
+                        {student.completed_hizbs.length} / {student.target_hizbs.length} حزب
+                        مكتمل
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className={ds.btnRound}
+                      onClick={clearStudentSession}
+                      style={tajawal}
+                    >
+                      تغيير
+                    </Button>
                   </div>
                   <Button
                     type="button"
-                    variant="outline"
-                    size="sm"
-                    className={ds.btnRound}
-                    onClick={resetSession}
+                    variant="default"
+                    className={`w-full ${ds.btnRound}`}
+                    disabled={summaryLoading}
+                    onClick={() => endStudentSession()}
                     style={tajawal}
                   >
-                    تغيير
+                    {summaryLoading ? "جاري الإنهاء…" : "إنهاء جلسة الطالب بالكامل"}
                   </Button>
                 </div>
 
                 <Label style={tajawal}>اختر الحزب المقروء</Label>
                 <div className="grid grid-cols-6 gap-2">
-                  {student.target_hizbs.map((n) => (
-                    <Button
-                      key={n}
-                      type="button"
-                      variant="outline"
-                      className={`${ds.btnRound} h-11 font-semibold`}
-                      onClick={() => openHizb(n)}
-                    >
-                      {n}
-                    </Button>
-                  ))}
+                  {student.target_hizbs.map((n) => {
+                    const done = student.completed_hizbs.includes(n);
+                    return (
+                      <Button
+                        key={n}
+                        type="button"
+                        variant={done ? "default" : "outline"}
+                        disabled={done}
+                        className={cn(
+                          `${ds.btnRound} h-11 font-semibold relative`,
+                          done &&
+                            "bg-emerald-600 hover:bg-emerald-600 text-white border-emerald-600 opacity-100",
+                        )}
+                        onClick={() => openHizb(n, student)}
+                      >
+                        {done ? (
+                          <span className="flex items-center justify-center gap-0.5">
+                            <Check className="w-3.5 h-3.5" />
+                            {n}
+                          </span>
+                        ) : (
+                          n
+                        )}
+                        {done && (
+                          <Lock className="w-2.5 h-2.5 absolute top-1 left-1 opacity-70" />
+                        )}
+                      </Button>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -346,7 +543,9 @@ export function PublicQuranicDayPage() {
               )}
             >
               <div className="flex items-center justify-center gap-2">
-                <Clock className={cn("w-6 h-6", overTime ? "text-destructive" : "text-primary")} />
+                <Clock
+                  className={cn("w-6 h-6", overTime ? "text-destructive" : "text-primary")}
+                />
                 <span
                   className={cn(
                     "text-3xl font-mono font-bold tabular-nums",
@@ -432,6 +631,65 @@ export function PublicQuranicDayPage() {
           </div>
         )}
       </div>
+
+      <Dialog open={summaryOpen} onOpenChange={setSummaryOpen}>
+        <DialogContent className={`${ds.card} max-w-sm rounded-2xl`} dir="rtl">
+          <DialogHeader>
+            <DialogTitle style={tajawal}>تقرير لحظي — فحص النتيجة</DialogTitle>
+          </DialogHeader>
+          {summary && (
+            <div className="space-y-4 text-sm" style={tajawal}>
+              <p className="font-bold text-base">{summary.student_name}</p>
+              <div className="grid grid-cols-2 gap-2">
+                <StatPill label="الأحزاب المقروءة" value={String(summary.hizbs_read)} />
+                <StatPill label="إجمالي الأخطاء" value={String(summary.total_mistakes)} />
+                <StatPill label="اللحون" value={String(summary.total_lahn)} />
+                <StatPill label="التنبيهات" value={String(summary.total_alerts)} />
+              </div>
+              <div
+                className={cn(
+                  "rounded-xl py-4 px-3 text-center font-bold text-base",
+                  summary.status === "passed" &&
+                    "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+                  summary.status === "failed" &&
+                    "bg-destructive/15 text-destructive",
+                  summary.status === "none" && "bg-muted text-muted-foreground",
+                )}
+              >
+                {summary.status === "passed" && (
+                  <span className="flex items-center justify-center gap-2">
+                    <CheckCircle2 className="w-5 h-5" />
+                    ناجح
+                  </span>
+                )}
+                {summary.status === "failed" && (
+                  <span className="flex items-center justify-center gap-2">
+                    <AlertTriangle className="w-5 h-5" />
+                    راسب / تحذير (حد {summary.fail_threshold} أخطاء)
+                  </span>
+                )}
+                {summary.status === "none" && "لا توجد قراءات مسجّلة"}
+              </div>
+              <Button
+                type="button"
+                className={`w-full ${ds.btnRound}`}
+                onClick={() => setSummaryOpen(false)}
+              >
+                إغلاق
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function StatPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-border p-2 text-center">
+      <p className="text-[10px] text-muted-foreground">{label}</p>
+      <p className="font-bold tabular-nums">{value}</p>
     </div>
   );
 }

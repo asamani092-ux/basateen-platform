@@ -13,6 +13,7 @@ import { EduSettingsPage } from "./pages/edu-dept/EduSettingsPage";
 import { DailyRecitationPage } from "./pages/edu-dept/DailyRecitationPage";
 import { StudentTransferPage } from "./pages/edu-dept/StudentTransferPage";
 import { TeacherCompetitionsPage } from "./pages/edu-dept/TeacherCompetitionsPage";
+import { EduReportsPage } from "./pages/edu-dept/EduReportsPage";
 import { QuranicDaysManagerPage } from "./pages/edu-dept/QuranicDaysManagerPage";
 import { PublicQuranicDayPage } from "./pages/public/PublicQuranicDayPage";
 import { MasterGridConsole } from "./pages/edu-supervisor/MasterGridConsole";
@@ -77,6 +78,7 @@ export default function App() {
                 <Route path="daily-recitation" element={<DailyRecitationPage />} />
                 <Route path="teacher-competitions" element={<TeacherCompetitionsPage />} />
                 <Route path="quranic-days" element={<QuranicDaysManagerPage />} />
+                <Route path="reports" element={<EduReportsPage />} />
                 <Route path="transfer-requests" element={<StudentTransferPage />} />
                 <Route path="dashboard" element={<EduDashboardPage />} />
                 <Route path="master-grid" element={<MasterGridConsole />} />

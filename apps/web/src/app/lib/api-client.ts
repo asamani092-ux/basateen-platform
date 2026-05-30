@@ -988,7 +988,7 @@ export const api = {
       `/api/edu-dept/daily-recitation?circle_id=${circleId}&date=${encodeURIComponent(date)}`,
     ),
   eduDeptDailyRecitationSave: (body: {
-    circle_id: number;
+    circle_id?: number;
     recitation_date: string;
     rows: Array<{
       student_id: number;

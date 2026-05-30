@@ -103,10 +103,51 @@ async function studentsInCircle(
   return rows.results ?? [];
 }
 
+async function resolveTeacherPrimaryCircle(
+  env: Env,
+  teacherUserId: number,
+  complexId: number,
+): Promise<{ id: number; name_ar: string } | null> {
+  const hasTeacherId = await tableHasColumn(env, "circles", "teacher_id");
+  const hasIsActive = await tableHasColumn(env, "circles", "is_active");
+
+  if (hasTeacherId) {
+    let sql = `SELECT id, name_ar FROM circles WHERE teacher_id = ? AND complex_id = ?`;
+    const binds: number[] = [teacherUserId, complexId];
+    if (hasIsActive) sql += ` AND is_active = 1`;
+    sql += ` ORDER BY id LIMIT 1`;
+    const row = await env.DB.prepare(sql)
+      .bind(...binds)
+      .first<{ id: number; name_ar: string }>();
+    if (row) return row;
+  }
+
+  if (await hasTable(env, "teacher_assignments")) {
+    let sql = `SELECT c.id, c.name_ar
+       FROM teacher_assignments ta
+       INNER JOIN circles c ON c.id = ta.circle_id
+       WHERE ta.user_id = ? AND c.complex_id = ?`;
+    const binds: number[] = [teacherUserId, complexId];
+    if (hasIsActive) sql += ` AND c.is_active = 1`;
+    sql += ` ORDER BY c.id LIMIT 1`;
+    const row = await env.DB.prepare(sql)
+      .bind(...binds)
+      .first<{ id: number; name_ar: string }>();
+    if (row) return row;
+  }
+
+  return null;
+}
+
 async function teacherCircleIds(
   env: Env,
   userId: number,
+  complexId: number,
 ): Promise<number[]> {
+  const primary = await resolveTeacherPrimaryCircle(env, userId, complexId);
+  if (primary) return [primary.id];
+
+  if (!(await hasTable(env, "teacher_assignments"))) return [];
   const rows = await env.DB.prepare(
     `SELECT circle_id FROM teacher_assignments WHERE user_id = ?`,
   )
@@ -115,6 +156,8 @@ async function teacherCircleIds(
   return (rows.results ?? []).map((r) => r.circle_id);
 }
 
+const TEACHER_NO_CIRCLE_MSG = "لم يتم ربط حلقة بهذا المعلم بعد";
+
 async function resolveRecitationCircles(
   env: Env,
   auth: { userId: number; complexId: number; role: string },
@@ -122,17 +165,9 @@ async function resolveRecitationCircles(
   const hasIsActive = await tableHasColumn(env, "circles", "is_active");
 
   if (auth.role === "teacher") {
-    const ids = await teacherCircleIds(env, auth.userId);
-    if (ids.length === 0) return [];
-    const ph = ids.map(() => "?").join(",");
-    const rows = await env.DB.prepare(
-      `SELECT id, name_ar FROM circles WHERE id IN (${ph})${
-        hasIsActive ? " AND is_active = 1" : ""
-      } ORDER BY name_ar`,
-    )
-      .bind(...ids)
-      .all<{ id: number; name_ar: string }>();
-    return rows.results ?? [];
+    const circle = await resolveTeacherPrimaryCircle(env, auth.userId, auth.complexId);
+    if (!circle) return [];
+    return [circle];
   }
 
   if (auth.role === "prog_supervisor") {
@@ -335,7 +370,7 @@ export async function handleEduDeptCoreRouter(
     }
     let circleIds: number[] = [];
     if (auth.role === "teacher") {
-      circleIds = await teacherCircleIds(env, auth.userId);
+      circleIds = await teacherCircleIds(env, auth.userId, auth.complexId);
     } else {
       const rows = await env.DB.prepare(
         `SELECT id FROM circles WHERE complex_id = ? AND is_active = 1`,
@@ -364,25 +399,29 @@ export async function handleEduDeptCoreRouter(
     try {
       const date = url.searchParams.get("date")?.trim() || todayIso();
       const circleParam = url.searchParams.get("circle_id");
-      const circles = await resolveRecitationCircles(env, auth);
-
-      if (circles.length === 0) {
-        return json({ error: "no_circle_assigned" }, 404);
-      }
 
       let circleId: number;
+      let circleName = "";
+      let circles: Array<{ id: number; name_ar: string }> = [];
+
       if (auth.role === "teacher") {
-        if (circles.length !== 1) {
-          return json(
-            {
-              error: circles.length === 0 ? "no_circle_assigned" : "multiple_circles",
-              circles,
-            },
-            circles.length === 0 ? 404 : 409,
-          );
+        const teacherCircle = await resolveTeacherPrimaryCircle(
+          env,
+          auth.userId,
+          auth.complexId,
+        );
+        if (!teacherCircle) {
+          return json({ error: TEACHER_NO_CIRCLE_MSG }, 400);
         }
-        circleId = circles[0].id;
+        circleId = teacherCircle.id;
+        circleName = teacherCircle.name_ar;
+        circles = [teacherCircle];
       } else {
+        circles = await resolveRecitationCircles(env, auth);
+        if (circles.length === 0) {
+          return json({ error: "no_circle_assigned" }, 404);
+        }
+
         const requested = circleParam != null ? Number(circleParam) : NaN;
         if (Number.isFinite(requested) && requested > 0) {
           circleId = requested;
@@ -401,15 +440,15 @@ export async function handleEduDeptCoreRouter(
         if (!(await canAccessRecitationCircle(env, auth, circleId))) {
           return json({ error: "forbidden" }, 403);
         }
+        circleName = circles.find((c) => c.id === circleId)?.name_ar ?? "";
       }
 
-      const circle = circles.find((c) => c.id === circleId);
       const items = await loadDailyRecitationItems(env, auth.complexId, circleId, date);
       return json({
         date,
         circle_id: circleId,
-        circle_name: circle?.name_ar ?? "",
-        circles: auth.role === "teacher" ? circles : circles,
+        circle_name: circleName,
+        circles,
         needs_circle_selection: false,
         items,
       });
@@ -432,11 +471,15 @@ export async function handleEduDeptCoreRouter(
       try {
         let circleId = circleIdParam;
         if (auth.role === "teacher") {
-          const circles = await resolveRecitationCircles(env, auth);
-          if (circles.length !== 1) {
-            return json({ error: "use_my_students_endpoint" }, 400);
+          const teacherCircle = await resolveTeacherPrimaryCircle(
+            env,
+            auth.userId,
+            auth.complexId,
+          );
+          if (!teacherCircle) {
+            return json({ error: TEACHER_NO_CIRCLE_MSG }, 400);
           }
-          circleId = circles[0].id;
+          circleId = teacherCircle.id;
         }
         if (!Number.isFinite(circleId) || circleId <= 0) {
           return json({ error: "circle_id_required" }, 400);
@@ -475,11 +518,15 @@ export async function handleEduDeptCoreRouter(
 
         let cid = Number(body.circle_id);
         if (auth.role === "teacher") {
-          const circles = await resolveRecitationCircles(env, auth);
-          if (circles.length !== 1) {
-            return json({ error: "no_single_circle" }, 409);
+          const teacherCircle = await resolveTeacherPrimaryCircle(
+            env,
+            auth.userId,
+            auth.complexId,
+          );
+          if (!teacherCircle) {
+            return json({ error: TEACHER_NO_CIRCLE_MSG }, 400);
           }
-          cid = circles[0].id;
+          cid = teacherCircle.id;
         }
         const recDate = body.recitation_date?.trim() || todayIso();
         if (!Number.isFinite(cid) || cid <= 0) {

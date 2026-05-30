@@ -72,23 +72,24 @@ export function DailyRecitationPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.eduDeptMyStudents({
-        date,
-        circle_id: isSupervisor && circleId != null ? circleId : undefined,
-      });
+      const res = isSupervisor
+        ? await api.eduDeptMyStudents({
+            date,
+            ...(circleId != null ? { circle_id: circleId } : {}),
+          })
+        : await api.eduDeptMyStudents({ date });
+
       setCircles(res.circles ?? []);
       if (res.needs_circle_selection && isSupervisor) {
         setRows([]);
-        if (circleId == null && (res.circles?.length ?? 0) > 0) {
-          setCircleId(null);
-        }
         return;
       }
       setCircleId(res.circle_id);
       setCircleName(res.circle_name ?? "");
       setRows(res.items ?? []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل التحميل");
+      const msg = e instanceof Error ? e.message : "فشل التحميل";
+      setError(msg.includes("لم يتم ربط حلقة") ? msg : msg);
       setRows([]);
     } finally {
       setLoading(false);
@@ -106,13 +107,14 @@ export function DailyRecitationPage() {
   }
 
   async function save() {
-    if (circleId == null) return;
+    if (!isSupervisor && rows.length === 0) return;
+    if (isSupervisor && circleId == null) return;
     setSaving(true);
     setError(null);
     setSuccess(null);
     try {
       await api.eduDeptDailyRecitationSave({
-        circle_id: circleId,
+        ...(circleId != null ? { circle_id: circleId } : {}),
         recitation_date: date,
         rows: rows.map((r) => ({
           student_id: r.student_id,
@@ -158,7 +160,7 @@ export function DailyRecitationPage() {
     }
   }
 
-  const canSave = circleId != null && rows.length > 0;
+  const canSave = rows.length > 0 && (isSupervisor ? circleId != null : true);
 
   return (
     <div className="space-y-6 max-w-[1200px]">

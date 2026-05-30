@@ -224,7 +224,7 @@ export function TeacherCompetitionsPage() {
 
       {selectedId != null && tasks.length > 0 && students.length > 0 && (
         <div className={`${ds.card} overflow-x-auto`}>
-          <Table className={ds.tableMin}>
+          <Table className={`${ds.tableMin} text-right`}>
             <TableHeader>
               <TableRow>
                 <TableHead className={`${ds.table.head} sticky right-0 bg-card z-10 min-w-[140px]`} style={tajawal}>

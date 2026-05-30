@@ -34,6 +34,7 @@ type Row = {
   revised: boolean;
   error_count: number;
   tune_errors: number;
+  face_count: number;
   notes: string;
 };
 
@@ -104,6 +105,7 @@ export function DailyRecitationPage() {
           revised: r.revised,
           error_count: r.error_count,
           tune_errors: r.tune_errors,
+          face_count: r.face_count,
           notes: r.notes,
         })),
       });
@@ -213,25 +215,28 @@ export function DailyRecitationPage() {
             اختر حلقة لعرض الطلاب.
           </p>
         ) : (
-          <Table className={ds.tableMin}>
+          <Table className={`${ds.tableMin} text-right`}>
             <TableHeader>
               <TableRow>
-                <TableHead className={`${ds.table.head} w-[20%]`} style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
                   الطالب
                 </TableHead>
-                <TableHead className={`${ds.table.head} text-center w-[10%]`} style={tajawal}>
+                <TableHead className={`${ds.table.head} text-center w-[8%]`} style={tajawal}>
                   سماع
                 </TableHead>
-                <TableHead className={`${ds.table.head} text-center w-[10%]`} style={tajawal}>
+                <TableHead className={`${ds.table.head} text-center w-[8%]`} style={tajawal}>
                   تكرار
                 </TableHead>
-                <TableHead className={`${ds.table.head} text-center w-[10%]`} style={tajawal}>
+                <TableHead className={`${ds.table.head} text-center w-[8%]`} style={tajawal}>
                   مراجعة
                 </TableHead>
-                <TableHead className={`${ds.table.head} text-center w-[12%]`} style={tajawal}>
+                <TableHead className={`${ds.table.head} text-center w-[10%]`} style={tajawal}>
+                  أوجه
+                </TableHead>
+                <TableHead className={`${ds.table.head} text-center w-[10%]`} style={tajawal}>
                   أخطاء
                 </TableHead>
-                <TableHead className={`${ds.table.head} text-center w-[12%]`} style={tajawal}>
+                <TableHead className={`${ds.table.head} text-center w-[10%]`} style={tajawal}>
                   لحن
                 </TableHead>
                 <TableHead className={ds.table.headActions} style={tajawal}>
@@ -273,6 +278,19 @@ export function DailyRecitationPage() {
                         patchRow(r.student_id, { revised: e.target.checked })
                       }
                       className="size-4 rounded border-border"
+                    />
+                  </TableCell>
+                  <TableCell className="text-center align-middle">
+                    <Input
+                      type="number"
+                      min={0}
+                      value={r.face_count}
+                      onChange={(e) =>
+                        patchRow(r.student_id, {
+                          face_count: Number(e.target.value),
+                        })
+                      }
+                      className={`${ds.btnRound} w-16 mx-auto h-8 text-center`}
                     />
                   </TableCell>
                   <TableCell className="text-center align-middle">

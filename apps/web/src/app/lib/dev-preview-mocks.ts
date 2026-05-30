@@ -416,7 +416,7 @@ export function resolveDevPreviewMock<T>(
     return {
       circle_id: 1,
       date,
-      items: students.map((s) => ({
+      items: students.map((s, i) => ({
         student_id: s.id,
         full_name_ar: s.full_name_ar,
         listened: false,
@@ -424,6 +424,7 @@ export function resolveDevPreviewMock<T>(
         revised: false,
         error_count: 0,
         tune_errors: 0,
+        face_count: i,
         notes: "",
       })),
     } as T;
@@ -550,6 +551,47 @@ export function resolveDevPreviewMock<T>(
       })),
     } as T;
   }
+  const qReport = p.match(/^\/api\/edu-dept\/quranic-days\/(\d+)\/report$/);
+  if (qReport && m === "GET") {
+    const students = previewStore.getStudents().slice(0, 4);
+    return {
+      total_hizbs_read: 8,
+      students_completed: 1,
+      students_over_threshold: 1,
+      enrolled_count: students.length,
+      fail_threshold: 3,
+      students: students.map((s, i) => ({
+        student_id: s.id,
+        full_name_ar: s.full_name_ar,
+        hizbs_read: i + 1,
+        target_count: 5,
+        max_mistakes: i === 2 ? 4 : 1,
+        status: i === 0 ? "completed" : i === 2 ? "over_threshold" : "in_progress",
+      })),
+    } as T;
+  }
+  const qRecords = p.match(/^\/api\/edu-dept\/quranic-days\/(\d+)\/records$/);
+  if (qRecords && m === "GET") {
+    return {
+      items: previewStore.getStudents().slice(0, 3).flatMap((s, si) =>
+        [1, 2].map((h, hi) => ({
+          id: si * 10 + hi + 1,
+          student_id: s.id,
+          full_name_ar: s.full_name_ar,
+          hizb_number: h,
+          mistakes: hi,
+          alerts: 0,
+          lahn_count: 0,
+          time_taken_seconds: 300,
+          recorded_at: date,
+        })),
+      ),
+    } as T;
+  }
+  const qRecordMut = p.match(/^\/api\/edu-dept\/quranic-days\/records\/(\d+)$/);
+  if (qRecordMut && (m === "PATCH" || m === "DELETE")) {
+    return { ok: true } as T;
+  }
 
   const pubQ = p.match(/^\/api\/public\/quranic-day\/([^/]+)$/);
   if (pubQ && !p.includes("/students") && !p.includes("/records") && m === "GET") {
@@ -616,13 +658,22 @@ export function resolveDevPreviewMock<T>(
 
   if (p === "/api/edu-dept/reports/progress" && m === "GET") {
     const students = previewStore.getStudents().slice(0, 5);
+    const semesterStart =
+      new Date().getMonth() + 1 >= 9
+        ? `${new Date().getFullYear()}-09-01`
+        : `${new Date().getFullYear() - 1}-09-01`;
     return {
       date,
+      date_from: date,
+      date_to: date,
+      semester_start: semesterStart,
       summary: {
         avg_quality: 78.5,
         top_circle: { circle_id: 1, circle_name: "حلقة تجريبية", avg_quality: 82 },
         active_students: 4,
         total_records: students.length,
+        total_faces_semester: 120,
+        faces_today: 8,
       },
       circles: PREVIEW_CIRCLES.slice(0, 3).map((c) => ({ id: c.id, name_ar: c.name_ar })),
       items: students.map((s, i) => ({
@@ -635,6 +686,7 @@ export function resolveDevPreviewMock<T>(
         repeated: i % 2 === 0,
         revised: true,
         error_count: i,
+        face_count: 2 + i,
       })),
     } as T;
   }

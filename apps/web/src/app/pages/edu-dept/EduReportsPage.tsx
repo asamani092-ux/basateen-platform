@@ -1,8 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
-import { BarChart3, TrendingUp, Users } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { BarChart3, BookOpen, CalendarRange, TrendingUp } from "lucide-react";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Progress } from "../../components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../components/ui/select";
 import {
   Table,
   TableBody,
@@ -16,7 +23,21 @@ import { canUseApi } from "../../lib/api-access";
 import { cn } from "../../components/ui/utils";
 import { ds, tajawal } from "../../lib/design-system";
 
+type DatePreset = "last3" | "last7" | "month" | "custom";
 type ReportData = Awaited<ReturnType<typeof api.eduDeptReportsProgress>>;
+
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function rangeForPreset(preset: DatePreset): { start: string; end: string } {
+  const end = new Date();
+  const start = new Date(end);
+  if (preset === "last3") start.setDate(end.getDate() - 2);
+  else if (preset === "last7") start.setDate(end.getDate() - 6);
+  else if (preset === "month") start.setDate(1);
+  return { start: isoDate(start), end: isoDate(end) };
+}
 
 function qualityBarClass(pct: number): string {
   if (pct >= 75) return "[&>div]:bg-emerald-500";
@@ -25,11 +46,20 @@ function qualityBarClass(pct: number): string {
 }
 
 export function EduReportsPage() {
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [preset, setPreset] = useState<DatePreset>("last7");
+  const [customStart, setCustomStart] = useState(() => isoDate(new Date()));
+  const [customEnd, setCustomEnd] = useState(() => isoDate(new Date()));
   const [circleId, setCircleId] = useState("");
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const { startDate, endDate } = useMemo(() => {
+    if (preset === "custom") {
+      return { startDate: customStart, endDate: customEnd };
+    }
+    return rangeForPreset(preset);
+  }, [preset, customStart, customEnd]);
 
   const load = useCallback(async () => {
     if (!canUseApi()) {
@@ -40,7 +70,8 @@ export function EduReportsPage() {
     setError(null);
     try {
       const res = await api.eduDeptReportsProgress({
-        date,
+        date_from: startDate,
+        date_to: endDate,
         circle_id: circleId ? Number(circleId) : undefined,
       });
       setData(res);
@@ -50,7 +81,7 @@ export function EduReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, [date, circleId]);
+  }, [startDate, endDate, circleId]);
 
   useEffect(() => {
     load();
@@ -64,7 +95,7 @@ export function EduReportsPage() {
           التقارير والمتابعة
         </h2>
         <p className={ds.page.description} style={tajawal}>
-          إنجاز تراكمي يومي بناءً على أوزان السماع والتكرار والمراجعة والربط.
+          إنجاز تراكمي بناءً على أوزان السماع والتكرار والمراجعة والربط.
         </p>
       </div>
 
@@ -74,32 +105,66 @@ export function EduReportsPage() {
         </p>
       )}
 
-      <div className={`${ds.card} p-4 flex flex-wrap gap-4 items-end`}>
-        <div className="space-y-1 min-w-[160px]">
-          <Label style={tajawal}>التاريخ</Label>
-          <Input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className={ds.btnRound}
-          />
+      <div className={`${ds.card} p-4 space-y-4`}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+          <div className="space-y-1 sm:col-span-2">
+            <Label style={tajawal}>الفترة السريعة</Label>
+            <Select value={preset} onValueChange={(v) => setPreset(v as DatePreset)}>
+              <SelectTrigger className={ds.btnRound}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="last3">آخر 3 أيام</SelectItem>
+                <SelectItem value="last7">آخر أسبوع</SelectItem>
+                <SelectItem value="month">هذا الشهر</SelectItem>
+                <SelectItem value="custom">مخصص</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1 min-w-[200px]">
+            <Label style={tajawal}>الحلقة</Label>
+            <select
+              value={circleId}
+              onChange={(e) => setCircleId(e.target.value)}
+              className={ds.select}
+              style={tajawal}
+            >
+              <option value="">كل الحلقات</option>
+              {(data?.circles ?? []).map((c) => (
+                <option key={c.id} value={String(c.id)}>
+                  {c.name_ar}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-        <div className="space-y-1 min-w-[200px]">
-          <Label style={tajawal}>الحلقة</Label>
-          <select
-            value={circleId}
-            onChange={(e) => setCircleId(e.target.value)}
-            className={ds.select}
-            style={tajawal}
-          >
-            <option value="">كل الحلقات</option>
-            {(data?.circles ?? []).map((c) => (
-              <option key={c.id} value={String(c.id)}>
-                {c.name_ar}
-              </option>
-            ))}
-          </select>
-        </div>
+
+        {preset === "custom" && (
+          <div className="flex flex-wrap gap-4 items-end">
+            <div className="space-y-1">
+              <Label style={tajawal}>من</Label>
+              <Input
+                type="date"
+                value={customStart}
+                onChange={(e) => setCustomStart(e.target.value)}
+                className={ds.btnRound}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label style={tajawal}>إلى</Label>
+              <Input
+                type="date"
+                value={customEnd}
+                onChange={(e) => setCustomEnd(e.target.value)}
+                className={ds.btnRound}
+              />
+            </div>
+          </div>
+        )}
+
+        <p className="text-xs text-muted-foreground" style={tajawal}>
+          الفترة المعروضة: {startDate} — {endDate}
+        </p>
       </div>
 
       {loading ? (
@@ -108,52 +173,51 @@ export function EduReportsPage() {
         </p>
       ) : data ? (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <StatCard
+              icon={<BookOpen className="w-6 h-6 text-primary" />}
+              label="إجمالي الأوجه (منذ بداية الفصل)"
+              value={String(data.summary.total_faces_semester ?? 0)}
+            />
+            <StatCard
+              icon={<CalendarRange className="w-6 h-6 text-primary" />}
+              label="أوجه اليوم"
+              value={String(data.summary.faces_today ?? 0)}
+            />
             <StatCard
               icon={<TrendingUp className="w-6 h-6 text-primary" />}
-              label="متوسط جودة المجمع"
+              label="متوسط إنجاز الجودة"
               value={`${data.summary.avg_quality}%`}
-            />
-            <StatCard
-              icon={<BarChart3 className="w-6 h-6 text-primary" />}
-              label="الحلقة الأكثر إنجازاً"
-              value={
-                data.summary.top_circle
-                  ? `${data.summary.top_circle.circle_name} (${data.summary.top_circle.avg_quality}%)`
-                  : "—"
-              }
-            />
-            <StatCard
-              icon={<Users className="w-6 h-6 text-primary" />}
-              label="الطلاب النشطون اليوم"
-              value={String(data.summary.active_students)}
             />
           </div>
 
           <div className={ds.card}>
             <div className="p-4 border-b border-border">
               <h3 className={ds.page.section} style={tajawal}>
-                تقدم الطلاب — {data.date}
+                تقدم الطلاب — {data.date_from} إلى {data.date_to}
               </h3>
             </div>
             {data.items.length === 0 ? (
               <p className={`p-4 m-4 ${ds.alert.info}`} style={tajawal}>
-                لا توجد سجلات رصد لهذا اليوم.
+                لا توجد سجلات رصد في هذه الفترة.
               </p>
             ) : (
-              <Table className={ds.tableMin}>
+              <Table className={`${ds.tableMin} text-right`}>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className={`${ds.table.head} w-[22%]`} style={tajawal}>
+                    <TableHead className={`${ds.table.head} w-[20%]`} style={tajawal}>
                       الطالب
                     </TableHead>
-                    <TableHead className={`${ds.table.head} w-[16%]`} style={tajawal}>
+                    <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
                       الحلقة
                     </TableHead>
-                    <TableHead className={`${ds.table.head} w-[38%]`} style={tajawal}>
+                    <TableHead className={`${ds.table.head} w-[32%]`} style={tajawal}>
                       نسبة الجودة
                     </TableHead>
-                    <TableHead className={`${ds.table.head} w-[12%] text-center`} style={tajawal}>
+                    <TableHead className={`${ds.table.head} w-[10%] text-center`} style={tajawal}>
+                      أوجه
+                    </TableHead>
+                    <TableHead className={`${ds.table.head} w-[10%] text-center`} style={tajawal}>
                       أخطاء
                     </TableHead>
                   </TableRow>
@@ -180,6 +244,12 @@ export function EduReportsPage() {
                             {row.quality_pct}%
                           </span>
                         </div>
+                      </TableCell>
+                      <TableCell
+                        className={`${ds.table.cell} text-center tabular-nums`}
+                        style={tajawal}
+                      >
+                        {row.face_count ?? 0}
                       </TableCell>
                       <TableCell
                         className={`${ds.table.cell} text-center tabular-nums`}
@@ -214,7 +284,7 @@ function StatCard({
       <p className="text-xs text-muted-foreground" style={tajawal}>
         {label}
       </p>
-      <p className="text-lg font-bold" style={tajawal}>
+      <p className="text-lg font-bold tabular-nums" style={tajawal}>
         {value}
       </p>
     </div>

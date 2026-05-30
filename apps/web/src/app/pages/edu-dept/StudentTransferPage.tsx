@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeftRight } from "lucide-react";
+import { ArrowLeftRight, Plus } from "lucide-react";
 import { AdminStudentSearchCombobox } from "../../components/admin/AdminStudentSearchCombobox";
 import {
   TableActionsCell,
   TableIconAction,
 } from "../../components/admin/TableIconAction";
 import { Button } from "../../components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import {
@@ -39,6 +45,7 @@ export function StudentTransferPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
 
+  const [transferOpen, setTransferOpen] = useState(false);
   const [manualStudentId, setManualStudentId] = useState<number | null>(null);
   const [manualCircleId, setManualCircleId] = useState("");
   const [manualNote, setManualNote] = useState("");
@@ -108,6 +115,9 @@ export function StudentTransferPage() {
       });
       setSuccess("تم النقل اليدوي بنجاح.");
       setManualNote("");
+      setManualStudentId(null);
+      setManualCircleId("");
+      setTransferOpen(false);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "فشل النقل");
@@ -118,14 +128,26 @@ export function StudentTransferPage() {
 
   return (
     <div className="space-y-8 max-w-[1100px]">
-      <div>
-        <h2 className={`${ds.page.title} flex items-center gap-2`} style={tajawal}>
-          <ArrowLeftRight className="w-7 h-7 text-primary" />
-          متابعة النقل والخطط
-        </h2>
-        <p className={ds.page.description} style={tajawal}>
-          مراجعة طلبات المعلمين والنقل اليدوي مع حفظ السجل التراكمي.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+        <div>
+          <h2 className={`${ds.page.title} flex items-center gap-2`} style={tajawal}>
+            <ArrowLeftRight className="w-7 h-7 text-primary" />
+            متابعة النقل والخطط
+          </h2>
+          <p className={ds.page.description} style={tajawal}>
+            مراجعة طلبات المعلمين والنقل اليدوي مع حفظ السجل التراكمي.
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="default"
+          className={ds.btnRound}
+          onClick={() => setTransferOpen(true)}
+          style={tajawal}
+        >
+          <Plus className="w-4 h-4" />
+          نقل طالب
+        </Button>
       </div>
 
       {error && (
@@ -154,7 +176,7 @@ export function StudentTransferPage() {
             لا توجد طلبات نقل معلقة.
           </p>
         ) : (
-          <Table className={ds.tableMin}>
+          <Table className={`${ds.tableMin} text-right`}>
             <TableHeader>
               <TableRow>
                 <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
@@ -215,55 +237,57 @@ export function StudentTransferPage() {
         )}
       </section>
 
-      <section className={`${ds.card} p-6 space-y-4`}>
-        <h3 className={ds.page.section} style={tajawal}>
-          نقل يدوي لطالب
-        </h3>
-        <form onSubmit={manualTransfer} className="space-y-4 max-w-md">
-          <div className="space-y-2">
-            <Label style={tajawal}>الطالب</Label>
-            <AdminStudentSearchCombobox
-              id="manual-transfer-student"
-              value={manualStudentId}
-              onChange={(id) => setManualStudentId(id)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label style={tajawal}>الحلقة الجديدة</Label>
-            <select
-              value={manualCircleId}
-              onChange={(e) => setManualCircleId(e.target.value)}
-              className={ds.select}
-              required
+      <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
+        <DialogContent className={`${ds.card} max-w-md rounded-2xl`} dir="rtl">
+          <DialogHeader>
+            <DialogTitle style={tajawal}>نقل طالب يدوياً</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={manualTransfer} className="space-y-4">
+            <div className="space-y-2">
+              <Label style={tajawal}>الطالب</Label>
+              <AdminStudentSearchCombobox
+                id="manual-transfer-student"
+                value={manualStudentId}
+                onChange={(id) => setManualStudentId(id)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label style={tajawal}>الحلقة الجديدة</Label>
+              <select
+                value={manualCircleId}
+                onChange={(e) => setManualCircleId(e.target.value)}
+                className={ds.select}
+                required
+                style={tajawal}
+              >
+                <option value="">— اختر —</option>
+                {circles.map((c) => (
+                  <option key={c.id} value={String(c.id)}>
+                    {c.name_ar}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label style={tajawal}>ملاحظة</Label>
+              <Input
+                value={manualNote}
+                onChange={(e) => setManualNote(e.target.value)}
+                className={ds.btnRound}
+              />
+            </div>
+            <Button
+              type="submit"
+              variant="default"
+              className={`w-full ${ds.btnRound}`}
+              disabled={manualSaving}
               style={tajawal}
             >
-              <option value="">— اختر —</option>
-              {circles.map((c) => (
-                <option key={c.id} value={String(c.id)}>
-                  {c.name_ar}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-2">
-            <Label style={tajawal}>ملاحظة</Label>
-            <Input
-              value={manualNote}
-              onChange={(e) => setManualNote(e.target.value)}
-              className={ds.btnRound}
-            />
-          </div>
-          <Button
-            type="submit"
-            variant="default"
-            className={ds.btnRound}
-            disabled={manualSaving}
-            style={tajawal}
-          >
-            {manualSaving ? "جاري النقل…" : "تنفيذ النقل"}
-          </Button>
-        </form>
-      </section>
+              {manualSaving ? "جاري النقل…" : "تنفيذ النقل"}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

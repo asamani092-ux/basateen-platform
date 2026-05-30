@@ -50,7 +50,7 @@ type PersistedSession = {
   lahn: number;
   elapsedSec: number;
   timerRunning: boolean;
-  timerSavedAt: number | null;
+  timerAnchorMs: number | null;
 };
 
 type SessionSummary = Awaited<ReturnType<typeof api.publicQuranicDayStudentSummary>>;
@@ -111,8 +111,9 @@ export function PublicQuranicDayPage() {
 
   const [timerRunning, setTimerRunning] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
+  const elapsedSecRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const startedAtRef = useRef<number | null>(null);
+  const timerAnchorMsRef = useRef<number | null>(null);
   const restoredRef = useRef(false);
 
   const [saving, setSaving] = useState(false);
@@ -120,9 +121,9 @@ export function PublicQuranicDayPage() {
   const [summary, setSummary] = useState<SessionSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
 
-  const persistSnapshot = useCallback((): PersistedSession | null => {
-    if (!student) return null;
-    return {
+  useEffect(() => {
+    if (!token || !student) return;
+    const snapshot: PersistedSession = {
       student_id: student.student_id,
       full_name_ar: student.full_name_ar,
       target_hizbs: student.target_hizbs,
@@ -132,11 +133,13 @@ export function PublicQuranicDayPage() {
       mistakes,
       alerts,
       lahn,
-      elapsedSec,
+      elapsedSec: elapsedSecRef.current,
       timerRunning,
-      timerSavedAt: timerRunning ? Date.now() : null,
+      timerAnchorMs: timerRunning ? timerAnchorMsRef.current : null,
     };
+    writeSession(token, snapshot);
   }, [
+    token,
     student,
     activeHizb,
     ratingOpen,
@@ -146,14 +149,6 @@ export function PublicQuranicDayPage() {
     elapsedSec,
     timerRunning,
   ]);
-
-  useEffect(() => {
-    if (!token || !student) {
-      writeSession(token, null);
-      return;
-    }
-    writeSession(token, persistSnapshot());
-  }, [token, student, persistSnapshot]);
 
   const loadDay = useCallback(async () => {
     if (!token) return;
@@ -216,13 +211,18 @@ export function PublicQuranicDayPage() {
           setAlerts(saved.alerts);
           setLahn(saved.lahn);
           let elapsed = saved.elapsedSec;
-          if (saved.timerRunning && saved.timerSavedAt) {
-            elapsed += Math.floor((Date.now() - saved.timerSavedAt) / 1000);
-            startedAtRef.current = Date.now() - elapsed * 1000;
+          if (saved.timerRunning && saved.timerAnchorMs != null) {
+            elapsed = Math.floor((Date.now() - saved.timerAnchorMs) / 1000);
+            timerAnchorMsRef.current = saved.timerAnchorMs;
             setTimerRunning(true);
+          } else {
+            timerAnchorMsRef.current = null;
           }
+          elapsedSecRef.current = elapsed;
           setElapsedSec(elapsed);
           setInfoMsg("تم استرجاع جلسة الرصد من الجلسة السابقة.");
+        } else if (saved.full_name_ar) {
+          setInfoMsg("تم استرجاع بيانات الطالب — اختر الحزب للمتابعة.");
         }
       } catch {
         writeSession(token, null);
@@ -252,8 +252,10 @@ export function PublicQuranicDayPage() {
   useEffect(() => {
     if (!timerRunning) return;
     timerRef.current = setInterval(() => {
-      if (startedAtRef.current != null) {
-        setElapsedSec(Math.floor((Date.now() - startedAtRef.current) / 1000));
+      if (timerAnchorMsRef.current != null) {
+        const sec = Math.floor((Date.now() - timerAnchorMsRef.current) / 1000);
+        elapsedSecRef.current = sec;
+        setElapsedSec(sec);
       }
     }, 500);
     return () => {
@@ -269,14 +271,17 @@ export function PublicQuranicDayPage() {
     if (timerRef.current) clearInterval(timerRef.current);
     setTimerRunning(false);
     const sec =
-      startedAtRef.current != null
-        ? Math.floor((Date.now() - startedAtRef.current) / 1000)
-        : elapsedSec;
+      timerAnchorMsRef.current != null
+        ? Math.floor((Date.now() - timerAnchorMsRef.current) / 1000)
+        : elapsedSecRef.current;
+    elapsedSecRef.current = sec;
+    timerAnchorMsRef.current = null;
+    setElapsedSec(sec);
     return sec;
   }
 
   function startTimer() {
-    startedAtRef.current = Date.now() - elapsedSec * 1000;
+    timerAnchorMsRef.current = Date.now() - elapsedSecRef.current * 1000;
     setTimerRunning(true);
   }
 
@@ -288,8 +293,9 @@ export function PublicQuranicDayPage() {
     setAlerts(0);
     setLahn(0);
     setTimerRunning(false);
+    elapsedSecRef.current = 0;
+    timerAnchorMsRef.current = null;
     setElapsedSec(0);
-    startedAtRef.current = null;
     setInfoMsg(null);
   }
 
@@ -317,7 +323,10 @@ export function PublicQuranicDayPage() {
     setStudent(null);
     setQuery("");
     setSearchItems([]);
-    writeSession(token, null);
+    elapsedSecRef.current = 0;
+    timerAnchorMsRef.current = null;
+    restoredRef.current = false;
+    if (token) writeSession(token, null);
   }
 
   async function saveAndClose() {

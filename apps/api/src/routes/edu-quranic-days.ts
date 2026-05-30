@@ -739,5 +739,190 @@ export async function handleEduQuranicDaysRouter(
     return json({ items: rows.results ?? [] });
   }
 
+  const reportMatch = path.match(/^\/api\/edu-dept\/quranic-days\/(\d+)\/report$/);
+  if (reportMatch && request.method === "GET") {
+    if (!(await hasTable(env, "quranic_day_records"))) return migrationRequired();
+    const dayId = Number(reportMatch[1]);
+    if (!(await assertDayInComplex(env, dayId, auth.complexId))) {
+      return json({ error: "not_found" }, 404);
+    }
+
+    const dayRow = await env.DB.prepare(
+      `SELECT fail_threshold FROM quranic_days WHERE id = ?`,
+    )
+      .bind(dayId)
+      .first<{ fail_threshold: number }>();
+    const failThreshold = Number(dayRow?.fail_threshold ?? 3);
+
+    const totalRow = await env.DB.prepare(
+      `SELECT COUNT(*) AS total FROM quranic_day_records WHERE quranic_day_id = ?`,
+    )
+      .bind(dayId)
+      .first<{ total: number }>();
+
+    const enrolled = await env.DB.prepare(
+      `SELECT qds.student_id, qds.target_hizbs, s.full_name_ar
+       FROM quranic_day_students qds
+       INNER JOIN students s ON s.id = qds.student_id
+       WHERE qds.quranic_day_id = ?`,
+    )
+      .bind(dayId)
+      .all<{ student_id: number; target_hizbs: string; full_name_ar: string }>();
+
+    let studentsCompleted = 0;
+    let studentsOverThreshold = 0;
+    const studentStats: Array<{
+      student_id: number;
+      full_name_ar: string;
+      hizbs_read: number;
+      target_count: number;
+      max_mistakes: number;
+      status: "completed" | "over_threshold" | "in_progress" | "none";
+    }> = [];
+
+    for (const en of enrolled.results ?? []) {
+      const agg = await env.DB.prepare(
+        `SELECT COUNT(*) AS hizbs_read, COALESCE(MAX(mistakes), 0) AS max_mistakes
+         FROM quranic_day_records
+         WHERE quranic_day_id = ? AND student_id = ?`,
+      )
+        .bind(dayId, en.student_id)
+        .first<{ hizbs_read: number; max_mistakes: number }>();
+
+      const targetHizbs = parseTargetHizbs(en.target_hizbs);
+      const hizbsRead = Number(agg?.hizbs_read ?? 0);
+      const maxMistakes = Number(agg?.max_mistakes ?? 0);
+      const completed =
+        targetHizbs.length > 0 && hizbsRead >= targetHizbs.length;
+      const over = maxMistakes >= failThreshold;
+
+      if (completed) studentsCompleted += 1;
+      if (over && hizbsRead > 0) studentsOverThreshold += 1;
+
+      let status: "completed" | "over_threshold" | "in_progress" | "none" = "none";
+      if (over && hizbsRead > 0) status = "over_threshold";
+      else if (completed) status = "completed";
+      else if (hizbsRead > 0) status = "in_progress";
+
+      studentStats.push({
+        student_id: en.student_id,
+        full_name_ar: en.full_name_ar,
+        hizbs_read: hizbsRead,
+        target_count: targetHizbs.length,
+        max_mistakes: maxMistakes,
+        status,
+      });
+    }
+
+    return json({
+      total_hizbs_read: Number(totalRow?.total ?? 0),
+      students_completed: studentsCompleted,
+      students_over_threshold: studentsOverThreshold,
+      enrolled_count: (enrolled.results ?? []).length,
+      fail_threshold: failThreshold,
+      students: studentStats,
+    });
+  }
+
+  const recordsListMatch = path.match(/^\/api\/edu-dept\/quranic-days\/(\d+)\/records$/);
+  if (recordsListMatch && request.method === "GET") {
+    if (!(await hasTable(env, "quranic_day_records"))) return migrationRequired();
+    const dayId = Number(recordsListMatch[1]);
+    if (!(await assertDayInComplex(env, dayId, auth.complexId))) {
+      return json({ error: "not_found" }, 404);
+    }
+
+    const hasLahn = await tableHasColumn(env, "quranic_day_records", "lahn_count");
+    const hasTime = await tableHasColumn(env, "quranic_day_records", "time_taken_seconds");
+    const extraCols = [
+      hasLahn ? "qdr.lahn_count" : "0 AS lahn_count",
+      hasTime ? "qdr.time_taken_seconds" : "0 AS time_taken_seconds",
+    ].join(", ");
+
+    const rows = await env.DB.prepare(
+      `SELECT qdr.id, qdr.student_id, s.full_name_ar, qdr.hizb_number,
+              qdr.mistakes, qdr.alerts, ${extraCols}, qdr.recorded_at
+       FROM quranic_day_records qdr
+       INNER JOIN students s ON s.id = qdr.student_id
+       WHERE qdr.quranic_day_id = ?
+       ORDER BY s.full_name_ar, qdr.hizb_number`,
+    )
+      .bind(dayId)
+      .all();
+
+    return json({ items: rows.results ?? [] });
+  }
+
+  const recordPatchMatch = path.match(/^\/api\/edu-dept\/quranic-days\/records\/(\d+)$/);
+  if (recordPatchMatch && request.method === "PATCH") {
+    if (!(await hasTable(env, "quranic_day_records"))) return migrationRequired();
+    const recordId = Number(recordPatchMatch[1]);
+
+    const existing = await env.DB.prepare(
+      `SELECT qdr.id, qdr.quranic_day_id, qdr.mistakes, qdr.alerts
+       FROM quranic_day_records qdr
+       INNER JOIN quranic_days qd ON qd.id = qdr.quranic_day_id
+       WHERE qdr.id = ? AND qd.complex_id = ?`,
+    )
+      .bind(recordId, auth.complexId)
+      .first<{ id: number; mistakes: number; alerts: number }>();
+    if (!existing) return json({ error: "not_found" }, 404);
+
+    let body: { mistakes?: number; alerts?: number; lahn_count?: number };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+
+    const mistakes =
+      body.mistakes != null
+        ? Math.max(0, Math.floor(Number(body.mistakes)))
+        : existing.mistakes;
+    const alerts =
+      body.alerts != null
+        ? Math.max(0, Math.floor(Number(body.alerts)))
+        : existing.alerts;
+    const hasLahn = await tableHasColumn(env, "quranic_day_records", "lahn_count");
+    const lahn =
+      hasLahn && body.lahn_count != null
+        ? Math.max(0, Math.floor(Number(body.lahn_count)))
+        : null;
+
+    if (hasLahn && lahn != null) {
+      await env.DB.prepare(
+        `UPDATE quranic_day_records SET mistakes = ?, alerts = ?, lahn_count = ? WHERE id = ?`,
+      )
+        .bind(mistakes, alerts, lahn, recordId)
+        .run();
+    } else {
+      await env.DB.prepare(
+        `UPDATE quranic_day_records SET mistakes = ?, alerts = ? WHERE id = ?`,
+      )
+        .bind(mistakes, alerts, recordId)
+        .run();
+    }
+    return json({ ok: true });
+  }
+
+  if (recordPatchMatch && request.method === "DELETE") {
+    if (!(await hasTable(env, "quranic_day_records"))) return migrationRequired();
+    const recordId = Number(recordPatchMatch[1]);
+
+    const existing = await env.DB.prepare(
+      `SELECT qdr.id FROM quranic_day_records qdr
+       INNER JOIN quranic_days qd ON qd.id = qdr.quranic_day_id
+       WHERE qdr.id = ? AND qd.complex_id = ?`,
+    )
+      .bind(recordId, auth.complexId)
+      .first();
+    if (!existing) return json({ error: "not_found" }, 404);
+
+    await env.DB.prepare(`DELETE FROM quranic_day_records WHERE id = ?`)
+      .bind(recordId)
+      .run();
+    return json({ ok: true });
+  }
+
   return json({ error: "not_found" }, 404);
 }

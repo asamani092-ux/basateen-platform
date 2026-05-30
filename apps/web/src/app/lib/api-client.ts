@@ -955,6 +955,7 @@ export const api = {
         revised: boolean;
         error_count: number;
         tune_errors: number;
+        face_count: number;
         notes: string;
       }>;
       date: string;
@@ -972,6 +973,7 @@ export const api = {
       revised?: boolean;
       error_count?: number;
       tune_errors?: number;
+      face_count?: number;
       notes?: string;
     }>;
   }) =>
@@ -1161,6 +1163,48 @@ export const api = {
       `/api/edu-dept/quranic-days/${dayId}/students/${studentId}`,
       { method: "DELETE" },
     ),
+  eduDeptQuranicDayRecords: (dayId: number) =>
+    request<{
+      items: Array<{
+        id: number;
+        student_id: number;
+        full_name_ar: string;
+        hizb_number: number;
+        mistakes: number;
+        alerts: number;
+        lahn_count: number;
+        time_taken_seconds: number;
+        recorded_at: string;
+      }>;
+    }>(`/api/edu-dept/quranic-days/${dayId}/records`),
+  eduDeptQuranicDayRecordUpdate: (
+    recordId: number,
+    body: { mistakes?: number; alerts?: number; lahn_count?: number },
+  ) =>
+    request<{ ok: boolean }>(`/api/edu-dept/quranic-days/records/${recordId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  eduDeptQuranicDayRecordDelete: (recordId: number) =>
+    request<{ ok: boolean }>(`/api/edu-dept/quranic-days/records/${recordId}`, {
+      method: "DELETE",
+    }),
+  eduDeptQuranicDayReport: (dayId: number) =>
+    request<{
+      total_hizbs_read: number;
+      students_completed: number;
+      students_over_threshold: number;
+      enrolled_count: number;
+      fail_threshold: number;
+      students: Array<{
+        student_id: number;
+        full_name_ar: string;
+        hizbs_read: number;
+        target_count: number;
+        max_mistakes: number;
+        status: "completed" | "over_threshold" | "in_progress" | "none";
+      }>;
+    }>(`/api/edu-dept/quranic-days/${dayId}/report`),
   publicQuranicDayGet: (token: string) =>
     request<{
       token: string;
@@ -1241,18 +1285,30 @@ export const api = {
     }>(
       `/api/public/quranic-day/${encodeURIComponent(token)}/students/${studentId}/summary`,
     ),
-  eduDeptReportsProgress: (params?: { date?: string; circle_id?: number }) => {
+  eduDeptReportsProgress: (params?: {
+    date?: string;
+    date_from?: string;
+    date_to?: string;
+    circle_id?: number;
+  }) => {
     const q = new URLSearchParams();
     if (params?.date) q.set("date", params.date);
+    if (params?.date_from) q.set("date_from", params.date_from);
+    if (params?.date_to) q.set("date_to", params.date_to);
     if (params?.circle_id != null) q.set("circle_id", String(params.circle_id));
     const qs = q.toString();
     return request<{
       date: string;
+      date_from: string;
+      date_to: string;
+      semester_start: string;
       summary: {
         avg_quality: number;
         top_circle: { circle_id: number; circle_name: string; avg_quality: number } | null;
         active_students: number;
         total_records: number;
+        total_faces_semester: number;
+        faces_today: number;
       };
       circles: Array<{ id: number; name_ar: string }>;
       items: Array<{
@@ -1265,6 +1321,7 @@ export const api = {
         repeated: boolean;
         revised: boolean;
         error_count: number;
+        face_count: number;
       }>;
     }>(`/api/edu-dept/reports/progress${qs ? `?${qs}` : ""}`);
   },

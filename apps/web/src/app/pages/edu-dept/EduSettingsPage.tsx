@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { Settings2 } from "lucide-react";
 import { Button } from "../../components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { api } from "../../lib/api-client";
@@ -8,6 +14,7 @@ import { canUseApi } from "../../lib/api-access";
 import { ds, tajawal } from "../../lib/design-system";
 
 export function EduSettingsPage() {
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [weights, setWeights] = useState({
     weight_listening: 1,
     weight_revision: 1,
@@ -15,7 +22,7 @@ export function EduSettingsPage() {
     rabt_weight: 1,
     penalty_per_error: 0.5,
   });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -23,7 +30,6 @@ export function EduSettingsPage() {
   const load = useCallback(async () => {
     if (!canUseApi()) {
       setError("أعد تسجيل الدخول");
-      setLoading(false);
       return;
     }
     setLoading(true);
@@ -45,8 +51,8 @@ export function EduSettingsPage() {
   }, []);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (dialogOpen) void load();
+  }, [dialogOpen, load]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -56,6 +62,7 @@ export function EduSettingsPage() {
     try {
       await api.eduDeptSettingsPatch(weights);
       setSuccess("تم حفظ أوزان التقييم.");
+      setDialogOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "فشل الحفظ");
     } finally {
@@ -71,7 +78,7 @@ export function EduSettingsPage() {
           إعدادات التعليم
         </h2>
         <p className={ds.page.description} style={tajawal}>
-          أوزان تقييم المهام اليومية (السماع، التكرار، المراجعة، الربط، وخصم الأخطاء).
+          ضبط أوزان تقييم المهام اليومية للمعلمين والتقارير.
         </p>
       </div>
 
@@ -86,50 +93,73 @@ export function EduSettingsPage() {
         </p>
       )}
 
-      <form onSubmit={save} className={`${ds.card} p-6 space-y-4`}>
-        {loading ? (
-          <p className="text-muted-foreground text-sm" style={tajawal}>
-            جاري التحميل…
-          </p>
-        ) : (
-          <>
-            <Field
-              label="درجة السماع"
-              value={weights.weight_listening}
-              onChange={(v) => setWeights((w) => ({ ...w, weight_listening: v }))}
-            />
-            <Field
-              label="درجة التكرار"
-              value={weights.weight_repeat}
-              onChange={(v) => setWeights((w) => ({ ...w, weight_repeat: v }))}
-            />
-            <Field
-              label="درجة المراجعة"
-              value={weights.weight_revision}
-              onChange={(v) => setWeights((w) => ({ ...w, weight_revision: v }))}
-            />
-            <Field
-              label="درجة الربط"
-              value={weights.rabt_weight}
-              onChange={(v) => setWeights((w) => ({ ...w, rabt_weight: v }))}
-            />
-            <Field
-              label="خصم لكل خطأ / لحن"
-              value={weights.penalty_per_error}
-              onChange={(v) => setWeights((w) => ({ ...w, penalty_per_error: v }))}
-            />
-            <Button
-              type="submit"
-              variant="default"
-              disabled={saving}
-              className={`w-full ${ds.btnRound}`}
-              style={tajawal}
-            >
-              {saving ? "جاري الحفظ…" : "حفظ الإعدادات"}
-            </Button>
-          </>
-        )}
-      </form>
+      <div className={`${ds.card} p-12 flex flex-col items-center justify-center text-center gap-4 min-h-[280px]`}>
+        <Settings2 className="w-12 h-12 text-muted-foreground/60" />
+        <p className="text-sm text-muted-foreground max-w-sm" style={tajawal}>
+          أوزان السماع والتكرار والمراجعة والربط وخصم الأخطاء — تُعدّل من نموذج واحد.
+        </p>
+        <Button
+          type="button"
+          variant="default"
+          className={ds.btnRound}
+          onClick={() => setDialogOpen(true)}
+          style={tajawal}
+        >
+          تعديل أوزان التقييم
+        </Button>
+      </div>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className={`${ds.card} max-w-md rounded-2xl`} dir="rtl">
+          <DialogHeader>
+            <DialogTitle style={tajawal}>أوزان التقييم</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={save} className="space-y-4">
+            {loading ? (
+              <p className="text-muted-foreground text-sm" style={tajawal}>
+                جاري التحميل…
+              </p>
+            ) : (
+              <>
+                <Field
+                  label="درجة السماع"
+                  value={weights.weight_listening}
+                  onChange={(v) => setWeights((w) => ({ ...w, weight_listening: v }))}
+                />
+                <Field
+                  label="درجة التكرار"
+                  value={weights.weight_repeat}
+                  onChange={(v) => setWeights((w) => ({ ...w, weight_repeat: v }))}
+                />
+                <Field
+                  label="درجة المراجعة"
+                  value={weights.weight_revision}
+                  onChange={(v) => setWeights((w) => ({ ...w, weight_revision: v }))}
+                />
+                <Field
+                  label="درجة الربط"
+                  value={weights.rabt_weight}
+                  onChange={(v) => setWeights((w) => ({ ...w, rabt_weight: v }))}
+                />
+                <Field
+                  label="خصم لكل خطأ / لحن"
+                  value={weights.penalty_per_error}
+                  onChange={(v) => setWeights((w) => ({ ...w, penalty_per_error: v }))}
+                />
+                <Button
+                  type="submit"
+                  variant="default"
+                  disabled={saving}
+                  className={`w-full ${ds.btnRound}`}
+                  style={tajawal}
+                >
+                  {saving ? "جاري الحفظ…" : "حفظ الإعدادات"}
+                </Button>
+              </>
+            )}
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

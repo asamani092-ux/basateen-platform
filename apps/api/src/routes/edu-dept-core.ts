@@ -27,6 +27,43 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** Academic semester start (September) for cumulative face metrics. */
+function semesterStartIso(ref = new Date()): string {
+  const y = ref.getFullYear();
+  const m = ref.getMonth() + 1;
+  if (m >= 9) return `${y}-09-01`;
+  return `${y - 1}-09-01`;
+}
+
+function computeQualityPct(
+  row: {
+    listened: number | boolean;
+    repeated: number | boolean;
+    revised: number | boolean;
+    error_count: number;
+    tune_errors: number;
+  },
+  wL: number,
+  wRev: number,
+  wRep: number,
+  wRabt: number,
+  pen: number,
+  maxScore: number,
+): number {
+  const listened = Boolean(row.listened);
+  const repeated = Boolean(row.repeated);
+  const revised = Boolean(row.revised);
+  const rabtBonus = listened && repeated && revised ? wRabt : 0;
+  const earned =
+    (listened ? wL : 0) +
+    (repeated ? wRep : 0) +
+    (revised ? wRev : 0) +
+    rabtBonus;
+  const penalties = pen * (Number(row.error_count) + Number(row.tune_errors));
+  const raw = maxScore > 0 ? ((earned - penalties) / maxScore) * 100 : 0;
+  return Math.round(Math.max(0, Math.min(100, raw)) * 10) / 10;
+}
+
 function migrationRequired(): Response {
   return json({ error: "migration_required" }, 503);
 }
@@ -201,8 +238,12 @@ export async function handleEduDeptCoreRouter(
       const allowed = await teacherCircleIds(env, auth.userId);
       if (!allowed.includes(circleId)) return json({ error: "forbidden" }, 403);
       const students = await studentsInCircle(env, auth.complexId, circleId);
+      const hasFace = await tableHasColumn(env, "edu_daily_recitation", "face_count");
+      const markCols = hasFace
+        ? `student_id, listened, repeated, revised, error_count, tune_errors, notes, face_count`
+        : `student_id, listened, repeated, revised, error_count, tune_errors, notes`;
       const marks = await env.DB.prepare(
-        `SELECT student_id, listened, repeated, revised, error_count, tune_errors, notes
+        `SELECT ${markCols}
          FROM edu_daily_recitation
          WHERE circle_id = ? AND recitation_date = ?`,
       )
@@ -215,6 +256,7 @@ export async function handleEduDeptCoreRouter(
           error_count: number;
           tune_errors: number;
           notes: string | null;
+          face_count?: number;
         }>();
       const byStudent = new Map(
         (marks.results ?? []).map((m) => [m.student_id, m]),
@@ -229,6 +271,7 @@ export async function handleEduDeptCoreRouter(
           revised: Boolean(m?.revised),
           error_count: m?.error_count ?? 0,
           tune_errors: m?.tune_errors ?? 0,
+          face_count: hasFace ? Number(m?.face_count ?? 0) : 0,
           notes: m?.notes ?? "",
         };
       });
@@ -246,6 +289,7 @@ export async function handleEduDeptCoreRouter(
           revised?: boolean;
           error_count?: number;
           tune_errors?: number;
+          face_count?: number;
           notes?: string;
         }>;
       };
@@ -261,9 +305,40 @@ export async function handleEduDeptCoreRouter(
       }
       const allowedCircles = await teacherCircleIds(env, auth.userId);
       if (!allowedCircles.includes(cid)) return json({ error: "forbidden" }, 403);
+      const hasFace = await tableHasColumn(env, "edu_daily_recitation", "face_count");
       const rows = body.rows ?? [];
-      const stmts = rows.map((r) =>
-        env.DB.prepare(
+      const stmts = rows.map((r) => {
+        if (hasFace) {
+          return env.DB.prepare(
+            `INSERT INTO edu_daily_recitation
+              (student_id, teacher_user_id, circle_id, recitation_date, listened, repeated, revised, error_count, tune_errors, face_count, notes, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+             ON CONFLICT(student_id, recitation_date) DO UPDATE SET
+               teacher_user_id = excluded.teacher_user_id,
+               circle_id = excluded.circle_id,
+               listened = excluded.listened,
+               repeated = excluded.repeated,
+               revised = excluded.revised,
+               error_count = excluded.error_count,
+               tune_errors = excluded.tune_errors,
+               face_count = excluded.face_count,
+               notes = excluded.notes,
+               updated_at = datetime('now')`,
+          ).bind(
+            r.student_id,
+            auth.userId,
+            cid,
+            recDate,
+            r.listened ? 1 : 0,
+            r.repeated ? 1 : 0,
+            r.revised ? 1 : 0,
+            Number(r.error_count ?? 0),
+            Number(r.tune_errors ?? 0),
+            Math.max(0, Math.floor(Number(r.face_count ?? 0))),
+            typeof r.notes === "string" ? r.notes.slice(0, 500) : null,
+          );
+        }
+        return env.DB.prepare(
           `INSERT INTO edu_daily_recitation
             (student_id, teacher_user_id, circle_id, recitation_date, listened, repeated, revised, error_count, tune_errors, notes, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
@@ -288,8 +363,8 @@ export async function handleEduDeptCoreRouter(
           Number(r.error_count ?? 0),
           Number(r.tune_errors ?? 0),
           typeof r.notes === "string" ? r.notes.slice(0, 500) : null,
-        ),
-      );
+        );
+      });
       if (stmts.length > 0) await env.DB.batch(stmts);
       return json({ ok: true, saved: stmts.length });
     }
@@ -498,7 +573,12 @@ export async function handleEduDeptCoreRouter(
     }
     if (!(await hasTable(env, "edu_daily_recitation"))) return migrationRequired();
 
-    const date = url.searchParams.get("date")?.trim() || todayIso();
+    const today = todayIso();
+    const dateParam = url.searchParams.get("date")?.trim();
+    const dateFromParam = url.searchParams.get("date_from")?.trim();
+    const dateToParam = url.searchParams.get("date_to")?.trim();
+    const dateFrom = dateFromParam || dateParam || today;
+    const dateTo = dateToParam || dateParam || today;
     const circleIdParam = url.searchParams.get("circle_id");
     const circleFilter =
       circleIdParam != null && circleIdParam !== ""
@@ -506,6 +586,7 @@ export async function handleEduDeptCoreRouter(
         : null;
 
     const hasRabt = await tableHasColumn(env, "edu_settings", "rabt_weight");
+    const hasFace = await tableHasColumn(env, "edu_daily_recitation", "face_count");
     const settingsRow = await env.DB.prepare(
       hasRabt
         ? `SELECT weight_listening, weight_revision, weight_repeat, rabt_weight, penalty_per_error
@@ -523,20 +604,26 @@ export async function handleEduDeptCoreRouter(
     const pen = Number(settingsRow?.penalty_per_error ?? 0.5);
     const maxScore = wL + wRev + wRep + wRabt;
 
+    const selectCols = hasFace
+      ? `dr.student_id, dr.listened, dr.repeated, dr.revised,
+         dr.error_count, dr.tune_errors, dr.face_count, dr.circle_id, dr.recitation_date,
+         s.full_name_ar, c.name_ar AS circle_name`
+      : `dr.student_id, dr.listened, dr.repeated, dr.revised,
+         dr.error_count, dr.tune_errors, dr.circle_id, dr.recitation_date,
+         s.full_name_ar, c.name_ar AS circle_name`;
+
     let sql = `
-      SELECT dr.student_id, dr.listened, dr.repeated, dr.revised,
-             dr.error_count, dr.tune_errors, dr.circle_id,
-             s.full_name_ar, c.name_ar AS circle_name
+      SELECT ${selectCols}
       FROM edu_daily_recitation dr
       INNER JOIN students s ON s.id = dr.student_id AND s.complex_id = ?
       LEFT JOIN circles c ON c.id = dr.circle_id
-      WHERE dr.recitation_date = ?`;
-    const binds: (string | number)[] = [auth.complexId, date];
+      WHERE dr.recitation_date >= ? AND dr.recitation_date <= ?`;
+    const binds: (string | number)[] = [auth.complexId, dateFrom, dateTo];
     if (circleFilter != null && Number.isFinite(circleFilter) && circleFilter > 0) {
       sql += ` AND dr.circle_id = ?`;
       binds.push(circleFilter);
     }
-    sql += ` ORDER BY s.full_name_ar`;
+    sql += ` ORDER BY s.full_name_ar, dr.recitation_date`;
 
     const rows = await env.DB.prepare(sql)
       .bind(...binds)
@@ -547,55 +634,95 @@ export async function handleEduDeptCoreRouter(
         revised: number;
         error_count: number;
         tune_errors: number;
+        face_count?: number;
         circle_id: number;
+        recitation_date: string;
         full_name_ar: string;
         circle_name: string | null;
       }>();
 
+    type StudentAgg = {
+      student_id: number;
+      full_name_ar: string;
+      circle_id: number;
+      circle_name: string;
+      qualitySum: number;
+      qualityCount: number;
+      error_count: number;
+      face_count: number;
+      listened: boolean;
+      repeated: boolean;
+      revised: boolean;
+    };
+
     type CircleAgg = { sum: number; count: number; name: string };
+    const studentMap = new Map<number, StudentAgg>();
     const circleMap = new Map<number, CircleAgg>();
     let qualitySum = 0;
     let activeCount = 0;
+    let rowCount = 0;
 
-    const items = (rows.results ?? []).map((r) => {
+    for (const r of rows.results ?? []) {
+      const quality_pct = computeQualityPct(r, wL, wRev, wRep, wRabt, pen, maxScore);
       const listened = Boolean(r.listened);
       const repeated = Boolean(r.repeated);
       const revised = Boolean(r.revised);
-      const rabtBonus = listened && repeated && revised ? wRabt : 0;
-      const earned =
-        (listened ? wL : 0) +
-        (repeated ? wRep : 0) +
-        (revised ? wRev : 0) +
-        rabtBonus;
-      const penalties = pen * (Number(r.error_count) + Number(r.tune_errors));
-      const raw = maxScore > 0 ? ((earned - penalties) / maxScore) * 100 : 0;
-      const quality_pct = Math.round(Math.max(0, Math.min(100, raw)) * 10) / 10;
+      const faces = hasFace ? Number(r.face_count ?? 0) : 0;
 
       if (listened || repeated || revised) activeCount += 1;
       qualitySum += quality_pct;
+      rowCount += 1;
 
       const cid = r.circle_id;
       const cname = r.circle_name ?? "—";
-      const prev = circleMap.get(cid) ?? { sum: 0, count: 0, name: cname };
-      prev.sum += quality_pct;
-      prev.count += 1;
-      prev.name = cname;
-      circleMap.set(cid, prev);
+      const prevCircle = circleMap.get(cid) ?? { sum: 0, count: 0, name: cname };
+      prevCircle.sum += quality_pct;
+      prevCircle.count += 1;
+      prevCircle.name = cname;
+      circleMap.set(cid, prevCircle);
 
-      return {
+      const prev = studentMap.get(r.student_id) ?? {
         student_id: r.student_id,
         full_name_ar: r.full_name_ar,
         circle_id: r.circle_id,
         circle_name: cname,
-        quality_pct,
-        listened,
-        repeated,
-        revised,
-        error_count: r.error_count,
+        qualitySum: 0,
+        qualityCount: 0,
+        error_count: 0,
+        face_count: 0,
+        listened: false,
+        repeated: false,
+        revised: false,
       };
-    });
+      prev.qualitySum += quality_pct;
+      prev.qualityCount += 1;
+      prev.error_count += Number(r.error_count);
+      prev.face_count += faces;
+      prev.listened = prev.listened || listened;
+      prev.repeated = prev.repeated || repeated;
+      prev.revised = prev.revised || revised;
+      prev.circle_name = cname;
+      studentMap.set(r.student_id, prev);
+    }
 
-    const rowCount = items.length;
+    const items = [...studentMap.values()]
+      .map((s) => ({
+        student_id: s.student_id,
+        full_name_ar: s.full_name_ar,
+        circle_id: s.circle_id,
+        circle_name: s.circle_name,
+        quality_pct:
+          s.qualityCount > 0
+            ? Math.round((s.qualitySum / s.qualityCount) * 10) / 10
+            : 0,
+        listened: s.listened,
+        repeated: s.repeated,
+        revised: s.revised,
+        error_count: s.error_count,
+        face_count: s.face_count,
+      }))
+      .sort((a, b) => a.full_name_ar.localeCompare(b.full_name_ar, "ar"));
+
     const avgQuality =
       rowCount > 0 ? Math.round((qualitySum / rowCount) * 10) / 10 : 0;
 
@@ -613,6 +740,42 @@ export async function handleEduDeptCoreRouter(
       }
     }
 
+    const semesterStart = semesterStartIso();
+    let facesSemesterSql = `
+      SELECT COALESCE(SUM(dr.face_count), 0) AS total
+      FROM edu_daily_recitation dr
+      INNER JOIN students s ON s.id = dr.student_id AND s.complex_id = ?
+      WHERE dr.recitation_date >= ?`;
+    const facesSemesterBinds: (string | number)[] = [auth.complexId, semesterStart];
+    if (circleFilter != null && Number.isFinite(circleFilter) && circleFilter > 0) {
+      facesSemesterSql += ` AND dr.circle_id = ?`;
+      facesSemesterBinds.push(circleFilter);
+    }
+
+    let facesTodaySql = `
+      SELECT COALESCE(SUM(dr.face_count), 0) AS total
+      FROM edu_daily_recitation dr
+      INNER JOIN students s ON s.id = dr.student_id AND s.complex_id = ?
+      WHERE dr.recitation_date = ?`;
+    const facesTodayBinds: (string | number)[] = [auth.complexId, today];
+    if (circleFilter != null && Number.isFinite(circleFilter) && circleFilter > 0) {
+      facesTodaySql += ` AND dr.circle_id = ?`;
+      facesTodayBinds.push(circleFilter);
+    }
+
+    let totalFacesSemester = 0;
+    let facesToday = 0;
+    if (hasFace) {
+      const semRow = await env.DB.prepare(facesSemesterSql)
+        .bind(...facesSemesterBinds)
+        .first<{ total: number }>();
+      totalFacesSemester = Number(semRow?.total ?? 0);
+      const todayRow = await env.DB.prepare(facesTodaySql)
+        .bind(...facesTodayBinds)
+        .first<{ total: number }>();
+      facesToday = Number(todayRow?.total ?? 0);
+    }
+
     const circles = await env.DB.prepare(
       `SELECT id, name_ar FROM circles WHERE complex_id = ? AND is_active = 1 ORDER BY name_ar`,
     )
@@ -620,12 +783,17 @@ export async function handleEduDeptCoreRouter(
       .all<{ id: number; name_ar: string }>();
 
     return json({
-      date,
+      date: dateTo,
+      date_from: dateFrom,
+      date_to: dateTo,
+      semester_start: semesterStart,
       summary: {
         avg_quality: avgQuality,
         top_circle: topCircle,
         active_students: activeCount,
         total_records: rowCount,
+        total_faces_semester: totalFacesSemester,
+        faces_today: facesToday,
       },
       circles: circles.results ?? [],
       items,

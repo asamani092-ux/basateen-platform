@@ -27,6 +27,8 @@ import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { ds, tajawal } from "../../lib/design-system";
 import { QuranicDayStudentsModal } from "./QuranicDayStudentsModal";
+import { QuranicDayRecordsModal } from "./QuranicDayRecordsModal";
+import { QuranicDayReportModal } from "./QuranicDayReportModal";
 
 export type DayRow = {
   id: number;
@@ -75,6 +77,8 @@ export function QuranicDaysManagerPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const [studentsDay, setStudentsDay] = useState<DayRow | null>(null);
+  const [recordsDay, setRecordsDay] = useState<DayRow | null>(null);
+  const [reportDay, setReportDay] = useState<DayRow | null>(null);
   const [linkBusy, setLinkBusy] = useState<number | null>(null);
   const [lastLink, setLastLink] = useState("");
 
@@ -299,6 +303,16 @@ export function QuranicDaysManagerPage() {
                       onClick={() => openEdit(d)}
                     />
                     <TableIconAction
+                      kind="edit"
+                      label="مراجعة/تعديل الرصد"
+                      onClick={() => setRecordsDay(d)}
+                    />
+                    <TableIconAction
+                      kind="print"
+                      label="تقرير اليوم"
+                      onClick={() => setReportDay(d)}
+                    />
+                    <TableIconAction
                       kind="capacity"
                       label="طلاب اليوم"
                       onClick={() => setStudentsDay(d)}
@@ -405,6 +419,24 @@ export function QuranicDaysManagerPage() {
           dayName={studentsDay.name_ar}
           open={Boolean(studentsDay)}
           onOpenChange={(o) => !o && setStudentsDay(null)}
+        />
+      )}
+
+      {recordsDay && (
+        <QuranicDayRecordsModal
+          dayId={recordsDay.id}
+          dayName={recordsDay.name_ar}
+          open={Boolean(recordsDay)}
+          onOpenChange={(o) => !o && setRecordsDay(null)}
+        />
+      )}
+
+      {reportDay && (
+        <QuranicDayReportModal
+          dayId={reportDay.id}
+          dayName={reportDay.name_ar}
+          open={Boolean(reportDay)}
+          onOpenChange={(o) => !o && setReportDay(null)}
         />
       )}
     </div>

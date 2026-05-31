@@ -57,6 +57,7 @@ FILES_UPGRADE=(
   "029_edu_hotfixes.sql"
   "030_programs_and_display_core.sql"
   "031_quiz_require_student_name.sql"
+  "032_quiz_grading_and_display.sql"
 )
 
 FILES_ALL=(

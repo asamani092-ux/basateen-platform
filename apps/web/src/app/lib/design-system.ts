@@ -50,4 +50,8 @@ export const ds = {
     active: "rounded-xl bg-primary text-primary-foreground",
     idle: "rounded-xl border border-input bg-input-background text-foreground hover:bg-muted",
   },
+  /** فلاتر متجاوبة: عمود على الجوال، صف على الشاشات الأوسع */
+  filterRow:
+    "flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:gap-4",
+  loading: "flex min-h-[12rem] items-center justify-center",
 } as const;

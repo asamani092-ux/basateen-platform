@@ -727,8 +727,17 @@ export async function handleProgSupervisorRouter(
     const items: Array<Record<string, unknown>> = [];
 
     if (await hasTable(env, "quiz_responses")) {
+      const hasGrading = await tableHasColumn(env, "quiz_responses", "grading_pending");
+      const hasAnswers = await tableHasColumn(env, "quiz_responses", "answers_json");
+      const extraCols = [
+        hasGrading ? "grading_pending" : null,
+        hasAnswers ? "answers_json" : null,
+      ]
+        .filter(Boolean)
+        .join(", ");
+      const colPrefix = extraCols ? `, ${extraCols}` : "";
       const respRows = await env.DB.prepare(
-        `SELECT id, student_name, student_phone, total_score, submitted_at
+        `SELECT id, student_name, student_phone, total_score, submitted_at${colPrefix}
          FROM quiz_responses
          WHERE quiz_id = ? AND submitted_at IS NOT NULL
          ORDER BY submitted_at DESC`,
@@ -738,11 +747,14 @@ export async function handleProgSupervisorRouter(
       for (const r of respRows.results ?? []) {
         items.push({
           source: "public",
+          response_id: r.id,
           student_name: r.student_name,
           student_phone: r.student_phone,
           total_score: r.total_score,
           score_percent: null,
           submitted_at: r.submitted_at,
+          grading_pending: hasGrading ? Number(r.grading_pending ?? 0) : 0,
+          answers_json: hasAnswers ? r.answers_json : null,
         });
       }
     }
@@ -769,6 +781,50 @@ export async function handleProgSupervisorRouter(
     }
 
     return json({ items });
+  }
+
+  const gradeMatch = path.match(
+    /^\/api\/prog-supervisor\/quizzes\/(\d+)\/responses\/(\d+)\/grade$/,
+  );
+  if (gradeMatch && method === "PATCH") {
+    const quizId = Number(gradeMatch[1]);
+    const responseId = Number(gradeMatch[2]);
+    const quiz = await env.DB.prepare(
+      `SELECT id FROM quizzes WHERE id = ? AND complex_id = ?`,
+    )
+      .bind(quizId, auth.complexId)
+      .first();
+    if (!quiz) return json({ error: "not_found" }, 404);
+    if (!(await hasTable(env, "quiz_responses"))) {
+      return json({ error: "migration_required" }, 503);
+    }
+
+    let body: { total_score?: number };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+    const totalScore = Number(body.total_score);
+    if (!Number.isFinite(totalScore) || totalScore < 0) {
+      return json({ error: "invalid_score" }, 400);
+    }
+
+    const hasGradingPending = await tableHasColumn(env, "quiz_responses", "grading_pending");
+    if (hasGradingPending) {
+      await env.DB.prepare(
+        `UPDATE quiz_responses SET total_score = ?, grading_pending = 0 WHERE id = ? AND quiz_id = ?`,
+      )
+        .bind(totalScore, responseId, quizId)
+        .run();
+    } else {
+      await env.DB.prepare(
+        `UPDATE quiz_responses SET total_score = ? WHERE id = ? AND quiz_id = ?`,
+      )
+        .bind(totalScore, responseId, quizId)
+        .run();
+    }
+    return json({ ok: true, total_score: totalScore });
   }
 
   const questionsMatch = path.match(/^\/api\/prog-supervisor\/quizzes\/(\d+)\/questions$/);
@@ -1197,77 +1253,123 @@ async function handleAnalytics(
   env: Env,
   complexId: number,
   scope: ScopeMode,
-  url: URL,
+  _url: URL,
 ): Promise<Response> {
   const scopeStudentWhere = studentsInScopeWhere(scope);
   const scopeBinds = studentsInScopeBinds(complexId, scope);
 
-  const pendingQuizzes = await env.DB.prepare(
-    `SELECT COUNT(*) AS c FROM quizzes WHERE complex_id = ? AND status = 'published'`,
-  )
-    .bind(complexId)
-    .first<{ c: number }>();
+  let publishedQuizzes = 0;
+  if (await hasTable(env, "quizzes")) {
+    const hasStatus = await tableHasColumn(env, "quizzes", "status");
+    const row = hasStatus
+      ? await env.DB.prepare(
+          `SELECT COUNT(*) AS c FROM quizzes WHERE complex_id = ? AND status = 'published'`,
+        )
+          .bind(complexId)
+          .first<{ c: number }>()
+      : await env.DB.prepare(
+          `SELECT COUNT(*) AS c FROM quizzes WHERE complex_id = ?`,
+        )
+          .bind(complexId)
+          .first<{ c: number }>();
+    publishedQuizzes = Number(row?.c ?? 0);
+  }
 
-  const attempts = await env.DB.prepare(
-    `SELECT AVG(a.score_percent) AS avg_score, COUNT(*) AS c
-     FROM quiz_attempts a
-     JOIN students s ON s.id = a.student_id
-     WHERE a.submitted_at IS NOT NULL AND ${scopeStudentWhere}`,
-  )
-    .bind(...scopeBinds)
-    .first<{ avg_score: number | null; c: number }>();
+  let attemptsCount = 0;
+  let avgScore = 0;
+  if (await hasTable(env, "quiz_attempts") && (await hasTable(env, "students"))) {
+    const attempts = await env.DB.prepare(
+      `SELECT AVG(a.score_percent) AS avg_score, COUNT(*) AS c
+       FROM quiz_attempts a
+       JOIN students s ON s.id = a.student_id
+       WHERE a.submitted_at IS NOT NULL AND ${scopeStudentWhere}`,
+    )
+      .bind(...scopeBinds)
+      .first<{ avg_score: number | null; c: number }>();
+    attemptsCount = Number(attempts?.c ?? 0);
+    avgScore = Math.round(Number(attempts?.avg_score ?? 0) * 10) / 10;
+  }
 
-  const topStudents = await env.DB.prepare(
-    `SELECT s.id, s.full_name_ar, AVG(a.score_percent) AS avg_score, COUNT(a.id) AS quiz_count
-     FROM quiz_attempts a
-     JOIN students s ON s.id = a.student_id
-     WHERE a.submitted_at IS NOT NULL AND ${scopeStudentWhere}
-     GROUP BY s.id
-     ORDER BY avg_score DESC, quiz_count DESC
-     LIMIT 10`,
-  )
-    .bind(...scopeBinds)
-    .all();
+  if (await hasTable(env, "quiz_responses")) {
+    const publicAttempts = await env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM quiz_responses WHERE submitted_at IS NOT NULL`,
+    ).first<{ c: number }>();
+    attemptsCount += Number(publicAttempts?.c ?? 0);
+  }
 
-  const topCircles = await env.DB.prepare(
-    `SELECT c.id, c.name_ar,
-            COUNT(DISTINCT pp.student_id) AS participants,
-            COUNT(pp.id) AS participation_events
-     FROM program_participation pp
-     JOIN students s ON s.id = pp.student_id
-     JOIN student_circle_history h ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL
-     JOIN circles c ON c.id = h.circle_id
-     WHERE ${scopeStudentWhere}
-     GROUP BY c.id
-     ORDER BY participants DESC
-     LIMIT 10`,
-  )
-    .bind(...scopeBinds)
-    .all();
+  let topStudents: Record<string, unknown>[] = [];
+  if (await hasTable(env, "quiz_attempts") && (await hasTable(env, "students"))) {
+    const rows = await env.DB.prepare(
+      `SELECT s.id, s.full_name_ar, AVG(a.score_percent) AS avg_score, COUNT(a.id) AS quiz_count
+       FROM quiz_attempts a
+       JOIN students s ON s.id = a.student_id
+       WHERE a.submitted_at IS NOT NULL AND ${scopeStudentWhere}
+       GROUP BY s.id
+       ORDER BY avg_score DESC, quiz_count DESC
+       LIMIT 10`,
+    )
+      .bind(...scopeBinds)
+      .all();
+    topStudents = rows.results ?? [];
+  }
 
-  const circleQuizAvg = await env.DB.prepare(
-    `SELECT c.id, c.name_ar, AVG(a.score_percent) AS avg_score, COUNT(a.id) AS attempts
-     FROM quiz_attempts a
-     JOIN students s ON s.id = a.student_id
-     JOIN student_circle_history h ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL
-     JOIN circles c ON c.id = h.circle_id
-     WHERE a.submitted_at IS NOT NULL AND ${scopeStudentWhere}
-     GROUP BY c.id
-     ORDER BY avg_score DESC
-     LIMIT 10`,
-  )
-    .bind(...scopeBinds)
-    .all();
+  let topCircles: Record<string, unknown>[] = [];
+  if (
+    (await hasTable(env, "program_participation")) &&
+    (await hasTable(env, "students")) &&
+    (await hasTable(env, "student_circle_history")) &&
+    (await hasTable(env, "circles"))
+  ) {
+    const rows = await env.DB.prepare(
+      `SELECT c.id, c.name_ar,
+              COUNT(DISTINCT pp.student_id) AS participants,
+              COUNT(pp.id) AS participation_events
+       FROM program_participation pp
+       JOIN students s ON s.id = pp.student_id
+       JOIN student_circle_history h ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL
+       JOIN circles c ON c.id = h.circle_id
+       WHERE ${scopeStudentWhere}
+       GROUP BY c.id
+       ORDER BY participants DESC
+       LIMIT 10`,
+    )
+      .bind(...scopeBinds)
+      .all();
+    topCircles = rows.results ?? [];
+  }
+
+  let circleQuizAvg: Record<string, unknown>[] = [];
+  if (
+    (await hasTable(env, "quiz_attempts")) &&
+    (await hasTable(env, "students")) &&
+    (await hasTable(env, "student_circle_history")) &&
+    (await hasTable(env, "circles"))
+  ) {
+    const rows = await env.DB.prepare(
+      `SELECT c.id, c.name_ar, AVG(a.score_percent) AS avg_score, COUNT(a.id) AS attempts
+       FROM quiz_attempts a
+       JOIN students s ON s.id = a.student_id
+       JOIN student_circle_history h ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL
+       JOIN circles c ON c.id = h.circle_id
+       WHERE a.submitted_at IS NOT NULL AND ${scopeStudentWhere}
+       GROUP BY c.id
+       ORDER BY avg_score DESC
+       LIMIT 10`,
+    )
+      .bind(...scopeBinds)
+      .all();
+    circleQuizAvg = rows.results ?? [];
+  }
 
   return json({
     scope_label: scopeLabel(scope),
     kpis: {
-      published_quizzes: Number(pendingQuizzes?.c ?? 0),
-      quiz_attempts_submitted: Number(attempts?.c ?? 0),
-      average_quiz_score: Math.round(Number(attempts?.avg_score ?? 0) * 10) / 10,
+      published_quizzes: publishedQuizzes,
+      quiz_attempts_submitted: attemptsCount,
+      average_quiz_score: avgScore,
     },
-    top_students: topStudents.results ?? [],
-    top_circles_participation: topCircles.results ?? [],
-    circle_quiz_averages: circleQuizAvg.results ?? [],
+    top_students: topStudents,
+    top_circles_participation: topCircles,
+    circle_quiz_averages: circleQuizAvg,
   });
 }

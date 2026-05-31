@@ -52,11 +52,13 @@ type QuestionDraft = {
 
 type ResponseRow = {
   source: string;
+  response_id?: number;
   student_name: string;
   student_phone: string | null;
   total_score: number | null;
   score_percent: number | null;
   submitted_at: string;
+  grading_pending?: number;
 };
 
 function emptyQuestion(order: number): QuestionDraft {
@@ -373,6 +375,9 @@ export function QuizBuilderPage() {
                                 الدرجة
                               </TableHead>
                               <TableHead className={ds.table.head} style={tajawal}>
+                                الحالة
+                              </TableHead>
+                              <TableHead className={ds.table.head} style={tajawal}>
                                 وقت التسليم
                               </TableHead>
                             </TableRow>
@@ -386,11 +391,40 @@ export function QuizBuilderPage() {
                                     : "—"}
                                 </TableCell>
                                 <TableCell className={ds.table.cell} style={tajawal}>
-                                  {r.total_score != null
-                                    ? r.total_score
-                                    : r.score_percent != null
-                                      ? `${r.score_percent}%`
-                                      : "—"}
+                                  {r.grading_pending === 1 ? (
+                                    <div className="flex items-center gap-2 justify-end">
+                                      <Input
+                                        type="number"
+                                        min={0}
+                                        step={0.5}
+                                        className={cn(ds.field, "w-20 h-8")}
+                                        defaultValue={String(r.total_score ?? "")}
+                                        onBlur={(e) => {
+                                          const score = Number(e.target.value);
+                                          if (
+                                            !Number.isFinite(score) ||
+                                            r.response_id == null ||
+                                            expandedId == null
+                                          ) {
+                                            return;
+                                          }
+                                          void api
+                                            .progQuizResponseGrade(expandedId, r.response_id, score)
+                                            .then(() => loadResponses(expandedId));
+                                        }}
+                                      />
+                                      <span className="text-xs text-amber-600">يدوي</span>
+                                    </div>
+                                  ) : r.total_score != null ? (
+                                    r.total_score
+                                  ) : r.score_percent != null ? (
+                                    `${r.score_percent}%`
+                                  ) : (
+                                    "—"
+                                  )}
+                                </TableCell>
+                                <TableCell className={ds.table.cell} style={tajawal}>
+                                  {r.grading_pending === 1 ? "بانتظار التصحيح" : "معتمد"}
                                 </TableCell>
                                 <TableCell className={ds.table.cell} style={tajawal}>
                                   {r.submitted_at?.slice(0, 16) ?? "—"}

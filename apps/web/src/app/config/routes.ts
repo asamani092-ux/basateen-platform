@@ -106,6 +106,12 @@ export const ADMIN_DEPT_NAV: NavItem[] = [
     roles: ["super_admin"],
   },
   {
+    id: "students-admin",
+    label: "بيانات الطلاب",
+    path: "/admin-dept/students",
+    roles: ADMIN_DEPT_ROLES,
+  },
+  {
     id: "staff-attendance",
     label: "تحضير المنسوبين",
     path: "/admin-dept/staff-attendance",

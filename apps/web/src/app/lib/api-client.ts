@@ -1757,6 +1757,24 @@ export const api = {
     request<{
       items: Array<{ id: number; media_type: string; media_url: string; display_order: number }>;
     }>("/api/public/live-display/media"),
+  publicLiveDisplayCarousel: () =>
+    request<{
+      complex_name: string;
+      slide_seconds: number;
+      slides: Array<Record<string, unknown>>;
+    }>("/api/public/live-display/carousel"),
+  displaySettingsGet: () =>
+    request<{ slide_seconds: number }>("/api/display-dept/settings"),
+  displaySettingsPatch: (body: { slide_seconds: number }) =>
+    request<{ ok: boolean; slide_seconds: number }>("/api/display-dept/settings", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  progQuizResponseGrade: (quizId: number, responseId: number, total_score: number) =>
+    request<{ ok: boolean; total_score: number }>(
+      `/api/prog-supervisor/quizzes/${quizId}/responses/${responseId}/grade`,
+      { method: "PATCH", body: JSON.stringify({ total_score }) },
+    ),
   progActivitiesList: () =>
     request<{ items: Array<Record<string, unknown>> }>(
       "/api/prog-supervisor/activities",

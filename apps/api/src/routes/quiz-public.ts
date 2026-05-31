@@ -400,7 +400,8 @@ export async function handleQuizPublicRouter(
 
     const questions = await loadQuestions(env, quizId);
     const answers = body.answers ?? {};
-    const { scorePercent, earned, total } = scoreQuizAttempt(questions, answers);
+    const scored = scoreQuizAttempt(questions, answers);
+    const { scorePercent, earned, total, pendingTextCount, autoEarned } = scored;
 
     if (isPublicApi) {
       const response = await resolveResponseByToken(env, quizId, token);
@@ -409,19 +410,50 @@ export async function handleQuizPublicRouter(
         return json({ error: "already_submitted", total_score: response.total_score }, 409);
       }
 
-      await env.DB.prepare(
-        `UPDATE quiz_responses SET
-           answers_json = ?,
-           total_score = ?,
-           submitted_at = datetime('now')
-         WHERE id = ?`,
-      )
-        .bind(JSON.stringify(answers), earned, response.id)
-        .run();
+      const hasGradingPending = await tableHasColumn(env, "quiz_responses", "grading_pending");
+      const hasAutoScore = await tableHasColumn(env, "quiz_responses", "auto_score");
+
+      if (hasGradingPending && hasAutoScore) {
+        await env.DB.prepare(
+          `UPDATE quiz_responses SET
+             answers_json = ?,
+             auto_score = ?,
+             total_score = ?,
+             grading_pending = ?,
+             submitted_at = datetime('now')
+           WHERE id = ?`,
+        )
+          .bind(
+            JSON.stringify(answers),
+            autoEarned,
+            autoEarned,
+            pendingTextCount > 0 ? 1 : 0,
+            response.id,
+          )
+          .run();
+      } else {
+        await env.DB.prepare(
+          `UPDATE quiz_responses SET
+             answers_json = ?,
+             total_score = ?,
+             submitted_at = datetime('now')
+           WHERE id = ?`,
+        )
+          .bind(JSON.stringify(answers), earned, response.id)
+          .run();
+      }
+
+      const messageExtra =
+        pendingTextCount > 0
+          ? " تم حفظ إجاباتك. ستُراجع الأسئلة النصية يدوياً من قبل المشرف."
+          : "";
 
       return json({
         ok: true,
+        grading_pending: pendingTextCount > 0,
         ...resultPayload(quiz, scorePercent, earned, total),
+        message:
+          (resultPayload(quiz, scorePercent, earned, total).message ?? "") + messageExtra,
       });
     }
 

@@ -50,6 +50,102 @@ function emailForMobile(mobile: string, role: string): string {
   return `${role}-${clean}@basateen.local`;
 }
 
+const SUPERVISOR_INPUT_ROLES = [
+  "edu_supervisor",
+  "prog_supervisor",
+  "general_supervisor",
+  "admin_supervisor",
+] as const;
+
+function normalizeSupervisorRoleForDb(role: string): UserRole {
+  if (role === "general_supervisor") return "admin_supervisor";
+  return role as UserRole;
+}
+
+function legacySupervisorFlags(role: string): Record<string, number> {
+  const dbRole = normalizeSupervisorRoleForDb(role);
+  if (dbRole === "edu_supervisor") return { is_educational: 1 };
+  if (dbRole === "prog_supervisor") return { is_programs: 1 };
+  return { is_admin: 1 };
+}
+
+async function insertSupervisorUser(
+  env: Env,
+  complexId: number,
+  body: {
+    full_name_ar: string;
+    mobile: string;
+    role: string;
+    supervisor_scope: string;
+  },
+): Promise<number> {
+  const passwordHash = await hashPassword(DEFAULT_PASSWORD);
+  const dbRole = normalizeSupervisorRoleForDb(body.role);
+  const hasRoleCol = await usersHaveRoleColumn(env);
+  const hasScopeCol = await tableHasColumn(env, "users", "supervisor_scope");
+  const hasStageScope = await tableHasColumn(env, "users", "stage_scope");
+
+  const cols = ["complex_id", "email", "mobile", "password_hash", "full_name_ar"];
+  const vals: (string | number)[] = [
+    complexId,
+    emailForMobile(body.mobile, dbRole),
+    body.mobile,
+    passwordHash,
+    body.full_name_ar,
+  ];
+
+  if (hasRoleCol) {
+    cols.push("role");
+    vals.push(dbRole);
+  } else {
+    for (const [flag, value] of Object.entries(legacySupervisorFlags(body.role))) {
+      if (await tableHasColumn(env, "users", flag)) {
+        cols.push(flag);
+        vals.push(value);
+      }
+    }
+  }
+
+  if (hasScopeCol) {
+    cols.push("supervisor_scope");
+    vals.push(body.supervisor_scope);
+  } else if (hasStageScope) {
+    cols.push("stage_scope");
+    vals.push(body.supervisor_scope);
+  }
+
+  const placeholders = cols.map(() => "?").join(", ");
+  const ins = await env.DB.prepare(
+    `INSERT INTO users (${cols.join(", ")}) VALUES (${placeholders})`,
+  )
+    .bind(...vals)
+    .run();
+
+  return Number(ins.meta.last_row_id);
+}
+
+async function syncSupervisorSections(
+  env: Env,
+  userId: number,
+  role: string,
+): Promise<void> {
+  if (!(await hasTable(env, "user_sections"))) return;
+  const dbRole = normalizeSupervisorRoleForDb(role);
+  const sections =
+    dbRole === "prog_supervisor"
+      ? ["programs"]
+      : dbRole === "edu_supervisor"
+        ? ["admin", "education"]
+        : ["admin", "education", "programs"];
+  for (const section of sections) {
+    await env.DB.prepare(
+      `INSERT INTO user_sections (user_id, section) VALUES (?, ?)`,
+    )
+      .bind(userId, section)
+      .run();
+  }
+}
+
 export async function handleAdminTeachersList(
   request: Request,
   env: Env,
@@ -225,10 +321,7 @@ export async function handleAdminSupervisorsCreate(
   }
 
   const role = body.role;
-  if (
-    !role ||
-    !["edu_supervisor", "prog_supervisor", "general_supervisor"].includes(role)
-  ) {
+  if (!role || !SUPERVISOR_INPUT_ROLES.includes(role as (typeof SUPERVISOR_INPUT_ROLES)[number])) {
     return json({ error: "invalid_supervisor_role" }, 400);
   }
   if (!body.full_name_ar?.trim() || !body.mobile?.trim()) {
@@ -242,37 +335,14 @@ export async function handleAdminSupervisorsCreate(
     .first();
   if (existing) return json({ error: "mobile_already_used" }, 409);
 
-  const passwordHash = await hashPassword(DEFAULT_PASSWORD);
-  const ins = await env.DB.prepare(
-    `INSERT INTO users (complex_id, email, mobile, password_hash, full_name_ar, role, supervisor_scope)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(
-      auth!.complexId,
-      emailForMobile(mobile, role),
-      mobile,
-      passwordHash,
-      body.full_name_ar.trim(),
-      role,
-      scope,
-    )
-    .run();
+  const userId = await insertSupervisorUser(env, auth!.complexId, {
+    full_name_ar: body.full_name_ar.trim(),
+    mobile,
+    role,
+    supervisor_scope: scope,
+  });
 
-  const userId = ins.meta.last_row_id as number;
-  const sections =
-    role === "prog_supervisor"
-      ? ["programs"]
-      : role === "edu_supervisor"
-        ? ["admin", "education"]
-        : ["admin", "education", "programs"];
-
-  for (const section of sections) {
-    await env.DB.prepare(
-      `INSERT INTO user_sections (user_id, section) VALUES (?, ?)`,
-    )
-      .bind(userId, section)
-      .run();
-  }
+  await syncSupervisorSections(env, userId, role);
 
   return json({ ok: true, id: userId });
 }
@@ -1093,15 +1163,36 @@ export async function handleAdminSupervisorsPatch(
       .bind(body.mobile.trim(), userId)
       .run();
   }
-  if (body.role && ["edu_supervisor", "prog_supervisor", "general_supervisor"].includes(body.role)) {
-    await env.DB.prepare(`UPDATE users SET role = ? WHERE id = ?`)
-      .bind(body.role, userId)
-      .run();
+  if (
+    body.role &&
+    SUPERVISOR_INPUT_ROLES.includes(body.role as (typeof SUPERVISOR_INPUT_ROLES)[number])
+  ) {
+    const dbRole = normalizeSupervisorRoleForDb(body.role);
+    if (await usersHaveRoleColumn(env)) {
+      await env.DB.prepare(`UPDATE users SET role = ? WHERE id = ?`)
+        .bind(dbRole, userId)
+        .run();
+    } else {
+      const flags = legacySupervisorFlags(body.role);
+      for (const [flag, value] of Object.entries(flags)) {
+        if (await tableHasColumn(env, "users", flag)) {
+          await env.DB.prepare(`UPDATE users SET ${flag} = ? WHERE id = ?`)
+            .bind(value, userId)
+            .run();
+        }
+      }
+    }
   }
   if (body.supervisor_scope != null) {
-    await env.DB.prepare(`UPDATE users SET supervisor_scope = ? WHERE id = ?`)
-      .bind(body.supervisor_scope, userId)
-      .run();
+    if (await tableHasColumn(env, "users", "supervisor_scope")) {
+      await env.DB.prepare(`UPDATE users SET supervisor_scope = ? WHERE id = ?`)
+        .bind(body.supervisor_scope, userId)
+        .run();
+    } else if (await tableHasColumn(env, "users", "stage_scope")) {
+      await env.DB.prepare(`UPDATE users SET stage_scope = ? WHERE id = ?`)
+        .bind(body.supervisor_scope, userId)
+        .run();
+    }
   }
   if (body.is_active != null) {
     await env.DB.prepare(`UPDATE users SET is_active = ? WHERE id = ?`)

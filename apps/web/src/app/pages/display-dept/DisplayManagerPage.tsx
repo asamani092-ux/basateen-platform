@@ -39,6 +39,7 @@ const MAX_MEDIA = 500_000;
 export function DisplayManagerPage() {
   const [items, setItems] = useState<MediaRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [slideSeconds, setSlideSeconds] = useState(12);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -55,8 +56,12 @@ export function DisplayManagerPage() {
     }
     setLoading(true);
     try {
-      const res = await api.displayMediaList();
+      const [res, settings] = await Promise.all([
+        api.displayMediaList(),
+        api.displaySettingsGet().catch(() => ({ slide_seconds: 12 })),
+      ]);
       setItems(res.items);
+      setSlideSeconds(settings.slide_seconds);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل التحميل");
     } finally {
@@ -199,6 +204,32 @@ export function DisplayManagerPage() {
             لا توجد وسائط — أضف صوراً أو فيديوهات للعرض.
           </p>
         )}
+      </div>
+
+      <div className={`${ds.card} p-4 flex flex-col sm:flex-row sm:items-end gap-3 text-right`} dir="rtl">
+        <div className="space-y-2 flex-1">
+          <Label style={tajawal}>مدة عرض كل شريحة (ثوانٍ)</Label>
+          <Input
+            type="number"
+            min={3}
+            max={120}
+            className={cn(ds.field, "max-w-[140px]")}
+            value={slideSeconds}
+            onChange={(e) => setSlideSeconds(Number(e.target.value) || 12)}
+          />
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          className={cn(ds.btnRound, "rounded-full")}
+          onClick={() =>
+            void api.displaySettingsPatch({ slide_seconds: slideSeconds }).then(() =>
+              setSuccess("تم حفظ إعدادات العرض."),
+            )
+          }
+        >
+          حفظ الإعداد
+        </Button>
       </div>
 
       <p className="text-sm text-muted-foreground" style={tajawal}>

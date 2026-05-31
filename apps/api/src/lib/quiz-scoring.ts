@@ -20,21 +20,49 @@ export function normalizeQuizAnswer(value: unknown, questionType: string): strin
 export function scoreQuizAttempt(
   questions: QuizQuestionRow[],
   answers: Record<string, string>,
-): { scorePercent: number; earned: number; total: number } {
+): {
+  scorePercent: number;
+  earned: number;
+  total: number;
+  autoEarned: number;
+  autoTotal: number;
+  pendingTextCount: number;
+} {
   let earned = 0;
   let total = 0;
+  let autoEarned = 0;
+  let autoTotal = 0;
+  let pendingTextCount = 0;
+
   for (const q of questions) {
     total += Number(q.points) || 0;
     const key = String(q.id);
     const givenRaw = answers[key] ?? answers[q.id] ?? "";
     const given = normalizeQuizAnswer(givenRaw, q.question_type);
+
+    if (q.question_type === "text") {
+      pendingTextCount += 1;
+      continue;
+    }
+
+    autoTotal += Number(q.points) || 0;
     const correct = normalizeQuizAnswer(q.correct_answer, q.question_type);
     if (given && given === correct) {
-      earned += Number(q.points) || 0;
+      autoEarned += Number(q.points) || 0;
     }
   }
-  const scorePercent = total > 0 ? Math.round((earned / total) * 1000) / 10 : 0;
-  return { scorePercent, earned, total };
+
+  earned = autoEarned;
+  const scorePercent =
+    autoTotal > 0 ? Math.round((autoEarned / autoTotal) * 1000) / 10 : 0;
+  return {
+    scorePercent,
+    earned,
+    total: autoTotal,
+    autoEarned,
+    autoTotal,
+    pendingTextCount,
+  };
 }
 
 export function randomToken(): string {

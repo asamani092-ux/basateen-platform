@@ -27,7 +27,19 @@ type ArchiveRow = {
   created_at: string;
 };
 
-const MAX_FILE_CHARS = 400_000;
+const MAX_FILE_BYTES = 5 * 1024 * 1024;
+
+function openArchiveFile(dataUrl: string, title: string) {
+  if (!dataUrl.startsWith("data:")) {
+    window.open(dataUrl, "_blank", "noopener,noreferrer");
+    return;
+  }
+  const w = window.open("", "_blank");
+  if (!w) return;
+  w.document.write(
+    `<html dir="rtl"><head><title>${title}</title></head><body style="margin:0"><iframe src="${dataUrl}" style="width:100%;height:100vh;border:0"></iframe></body></html>`,
+  );
+}
 
 function parseTags(raw: string): string[] {
   try {
@@ -103,8 +115,8 @@ export function ProgramsArchivePage() {
 
   async function onFilePick(file: File | null) {
     if (!file) return;
-    if (file.size > MAX_FILE_CHARS) {
-      setError("حجم الملف كبير جداً للتخزين المباشر.");
+    if (file.size > MAX_FILE_BYTES) {
+      setError("الحد الأقصى 5MB. يُفضّل رفع الملف على Google Drive ولصق الرابط.");
       return;
     }
     const reader = new FileReader();
@@ -207,12 +219,6 @@ export function ProgramsArchivePage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {items.map((row) => {
           const tags = parseTags(row.tags);
-          const href =
-            row.type === "link"
-              ? row.file_url_or_link
-              : row.file_url_or_link.startsWith("data:")
-                ? row.file_url_or_link
-                : row.file_url_or_link;
           return (
             <div key={row.id} className={`${ds.card} p-4 flex flex-col gap-3 text-right`}>
               <div className="flex items-start justify-between gap-2">
@@ -245,15 +251,20 @@ export function ProgramsArchivePage() {
                   ))}
                 </div>
               )}
-              <a
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-primary hover:underline truncate"
+              <button
+                type="button"
+                className="text-sm text-primary hover:underline truncate text-right"
                 dir="ltr"
+                onClick={() => {
+                  if (row.type === "link") {
+                    window.open(row.file_url_or_link, "_blank", "noopener,noreferrer");
+                  } else {
+                    openArchiveFile(row.file_url_or_link, row.title);
+                  }
+                }}
               >
                 {row.type === "link" ? row.file_url_or_link : "فتح الملف"}
-              </a>
+              </button>
             </div>
           );
         })}
@@ -292,6 +303,10 @@ export function ProgramsArchivePage() {
                 </button>
               ))}
             </div>
+            <p className={ds.alert.info} style={tajawal}>
+              يُفضّل إضافة روابط Google Drive بدلاً من رفع ملفات كبيرة. الحد الأقصى للرفع
+              المباشر 5MB.
+            </p>
             {itemType === "link" ? (
               <Input
                 className={ds.field}

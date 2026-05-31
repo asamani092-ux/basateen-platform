@@ -101,6 +101,7 @@ export default function App() {
               <Route path="teacher" element={<Navigate to="/edu-dept/daily-recitation" replace />} />
               <Route path="teacher/*" element={<Navigate to="/edu-dept/daily-recitation" replace />} />
 
+              <Route path="admin-dept/students" element={<StudentsPage />} />
               <Route path="admin-dept/staff-attendance" element={<StaffAttendancePage />} />
               <Route path="admin-dept/student-attendance" element={<StudentDailyAttendancePage />} />
               <Route path="admin-dept/absent-whatsapp" element={<AbsentWhatsappPage />} />

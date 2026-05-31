@@ -186,7 +186,7 @@ export function AdminStudentSearchCombobox({
 
       {showList && (
         <div
-          className="absolute z-[200] mt-1 w-full rounded-xl border border-border bg-popover text-popover-foreground shadow-lg max-h-56 overflow-y-auto overscroll-contain"
+          className="absolute z-[9999] mt-1 w-full rounded-xl border border-border bg-popover text-popover-foreground shadow-lg max-h-56 overflow-y-auto overscroll-contain pointer-events-auto"
           role="listbox"
           data-student-search-list=""
           onPointerDown={(e) => e.preventDefault()}
@@ -213,8 +213,9 @@ export function AdminStudentSearchCombobox({
                 role="option"
                 className="w-full text-right px-3 py-2 text-sm hover:bg-muted transition-colors border-b border-border last:border-0"
                 style={tajawal}
-                onMouseDown={(e) => {
+                onClick={(e) => {
                   e.preventDefault();
+                  e.stopPropagation();
                   pick(s);
                 }}
               >

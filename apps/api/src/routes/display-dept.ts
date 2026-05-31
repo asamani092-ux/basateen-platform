@@ -1,6 +1,6 @@
 import type { Env } from "../types";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
-import { hasTable } from "../lib/db-schema";
+import { hasTable, tableHasColumn } from "../lib/db-schema";
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
@@ -169,6 +169,58 @@ export async function handleDisplayDeptRouter(
         .run();
     }
     return json({ ok: true });
+  }
+
+  if (method === "GET" && path === "/api/display-dept/settings") {
+    let slideSeconds = 12;
+    if (await hasTable(env, "complex_settings")) {
+      if (await tableHasColumn(env, "complex_settings", "display_slide_seconds")) {
+        const row = await env.DB.prepare(
+          `SELECT display_slide_seconds FROM complex_settings WHERE complex_id = ?`,
+        )
+          .bind(complexId)
+          .first<{ display_slide_seconds: number }>();
+        slideSeconds = Number(row?.display_slide_seconds ?? 12);
+      }
+    }
+    return json({ slide_seconds: slideSeconds });
+  }
+
+  if (method === "PATCH" && path === "/api/display-dept/settings") {
+    let body: { slide_seconds?: number };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+    const sec = Number(body.slide_seconds);
+    if (!Number.isFinite(sec) || sec < 3 || sec > 120) {
+      return json({ error: "invalid_slide_seconds" }, 400);
+    }
+    if (!(await hasTable(env, "complex_settings"))) {
+      return json({ error: "migration_required" }, 503);
+    }
+    if (await tableHasColumn(env, "complex_settings", "display_slide_seconds")) {
+      const existing = await env.DB.prepare(
+        `SELECT complex_id FROM complex_settings WHERE complex_id = ?`,
+      )
+        .bind(complexId)
+        .first();
+      if (existing) {
+        await env.DB.prepare(
+          `UPDATE complex_settings SET display_slide_seconds = ? WHERE complex_id = ?`,
+        )
+          .bind(sec, complexId)
+          .run();
+      } else {
+        await env.DB.prepare(
+          `INSERT INTO complex_settings (complex_id, display_slide_seconds) VALUES (?, ?)`,
+        )
+          .bind(complexId, sec)
+          .run();
+      }
+    }
+    return json({ ok: true, slide_seconds: sec });
   }
 
   return json({ error: "not_found" }, 404);

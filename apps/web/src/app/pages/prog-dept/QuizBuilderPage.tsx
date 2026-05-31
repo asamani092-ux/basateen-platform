@@ -29,6 +29,7 @@ type QuizRow = {
   total_points: number;
   question_count: number;
   attempts_count: number;
+  pending_review_count?: number;
   show_score_instantly?: number;
 };
 
@@ -330,6 +331,14 @@ export function QuizBuilderPage() {
                   <p className="text-xs text-muted-foreground mt-1" style={tajawal}>
                     {q.question_count} سؤال · {q.attempts_count} تسليم
                   </p>
+                  {Number(q.pending_review_count ?? 0) > 0 && (
+                    <span
+                      className="mt-2 inline-flex rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-700"
+                      style={tajawal}
+                    >
+                      {q.pending_review_count} بانتظار المراجعة اليدوية
+                    </span>
+                  )}
                 </div>
                 <div
                   className={ds.table.actionsWrap}

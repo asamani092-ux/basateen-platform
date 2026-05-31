@@ -41,7 +41,7 @@ type Row = {
 
 type ViewMode = "grid" | "cards";
 
-const SUPERVISOR_ROLES = new Set(["edu_supervisor", "super_admin", "prog_supervisor"]);
+const SUPERVISOR_ROLES = new Set(["edu_supervisor", "super_admin", "programs_supervisor"]);
 
 export function DailyRecitationPage() {
   const { user } = useAuth();
@@ -211,9 +211,9 @@ export function DailyRecitationPage() {
         </p>
       )}
 
-      <div className={`${ds.card} p-4 flex flex-wrap gap-4 items-end`}>
+      <div className={`${ds.card} p-4 flex flex-col md:flex-row flex-wrap gap-4 md:items-end`}>
         {isSupervisor && (
-          <div className="space-y-1 min-w-[220px] flex-1">
+          <div className="space-y-1 w-full md:max-w-xs">
             <Label style={tajawal}>الحلقة</Label>
             <select
               value={circleId ?? ""}
@@ -232,7 +232,7 @@ export function DailyRecitationPage() {
             </select>
           </div>
         )}
-        <div className="space-y-1">
+        <div className="space-y-1 w-full md:max-w-xs">
           <Label style={tajawal}>التاريخ</Label>
           <Input
             type="date"
@@ -513,7 +513,7 @@ export function DailyRecitationPage() {
         </Dialog>
       )}
 
-      <div className="fixed bottom-0 inset-x-0 z-40 border-t border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 px-4 py-3 print:hidden">
+      <div className="sticky bottom-0 z-20 -mx-4 border-t border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 px-4 py-3 print:hidden md:mx-0 md:rounded-2xl md:border">
         <div className="max-w-[1200px] mx-auto flex justify-end">
           <Button
             type="button"

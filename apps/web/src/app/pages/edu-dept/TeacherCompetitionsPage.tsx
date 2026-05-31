@@ -304,9 +304,9 @@ export function TeacherCompetitionsPage() {
 
       <div className={`${ds.card} p-4 space-y-3 text-right`} dir="rtl">
         <Label style={tajawal}>المنافسة النشطة</Label>
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-col md:flex-row flex-wrap gap-4 md:items-end">
           <select
-            className={`${ds.select} min-w-[220px] max-w-full flex-1`}
+            className={`${ds.select} w-full md:max-w-xs`}
             value={activeCompetitionId ?? ""}
             onChange={(e) => onCompetitionChange(e.target.value)}
             style={tajawal}

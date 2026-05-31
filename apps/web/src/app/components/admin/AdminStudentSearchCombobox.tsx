@@ -158,6 +158,11 @@ export function AdminStudentSearchCombobox({
           spellCheck={false}
           onChange={(e) => handleInputChange(e.target.value)}
           onFocus={() => setOpen(true)}
+          onBlur={(e) => {
+            const next = e.relatedTarget as Node | null;
+            if (next && rootRef.current?.contains(next)) return;
+            window.setTimeout(() => setOpen(false), 120);
+          }}
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               setOpen(false);

@@ -1072,41 +1072,63 @@ async function handleAdminDeptRouterImpl(
 
   // GET /api/admin-dept/students/search?q=
   if (request.method === "GET" && path === "/api/admin-dept/students/search") {
-    const q = url.searchParams.get("q")?.trim() ?? "";
-    const limit = Math.min(Number(url.searchParams.get("limit") ?? 20), 50);
+    try {
+      const q = url.searchParams.get("q")?.trim() ?? "";
+      const limit = Math.min(Number(url.searchParams.get("limit") ?? 20), 50);
 
-    const hasCircleCol = await tableHasColumn(env, "students", "current_circle_id");
-    const circleJoin = hasCircleCol
-      ? `LEFT JOIN circles c ON c.id = s.current_circle_id AND c.complex_id = s.complex_id`
-      : `LEFT JOIN circles c ON 1 = 0`;
+      const hasCircleCol = await tableHasColumn(env, "students", "current_circle_id");
+      const circleJoin = hasCircleCol
+        ? `LEFT JOIN circles c ON c.id = s.current_circle_id AND c.complex_id = s.complex_id`
+        : `LEFT JOIN circles c ON 1 = 0`;
 
-    let sql = `
-      SELECT s.id, s.full_name_ar, s.national_id, s.phone, s.guardian_phone,
+      const nationalExpr = (await tableHasColumn(env, "students", "national_id"))
+        ? "s.national_id"
+        : "NULL AS national_id";
+      const phoneExpr = (await tableHasColumn(env, "students", "phone"))
+        ? "s.phone"
+        : "NULL AS phone";
+      const guardianExpr = (await tableHasColumn(env, "students", "guardian_phone"))
+        ? "s.guardian_phone"
+        : "NULL AS guardian_phone";
+
+      let sql = `
+      SELECT s.id, s.full_name_ar, ${nationalExpr}, ${phoneExpr}, ${guardianExpr},
              c.name_ar AS circle_name
       FROM students s
       ${circleJoin}
       WHERE s.complex_id = ? AND COALESCE(s.is_active, 1) = 1`;
-    const binds: (string | number)[] = [admin.complexId];
+      const binds: (string | number)[] = [admin.complexId];
 
-    if (q.length > 0) {
-      sql += ` AND s.full_name_ar LIKE ?`;
-      binds.push(`%${q}%`);
+      if (q.length > 0) {
+        sql += ` AND s.full_name_ar LIKE ?`;
+        binds.push(`%${q}%`);
+      }
+      sql += ` ORDER BY s.full_name_ar LIMIT ?`;
+      binds.push(limit);
+
+      const rows = await env.DB.prepare(sql)
+        .bind(...binds)
+        .all<{
+          id: number;
+          full_name_ar: string;
+          national_id: string | null;
+          phone: string | null;
+          guardian_phone: string | null;
+          circle_name: string | null;
+        }>();
+
+      return json({ items: rows.results ?? [], count: rows.results?.length ?? 0 });
+    } catch (error: unknown) {
+      console.error("[admin-dept] students/search:", error);
+      return json(
+        {
+          error: "admin_students_search_failed",
+          message:
+            error instanceof Error ? error.message : "Failed to search students",
+        },
+        500,
+      );
     }
-    sql += ` ORDER BY s.full_name_ar LIMIT ?`;
-    binds.push(limit);
-
-    const rows = await env.DB.prepare(sql)
-      .bind(...binds)
-      .all<{
-        id: number;
-        full_name_ar: string;
-        national_id: string | null;
-        phone: string | null;
-        guardian_phone: string | null;
-        circle_name: string | null;
-      }>();
-
-    return json({ items: rows.results ?? [], count: rows.results?.length ?? 0 });
   }
 
   // GET /api/admin-dept/magic-links

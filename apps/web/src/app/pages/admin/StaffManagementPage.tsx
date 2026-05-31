@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
+import { Label } from "../../components/ui/label";
 import {
   Card,
   CardContent,
@@ -685,6 +686,12 @@ function SupervisorsPanel() {
   );
 }
 
+function normalizeSupervisorRoleForForm(role: string): string {
+  if (role === "prog_supervisor") return "programs_supervisor";
+  if (role === "general_supervisor") return "admin_supervisor";
+  return role;
+}
+
 function SupervisorEditDialog({
   supervisor,
   open,
@@ -698,10 +705,21 @@ function SupervisorEditDialog({
 }) {
   const [name, setName] = useState(supervisor.full_name_ar);
   const [mobile, setMobile] = useState(supervisor.mobile ?? "");
-  const [roleType, setRoleType] = useState(supervisor.role);
+  const [roleType, setRoleType] = useState(() =>
+    normalizeSupervisorRoleForForm(supervisor.role),
+  );
   const [scope, setScope] = useState(supervisor.supervisor_scope ?? SCOPE_GLOBAL);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setName(supervisor.full_name_ar);
+    setMobile(supervisor.mobile ?? "");
+    setRoleType(normalizeSupervisorRoleForForm(supervisor.role));
+    setScope(supervisor.supervisor_scope ?? SCOPE_GLOBAL);
+    setError(null);
+  }, [open, supervisor]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -722,11 +740,24 @@ function SupervisorEditDialog({
     }
   }
 
+  const roleOptions = SUPERVISOR_TYPES.some((t) => t.value === roleType)
+    ? SUPERVISOR_TYPES
+    : [
+        ...SUPERVISOR_TYPES,
+        {
+          value: roleType,
+          label: roleLabelAr(roleType),
+        },
+      ];
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={`${ds.card} max-w-md`} dir="rtl">
-        <DialogHeader>
-          <DialogTitle style={tajawal}>تعديل مشرف</DialogTitle>
+      <DialogContent className={`${ds.dialog} sm:max-w-md`} dir="rtl">
+        <DialogHeader className="text-right sm:text-right">
+          <DialogTitle style={tajawal}>تعديل صلاحيات المشرف</DialogTitle>
+          <DialogDescription style={tajawal}>
+            تحديث الدور والنطاق وفق الأدوار المعتمدة في المنصة.
+          </DialogDescription>
         </DialogHeader>
         {error && (
           <p className="text-sm text-destructive" style={tajawal}>
@@ -734,35 +765,58 @@ function SupervisorEditDialog({
           </p>
         )}
         <form onSubmit={save} className="grid grid-cols-1 gap-3">
-          <Input value={name} onChange={(e) => setName(e.target.value)} />
-          <Input value={mobile} onChange={(e) => setMobile(e.target.value)} />
-          <select
-            value={roleType}
-            onChange={(e) => setRoleType(e.target.value)}
-            className={ds.select}
-            style={tajawal}
-          >
-            {SUPERVISOR_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-          <select
-            value={scope}
-            onChange={(e) => setScope(e.target.value)}
-            className={ds.select}
-            style={tajawal}
-          >
-            <option value={SCOPE_GLOBAL}>{stageLabel(SCOPE_GLOBAL)}</option>
-            {EDUCATIONAL_STAGES.map((s) => (
-              <option key={s.id} value={String(s.id)}>
-                {s.name_ar}
-              </option>
-            ))}
-          </select>
+          <div className="space-y-1">
+            <Label style={tajawal}>الاسم</Label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className={ds.field}
+              autoComplete="name"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label style={tajawal}>الجوال</Label>
+            <Input
+              value={mobile}
+              onChange={(e) => setMobile(e.target.value)}
+              className={ds.field}
+              dir="ltr"
+              autoComplete="tel"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label style={tajawal}>الدور</Label>
+            <select
+              value={roleType}
+              onChange={(e) => setRoleType(e.target.value)}
+              className={ds.select}
+              style={tajawal}
+            >
+              {roleOptions.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <Label style={tajawal}>نطاق الإشراف</Label>
+            <select
+              value={scope}
+              onChange={(e) => setScope(e.target.value)}
+              className={ds.select}
+              style={tajawal}
+            >
+              <option value={SCOPE_GLOBAL}>{stageLabel(SCOPE_GLOBAL)}</option>
+              {EDUCATIONAL_STAGES.map((s) => (
+                <option key={s.id} value={String(s.id)}>
+                  {s.name_ar}
+                </option>
+              ))}
+            </select>
+          </div>
           <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
-            {saving ? "جاري الحفظ…" : "حفظ"}
+            {saving ? "جاري الحفظ…" : "حفظ التعديلات"}
           </Button>
         </form>
       </DialogContent>

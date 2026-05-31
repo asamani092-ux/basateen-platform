@@ -1,8 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Printer, Users, GraduationCap, Search } from "lucide-react";
+import {
+  BarChart3,
+  ClipboardList,
+  GraduationCap,
+  Printer,
+  Search,
+  Users,
+} from "lucide-react";
 import { AdminStudentSearchCombobox } from "../../components/admin/AdminStudentSearchCombobox";
 import { Button } from "../../components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "../../components/ui/card";
 import { Label } from "../../components/ui/label";
 import {
   Select,
@@ -11,7 +24,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -26,6 +38,12 @@ import { ds, tajawal } from "../../lib/design-system";
 
 type DatePreset = "last3" | "last7" | "month" | "custom";
 type StatusFilter = "all" | "absent_only";
+type ReportViewId =
+  | "overview"
+  | "staff"
+  | "students"
+  | "discipline"
+  | "student_lookup";
 
 type ReportRow = {
   name: string;
@@ -65,6 +83,44 @@ const emptySummary = {
   students_present_pct: 0,
   students_absent_pct: 0,
 };
+
+const REPORT_CARDS: Array<{
+  id: ReportViewId;
+  title: string;
+  description: string;
+  icon: React.ReactNode;
+}> = [
+  {
+    id: "overview",
+    title: "ملخص المؤشرات",
+    description: "أرقام التحضير الإجمالية للفترة المحددة",
+    icon: <BarChart3 className="w-5 h-5 text-primary" />,
+  },
+  {
+    id: "staff",
+    title: "تقرير المنسوبين",
+    description: "جدول تفصيلي لحضور وغياب المنسوبين",
+    icon: <Users className="w-5 h-5 text-primary" />,
+  },
+  {
+    id: "students",
+    title: "تقرير الطلاب",
+    description: "جدول تفصيلي لحضور وغياب الطلاب",
+    icon: <GraduationCap className="w-5 h-5 text-primary" />,
+  },
+  {
+    id: "discipline",
+    title: "انضباط الحلقات",
+    description: "حضور رسمي ونسب انضباط لكل طالب وحلقة",
+    icon: <ClipboardList className="w-5 h-5 text-primary" />,
+  },
+  {
+    id: "student_lookup",
+    title: "بحث طالب",
+    description: "سجل حضور طالب واحد بالكامل",
+    icon: <Search className="w-5 h-5 text-primary" />,
+  },
+];
 
 function DetailTable({
   rows,
@@ -119,18 +175,20 @@ export function AdminReportsPage() {
   const [customStart, setCustomStart] = useState(() => isoDate(new Date()));
   const [customEnd, setCustomEnd] = useState(() => isoDate(new Date()));
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [activeView, setActiveView] = useState<ReportViewId>("overview");
   const [loading, setLoading] = useState(false);
+  const [disciplineLoading, setDisciplineLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState(emptySummary);
   const [items, setItems] = useState<ReportRow[]>([]);
+  const [disciplineRows, setDisciplineRows] = useState<Awaited<
+    ReturnType<typeof api.adminDeptCircleDisciplineReport>
+  >["items"]>([]);
   const [studentId, setStudentId] = useState<number | null>(null);
   const [studentReport, setStudentReport] = useState<Awaited<
     ReturnType<typeof api.adminDeptStudentAttendanceReport>
   > | null>(null);
   const [studentLoading, setStudentLoading] = useState(false);
-  const [disciplineRows, setDisciplineRows] = useState<Awaited<
-    ReturnType<typeof api.adminDeptCircleDisciplineReport>
-  >["items"]>([]);
 
   const { startDate, endDate } = useMemo(() => {
     if (preset === "custom") {
@@ -148,7 +206,7 @@ export function AdminReportsPage() {
     [items],
   );
 
-  const load = useCallback(async () => {
+  const loadCore = useCallback(async () => {
     if (!canUseApi()) {
       setError("أعد تسجيل الدخول");
       return;
@@ -162,25 +220,43 @@ export function AdminReportsPage() {
         status: statusFilter,
         type: "all",
       });
-      const discipline = await api.adminDeptCircleDisciplineReport({
-        startDate,
-        endDate,
-      });
       setSummary({ ...emptySummary, ...res.summary });
       setItems(res.items ?? []);
-      setDisciplineRows(discipline.items ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل تحميل التقرير");
       setItems([]);
-      setDisciplineRows([]);
     } finally {
       setLoading(false);
     }
   }, [startDate, endDate, statusFilter]);
 
+  const loadDiscipline = useCallback(async () => {
+    if (!canUseApi()) return;
+    setDisciplineLoading(true);
+    setError(null);
+    try {
+      const discipline = await api.adminDeptCircleDisciplineReport({
+        startDate,
+        endDate,
+      });
+      setDisciplineRows(discipline.items ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "فشل تحميل تقرير الانضباط");
+      setDisciplineRows([]);
+    } finally {
+      setDisciplineLoading(false);
+    }
+  }, [startDate, endDate]);
+
   useEffect(() => {
-    load();
-  }, [load]);
+    void loadCore();
+  }, [loadCore]);
+
+  useEffect(() => {
+    if (activeView === "discipline") {
+      void loadDiscipline();
+    }
+  }, [activeView, loadDiscipline]);
 
   const loadStudentReport = useCallback(async (sid: number) => {
     if (!canUseApi()) return;
@@ -201,8 +277,17 @@ export function AdminReportsPage() {
     window.print();
   }
 
-  const staffAttendanceSub = `حاضر ${summary.staff_present} (${summary.staff_present_pct}%) · غائب/مستأذن ${summary.staff_absent} (${summary.staff_absent_pct}%) — آخر يوم`;
-  const studentAttendanceSub = `حاضر ${summary.students_present} (${summary.students_present_pct}%) · غائب/مستأذن ${summary.students_absent} (${summary.students_absent_pct}%) — آخر يوم`;
+  function selectReport(id: ReportViewId) {
+    setActiveView(id);
+    if (id === "student_lookup") {
+      setStudentReport(null);
+    }
+  }
+
+  const staffAttendanceSub = `حاضر ${summary.staff_present} (${summary.staff_present_pct}%) · غائب/مستأذن ${summary.staff_absent} (${summary.staff_absent_pct}%)`;
+  const studentAttendanceSub = `حاضر ${summary.students_present} (${summary.students_present_pct}%) · غائب/مستأذن ${summary.students_absent} (${summary.students_absent_pct}%)`;
+
+  const activeMeta = REPORT_CARDS.find((c) => c.id === activeView);
 
   return (
     <div className="space-y-6 max-w-[1200px]" dir="rtl">
@@ -212,7 +297,7 @@ export function AdminReportsPage() {
             المؤشرات والتقارير
           </h2>
           <p className={ds.page.description} style={tajawal}>
-            ملخص التحضير مع جداول تفصيلية منفصلة — تصدير PDF عبر الطباعة.
+            اختر بطاقة التقرير لعرض التفاصيل في الأسفل دون تداخل الواجهة.
           </p>
         </div>
 
@@ -289,7 +374,10 @@ export function AdminReportsPage() {
                 type="button"
                 variant="outline"
                 className={ds.btnRound}
-                onClick={load}
+                onClick={() => {
+                  void loadCore();
+                  if (activeView === "discipline") void loadDiscipline();
+                }}
                 disabled={loading}
                 style={tajawal}
               >
@@ -308,69 +396,38 @@ export function AdminReportsPage() {
           </CardContent>
         </Card>
 
-        <Card className={ds.card}>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2" style={tajawal}>
-              <Search className="w-4 h-4 text-primary" />
-              بحث عن طالب — سجل الحضور الكامل
-            </CardTitle>
-            <CardDescription style={tajawal}>
-              اختر طالباً لعرض حضوره وغيابه واستئذانه في تاريخه بالكامل.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <AdminStudentSearchCombobox
-              id="admin-reports-student-search"
-              value={studentId}
-              onChange={(id) => {
-                setStudentId(id);
-                setStudentReport(null);
-                if (id != null) void loadStudentReport(id);
-              }}
-            />
-            {studentLoading && (
-              <p className="text-sm text-muted-foreground text-right" style={tajawal}>
-                جاري تحميل سجل الطالب…
-              </p>
-            )}
-            {studentReport && (
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <KpiCard label="حاضر" value={studentReport.summary.present} />
-                  <KpiCard label="غائب" value={studentReport.summary.absent} />
-                  <KpiCard label="مستأذن" value={studentReport.summary.excused} />
-                  <KpiCard label="إجمالي الأيام" value={studentReport.summary.total} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+          {REPORT_CARDS.map((card) => {
+            const selected = activeView === card.id;
+            return (
+              <button
+                key={card.id}
+                type="button"
+                onClick={() => selectReport(card.id)}
+                className={`text-right rounded-3xl border p-4 transition-all ${
+                  selected
+                    ? "border-primary bg-primary/5 shadow-md ring-2 ring-primary/30"
+                    : "border-border bg-card hover:border-primary/40 hover:bg-muted/30"
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 shrink-0">{card.icon}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-semibold text-foreground" style={tajawal}>
+                      {card.title}
+                    </span>
+                    <span
+                      className="block text-xs text-muted-foreground mt-1 leading-relaxed"
+                      style={tajawal}
+                    >
+                      {card.description}
+                    </span>
+                  </span>
                 </div>
-                <div className={`${ds.card} overflow-hidden`}>
-                  <Table className={`${ds.tableMin} text-right`} dir="rtl">
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className={`${ds.table.head} text-right`} style={tajawal}>
-                          التاريخ
-                        </TableHead>
-                        <TableHead className={`${ds.table.head} text-right`} style={tajawal}>
-                          الحالة
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {studentReport.items.map((row) => (
-                        <TableRow key={row.date}>
-                          <TableCell className={`${ds.table.cell} text-right`} style={tajawal}>
-                            {row.date}
-                          </TableCell>
-                          <TableCell className={`${ds.table.cell} text-right`} style={tajawal}>
-                            {STATUS_AR[row.status] ?? row.status}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {error && (
@@ -385,142 +442,209 @@ export function AdminReportsPage() {
             تقرير القسم الإداري — مجمع البساتين
           </h1>
           <p className="text-sm text-muted-foreground mt-1" style={tajawal}>
-            من {startDate} إلى {endDate}
+            {activeMeta?.title ?? "تقرير"} — من {startDate} إلى {endDate}
             {statusFilter === "absent_only" ? " — الغائبون فقط" : ""}
           </p>
         </div>
 
-        {loading ? (
-          <p className="text-muted-foreground admin-reports-screen-only" style={tajawal}>
-            جاري التحميل…
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 print:grid-cols-2 print:gap-3">
-            <KpiCard
-              icon={<Users className="w-5 h-5 text-primary" />}
-              label="عدد المنسوبين الإجمالي"
-              value={summary.staff_total}
-            />
-            <KpiCard
-              icon={<Users className="w-5 h-5 text-primary" />}
-              label="تحضير المنسوبين"
-              value={summary.staff_present}
-              sub={staffAttendanceSub}
-            />
-            <KpiCard
-              icon={<GraduationCap className="w-5 h-5 text-primary" />}
-              label="عدد الطلاب الإجمالي"
-              value={summary.students_total}
-            />
-            <KpiCard
-              icon={<GraduationCap className="w-5 h-5 text-primary" />}
-              label="تحضير الطلاب"
-              value={summary.students_present}
-              sub={studentAttendanceSub}
-            />
-          </div>
-        )}
+        {activeView !== "student_lookup" && (
+          <Card className={`${ds.card} admin-reports-screen-only`}>
+            <CardHeader className="border-b border-border pb-3">
+              <CardTitle className={ds.page.section} style={tajawal}>
+                {activeMeta?.title ?? "التقرير"}
+              </CardTitle>
+              <CardDescription style={tajawal}>
+                {activeMeta?.description}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-0 sm:p-6 sm:pt-4">
+              {loading && activeView !== "discipline" ? (
+                <p className="p-4 text-sm text-muted-foreground" style={tajawal}>
+                  جاري التحميل…
+                </p>
+              ) : null}
 
-        <Card className={`${ds.card} overflow-hidden print:shadow-none print:border`}>
-          <CardHeader className="border-b border-border print:border-0">
-            <CardTitle className={ds.page.section} style={tajawal}>
-              التقرير التفصيلي
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Tabs defaultValue="students" className="w-full">
-              <TabsList className="w-full justify-start rounded-none border-b border-border bg-transparent p-0 h-auto flex-wrap print:hidden">
-                <TabsTrigger
-                  value="students"
-                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary px-4 py-3"
-                  style={tajawal}
-                >
-                  تقرير الطلاب ({studentItems.length})
-                </TabsTrigger>
-                <TabsTrigger
-                  value="staff"
-                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary px-4 py-3"
-                  style={tajawal}
-                >
-                  تقرير المنسوبين ({staffItems.length})
-                </TabsTrigger>
-              </TabsList>
-              <TabsContent value="students" className="mt-0 print:block">
-                <DetailTable
-                  rows={studentItems}
-                  emptyLabel="لا توجد سجلات طلاب مطابقة للفلاتر."
-                />
-              </TabsContent>
-              <TabsContent value="staff" className="mt-0 print:block">
+              {activeView === "overview" && !loading && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-4 sm:p-0 print:grid-cols-2">
+                  <KpiCard
+                    icon={<Users className="w-5 h-5 text-primary" />}
+                    label="عدد المنسوبين"
+                    value={summary.staff_total}
+                  />
+                  <KpiCard
+                    icon={<Users className="w-5 h-5 text-primary" />}
+                    label="تحضير المنسوبين"
+                    value={summary.staff_present}
+                    sub={staffAttendanceSub}
+                  />
+                  <KpiCard
+                    icon={<GraduationCap className="w-5 h-5 text-primary" />}
+                    label="عدد الطلاب"
+                    value={summary.students_total}
+                  />
+                  <KpiCard
+                    icon={<GraduationCap className="w-5 h-5 text-primary" />}
+                    label="تحضير الطلاب"
+                    value={summary.students_present}
+                    sub={studentAttendanceSub}
+                  />
+                </div>
+              )}
+
+              {activeView === "staff" && !loading && (
                 <DetailTable
                   rows={staffItems}
                   emptyLabel="لا توجد سجلات منسوبين مطابقة للفلاتر."
                 />
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
+              )}
 
-        <Card className={`${ds.card} overflow-hidden print:shadow-none print:border`}>
-          <CardHeader className="border-b border-border print:border-0">
-            <CardTitle className={ds.page.section} style={tajawal}>
-              التقرير التفصيلي لانضباط الحلقات
-            </CardTitle>
-            <CardDescription style={tajawal}>
-              اسم الطالب، أيام الحضور الرسمية، نسبة انضباط الطالب، ونسبة الحلقة.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-0">
-            {disciplineRows.length === 0 ? (
-              <p className="p-4 text-sm text-muted-foreground text-right" style={tajawal}>
-                لا توجد بيانات انضباط للفترة المحددة.
-              </p>
-            ) : (
-              <Table className={`${ds.tableMin} text-right`} dir="rtl">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className={ds.table.head} style={tajawal}>
-                      اسم الطالب
-                    </TableHead>
-                    <TableHead className={ds.table.head} style={tajawal}>
-                      الحلقة
-                    </TableHead>
-                    <TableHead className={ds.table.head} style={tajawal}>
-                      أيام الحضور الرسمية
-                    </TableHead>
-                    <TableHead className={ds.table.head} style={tajawal}>
-                      انضباط الطالب
-                    </TableHead>
-                    <TableHead className={ds.table.head} style={tajawal}>
-                      انضباط الحلقة
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {disciplineRows.map((row) => (
-                    <TableRow key={`${row.student_id}-${row.circle_id ?? "none"}`}>
-                      <TableCell className={ds.table.cell} style={tajawal}>
-                        {row.full_name_ar}
-                      </TableCell>
-                      <TableCell className={ds.table.cell} style={tajawal}>
-                        {row.circle_name ?? "—"}
-                      </TableCell>
-                      <TableCell className={`${ds.table.cell} tabular-nums`} style={tajawal}>
-                        {row.official_days}
-                      </TableCell>
-                      <TableCell className={`${ds.table.cell} tabular-nums`} style={tajawal}>
-                        {row.discipline_pct}%
-                      </TableCell>
-                      <TableCell className={`${ds.table.cell} tabular-nums`} style={tajawal}>
-                        {row.circle_discipline_pct}%
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
+              {activeView === "students" && !loading && (
+                <DetailTable
+                  rows={studentItems}
+                  emptyLabel="لا توجد سجلات طلاب مطابقة للفلاتر."
+                />
+              )}
+
+              {activeView === "discipline" && (
+                <>
+                  {disciplineLoading ? (
+                    <p className="p-4 text-sm text-muted-foreground" style={tajawal}>
+                      جاري تحميل تقرير الانضباط…
+                    </p>
+                  ) : disciplineRows.length === 0 ? (
+                    <p className="p-4 text-sm text-muted-foreground" style={tajawal}>
+                      لا توجد بيانات انضباط للفترة المحددة.
+                    </p>
+                  ) : (
+                    <Table className={`${ds.tableMin} text-right`} dir="rtl">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className={ds.table.head} style={tajawal}>
+                            اسم الطالب
+                          </TableHead>
+                          <TableHead className={ds.table.head} style={tajawal}>
+                            الحلقة
+                          </TableHead>
+                          <TableHead className={ds.table.head} style={tajawal}>
+                            أيام الحضور الرسمية
+                          </TableHead>
+                          <TableHead className={ds.table.head} style={tajawal}>
+                            انضباط الطالب
+                          </TableHead>
+                          <TableHead className={ds.table.head} style={tajawal}>
+                            انضباط الحلقة
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {disciplineRows.map((row) => (
+                          <TableRow key={`${row.student_id}-${row.circle_id ?? "none"}`}>
+                            <TableCell className={ds.table.cell} style={tajawal}>
+                              {row.full_name_ar}
+                            </TableCell>
+                            <TableCell className={ds.table.cell} style={tajawal}>
+                              {row.circle_name ?? "—"}
+                            </TableCell>
+                            <TableCell
+                              className={`${ds.table.cell} tabular-nums`}
+                              style={tajawal}
+                            >
+                              {row.official_days}
+                            </TableCell>
+                            <TableCell
+                              className={`${ds.table.cell} tabular-nums`}
+                              style={tajawal}
+                            >
+                              {row.discipline_pct}%
+                            </TableCell>
+                            <TableCell
+                              className={`${ds.table.cell} tabular-nums`}
+                              style={tajawal}
+                            >
+                              {row.circle_discipline_pct}%
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {activeView === "student_lookup" && (
+          <Card className={`${ds.card} admin-reports-screen-only`}>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2" style={tajawal}>
+                <Search className="w-4 h-4 text-primary" />
+                بحث عن طالب — سجل الحضور الكامل
+              </CardTitle>
+              <CardDescription style={tajawal}>
+                اختر طالباً لعرض حضوره وغيابه واستئذانه في تاريخه بالكامل.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <AdminStudentSearchCombobox
+                id="admin-reports-student-search"
+                value={studentId}
+                onChange={(id) => {
+                  setStudentId(id);
+                  setStudentReport(null);
+                  if (id != null) void loadStudentReport(id);
+                }}
+              />
+              {studentLoading && (
+                <p className="text-sm text-muted-foreground text-right" style={tajawal}>
+                  جاري تحميل سجل الطالب…
+                </p>
+              )}
+              {studentReport && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <KpiCard label="حاضر" value={studentReport.summary.present} />
+                    <KpiCard label="غائب" value={studentReport.summary.absent} />
+                    <KpiCard label="مستأذن" value={studentReport.summary.excused} />
+                    <KpiCard label="إجمالي الأيام" value={studentReport.summary.total} />
+                  </div>
+                  <div className={`${ds.card} overflow-hidden`}>
+                    <Table className={`${ds.tableMin} text-right`} dir="rtl">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className={`${ds.table.head} text-right`} style={tajawal}>
+                            التاريخ
+                          </TableHead>
+                          <TableHead className={`${ds.table.head} text-right`} style={tajawal}>
+                            الحالة
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {studentReport.items.map((row) => (
+                          <TableRow key={row.date}>
+                            <TableCell
+                              className={`${ds.table.cell} text-right`}
+                              style={tajawal}
+                            >
+                              {row.date}
+                            </TableCell>
+                            <TableCell
+                              className={`${ds.table.cell} text-right`}
+                              style={tajawal}
+                            >
+                              {STATUS_AR[row.status] ?? row.status}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );

@@ -55,9 +55,15 @@ export async function handleStudentDetail(
   const studentId = parseStudentId(url);
   if (!studentId) return json({ error: "invalid_student_id" }, 400);
 
+  const isActiveExpr = (await tableHasColumn(env, "students", "is_active"))
+    ? "COALESCE(is_active, 1) = 1"
+    : "1=1";
+  const phoneSelect = (await tableHasColumn(env, "students", "phone"))
+    ? "phone"
+    : "NULL AS phone";
   const student = await env.DB.prepare(
-    `SELECT id, full_name_ar, phone FROM students
-     WHERE id = ? AND complex_id = ? AND is_active = 1`,
+    `SELECT id, full_name_ar, ${phoneSelect} FROM students
+     WHERE id = ? AND complex_id = ? AND ${isActiveExpr}`,
   )
     .bind(studentId, auth.complexId)
     .first<{ id: number; full_name_ar: string; phone: string | null }>();

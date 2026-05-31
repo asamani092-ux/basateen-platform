@@ -23,7 +23,7 @@ export const STAGE_OPTIONS = EDUCATIONAL_STAGES.map((s) => ({
 export const SUPERVISOR_TYPES = [
   { value: "edu_supervisor", label: "مشرف تعليمي" },
   { value: "programs_supervisor", label: "مشرف برامج" },
-  { value: "general_supervisor", label: "مشرف عام" },
+  { value: "track_supervisor", label: "مشرف مسار" },
 ] as const;
 
 export function stageLabel(

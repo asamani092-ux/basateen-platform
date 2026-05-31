@@ -4,6 +4,7 @@ const ROLE_LABELS_AR: Record<string, string> = {
   admin_supervisor: "مشرف القسم الإداري",
   edu_supervisor: "مشرف تعليمي",
   programs_supervisor: "مشرف البرامج",
+  prog_supervisor: "مشرف البرامج",
   general_supervisor: "مشرف عام",
   teacher: "معلم",
   track_supervisor: "مشرف مسار",

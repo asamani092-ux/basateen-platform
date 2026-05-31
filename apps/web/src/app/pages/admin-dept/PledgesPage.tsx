@@ -427,21 +427,12 @@ export function PledgesPage() {
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent
-          className={ds.dialog}
+          className={`${ds.dialog} z-[60]`}
           dir="rtl"
-          onOpenAutoFocus={(e) => {
-            e.preventDefault();
-            requestAnimationFrame(() => {
-              document.querySelector("#pledge-modal-student-search input")?.focus();
-            });
-          }}
           onInteractOutside={(e) => {
             if (isStudentSearchTarget(e.target)) e.preventDefault();
           }}
           onPointerDownOutside={(e) => {
-            if (isStudentSearchTarget(e.target)) e.preventDefault();
-          }}
-          onFocusOutside={(e) => {
             if (isStudentSearchTarget(e.target)) e.preventDefault();
           }}
         >
@@ -461,23 +452,33 @@ export function PledgesPage() {
                 disabled={submitting}
               />
             </div>
-            <div className="space-y-2">
-              <Label style={tajawal}>تاريخ التعهد</Label>
+            <div className="space-y-2 relative z-[1]">
+              <Label htmlFor="pledge-date-input" style={tajawal}>
+                تاريخ التعهد
+              </Label>
               <Input
+                id="pledge-date-input"
                 type="date"
                 value={pledgeDate}
                 onChange={(e) => setPledgeDate(e.target.value)}
-                className={ds.btnRound}
+                disabled={submitting}
+                className={ds.field}
               />
             </div>
-            <div className="space-y-2">
-              <Label style={tajawal}>سبب التعهد *</Label>
+            <div className="space-y-2 relative z-[1]">
+              <Label htmlFor="pledge-reason-input" style={tajawal}>
+                سبب التعهد *
+              </Label>
               <Input
+                id="pledge-reason-input"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 required
-                className={ds.btnRound}
+                readOnly={false}
+                disabled={submitting}
+                className={ds.field}
                 style={tajawal}
+                autoComplete="off"
               />
             </div>
             <Button

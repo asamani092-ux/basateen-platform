@@ -50,22 +50,42 @@ function emailForMobile(mobile: string, role: string): string {
   return `${role}-${clean}@basateen.local`;
 }
 
+/** أدوار المشرفين المسموح إنشاؤها/تعديلها (v3.2 — خمسة أدوار تشغيلية) */
 const SUPERVISOR_INPUT_ROLES = [
   "edu_supervisor",
+  "programs_supervisor",
   "prog_supervisor",
+  "track_supervisor",
   "general_supervisor",
   "admin_supervisor",
 ] as const;
 
+const SUPERVISOR_DB_ROLE_SQL = `'edu_supervisor','programs_supervisor','prog_supervisor','track_supervisor','admin_supervisor','general_supervisor'`;
+
 function normalizeSupervisorRoleForDb(role: string): UserRole {
-  if (role === "general_supervisor") return "admin_supervisor";
+  if (role === "prog_supervisor" || role === "programs_supervisor") {
+    return "programs_supervisor";
+  }
+  if (role === "general_supervisor" || role === "admin_supervisor") {
+    return "admin_supervisor";
+  }
+  if (role === "edu_supervisor" || role === "track_supervisor") {
+    return role;
+  }
   return role as UserRole;
+}
+
+function isSupervisorInputRole(role: string): boolean {
+  return SUPERVISOR_INPUT_ROLES.includes(
+    role as (typeof SUPERVISOR_INPUT_ROLES)[number],
+  );
 }
 
 function legacySupervisorFlags(role: string): Record<string, number> {
   const dbRole = normalizeSupervisorRoleForDb(role);
   if (dbRole === "edu_supervisor") return { is_educational: 1 };
-  if (dbRole === "prog_supervisor") return { is_programs: 1 };
+  if (dbRole === "programs_supervisor") return { is_programs: 1 };
+  if (dbRole === "track_supervisor") return { is_track_supervisor: 1 };
   return { is_admin: 1 };
 }
 
@@ -130,13 +150,18 @@ async function syncSupervisorSections(
   role: string,
 ): Promise<void> {
   if (!(await hasTable(env, "user_sections"))) return;
+  await env.DB.prepare(`DELETE FROM user_sections WHERE user_id = ?`)
+    .bind(userId)
+    .run();
   const dbRole = normalizeSupervisorRoleForDb(role);
   const sections =
-    dbRole === "prog_supervisor"
+    dbRole === "programs_supervisor"
       ? ["programs"]
       : dbRole === "edu_supervisor"
         ? ["admin", "education"]
-        : ["admin", "education", "programs"];
+        : dbRole === "track_supervisor"
+          ? ["education"]
+          : ["admin", "education", "programs"];
   for (const section of sections) {
     await env.DB.prepare(
       `INSERT INTO user_sections (user_id, section) VALUES (?, ?)`,
@@ -271,7 +296,7 @@ export async function handleAdminSupervisorsList(
     ? await env.DB.prepare(
         `SELECT id, full_name_ar, mobile, role, COALESCE(supervisor_scope, 'global') AS supervisor_scope, is_active
          FROM users
-         WHERE complex_id = ? AND role IN ('edu_supervisor', 'prog_supervisor', 'admin_supervisor', 'general_supervisor')
+         WHERE complex_id = ? AND role IN (${SUPERVISOR_DB_ROLE_SQL})
          ORDER BY full_name_ar`,
       )
         .bind(auth!.complexId)
@@ -321,7 +346,7 @@ export async function handleAdminSupervisorsCreate(
   }
 
   const role = body.role;
-  if (!role || !SUPERVISOR_INPUT_ROLES.includes(role as (typeof SUPERVISOR_INPUT_ROLES)[number])) {
+  if (!role || !isSupervisorInputRole(role)) {
     return json({ error: "invalid_supervisor_role" }, 400);
   }
   if (!body.full_name_ar?.trim() || !body.mobile?.trim()) {
@@ -1112,6 +1137,7 @@ export async function handleAdminSupervisorsPatch(
   env: Env,
   url: URL,
 ): Promise<Response> {
+  try {
   const auth = await getAuth(request, env);
   const denied = requireGm(auth);
   if (denied) return denied;
@@ -1135,7 +1161,7 @@ export async function handleAdminSupervisorsPatch(
 
   const hasRole = await usersHaveRoleColumn(env);
   const supervisorFilter = hasRole
-    ? `role IN ('edu_supervisor','prog_supervisor','admin_supervisor', 'general_supervisor')`
+    ? `role IN (${SUPERVISOR_DB_ROLE_SQL})`
     : `(
         COALESCE(is_track_supervisor, 0) = 1 OR COALESCE(is_educational, 0) = 1 OR
         COALESCE(is_programs, 0) = 1 OR COALESCE(is_admin, 0) = 1
@@ -1163,10 +1189,7 @@ export async function handleAdminSupervisorsPatch(
       .bind(body.mobile.trim(), userId)
       .run();
   }
-  if (
-    body.role &&
-    SUPERVISOR_INPUT_ROLES.includes(body.role as (typeof SUPERVISOR_INPUT_ROLES)[number])
-  ) {
+  if (body.role && isSupervisorInputRole(body.role)) {
     const dbRole = normalizeSupervisorRoleForDb(body.role);
     if (await usersHaveRoleColumn(env)) {
       await env.DB.prepare(`UPDATE users SET role = ? WHERE id = ?`)
@@ -1182,6 +1205,7 @@ export async function handleAdminSupervisorsPatch(
         }
       }
     }
+    await syncSupervisorSections(env, userId, dbRole);
   }
   if (body.supervisor_scope != null) {
     if (await tableHasColumn(env, "users", "supervisor_scope")) {
@@ -1201,6 +1225,17 @@ export async function handleAdminSupervisorsPatch(
   }
 
   return json({ ok: true });
+  } catch (error: unknown) {
+    console.error("[admin-gm] supervisors patch:", error);
+    return json(
+      {
+        error: "supervisor_patch_failed",
+        message:
+          error instanceof Error ? error.message : "Failed to update supervisor",
+      },
+      500,
+    );
+  }
 }
 
 export async function handleAdminSupervisorsDelete(
@@ -1218,7 +1253,7 @@ export async function handleAdminSupervisorsDelete(
 
   const hasRole = await usersHaveRoleColumn(env);
   const supervisorFilter = hasRole
-    ? `role IN ('edu_supervisor','prog_supervisor','admin_supervisor', 'general_supervisor')`
+    ? `role IN (${SUPERVISOR_DB_ROLE_SQL})`
     : `(
         COALESCE(is_track_supervisor, 0) = 1 OR COALESCE(is_educational, 0) = 1 OR
         COALESCE(is_programs, 0) = 1 OR COALESCE(is_admin, 0) = 1

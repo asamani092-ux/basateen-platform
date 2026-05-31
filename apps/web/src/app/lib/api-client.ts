@@ -60,6 +60,7 @@ export type StudentExportRow = {
 
 export type StudentImportRow = Omit<StudentExportRow, "guardian_national_id"> & {
   guardian_national_id?: string | null;
+  track_name?: string | null;
 };
 
 export type CircleOption = {
@@ -217,6 +218,25 @@ export const api = {
   circles: () => request<{ items: CircleOption[] }>("/api/circles"),
   studentDetail: (id: number) =>
     request<StudentDetail>(`/api/students/${id}`),
+  studentsPatch: (
+    id: number,
+    body: {
+      full_name_ar?: string;
+      national_id?: string | null;
+      phone?: string | null;
+      guardian_phone?: string | null;
+      school_name?: string | null;
+      school_grade?: string | null;
+      nationality?: string | null;
+      health_notes?: string | null;
+    },
+  ) =>
+    request<{ ok: boolean }>(`/api/students/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  studentsDelete: (id: number) =>
+    request<{ ok: boolean }>(`/api/students/${id}`, { method: "DELETE" }),
   transferStudent: (
     id: number,
     body: { circle_id: number; track_id?: number | null; note?: string },

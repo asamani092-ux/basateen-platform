@@ -53,6 +53,22 @@ import { ds, tajawal } from "../../lib/design-system";
 
 type StaffTab = "teachers" | "supervisors";
 
+function circlesForTrackId(
+  trackId: string,
+  circles: AdminCircleRow[],
+  tracks: AdminTrackRow[],
+): AdminCircleRow[] {
+  if (!trackId) return circles;
+  const tid = Number(trackId);
+  const track = tracks.find((t) => t.id === tid);
+  const linked = new Set<number>();
+  if (track) {
+    for (const c of track.circles ?? []) linked.add(c.id);
+    for (const cid of track.circle_ids ?? []) linked.add(cid);
+  }
+  return circles.filter((c) => c.track_id === tid || linked.has(c.id));
+}
+
 export function StaffManagementPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tab: StaffTab =
@@ -135,7 +151,7 @@ function TeachersPanel() {
       ]);
       setItems(t.items);
       setCircles(c.items.filter((x) => x.is_active));
-      setTracks(tr.items.filter((x) => x.is_active));
+      setTracks(tr.items ?? []);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل التحميل");
@@ -149,9 +165,7 @@ function TeachersPanel() {
   }, [load]);
 
   const isTrackStaff = staffRole === "track_supervisor";
-  const circlesForTrack = trackId
-    ? circles.filter((c) => c.track_id === Number(trackId))
-    : circles;
+  const circlesForTrack = circlesForTrackId(trackId, circles, tracks);
 
   async function submitAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -262,30 +276,34 @@ function TeachersPanel() {
                   ))}
                 </select>
               </div>
-              {isTrackStaff ? (
-                <div>
-                  <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                    المسار *
-                  </label>
-                  <select
-                    value={trackId}
-                    onChange={(e) => {
-                      setTrackId(e.target.value);
-                      setCircleId("");
-                    }}
-                    required
-                    className={ds.select}
-                    style={tajawal}
-                  >
-                    <option value="">— اختر المسار —</option>
-                    {tracks.map((tr) => (
-                      <option key={tr.id} value={String(tr.id)}>
-                        {tr.name_ar}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : null}
+              <div>
+                <label className="block text-sm font-semibold mb-1" style={tajawal}>
+                  {isTrackStaff ? "المسار *" : "المسار (تصفية الحلقات)"}
+                </label>
+                <select
+                  value={trackId}
+                  onChange={(e) => {
+                    setTrackId(e.target.value);
+                    setCircleId("");
+                  }}
+                  required={isTrackStaff}
+                  className={ds.select}
+                  style={tajawal}
+                >
+                  <option value="">
+                    {tracks.length === 0
+                      ? "— لا توجد مسارات (أضف مساراً من إعداد الحلقات) —"
+                      : isTrackStaff
+                        ? "— اختر المسار —"
+                        : "— كل المسارات —"}
+                  </option>
+                  {tracks.map((tr) => (
+                    <option key={tr.id} value={String(tr.id)}>
+                      {tr.name_ar}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div>
                 <label className="block text-sm font-semibold mb-1" style={tajawal}>
                   {isTrackStaff ? "حلقة ضمن المسار (اختياري)" : "الحلقة *"}
@@ -318,6 +336,7 @@ function TeachersPanel() {
           <TeacherEditDialog
             teacher={editTeacher}
             circles={circles}
+            tracks={tracks}
             open
             onOpenChange={(o) => {
               if (!o) setEditTeacher(null);
@@ -347,7 +366,8 @@ function TeachersPanel() {
             }}
             onDelete={async () => {
               await api.adminTeachersDelete(actionTeacher.id);
-              await load();
+              setItems((prev) => prev.filter((x) => x.id !== actionTeacher.id));
+              setActionTeacher(null);
             }}
           />
         )}
@@ -409,6 +429,26 @@ function TeachersPanel() {
                       onClick={() => setEditTeacher(t)}
                     />
                     <TableIconAction
+                      kind="delete"
+                      onClick={async () => {
+                        if (
+                          !confirm(
+                            `حذف المنسوب «${t.full_name_ar}» نهائياً من النظام؟`,
+                          )
+                        ) {
+                          return;
+                        }
+                        try {
+                          await api.adminTeachersDelete(t.id);
+                          setItems((prev) => prev.filter((x) => x.id !== t.id));
+                        } catch (err) {
+                          setError(
+                            err instanceof Error ? err.message : "فشل الحذف",
+                          );
+                        }
+                      }}
+                    />
+                    <TableIconAction
                       kind="freeze"
                       onClick={() => setActionTeacher(t)}
                     />
@@ -426,23 +466,38 @@ function TeachersPanel() {
 function TeacherEditDialog({
   teacher,
   circles,
+  tracks,
   open,
   onOpenChange,
   onSaved,
 }: {
   teacher: StaffTeacherRow;
   circles: AdminCircleRow[];
+  tracks: AdminTrackRow[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
 }) {
   const [name, setName] = useState(teacher.full_name_ar);
   const [mobile, setMobile] = useState(teacher.mobile ?? "");
+  const [trackId, setTrackId] = useState("");
   const [circleId, setCircleId] = useState(
     teacher.circle_id ? String(teacher.circle_id) : "",
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setName(teacher.full_name_ar);
+    setMobile(teacher.mobile ?? "");
+    setCircleId(teacher.circle_id ? String(teacher.circle_id) : "");
+    const linked = circles.find((c) => c.id === teacher.circle_id);
+    setTrackId(linked?.track_id ? String(linked.track_id) : "");
+    setError(null);
+  }, [open, teacher, circles]);
+
+  const filteredCircles = circlesForTrackId(trackId, circles, tracks);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -478,13 +533,29 @@ function TeacherEditDialog({
           <Input value={name} onChange={(e) => setName(e.target.value)} />
           <Input value={mobile} onChange={(e) => setMobile(e.target.value)} />
           <select
+            value={trackId}
+            onChange={(e) => {
+              setTrackId(e.target.value);
+              setCircleId("");
+            }}
+            className={ds.select}
+            style={tajawal}
+          >
+            <option value="">— كل المسارات —</option>
+            {tracks.map((tr) => (
+              <option key={tr.id} value={String(tr.id)}>
+                {tr.name_ar}
+              </option>
+            ))}
+          </select>
+          <select
             value={circleId}
             onChange={(e) => setCircleId(e.target.value)}
             className={ds.select}
             style={tajawal}
           >
             <option value="">—</option>
-            {circles.map((c) => (
+            {filteredCircles.map((c) => (
               <option key={c.id} value={String(c.id)}>
                 {c.name_ar}
               </option>
@@ -537,7 +608,7 @@ function SupervisorsPanel() {
         ),
       );
       setCircles(circlesRes.items.filter((x) => x.is_active));
-      setTracks(tracksRes.items.filter((x) => x.is_active));
+      setTracks(tracksRes.items ?? []);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل التحميل");

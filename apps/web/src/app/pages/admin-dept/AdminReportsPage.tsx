@@ -61,12 +61,16 @@ function formatDisciplinePct(row: {
   official_days?: unknown;
   present_days?: unknown;
 }): string {
-  const totalDays = Number(row.official_days ?? 0);
   const presentDays = Number(row.present_days ?? 0);
+  const absentDays = Math.max(
+    0,
+    Number(row.official_days ?? 0) - presentDays,
+  );
+  const total = presentDays + absentDays;
   const fromApi = Number(row.discipline_pct);
   const percentage =
-    totalDays > 0
-      ? Math.round((presentDays / totalDays) * 100)
+    total > 0
+      ? Math.round((presentDays / total) * 100)
       : Number.isFinite(fromApi)
         ? Math.round(fromApi)
         : 0;
@@ -144,6 +148,83 @@ const REPORT_CARDS: Array<{
     icon: <Search className="w-5 h-5 text-primary" />,
   },
 ];
+
+type AttendanceSummaryRow = {
+  name: string;
+  presentDays: number;
+  absentDays: number;
+  disciplinePct: number;
+};
+
+function aggregateAttendance(rows: ReportRow[]): AttendanceSummaryRow[] {
+  const map = new Map<string, { present: number; absent: number }>();
+  for (const row of rows) {
+    const cur = map.get(row.name) ?? { present: 0, absent: 0 };
+    if (row.status === "present") cur.present += 1;
+    else cur.absent += 1;
+    map.set(row.name, cur);
+  }
+  return Array.from(map.entries()).map(([name, { present, absent }]) => {
+    const total = present + absent;
+    const disciplinePct =
+      total > 0 ? Math.round((present / total) * 100) : 0;
+    return { name, presentDays: present, absentDays: absent, disciplinePct };
+  });
+}
+
+function AttendanceSummaryTable({
+  rows,
+  emptyLabel,
+}: {
+  rows: AttendanceSummaryRow[];
+  emptyLabel: string;
+}) {
+  if (rows.length === 0) {
+    return (
+      <p className="p-4 text-sm text-muted-foreground text-right" style={tajawal}>
+        {emptyLabel}
+      </p>
+    );
+  }
+  return (
+    <Table className={`${ds.tableMin} text-right`} dir="rtl">
+      <TableHeader>
+        <TableRow>
+          <TableHead className={`${ds.table.head} text-right`} style={tajawal}>
+            الاسم
+          </TableHead>
+          <TableHead className={`${ds.table.head} text-right`} style={tajawal}>
+            أيام الحضور
+          </TableHead>
+          <TableHead className={`${ds.table.head} text-right`} style={tajawal}>
+            أيام الغياب
+          </TableHead>
+          <TableHead className={`${ds.table.head} text-right`} style={tajawal}>
+            نسبة الانضباط
+          </TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((row) => (
+          <TableRow key={row.name}>
+            <TableCell className="text-right font-medium" style={tajawal}>
+              {row.name}
+            </TableCell>
+            <TableCell className="text-right" style={tajawal}>
+              {row.presentDays}
+            </TableCell>
+            <TableCell className="text-right" style={tajawal}>
+              {row.absentDays}
+            </TableCell>
+            <TableCell className="text-right" style={tajawal}>
+              {row.disciplinePct}%
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
 
 function DetailTable({
   rows,
@@ -235,6 +316,14 @@ export function AdminReportsPage() {
   const studentItems = useMemo(
     () => items.filter((r) => r.type === "student"),
     [items],
+  );
+  const staffSummary = useMemo(
+    () => aggregateAttendance(staffItems),
+    [staffItems],
+  );
+  const studentSummary = useMemo(
+    () => aggregateAttendance(studentItems),
+    [studentItems],
   );
 
   useEffect(() => {
@@ -536,13 +625,13 @@ export function AdminReportsPage() {
 
       <div
         id="admin-reports-print"
-        className="admin-reports-print-body space-y-6 print:bg-white print:text-black"
+        className="admin-reports-print-body space-y-6 print:bg-white print:text-black print:dark:bg-white print:dark:text-black"
       >
-        <div className="hidden print:block text-center border-b border-black/20 pb-4 mb-4 print:text-black">
+        <div className="hidden print:block text-center border-b border-black/20 pb-4 mb-4 print:text-black print:bg-white print:dark:bg-white">
           <img
             src="/logo-light.png"
             alt="شعار مجمع البساتين"
-            className="h-24 mx-auto mb-3 object-contain print:block"
+            className="h-24 w-32 print:w-32 print:h-32 mx-auto mb-3 object-contain print:block"
           />
           <h1 className="text-2xl font-bold print:text-black" style={tajawal}>
             تقرير القسم الإداري — مجمع البساتين
@@ -604,15 +693,15 @@ export function AdminReportsPage() {
               )}
 
               {activeView === "staff" && !loading && (
-                <DetailTable
-                  rows={staffItems}
+                <AttendanceSummaryTable
+                  rows={staffSummary}
                   emptyLabel="لا توجد سجلات منسوبين مطابقة للفلاتر."
                 />
               )}
 
               {activeView === "students" && !loading && (
-                <DetailTable
-                  rows={studentItems}
+                <AttendanceSummaryTable
+                  rows={studentSummary}
                   emptyLabel="لا توجد سجلات طلاب مطابقة للفلاتر."
                 />
               )}
@@ -638,10 +727,13 @@ export function AdminReportsPage() {
                             الحلقة
                           </TableHead>
                           <TableHead className={ds.table.head} style={tajawal}>
-                            أيام الحضور الرسمية
+                            أيام الحضور
                           </TableHead>
                           <TableHead className={ds.table.head} style={tajawal}>
-                            انضباط الطالب
+                            أيام الغياب
+                          </TableHead>
+                          <TableHead className={ds.table.head} style={tajawal}>
+                            نسبة الانضباط
                           </TableHead>
                           <TableHead className={ds.table.head} style={tajawal}>
                             انضباط الحلقة
@@ -661,7 +753,17 @@ export function AdminReportsPage() {
                               className={`${ds.table.cell} tabular-nums`}
                               style={tajawal}
                             >
-                              {row.official_days}
+                              {Number(row.present_days ?? 0)}
+                            </TableCell>
+                            <TableCell
+                              className={`${ds.table.cell} tabular-nums`}
+                              style={tajawal}
+                            >
+                              {Math.max(
+                                0,
+                                Number(row.official_days ?? 0) -
+                                  Number(row.present_days ?? 0),
+                              )}
                             </TableCell>
                             <TableCell
                               className={`${ds.table.cell} tabular-nums`}

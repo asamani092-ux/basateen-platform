@@ -56,9 +56,9 @@ function printPledgeForm(
   w.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head>
     <meta charset="utf-8"/><title>نموذج تعهد — ${studentName}</title>
     <style>
-      body{font-family:Tajawal,sans-serif;padding:2rem;line-height:1.8;color:#111}
+      body{font-family:Tajawal,sans-serif;padding:2rem;line-height:1.8;color:#111;background:#fff}
       .header{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #1e3a8a;padding-bottom:1rem;margin-bottom:1.5rem}
-      .header img{height:120px;max-width:280px;object-fit:contain}
+      .header img{width:8rem;height:8rem;object-fit:contain}
       table{width:100%;border-collapse:collapse;margin:1.5rem 0}
       th,td{border:1px solid #ccc;padding:8px;text-align:right}
       th{background:#f1f5f9}
@@ -208,7 +208,10 @@ export function PledgesPage() {
   }
 
   return (
-    <div className="space-y-4 max-w-[1100px]" dir="rtl">
+    <div
+      className="space-y-4 max-w-[1100px] print:bg-white print:text-black print:dark:bg-white print:dark:text-black"
+      dir="rtl"
+    >
       <div className="print:hidden flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>
           <h2 className={ds.page.title} style={tajawal}>

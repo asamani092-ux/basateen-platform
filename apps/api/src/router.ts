@@ -11,7 +11,9 @@ import {
 } from "./routes/students-bulk";
 import { handleCirclesList } from "./routes/circles";
 import {
+  handleStudentDelete,
   handleStudentDetail,
+  handleStudentPatch,
   handleStudentTransfer,
 } from "./routes/transfers";
 import {
@@ -81,6 +83,8 @@ const sharedRoutes: Array<{ method: string; pattern: RegExp; handler: RouteHandl
   { method: "GET", pattern: /^\/api\/students\/export$/, handler: handleStudentsExport },
   { method: "POST", pattern: /^\/api\/students\/bulk$/, handler: handleStudentsBulkImport },
   { method: "GET", pattern: /^\/api\/students\/\d+$/, handler: handleStudentDetail },
+  { method: "PATCH", pattern: /^\/api\/students\/\d+$/, handler: handleStudentPatch },
+  { method: "DELETE", pattern: /^\/api\/students\/\d+$/, handler: handleStudentDelete },
   { method: "POST", pattern: /^\/api\/students\/\d+\/transfer$/, handler: handleStudentTransfer },
   { method: "GET", pattern: /^\/api\/yom-himma$/, handler: handleYomHimmaList },
   { method: "POST", pattern: /^\/api\/yom-himma$/, handler: handleYomHimmaCreate },

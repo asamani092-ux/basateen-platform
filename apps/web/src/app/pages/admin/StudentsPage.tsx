@@ -1,9 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { useSearchParams } from "react-router";
 import { Search } from "lucide-react";
+import {
+  TableActionsCell,
+  TableIconAction,
+} from "../../components/admin/TableIconAction";
 import { StudentsExcelPanel } from "../../components/admin/StudentsExcelPanel";
 import { Button } from "../../components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
+import { Label } from "../../components/ui/label";
 import {
   Card,
   CardContent,
@@ -20,24 +32,38 @@ import {
   TableRow,
 } from "../../components/ui/table";
 import { Badge } from "../../components/ui/badge";
-import { api, type StudentRow } from "../../lib/api-client";
+import {
+  api,
+  type CircleOption,
+  type StudentRow,
+} from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
 import { ds, tajawal } from "../../lib/design-system";
 
-type Tab = "list" | "excel";
+type Tab = "list" | "bulk";
 
 export function StudentsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tab: Tab =
-    searchParams.get("excel") === "1" || searchParams.get("tab") === "excel"
-      ? "excel"
+    searchParams.get("bulk") === "1" ||
+    searchParams.get("excel") === "1" ||
+    searchParams.get("tab") === "bulk"
+      ? "bulk"
       : "list";
 
   const [q, setQ] = useState("");
   const [items, setItems] = useState<StudentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editStudent, setEditStudent] = useState<StudentRow | null>(null);
+  const [transferStudent, setTransferStudent] = useState<StudentRow | null>(null);
+  const [circles, setCircles] = useState<CircleOption[]>([]);
   const hasApi = Boolean(getApiToken());
+
+  useEffect(() => {
+    if (!hasApi) return;
+    void api.circles().then((res) => setCircles(res.items)).catch(() => setCircles([]));
+  }, [hasApi]);
 
   const load = useCallback(async (query: string) => {
     setLoading(true);
@@ -78,14 +104,12 @@ export function StudentsPage() {
 
   function setTab(next: Tab) {
     const params = new URLSearchParams(searchParams);
-    if (next === "excel") {
-      params.set("excel", "1");
-      if (!params.get("tab") || params.get("tab") === "excel") {
-        params.set("tab", "students");
-      }
-    } else {
+    if (next === "bulk") {
+      params.set("bulk", "1");
       params.delete("excel");
-      if (params.get("tab") === "excel") params.delete("tab");
+    } else {
+      params.delete("bulk");
+      params.delete("excel");
     }
     setSearchParams(params);
   }
@@ -102,7 +126,7 @@ export function StudentsPage() {
           </p>
         </div>
         <Badge variant="secondary" className="rounded-xl" style={tajawal}>
-          {tab === "list" ? `${items.length} طالب` : "ملف Excel"}
+          {tab === "list" ? `${items.length} طالب` : "إضافة جماعية"}
         </Badge>
       </div>
 
@@ -120,16 +144,16 @@ export function StudentsPage() {
         <Button
           type="button"
           size="sm"
-          variant={tab === "excel" ? "default" : "outline"}
+          variant={tab === "bulk" ? "default" : "outline"}
           className={ds.btnRound}
-          onClick={() => setTab("excel")}
+          onClick={() => setTab("bulk")}
           style={tajawal}
         >
-          ملف Excel (تسجيل / نقل جماعي)
+          إضافة جماعية (لصق نصي)
         </Button>
       </div>
 
-      {tab === "excel" ? (
+      {tab === "bulk" ? (
         <StudentsExcelPanel />
       ) : (
         <Card className={ds.card}>
@@ -171,30 +195,56 @@ export function StudentsPage() {
                     <TableHead style={tajawal}>الحلقة</TableHead>
                     <TableHead style={tajawal}>المدرسة</TableHead>
                     <TableHead style={tajawal}>الصف</TableHead>
+                    <TableHead style={tajawal}>إجراءات</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {items.map((s) => (
                     <TableRow key={s.id}>
                       <TableCell className="font-medium" style={tajawal}>
-                        <Link
-                          to={`/edu-supervisor/students/${s.id}`}
-                          className="text-primary hover:underline"
-                        >
-                          {s.full_name_ar}
-                        </Link>
+                        {s.full_name_ar}
                       </TableCell>
                       <TableCell style={tajawal}>{s.national_id ?? "—"}</TableCell>
                       <TableCell style={tajawal}>{s.phone ?? "—"}</TableCell>
                       <TableCell style={tajawal}>{s.circle_name ?? "—"}</TableCell>
                       <TableCell style={tajawal}>{s.school_name ?? "—"}</TableCell>
                       <TableCell style={tajawal}>{s.school_grade ?? "—"}</TableCell>
+                      <TableActionsCell>
+                        <TableIconAction
+                          kind="edit"
+                          onClick={() => setEditStudent(s)}
+                        />
+                        <TableIconAction
+                          kind="transfer"
+                          onClick={() => setTransferStudent(s)}
+                        />
+                        <TableIconAction
+                          kind="delete"
+                          onClick={async () => {
+                            if (
+                              !confirm(
+                                `حذف الطالب «${s.full_name_ar}» من القائمة النشطة؟`,
+                              )
+                            ) {
+                              return;
+                            }
+                            try {
+                              await api.studentsDelete(s.id);
+                              setItems((prev) => prev.filter((x) => x.id !== s.id));
+                            } catch (e) {
+                              setError(
+                                e instanceof Error ? e.message : "فشل الحذف",
+                              );
+                            }
+                          }}
+                        />
+                      </TableActionsCell>
                     </TableRow>
                   ))}
                   {items.length === 0 && !loading && (
                     <TableRow>
                       <TableCell
-                        colSpan={6}
+                        colSpan={7}
                         className="text-center text-muted-foreground"
                         style={tajawal}
                       >
@@ -208,6 +258,228 @@ export function StudentsPage() {
           </CardContent>
         </Card>
       )}
+
+      {editStudent && (
+        <StudentEditDialog
+          student={editStudent}
+          open
+          onOpenChange={(o) => {
+            if (!o) setEditStudent(null);
+          }}
+          onSaved={(updated) => {
+            setItems((prev) =>
+              prev.map((x) => (x.id === updated.id ? { ...x, ...updated } : x)),
+            );
+            setEditStudent(null);
+          }}
+        />
+      )}
+
+      {transferStudent && (
+        <StudentTransferDialog
+          student={transferStudent}
+          circles={circles}
+          open
+          onOpenChange={(o) => {
+            if (!o) setTransferStudent(null);
+          }}
+          onTransferred={(circleName) => {
+            setItems((prev) =>
+              prev.map((x) =>
+                x.id === transferStudent.id
+                  ? { ...x, circle_name: circleName }
+                  : x,
+              ),
+            );
+            setTransferStudent(null);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function StudentEditDialog({
+  student,
+  open,
+  onOpenChange,
+  onSaved,
+}: {
+  student: StudentRow;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSaved: (student: StudentRow) => void;
+}) {
+  const [name, setName] = useState(student.full_name_ar);
+  const [phone, setPhone] = useState(student.phone ?? "");
+  const [guardianPhone, setGuardianPhone] = useState(student.guardian_phone ?? "");
+  const [school, setSchool] = useState(student.school_name ?? "");
+  const [grade, setGrade] = useState(student.school_grade ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setName(student.full_name_ar);
+    setPhone(student.phone ?? "");
+    setGuardianPhone(student.guardian_phone ?? "");
+    setSchool(student.school_name ?? "");
+    setGrade(student.school_grade ?? "");
+    setError(null);
+  }, [open, student]);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      await api.studentsPatch(student.id, {
+        full_name_ar: name.trim(),
+        phone: phone.trim() || null,
+        guardian_phone: guardianPhone.trim() || null,
+        school_name: school.trim() || null,
+        school_grade: grade.trim() || null,
+      });
+      onSaved({
+        ...student,
+        full_name_ar: name.trim(),
+        phone: phone.trim() || null,
+        guardian_phone: guardianPhone.trim() || null,
+        school_name: school.trim() || null,
+        school_grade: grade.trim() || null,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "فشل الحفظ");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className={`${ds.card} max-w-md`} dir="rtl">
+        <DialogHeader>
+          <DialogTitle style={tajawal}>تعديل طالب</DialogTitle>
+          <DialogDescription style={tajawal}>{student.full_name_ar}</DialogDescription>
+        </DialogHeader>
+        {error && (
+          <p className="text-sm text-destructive" style={tajawal}>
+            {error}
+          </p>
+        )}
+        <form onSubmit={save} className="grid gap-3">
+          <div>
+            <Label style={tajawal}>الاسم</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} required />
+          </div>
+          <div>
+            <Label style={tajawal}>جوال الطالب</Label>
+            <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
+          </div>
+          <div>
+            <Label style={tajawal}>جوال ولي الأمر</Label>
+            <Input
+              value={guardianPhone}
+              onChange={(e) => setGuardianPhone(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label style={tajawal}>المدرسة</Label>
+            <Input value={school} onChange={(e) => setSchool(e.target.value)} />
+          </div>
+          <div>
+            <Label style={tajawal}>الصف</Label>
+            <Input value={grade} onChange={(e) => setGrade(e.target.value)} />
+          </div>
+          <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
+            {saving ? "جاري الحفظ…" : "حفظ"}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function StudentTransferDialog({
+  student,
+  circles,
+  open,
+  onOpenChange,
+  onTransferred,
+}: {
+  student: StudentRow;
+  circles: CircleOption[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onTransferred: (circleName: string) => void;
+}) {
+  const [circleId, setCircleId] = useState("");
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!circleId) {
+      setError("اختر الحلقة الهدف");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const target = circles.find((c) => c.id === Number(circleId));
+      await api.transferStudent(student.id, {
+        circle_id: Number(circleId),
+        track_id: target?.track_id ?? null,
+        note: note.trim() || undefined,
+      });
+      onTransferred(target?.name_ar ?? "—");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "فشل النقل");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className={`${ds.card} max-w-md`} dir="rtl">
+        <DialogHeader>
+          <DialogTitle style={tajawal}>نقل طالب</DialogTitle>
+          <DialogDescription style={tajawal}>{student.full_name_ar}</DialogDescription>
+        </DialogHeader>
+        {error && (
+          <p className="text-sm text-destructive" style={tajawal}>
+            {error}
+          </p>
+        )}
+        <form onSubmit={save} className="grid gap-3">
+          <div>
+            <Label style={tajawal}>الحلقة الجديدة</Label>
+            <select
+              value={circleId}
+              onChange={(e) => setCircleId(e.target.value)}
+              className={ds.select}
+              style={tajawal}
+              required
+            >
+              <option value="">— اختر —</option>
+              {circles.map((c) => (
+                <option key={c.id} value={String(c.id)}>
+                  {c.name_ar}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label style={tajawal}>ملاحظة (اختياري)</Label>
+            <Input value={note} onChange={(e) => setNote(e.target.value)} />
+          </div>
+          <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
+            {saving ? "جاري النقل…" : "تأكيد النقل"}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

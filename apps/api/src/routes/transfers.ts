@@ -284,3 +284,122 @@ export async function handleStudentTransfer(
     );
   }
 }
+
+export async function handleStudentPatch(
+  request: Request,
+  env: Env,
+  url: URL,
+): Promise<Response> {
+  try {
+    const auth = await getAuth(request, env);
+    if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
+    if (!requireRoles(auth, ADMIN_DATA_ROLES)) {
+      return json({ error: "forbidden" }, 403);
+    }
+
+    const studentId = parseStudentId(url);
+    if (!studentId) return json({ error: "invalid_student_id" }, 400);
+
+    let body: Record<string, unknown>;
+    try {
+      body = (await request.json()) as Record<string, unknown>;
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+
+    const isActiveExpr = (await tableHasColumn(env, "students", "is_active"))
+      ? "COALESCE(is_active, 1) = 1"
+      : "1=1";
+    const exists = await env.DB.prepare(
+      `SELECT id FROM students WHERE id = ? AND complex_id = ? AND ${isActiveExpr}`,
+    )
+      .bind(studentId, auth.complexId)
+      .first();
+    if (!exists) return json({ error: "student_not_found" }, 404);
+
+    const allowed = [
+      "full_name_ar",
+      "national_id",
+      "phone",
+      "guardian_phone",
+      "guardian_national_id",
+      "school_name",
+      "school_grade",
+      "nationality",
+      "health_notes",
+      "memorization_amount",
+    ] as const;
+    const sets: string[] = [];
+    const binds: (string | number | null)[] = [];
+    for (const col of allowed) {
+      if (body[col] === undefined) continue;
+      if (!(await tableHasColumn(env, "students", col))) continue;
+      sets.push(`${col} = ?`);
+      binds.push(
+        typeof body[col] === "string" ? body[col].trim().slice(0, 500) : null,
+      );
+    }
+    if (sets.length === 0) return json({ error: "no_fields" }, 400);
+    binds.push(studentId);
+    await env.DB.prepare(
+      `UPDATE students SET ${sets.join(", ")} WHERE id = ?`,
+    )
+      .bind(...binds)
+      .run();
+
+    return json({ ok: true });
+  } catch (err) {
+    console.error("student_patch_failed", err);
+    return json(
+      {
+        error: "student_patch_failed",
+        message: err instanceof Error ? err.message : String(err),
+      },
+      500,
+    );
+  }
+}
+
+export async function handleStudentDelete(
+  request: Request,
+  env: Env,
+  url: URL,
+): Promise<Response> {
+  try {
+    const auth = await getAuth(request, env);
+    if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
+    if (!requireRoles(auth, ADMIN_DATA_ROLES)) {
+      return json({ error: "forbidden" }, 403);
+    }
+
+    const studentId = parseStudentId(url);
+    if (!studentId) return json({ error: "invalid_student_id" }, 400);
+
+    const hasIsActive = await tableHasColumn(env, "students", "is_active");
+    if (!hasIsActive) {
+      return json({ error: "migration_required", column: "is_active" }, 503);
+    }
+
+    const row = await env.DB.prepare(
+      `SELECT id FROM students WHERE id = ? AND complex_id = ?`,
+    )
+      .bind(studentId, auth.complexId)
+      .first();
+    if (!row) return json({ error: "student_not_found" }, 404);
+
+    await env.DB.prepare(`UPDATE students SET is_active = 0 WHERE id = ?`)
+      .bind(studentId)
+      .run();
+
+    return json({ ok: true });
+  } catch (err) {
+    console.error("student_delete_failed", err);
+    return json(
+      {
+        error: "student_delete_failed",
+        message: err instanceof Error ? err.message : String(err),
+      },
+      500,
+    );
+  }
+}

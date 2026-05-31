@@ -17,6 +17,7 @@ export type StudentImportRow = {
   memorization_amount?: string | null;
   guardian_phone?: string | null;
   guardian_national_id?: string | null;
+  track_name?: string | null;
   circle_name?: string | null;
   health_notes?: string | null;
 };
@@ -62,9 +63,53 @@ function sanitizeImportRow(r: StudentImportRow): StudentImportRow {
     memorization_amount: trim(r.memorization_amount, 120),
     guardian_phone: trim(r.guardian_phone, 20),
     guardian_national_id: trim(r.guardian_national_id, 32),
+    track_name: trim(r.track_name, 100),
     circle_name: trim(r.circle_name, 100),
     health_notes: trim(r.health_notes, 500),
   };
+}
+
+async function loadTrackMap(
+  env: Env,
+  complexId: number,
+): Promise<Map<string, number>> {
+  if (!(await hasTable(env, "tracks"))) return new Map();
+  const result = await env.DB.prepare(
+    `SELECT id, name_ar FROM tracks
+     WHERE complex_id = ? AND COALESCE(is_active, 1) = 1`,
+  )
+    .bind(complexId)
+    .all<{ id: number; name_ar: string }>();
+  const map = new Map<string, number>();
+  for (const t of result.results ?? []) {
+    map.set(t.name_ar.trim(), t.id);
+  }
+  return map;
+}
+
+function resolveCircleByNames(
+  circleMap: Map<string, { id: number; track_id: number | null }>,
+  trackMap: Map<string, number>,
+  circleName: string | null,
+  trackName: string | null,
+): { id: number; track_id: number | null } | undefined {
+  if (!circleName) return undefined;
+  const circle = circleMap.get(circleName);
+  if (!circle) return undefined;
+  if (trackName) {
+    const expectedTrackId = trackMap.get(trackName);
+    if (
+      expectedTrackId != null &&
+      circle.track_id != null &&
+      circle.track_id !== expectedTrackId
+    ) {
+      return undefined;
+    }
+    if (expectedTrackId != null && circle.track_id == null) {
+      return { ...circle, track_id: expectedTrackId };
+    }
+  }
+  return circle;
 }
 
 async function loadCircleMap(
@@ -96,6 +141,7 @@ async function findStudentId(
   complexId: number,
   nationalId: string | null,
   phone: string | null,
+  guardianPhone: string | null = null,
 ): Promise<number | null> {
   const active = await activeStudentFilter(env);
   if (nationalId) {
@@ -106,13 +152,22 @@ async function findStudentId(
       .first<{ id: number }>();
     if (row) return row.id;
   }
-  if (phone) {
+  for (const candidate of [phone, guardianPhone]) {
+    if (!candidate) continue;
     const row = await env.DB.prepare(
       `SELECT id FROM students WHERE complex_id = ? AND phone = ? ${active}`,
     )
-      .bind(complexId, phone)
+      .bind(complexId, candidate)
       .first<{ id: number }>();
     if (row) return row.id;
+    if (await tableHasColumn(env, "students", "guardian_phone")) {
+      const gRow = await env.DB.prepare(
+        `SELECT id FROM students WHERE complex_id = ? AND guardian_phone = ? ${active}`,
+      )
+        .bind(complexId, candidate)
+        .first<{ id: number }>();
+      if (gRow) return gRow.id;
+    }
   }
   return null;
 }
@@ -220,6 +275,7 @@ export async function handleStudentsBulkImport(
   if (rows.length > 300) return json({ error: "too_many_rows", max: 300 }, 400);
 
   const circleMap = await loadCircleMap(env, auth.complexId);
+  const trackMap = await loadTrackMap(env, auth.complexId);
   const results: Array<{
     row: number;
     ok: boolean;
@@ -233,11 +289,13 @@ export async function handleStudentsBulkImport(
     const r = sanitizeImportRow(rows[i]);
     const full_name_ar = trim(r.full_name_ar, 200);
     const national_id = trim(r.national_id, 32);
-    const phone = trim(r.phone, 20);
+    const phone = trim(r.phone, 20) ?? trim(r.guardian_phone, 20);
+    const guardian_phone = trim(r.guardian_phone, 20) ?? phone;
+    const track_name = trim(r.track_name, 100);
     const circle_name = trim(r.circle_name, 100);
 
     if (mode === "transfer") {
-      if (!national_id && !phone) {
+      if (!national_id && !phone && !guardian_phone) {
         results.push({ row: rowNum, ok: false, error: "missing_identity" });
         continue;
       }
@@ -245,7 +303,12 @@ export async function handleStudentsBulkImport(
         results.push({ row: rowNum, ok: false, error: "missing_circle" });
         continue;
       }
-      const circle = circleMap.get(circle_name);
+      const circle = resolveCircleByNames(
+        circleMap,
+        trackMap,
+        circle_name,
+        track_name,
+      );
       if (!circle) {
         results.push({ row: rowNum, ok: false, error: "circle_not_found" });
         continue;
@@ -254,7 +317,13 @@ export async function handleStudentsBulkImport(
         results.push({ row: rowNum, ok: false, error: "forbidden_circle" });
         continue;
       }
-      const studentId = await findStudentId(env, auth.complexId, national_id, phone);
+      const studentId = await findStudentId(
+        env,
+        auth.complexId,
+        national_id,
+        phone,
+        guardian_phone,
+      );
       if (!studentId) {
         results.push({ row: rowNum, ok: false, error: "student_not_found" });
         continue;
@@ -264,8 +333,8 @@ export async function handleStudentsBulkImport(
           env,
           studentId,
           circle.id,
-          circle.track_id,
-          "نقل جماعي — Excel",
+          circle.track_id ?? (track_name ? trackMap.get(track_name) ?? null : null),
+          "نقل جماعي — لصق نصي",
         );
         await syncStudentPlacementColumns(
           env,
@@ -293,7 +362,12 @@ export async function handleStudentsBulkImport(
 
     let circle: { id: number; track_id: number | null } | undefined;
     if (circle_name) {
-      circle = circleMap.get(circle_name);
+      circle = resolveCircleByNames(
+        circleMap,
+        trackMap,
+        circle_name,
+        track_name,
+      );
       if (!circle) {
         results.push({ row: rowNum, ok: false, error: "circle_not_found" });
         continue;
@@ -309,17 +383,18 @@ export async function handleStudentsBulkImport(
       auth.complexId,
       national_id,
       phone,
+      guardian_phone,
     );
 
     const fields = {
       full_name_ar,
       national_id,
       nationality: trim(r.nationality, 80),
-      phone,
+      phone: phone ?? guardian_phone,
       school_name: trim(r.school_name, 120),
       school_grade: trim(r.school_grade, 80),
       memorization_amount: trim(r.memorization_amount, 120),
-      guardian_phone: trim(r.guardian_phone, 20),
+      guardian_phone,
       guardian_national_id: trim(r.guardian_national_id, 32),
       health_notes: trim(r.health_notes, 500),
     };
@@ -385,13 +460,15 @@ export async function handleStudentsBulkImport(
           }
         }
         const placeholders = insertCols.map(() => "?").join(", ");
-        const ins = await env.DB.prepare(
+        const insertStmt = env.DB.prepare(
           `INSERT INTO students (${insertCols.join(", ")}) VALUES (${placeholders})`,
-        )
-          .bind(...insertVals)
-          .run();
-
-        const studentId = ins.meta.last_row_id as number;
+        ).bind(...insertVals);
+        const batchResult = await env.DB.batch([insertStmt]);
+        const studentId = Number(batchResult[0]?.meta?.last_row_id ?? 0);
+        if (!studentId) {
+          results.push({ row: rowNum, ok: false, error: "save_failed" });
+          continue;
+        }
 
         if (circle) {
           await assignStudentCircle(

@@ -32,6 +32,7 @@ import {
   TableHeader,
   TableRow,
 } from "../../components/ui/table";
+import { AdminPrintWrapper } from "../../components/admin/AdminPrintWrapper";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { ds, tajawal } from "../../lib/design-system";
@@ -623,31 +624,20 @@ export function AdminReportsPage() {
         </p>
       )}
 
-      <div
-        id="admin-reports-print"
-        className="admin-reports-print-body space-y-6 print:bg-white print:text-black print:dark:bg-white print:dark:text-black"
-      >
-        <div className="hidden print:block text-center border-b border-black/20 pb-4 mb-4 print:text-black print:bg-white print:dark:bg-white">
-          <img
-            src="/logo-light.png"
-            alt="شعار مجمع البساتين"
-            className="h-24 w-32 print:w-32 print:h-32 mx-auto mb-3 object-contain print:block"
-          />
-          <h1 className="text-2xl font-bold print:text-black" style={tajawal}>
-            تقرير القسم الإداري — مجمع البساتين
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1 print:text-black" style={tajawal}>
-            {activeMeta?.title ?? "تقرير"} — من {startDate} إلى {endDate}
-            {statusFilter === "absent_only" ? " — الغائبون فقط" : ""}
-            {filterCircleId !== "all"
+      <div id="admin-reports-print" className="admin-reports-print-body space-y-6">
+        <AdminPrintWrapper
+          title={
+            (activeMeta?.title ?? "تقرير القسم الإداري") +
+            ` — من ${startDate} إلى ${endDate}` +
+            (statusFilter === "absent_only" ? " (الغائبون فقط)" : "") +
+            (filterCircleId !== "all"
               ? ` — حلقة: ${circles.find((c) => String(c.id) === filterCircleId)?.name_ar ?? filterCircleId}`
-              : ""}
-            {filterTrackId !== "all"
+              : "") +
+            (filterTrackId !== "all"
               ? ` — مسار: ${tracks.find((t) => String(t.id) === filterTrackId)?.name_ar ?? filterTrackId}`
-              : ""}
-          </p>
-        </div>
-
+              : "")
+          }
+        >
         {activeView !== "student_lookup" && (
           <Card className={ds.card}>
             <CardHeader className="border-b border-border pb-3">
@@ -700,10 +690,26 @@ export function AdminReportsPage() {
               )}
 
               {activeView === "students" && !loading && (
-                <AttendanceSummaryTable
-                  rows={studentSummary}
-                  emptyLabel="لا توجد سجلات طلاب مطابقة للفلاتر."
-                />
+                <div className="space-y-6 p-4 sm:p-0">
+                  <div>
+                    <h4 className="text-sm font-semibold mb-2" style={tajawal}>
+                      ملخص الحضور والغياب
+                    </h4>
+                    <AttendanceSummaryTable
+                      rows={studentSummary}
+                      emptyLabel="لا توجد سجلات طلاب مطابقة للفلاتر."
+                    />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-semibold mb-2" style={tajawal}>
+                      تفصيل التواريخ
+                    </h4>
+                    <DetailTable
+                      rows={studentItems}
+                      emptyLabel="لا توجد سجلات تفصيلية للفترة المحددة."
+                    />
+                  </div>
+                </div>
               )}
 
               {activeView === "discipline" && (
@@ -859,6 +865,7 @@ export function AdminReportsPage() {
             </CardContent>
           </Card>
         )}
+        </AdminPrintWrapper>
       </div>
     </div>
   );

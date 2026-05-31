@@ -53,26 +53,31 @@ function printPledgeForm(
     .join("");
   const w = window.open("", "_blank");
   if (!w) return;
+  const printDate = new Date().toLocaleDateString("ar-SA", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
   w.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head>
     <meta charset="utf-8"/><title>نموذج تعهد — ${studentName}</title>
     <style>
       body{font-family:Tajawal,sans-serif;padding:2rem;line-height:1.8;color:#111;background:#fff}
-      .header{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #1e3a8a;padding-bottom:1rem;margin-bottom:1.5rem}
-      .header img{width:8rem;height:8rem;object-fit:contain}
+      .print-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1rem}
+      .print-top .complex{font-weight:700;font-size:1.125rem}
+      .print-top .date{font-size:0.875rem}
+      .print-title{text-align:center;font-weight:700;font-size:1.25rem;margin:0.75rem 0}
+      .print-hr{border:none;border-top:2px solid #000;margin:1rem 0}
       table{width:100%;border-collapse:collapse;margin:1.5rem 0}
       th,td{border:1px solid #ccc;padding:8px;text-align:right}
       th{background:#f1f5f9}
-      .sig{margin-top:3rem;display:flex;justify-content:space-between}
-      .sig-box{width:45%;border-top:1px solid #333;padding-top:8px;text-align:center}
+      .pledge-sig{margin-top:3rem;text-align:right;font-weight:700}
     </style></head><body>
-    <div class="header">
-      <div>
-        <h1 style="margin:0;color:#1e3a8a">نموذج تعهد رسمي</h1>
-        <p style="margin:4px 0 0">مجمع حلقات البساتين</p>
-        <p style="margin:4px 0 0;font-size:14px">التاريخ: ${todayAr()}</p>
-      </div>
-      <img src="/logo-light.png" alt="شعار المجمع" class="print-logo"/>
+    <div class="print-top">
+      <p class="complex">مجمع حلقات البساتين</p>
+      <p class="date">${printDate}</p>
     </div>
+    <h2 class="print-title">تعهد طالب — ${studentName}</h2>
+    <hr class="print-hr"/>
     <p><strong>اسم الطالب:</strong> ${studentName}</p>
     <p><strong>رقم ولي الأمر:</strong> ${guardianPhone ?? "—"}</p>
     <p><strong>عدد التعهدات:</strong> ${pledgeCount}</p>
@@ -81,10 +86,7 @@ function printPledgeForm(
       <tbody>${rows}</tbody>
     </table>
     <p>أقرّ ولي الأمر باطلاعي على التعهدات المذكورة والالتزام بما ورد فيها.</p>
-    <div class="sig">
-      <div class="sig-box">توقيع ولي الأمر</div>
-      <div class="sig-box">توقيع المشرف الإداري</div>
-    </div>
+    <div class="pledge-sig">توقيع ولي الأمر: ........................</div>
     </body></html>`);
   w.document.close();
   w.print();

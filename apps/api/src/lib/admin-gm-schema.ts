@@ -234,13 +234,25 @@ export async function teachersListSql(env: Env): Promise<string> {
     : `CASE WHEN COALESCE(u.is_track_supervisor, 0) = 1 THEN 'track_supervisor' ELSE 'teacher' END`;
   const stageExpr = await circleStageIdExpr(env);
 
+  const hasTracks = await hasTable(env, "tracks");
+  const hasTrackSupervisorCol =
+    hasTracks && (await tableHasColumn(env, "tracks", "supervisor_id"));
+  const trackJoin = hasTrackSupervisorCol
+    ? `LEFT JOIN tracks tr_sup ON tr_sup.supervisor_id = u.id AND tr_sup.complex_id = u.complex_id`
+    : "";
+  const trackNameCol = hasTrackSupervisorCol
+    ? `tr_sup.name_ar AS track_name`
+    : `NULL AS track_name`;
+
   if (hasAssignments) {
     return `SELECT u.id, u.full_name_ar, u.mobile, u.is_active,
             ${roleExpr} AS role, ta.circle_id, c.name_ar AS circle_name,
+            ${trackNameCol},
             ${stageExpr} AS stage_id
      FROM users u
      LEFT JOIN teacher_assignments ta ON ta.user_id = u.id
      LEFT JOIN circles c ON c.id = ta.circle_id
+     ${trackJoin}
      WHERE u.complex_id = ? AND ${teacherFilter}
      ORDER BY u.full_name_ar`;
   }
@@ -248,17 +260,22 @@ export async function teachersListSql(env: Env): Promise<string> {
   if (hasTeacherOnCircle) {
     return `SELECT u.id, u.full_name_ar, u.mobile, u.is_active,
             ${roleExpr} AS role, c.id AS circle_id, c.name_ar AS circle_name,
+            ${hasTrackSupervisorCol ? `COALESCE(tr_sup.name_ar, t_circ.name_ar) AS track_name` : `NULL AS track_name`},
             ${stageExpr} AS stage_id
      FROM users u
      LEFT JOIN circles c ON c.teacher_id = u.id AND c.complex_id = u.complex_id
        AND COALESCE(c.is_active, 1) = 1
+     ${trackJoin}
+     ${hasTracks ? `LEFT JOIN tracks t_circ ON t_circ.id = c.track_id` : ""}
      WHERE u.complex_id = ? AND ${teacherFilter}
      ORDER BY u.full_name_ar`;
   }
 
   return `SELECT u.id, u.full_name_ar, u.mobile, u.is_active,
-          'teacher' AS role, NULL AS circle_id, NULL AS circle_name, 2 AS stage_id
+          'teacher' AS role, NULL AS circle_id, NULL AS circle_name,
+          NULL AS track_name, 2 AS stage_id
    FROM users u
+   ${trackJoin}
    WHERE u.complex_id = ? AND ${teacherFilter}
    ORDER BY u.full_name_ar`;
 }

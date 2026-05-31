@@ -53,6 +53,13 @@ import { ds, tajawal } from "../../lib/design-system";
 
 type StaffTab = "teachers" | "supervisors";
 
+function staffPlacementLabel(row: StaffTeacherRow): string {
+  if (row.role === "track_supervisor") {
+    return row.track_name?.trim() || row.circle_name?.trim() || "—";
+  }
+  return row.circle_name?.trim() || "—";
+}
+
 function circlesForTrackId(
   trackId: string,
   circles: AdminCircleRow[],
@@ -387,7 +394,7 @@ function TeachersPanel() {
                   الجوال
                 </TableHead>
                 <TableHead className={`${ds.table.head} w-[20%]`} style={tajawal}>
-                  الحلقة
+                  الحلقة / المسار
                 </TableHead>
                 <TableHead className={`${ds.table.head} w-[10%]`} style={tajawal}>
                   الحالة
@@ -416,14 +423,14 @@ function TeachersPanel() {
                     {t.mobile ?? "—"}
                   </TableCell>
                   <TableCell className={ds.table.cell} style={tajawal}>
-                    {t.circle_name ?? "—"}
+                    {staffPlacementLabel(t)}
                   </TableCell>
                   <TableCell className={ds.table.cell}>
                     <Badge variant={t.is_active ? "secondary" : "destructive"}>
                       {t.is_active ? "نشط" : "مجمّد"}
                     </Badge>
                   </TableCell>
-                  <TableActionsCell>
+                  <TableActionsCell wide>
                     <TableIconAction
                       kind="edit"
                       onClick={() => setEditTeacher(t)}

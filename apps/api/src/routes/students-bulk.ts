@@ -361,6 +361,7 @@ export async function handleStudentsBulkImport(
     }
 
     let circle: { id: number; track_id: number | null } | undefined;
+    let circleWarning: string | undefined;
     if (circle_name) {
       circle = resolveCircleByNames(
         circleMap,
@@ -369,10 +370,8 @@ export async function handleStudentsBulkImport(
         track_name,
       );
       if (!circle) {
-        results.push({ row: rowNum, ok: false, error: "circle_not_found" });
-        continue;
-      }
-      if (!(await canManageCircle(env, auth, circle.id))) {
+        circleWarning = "circle_not_found";
+      } else if (!(await canManageCircle(env, auth, circle.id))) {
         results.push({ row: rowNum, ok: false, error: "forbidden_circle" });
         continue;
       }
@@ -434,7 +433,8 @@ export async function handleStudentsBulkImport(
           row: rowNum,
           ok: true,
           student_id: existingId,
-          action: "updated",
+          action: circleWarning ? "updated_no_circle" : "updated",
+          ...(circleWarning ? { error: circleWarning } : {}),
         });
       } else {
         const insertCols = ["complex_id", "full_name_ar"];
@@ -490,7 +490,8 @@ export async function handleStudentsBulkImport(
           row: rowNum,
           ok: true,
           student_id: studentId,
-          action: "created",
+          action: circleWarning ? "created_no_circle" : "created",
+          ...(circleWarning ? { error: circleWarning } : {}),
         });
       }
     } catch (rowErr: unknown) {

@@ -186,16 +186,30 @@ export function StudentsPage() {
                 جاري التحميل...
               </p>
             ) : (
-              <Table>
+              <Table className={ds.tableMin}>
                 <TableHeader>
                   <TableRow>
-                    <TableHead style={tajawal}>الاسم</TableHead>
-                    <TableHead style={tajawal}>الهوية</TableHead>
-                    <TableHead style={tajawal}>الجوال</TableHead>
-                    <TableHead style={tajawal}>الحلقة</TableHead>
-                    <TableHead style={tajawal}>المدرسة</TableHead>
-                    <TableHead style={tajawal}>الصف</TableHead>
-                    <TableHead style={tajawal}>إجراءات</TableHead>
+                    <TableHead className={ds.table.head} style={tajawal}>
+                      الاسم
+                    </TableHead>
+                    <TableHead className={ds.table.head} style={tajawal}>
+                      الهوية
+                    </TableHead>
+                    <TableHead className={ds.table.head} style={tajawal}>
+                      الجوال
+                    </TableHead>
+                    <TableHead className={ds.table.head} style={tajawal}>
+                      الحلقة
+                    </TableHead>
+                    <TableHead className={ds.table.head} style={tajawal}>
+                      المدرسة
+                    </TableHead>
+                    <TableHead className={ds.table.head} style={tajawal}>
+                      الصف
+                    </TableHead>
+                    <TableHead className={ds.table.headActions} style={tajawal}>
+                      إجراءات
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -209,7 +223,7 @@ export function StudentsPage() {
                       <TableCell style={tajawal}>{s.circle_name ?? "—"}</TableCell>
                       <TableCell style={tajawal}>{s.school_name ?? "—"}</TableCell>
                       <TableCell style={tajawal}>{s.school_grade ?? "—"}</TableCell>
-                      <TableActionsCell>
+                      <TableActionsCell wide>
                         <TableIconAction
                           kind="edit"
                           onClick={() => setEditStudent(s)}

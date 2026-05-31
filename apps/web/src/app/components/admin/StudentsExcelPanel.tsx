@@ -18,6 +18,11 @@ const PLACEHOLDER =
   "محمد أحمد,0501234567,مسار حفظ,حلقة الفجر\n" +
   "سارة علي,0509876543,مسار تأسيس,حلقة النور";
 
+function fieldOrNull(value: string | undefined): string | null {
+  const v = (value ?? "").trim();
+  return v.length > 0 ? v : null;
+}
+
 /** O(n) — n = عدد الأسطر */
 export function parseBulkPasteText(text: string): StudentImportRow[] {
   return text
@@ -26,16 +31,21 @@ export function parseBulkPasteText(text: string): StudentImportRow[] {
     .filter((line) => line.length > 0)
     .map((line) => {
       const parts = line.split(",").map((p) => p.trim());
-      const [full_name_ar, guardian_phone, track_name, circle_name] = parts;
+      while (parts.length < 4) parts.push("");
+      const full_name_ar = parts[0] ?? "";
+      const guardian_phone = fieldOrNull(parts[1]);
+      const track_name = fieldOrNull(parts[2]);
+      const circle_name = fieldOrNull(parts[3]);
       return {
-        full_name_ar: full_name_ar ?? "",
-        guardian_phone: guardian_phone || null,
-        phone: guardian_phone || null,
-        track_name: track_name || null,
-        circle_name: circle_name || null,
+        full_name_ar,
+        guardian_phone,
+        phone: guardian_phone,
+        track_name,
+        circle_name,
         nationality: "سعودي",
       };
-    });
+    })
+    .filter((row) => row.full_name_ar.trim().length > 0);
 }
 
 export function StudentsExcelPanel() {
@@ -70,7 +80,12 @@ export function StudentsExcelPanel() {
         setPasteText("");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذّر الحفظ");
+      const msg = err instanceof Error ? err.message : "تعذّر الحفظ";
+      setError(
+        msg.includes("students_bulk_import_failed")
+          ? "فشل الاستيراد الجماعي — تأكد أن كل سطر يحتوي اسم الطالب على الأقل"
+          : msg,
+      );
     } finally {
       setLoading(false);
     }
@@ -102,7 +117,7 @@ export function StudentsExcelPanel() {
             الإضافة الجماعية (لصق نصي)
           </CardTitle>
           <CardDescription style={tajawal}>
-            الصق قائمة الطلاب دفعة واحدة — بدون ملف Excel. الترتيب إلزامي في كل سطر.
+            الصق قائمة الطلاب دفعة واحدة. الحقل الإلزامي هو الاسم فقط؛ باقي الحقول اختيارية.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

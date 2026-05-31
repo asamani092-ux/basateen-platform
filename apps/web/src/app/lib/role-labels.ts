@@ -1,7 +1,7 @@
 /** تعريب أدوار النظام في الجداول والواجهة */
 const ROLE_LABELS_AR: Record<string, string> = {
-  super_admin: "المشرف العام",
-  admin_supervisor: "مشرف القسم الإداري",
+  super_admin: "مشرف عام",
+  admin_supervisor: "مشرف عام",
   edu_supervisor: "مشرف تعليمي",
   programs_supervisor: "مشرف البرامج",
   prog_supervisor: "مشرف البرامج",

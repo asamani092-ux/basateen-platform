@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { MonitorPlay, Plus } from "lucide-react";
 import { TableIconAction } from "../../components/admin/TableIconAction";
 import { DoubleConfirmDialog } from "../../components/shared/DoubleConfirmDialog";
+import { PageLoader } from "../../components/shared/PageLoader";
 import { Button } from "../../components/ui/button";
 import {
   Dialog,
@@ -34,7 +35,7 @@ type MediaRow = {
   is_active: number;
 };
 
-const MAX_MEDIA = 500_000;
+const MAX_MEDIA = 10_000_000;
 
 export function DisplayManagerPage() {
   const [items, setItems] = useState<MediaRow[]>([]);
@@ -155,6 +156,9 @@ export function DisplayManagerPage() {
       {success && <p className={ds.alert.success} style={tajawal}>{success}</p>}
 
       <div className={`${ds.card} overflow-x-auto`}>
+        {loading ? (
+          <PageLoader inline label="جاري تحميل وسائط العرض…" />
+        ) : (
         <Table className={ds.tableMin}>
           <TableHeader>
             <TableRow>
@@ -199,6 +203,7 @@ export function DisplayManagerPage() {
               ))}
           </TableBody>
         </Table>
+        )}
         {!loading && items.length === 0 && (
           <p className={`p-4 ${ds.alert.info}`} style={tajawal}>
             لا توجد وسائط — أضف صوراً أو فيديوهات للعرض.

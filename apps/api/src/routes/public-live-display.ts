@@ -29,6 +29,7 @@ async function loadMetrics(env: Env, complexId: number, date: string) {
   let totalFaces = 0;
   let activePledges = 0;
   let totalCircles = 0;
+  let totalTracks = 0;
   let totalStudents = 0;
   const studentsByStage: Array<{ stage_id: number; label: string; count: number }> = [];
 
@@ -59,8 +60,13 @@ async function loadMetrics(env: Env, complexId: number, date: string) {
     const hasFace = await tableHasColumn(env, "edu_daily_recitation", "face_count");
     if (hasFace) {
       const faceRow = await env.DB.prepare(
-        `SELECT COALESCE(SUM(face_count), 0) AS total FROM edu_daily_recitation`,
-      ).first<{ total: number }>();
+        `SELECT COALESCE(SUM(dr.face_count), 0) AS total
+         FROM edu_daily_recitation dr
+         JOIN students s ON s.id = dr.student_id
+         WHERE s.complex_id = ?`,
+      )
+        .bind(complexId)
+        .first<{ total: number }>();
       totalFaces = Number(faceRow?.total ?? 0);
     }
   }
@@ -81,6 +87,16 @@ async function loadMetrics(env: Env, complexId: number, date: string) {
       .bind(complexId)
       .first<{ c: number }>();
     totalCircles = Number(cRow?.c ?? 0);
+  }
+
+  if (await hasTable(env, "tracks")) {
+    const hasActive = await tableHasColumn(env, "tracks", "is_active");
+    const tRow = await env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM tracks WHERE complex_id = ?${hasActive ? " AND is_active = 1" : ""}`,
+    )
+      .bind(complexId)
+      .first<{ c: number }>();
+    totalTracks = Number(tRow?.c ?? 0);
   }
 
   if (await hasTable(env, "students")) {
@@ -121,6 +137,7 @@ async function loadMetrics(env: Env, complexId: number, date: string) {
     faces_cumulative: totalFaces,
     active_pledges: activePledges,
     total_circles: totalCircles,
+    total_tracks: totalTracks,
     total_students: totalStudents,
     students_by_stage: studentsByStage,
   };

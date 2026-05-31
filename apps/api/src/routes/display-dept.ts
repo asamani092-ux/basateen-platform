@@ -23,10 +23,63 @@ export async function handleDisplayDeptRouter(
   const auth = await getAuth(request, env);
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
   if (!requireRoles(auth, [...DISPLAY_ROLES])) return json({ error: "forbidden" }, 403);
-  if (!(await hasTable(env, "display_media"))) return migrationRequired();
 
   const method = request.method;
   const complexId = auth.complexId;
+
+  if (method === "GET" && path === "/api/display-dept/settings") {
+    let slideSeconds = 12;
+    if (await hasTable(env, "complex_settings")) {
+      if (await tableHasColumn(env, "complex_settings", "display_slide_seconds")) {
+        const row = await env.DB.prepare(
+          `SELECT display_slide_seconds FROM complex_settings WHERE complex_id = ?`,
+        )
+          .bind(complexId)
+          .first<{ display_slide_seconds: number }>();
+        slideSeconds = Number(row?.display_slide_seconds ?? 12);
+      }
+    }
+    return json({ slide_seconds: slideSeconds });
+  }
+
+  if (method === "PATCH" && path === "/api/display-dept/settings") {
+    let body: { slide_seconds?: number };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+    const sec = Number(body.slide_seconds);
+    if (!Number.isFinite(sec) || sec < 3 || sec > 120) {
+      return json({ error: "invalid_slide_seconds" }, 400);
+    }
+    if (!(await hasTable(env, "complex_settings"))) {
+      return json({ error: "migration_required" }, 503);
+    }
+    if (await tableHasColumn(env, "complex_settings", "display_slide_seconds")) {
+      const existing = await env.DB.prepare(
+        `SELECT complex_id FROM complex_settings WHERE complex_id = ?`,
+      )
+        .bind(complexId)
+        .first();
+      if (existing) {
+        await env.DB.prepare(
+          `UPDATE complex_settings SET display_slide_seconds = ? WHERE complex_id = ?`,
+        )
+          .bind(sec, complexId)
+          .run();
+      } else {
+        await env.DB.prepare(
+          `INSERT INTO complex_settings (complex_id, display_slide_seconds) VALUES (?, ?)`,
+        )
+          .bind(complexId, sec)
+          .run();
+      }
+    }
+    return json({ ok: true, slide_seconds: sec });
+  }
+
+  if (!(await hasTable(env, "display_media"))) return migrationRequired();
 
   if (method === "GET" && path === "/api/display-dept/media") {
     const rows = await env.DB.prepare(
@@ -58,7 +111,7 @@ export async function handleDisplayDeptRouter(
     }
     const mediaUrl = String(body.media_url ?? "").trim();
     if (!mediaUrl) return json({ error: "media_url_required" }, 400);
-    if (mediaUrl.length > 500_000) {
+    if (mediaUrl.length > 10_000_000) {
       return json({ error: "media_too_large" }, 400);
     }
 
@@ -123,7 +176,7 @@ export async function handleDisplayDeptRouter(
       }
       const mediaUrl = body.media_url?.trim() ?? row?.media_url ?? "";
       if (!mediaUrl) return json({ error: "media_url_required" }, 400);
-      if (mediaUrl.length > 500_000) return json({ error: "media_too_large" }, 400);
+      if (mediaUrl.length > 10_000_000) return json({ error: "media_too_large" }, 400);
 
       await env.DB.prepare(
         `UPDATE display_media SET
@@ -169,58 +222,6 @@ export async function handleDisplayDeptRouter(
         .run();
     }
     return json({ ok: true });
-  }
-
-  if (method === "GET" && path === "/api/display-dept/settings") {
-    let slideSeconds = 12;
-    if (await hasTable(env, "complex_settings")) {
-      if (await tableHasColumn(env, "complex_settings", "display_slide_seconds")) {
-        const row = await env.DB.prepare(
-          `SELECT display_slide_seconds FROM complex_settings WHERE complex_id = ?`,
-        )
-          .bind(complexId)
-          .first<{ display_slide_seconds: number }>();
-        slideSeconds = Number(row?.display_slide_seconds ?? 12);
-      }
-    }
-    return json({ slide_seconds: slideSeconds });
-  }
-
-  if (method === "PATCH" && path === "/api/display-dept/settings") {
-    let body: { slide_seconds?: number };
-    try {
-      body = await request.json();
-    } catch {
-      return json({ error: "invalid_json" }, 400);
-    }
-    const sec = Number(body.slide_seconds);
-    if (!Number.isFinite(sec) || sec < 3 || sec > 120) {
-      return json({ error: "invalid_slide_seconds" }, 400);
-    }
-    if (!(await hasTable(env, "complex_settings"))) {
-      return json({ error: "migration_required" }, 503);
-    }
-    if (await tableHasColumn(env, "complex_settings", "display_slide_seconds")) {
-      const existing = await env.DB.prepare(
-        `SELECT complex_id FROM complex_settings WHERE complex_id = ?`,
-      )
-        .bind(complexId)
-        .first();
-      if (existing) {
-        await env.DB.prepare(
-          `UPDATE complex_settings SET display_slide_seconds = ? WHERE complex_id = ?`,
-        )
-          .bind(sec, complexId)
-          .run();
-      } else {
-        await env.DB.prepare(
-          `INSERT INTO complex_settings (complex_id, display_slide_seconds) VALUES (?, ?)`,
-        )
-          .bind(complexId, sec)
-          .run();
-      }
-    }
-    return json({ ok: true, slide_seconds: sec });
   }
 
   return json({ error: "not_found" }, 404);

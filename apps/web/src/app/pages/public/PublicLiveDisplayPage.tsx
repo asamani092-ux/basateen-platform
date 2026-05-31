@@ -8,6 +8,7 @@ type MetricsPayload = {
   faces_cumulative: number;
   active_pledges: number;
   total_circles: number;
+  total_tracks: number;
   total_students: number;
   students_by_stage: Array<{ stage_id: number; label: string; count: number }>;
 };
@@ -50,14 +51,14 @@ export function PublicLiveDisplayPage() {
   }, []);
 
   useEffect(() => {
-    if (slides.length <= 1) return;
+    if (slides.length <= 1 || current?.kind === "video") return;
     const ms = Math.max(3, slideSeconds) * 1000;
     const t = setInterval(
       () => setSlideIndex((i) => (i + 1) % slides.length),
       ms,
     );
     return () => clearInterval(t);
-  }, [slides.length, slideSeconds]);
+  }, [current?.kind, slides.length, slideSeconds]);
 
   const current = slides[slideIndex];
   const timeStr = clock.toLocaleTimeString("ar-SA", {
@@ -78,6 +79,7 @@ export function PublicLiveDisplayPage() {
       { label: "غياب اليوم", value: m.attendance_absent_today },
       { label: "الأوجه التراكمية", value: m.faces_cumulative },
       { label: "عدد الحلقات", value: m.total_circles },
+      { label: "عدد المسارات", value: m.total_tracks },
       { label: "إجمالي الطلاب", value: m.total_students },
     ];
   }, [current]);
@@ -150,8 +152,8 @@ export function PublicLiveDisplayPage() {
                 className="max-h-[75vh] w-full object-contain rounded-2xl shadow-2xl"
                 autoPlay
                 muted
-                loop
                 playsInline
+                onEnded={() => setSlideIndex((i) => (i + 1) % slides.length)}
               />
             ) : (
               <img

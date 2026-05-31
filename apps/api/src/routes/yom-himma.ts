@@ -1,6 +1,7 @@
 import type { Env } from "../types";
 import { FIELD_EDU_ROLES } from "../lib/roles";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
+import { loadEventDefaults } from "../lib/edu-settings-defaults";
 
 type HimmaRules = {
   hizb_points: number;
@@ -83,12 +84,17 @@ export async function handleYomHimmaCreate(
     return json({ error: "name_and_date_required" }, 400);
   }
 
+  const central = await loadEventDefaults(env, auth.complexId);
   const rules: HimmaRules = {
-    hizb_points: Number(body.rules?.hizb_points ?? 1),
-    alert_penalty: Number(body.rules?.alert_penalty ?? 1),
-    error_penalty: Number(body.rules?.error_penalty ?? 2),
-    alerts_per_error: Number(body.rules?.alerts_per_error ?? 5),
-    fail_threshold_errors: Number(body.rules?.fail_threshold_errors ?? 3),
+    hizb_points: Number(body.rules?.hizb_points ?? central.himma.hizb_points),
+    alert_penalty: Number(body.rules?.alert_penalty ?? central.himma.alert_penalty),
+    error_penalty: Number(body.rules?.error_penalty ?? central.himma.error_penalty),
+    alerts_per_error: Number(
+      body.rules?.alerts_per_error ?? central.himma.alerts_per_error,
+    ),
+    fail_threshold_errors: Number(
+      body.rules?.fail_threshold_errors ?? central.himma.fail_threshold_errors,
+    ),
     access_pin: String((body.rules as Record<string, unknown> | undefined)?.access_pin ?? "1234"),
   };
 

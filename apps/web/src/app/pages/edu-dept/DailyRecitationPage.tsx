@@ -163,7 +163,7 @@ export function DailyRecitationPage() {
   const canSave = rows.length > 0 && (isSupervisor ? circleId != null : true);
 
   return (
-    <div className="space-y-6 max-w-[1200px]">
+    <div className="space-y-6 max-w-[1200px] pb-24">
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
         <div>
           <h2 className={`${ds.page.title} flex items-center gap-2`} style={tajawal}>
@@ -197,16 +197,6 @@ export function DailyRecitationPage() {
               بطاقات
             </ToggleGroupItem>
           </ToggleGroup>
-          <Button
-            type="button"
-            variant="default"
-            className={ds.btnRound}
-            disabled={saving || !canSave}
-            onClick={() => save()}
-            style={tajawal}
-          >
-            {saving ? "جاري الحفظ…" : "حفظ الرصد"}
-          </Button>
         </div>
       </div>
 
@@ -522,6 +512,22 @@ export function DailyRecitationPage() {
           </DialogContent>
         </Dialog>
       )}
+
+      <div className="fixed bottom-0 inset-x-0 z-40 border-t border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 px-4 py-3 print:hidden">
+        <div className="max-w-[1200px] mx-auto flex justify-end">
+          <Button
+            type="button"
+            variant="default"
+            size="lg"
+            className={`${ds.btnRound} min-w-[160px] shadow-lg`}
+            disabled={saving || !canSave}
+            onClick={() => save()}
+            style={tajawal}
+          >
+            {saving ? "جاري الحفظ…" : "حفظ الرصد"}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -75,6 +75,9 @@ export function TeacherCompetitionsPage() {
     try {
       const res = await api.eduDeptTeacherCompetitionsList();
       setItems(res.items);
+      if (typeof res.default_task_weight === "number") {
+        setTaskWeight(res.default_task_weight);
+      }
       setActiveCompetitionId((prev) => {
         if (prev != null && res.items.some((c) => c.id === prev)) return prev;
         return res.items[0]?.id ?? null;

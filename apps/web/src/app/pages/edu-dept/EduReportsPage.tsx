@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BarChart3, BookOpen, CalendarRange, TrendingUp } from "lucide-react";
+import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Progress } from "../../components/ui/progress";
@@ -50,8 +51,10 @@ export function EduReportsPage() {
   const [customStart, setCustomStart] = useState(() => isoDate(new Date()));
   const [customEnd, setCustomEnd] = useState(() => isoDate(new Date()));
   const [circleId, setCircleId] = useState("");
+  const [circles, setCircles] = useState<Array<{ id: number; name_ar: string }>>([]);
   const [data, setData] = useState<ReportData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [applied, setApplied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const { startDate, endDate } = useMemo(() => {
@@ -62,10 +65,7 @@ export function EduReportsPage() {
   }, [preset, customStart, customEnd]);
 
   const load = useCallback(async () => {
-    if (!canUseApi()) {
-      setLoading(false);
-      return;
-    }
+    if (!canUseApi()) return;
     setLoading(true);
     setError(null);
     try {
@@ -75,6 +75,8 @@ export function EduReportsPage() {
         circle_id: circleId ? Number(circleId) : undefined,
       });
       setData(res);
+      setApplied(true);
+      if (res.circles?.length) setCircles(res.circles);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل تحميل التقرير");
       setData(null);
@@ -84,8 +86,11 @@ export function EduReportsPage() {
   }, [startDate, endDate, circleId]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (!canUseApi()) return;
+    void api.circles().then((res) => {
+      setCircles(res.items.map((c) => ({ id: c.id, name_ar: c.name_ar })));
+    });
+  }, []);
 
   return (
     <div className="space-y-6 max-w-[1200px]">
@@ -106,8 +111,8 @@ export function EduReportsPage() {
       )}
 
       <div className={`${ds.card} p-4 space-y-4`}>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
-          <div className="space-y-1 sm:col-span-2">
+        <div className={ds.filterRow}>
+          <div className="space-y-1 w-full sm:flex-1 sm:min-w-[200px] sm:max-w-sm">
             <Label style={tajawal}>الفترة السريعة</Label>
             <Select value={preset} onValueChange={(v) => setPreset(v as DatePreset)}>
               <SelectTrigger className={ds.btnRound}>
@@ -121,7 +126,7 @@ export function EduReportsPage() {
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1 min-w-[200px]">
+          <div className="space-y-1 w-full sm:flex-1 sm:min-w-[200px] sm:max-w-xs">
             <Label style={tajawal}>الحلقة</Label>
             <select
               value={circleId}
@@ -130,18 +135,29 @@ export function EduReportsPage() {
               style={tajawal}
             >
               <option value="">كل الحلقات</option>
-              {(data?.circles ?? []).map((c) => (
+              {circles.map((c) => (
                 <option key={c.id} value={String(c.id)}>
                   {c.name_ar}
                 </option>
               ))}
             </select>
           </div>
+          <div className="w-full sm:w-auto sm:shrink-0">
+            <Button
+              type="button"
+              className={`w-full sm:w-auto ${ds.btnRound}`}
+              onClick={() => void load()}
+              disabled={loading}
+              style={tajawal}
+            >
+              {loading ? "جاري التحميل…" : "تطبيق الفلتر"}
+            </Button>
+          </div>
         </div>
 
         {preset === "custom" && (
-          <div className="flex flex-wrap gap-4 items-end">
-            <div className="space-y-1">
+          <div className={ds.filterRow}>
+            <div className="space-y-1 w-full sm:flex-1 sm:max-w-xs">
               <Label style={tajawal}>من</Label>
               <Input
                 type="date"
@@ -150,7 +166,7 @@ export function EduReportsPage() {
                 className={ds.btnRound}
               />
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1 w-full sm:flex-1 sm:max-w-xs">
               <Label style={tajawal}>إلى</Label>
               <Input
                 type="date"
@@ -170,6 +186,10 @@ export function EduReportsPage() {
       {loading ? (
         <p className="text-muted-foreground text-sm" style={tajawal}>
           جاري التحميل…
+        </p>
+      ) : !applied ? (
+        <p className={ds.alert.info} style={tajawal}>
+          طبّق الفلتر لعرض تقرير الطلاب — لا يُحمّل الجدول تلقائياً لتوفير الذاكرة.
         </p>
       ) : data ? (
         <>
@@ -202,7 +222,7 @@ export function EduReportsPage() {
                 لا توجد سجلات رصد في هذه الفترة.
               </p>
             ) : (
-              <Table className={`${ds.tableMin} text-right`}>
+              <Table className={`${ds.tableMin} text-right`} dir="rtl">
                 <TableHeader>
                   <TableRow>
                     <TableHead className={`${ds.table.head} w-[20%]`} style={tajawal}>

@@ -21,6 +21,15 @@ export function EduSettingsPage() {
     weight_repeat: 1,
     rabt_weight: 1,
     penalty_per_error: 0.5,
+    hizb_points: 1,
+    alert_penalty: 1,
+    error_penalty: 2,
+    alerts_per_error: 5,
+    fail_threshold_errors: 3,
+    mistake_penalty: 1,
+    comp_alert_penalty: 0.5,
+    lahn_penalty: 0.5,
+    default_task_weight: 1,
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -42,6 +51,21 @@ export function EduSettingsPage() {
         weight_repeat: Number(res.settings.weight_repeat ?? 1),
         rabt_weight: Number(res.settings.rabt_weight ?? 1),
         penalty_per_error: Number(res.settings.penalty_per_error ?? 0.5),
+        hizb_points: Number(res.settings.himma_defaults?.hizb_points ?? 1),
+        alert_penalty: Number(res.settings.himma_defaults?.alert_penalty ?? 1),
+        error_penalty: Number(res.settings.himma_defaults?.error_penalty ?? 2),
+        alerts_per_error: Number(res.settings.himma_defaults?.alerts_per_error ?? 5),
+        fail_threshold_errors: Number(
+          res.settings.himma_defaults?.fail_threshold_errors ?? 3,
+        ),
+        mistake_penalty: Number(res.settings.competition_defaults?.mistake_penalty ?? 1),
+        comp_alert_penalty: Number(
+          res.settings.competition_defaults?.alert_penalty ?? 0.5,
+        ),
+        lahn_penalty: Number(res.settings.competition_defaults?.lahn_penalty ?? 0.5),
+        default_task_weight: Number(
+          res.settings.competition_defaults?.default_task_weight ?? 1,
+        ),
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل التحميل");
@@ -60,7 +84,26 @@ export function EduSettingsPage() {
     setError(null);
     setSuccess(null);
     try {
-      await api.eduDeptSettingsPatch(weights);
+      await api.eduDeptSettingsPatch({
+        weight_listening: weights.weight_listening,
+        weight_revision: weights.weight_revision,
+        weight_repeat: weights.weight_repeat,
+        rabt_weight: weights.rabt_weight,
+        penalty_per_error: weights.penalty_per_error,
+        himma_defaults: {
+          hizb_points: weights.hizb_points,
+          alert_penalty: weights.alert_penalty,
+          error_penalty: weights.error_penalty,
+          alerts_per_error: weights.alerts_per_error,
+          fail_threshold_errors: weights.fail_threshold_errors,
+        },
+        competition_defaults: {
+          mistake_penalty: weights.mistake_penalty,
+          alert_penalty: weights.comp_alert_penalty,
+          lahn_penalty: weights.lahn_penalty,
+          default_task_weight: weights.default_task_weight,
+        },
+      });
       setSuccess("تم حفظ أوزان التقييم.");
       setDialogOpen(false);
     } catch (err) {
@@ -110,7 +153,7 @@ export function EduSettingsPage() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className={`${ds.card} max-w-md rounded-2xl`} dir="rtl">
+        <DialogContent className={`${ds.card} max-w-md rounded-2xl max-h-[90vh] overflow-y-auto`} dir="rtl">
           <DialogHeader>
             <DialogTitle style={tajawal}>أوزان التقييم</DialogTitle>
           </DialogHeader>
@@ -145,6 +188,37 @@ export function EduSettingsPage() {
                   label="خصم لكل خطأ / لحن"
                   value={weights.penalty_per_error}
                   onChange={(v) => setWeights((w) => ({ ...w, penalty_per_error: v }))}
+                />
+                <p className="text-sm font-semibold pt-2 border-t border-border" style={tajawal}>
+                  يوم الهمة
+                </p>
+                <Field
+                  label="درجة الحزب"
+                  value={weights.hizb_points}
+                  onChange={(v) => setWeights((w) => ({ ...w, hizb_points: v }))}
+                />
+                <Field
+                  label="خصم تنبيه"
+                  value={weights.alert_penalty}
+                  onChange={(v) => setWeights((w) => ({ ...w, alert_penalty: v }))}
+                />
+                <Field
+                  label="خصم خطأ/لحن"
+                  value={weights.error_penalty}
+                  onChange={(v) => setWeights((w) => ({ ...w, error_penalty: v }))}
+                />
+                <p className="text-sm font-semibold pt-2 border-t border-border" style={tajawal}>
+                  المنافسات
+                </p>
+                <Field
+                  label="وزن المهمة الافتراضي"
+                  value={weights.default_task_weight}
+                  onChange={(v) => setWeights((w) => ({ ...w, default_task_weight: v }))}
+                />
+                <Field
+                  label="خصم الخطأ"
+                  value={weights.mistake_penalty}
+                  onChange={(v) => setWeights((w) => ({ ...w, mistake_penalty: v }))}
                 />
                 <Button
                   type="submit"

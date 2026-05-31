@@ -312,11 +312,8 @@ function TeachersPanel() {
           <Table className={ds.tableMin}>
             <TableHeader>
               <TableRow>
-                <TableHead className={`${ds.table.head} w-[22%]`} style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[28%]`} style={tajawal}>
                   الاسم
-                </TableHead>
-                <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
-                  المسمى
                 </TableHead>
                 <TableHead className={`${ds.table.head} w-[16%]`} style={tajawal}>
                   الجوال
@@ -336,10 +333,16 @@ function TeachersPanel() {
               {items.map((t) => (
                 <TableRow key={t.id}>
                   <TableCell className={ds.table.cell} style={tajawal}>
-                    {t.full_name_ar}
-                  </TableCell>
-                  <TableCell className={ds.table.cell} style={tajawal}>
-                    {roleLabelAr(t.role ?? "teacher")}
+                    <div className="flex flex-wrap items-center gap-2 justify-end">
+                      <span>{t.full_name_ar}</span>
+                      <Badge
+                        variant="outline"
+                        className="rounded-lg text-xs shrink-0"
+                        style={tajawal}
+                      >
+                        {t.role === "track_supervisor" ? "مشرف مسار" : "معلم"}
+                      </Badge>
+                    </div>
                   </TableCell>
                   <TableCell className={ds.table.cell} style={tajawal}>
                     {t.mobile ?? "—"}
@@ -675,8 +678,16 @@ function SupervisorsPanel() {
               await load();
             }}
             onDelete={async () => {
-              await api.adminSupervisorsDelete(actionSupervisor.id);
-              await load();
+              try {
+                await api.adminSupervisorsDelete(actionSupervisor.id);
+                setActionSupervisor(null);
+                await load();
+              } catch (err) {
+                setError(
+                  err instanceof Error ? err.message : "فشل حذف المشرف",
+                );
+                throw err;
+              }
             }}
           />
         )}

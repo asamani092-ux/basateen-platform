@@ -927,6 +927,7 @@ export const api = {
         circle_id: number | null;
         circle_name: string | null;
         official_days: number;
+        present_days?: number;
         discipline_pct: number;
         circle_discipline_pct: number;
       }>;

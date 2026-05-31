@@ -71,7 +71,7 @@ function printPledgeForm(
         <p style="margin:4px 0 0">مجمع حلقات البساتين</p>
         <p style="margin:4px 0 0;font-size:14px">التاريخ: ${todayAr()}</p>
       </div>
-      <img src="/logo-dark.png" alt="شعار المجمع"/>
+      <img src="/logo-light.png" alt="شعار المجمع" class="print-logo"/>
     </div>
     <p><strong>اسم الطالب:</strong> ${studentName}</p>
     <p><strong>رقم ولي الأمر:</strong> ${guardianPhone ?? "—"}</p>

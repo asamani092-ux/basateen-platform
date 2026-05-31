@@ -39,9 +39,30 @@ function json(data: unknown, status = 200): Response {
 
 function trim(v: unknown, max = 500): string | null {
   if (v == null) return null;
-  const s = String(v).trim();
+  if (typeof v === "number" && Number.isFinite(v)) {
+    const digits = String(Math.trunc(v));
+    return digits.length > 0 ? digits.slice(0, max) : null;
+  }
+  let s = String(v).trim();
   if (!s) return null;
+  if (/^\d+\.0+$/.test(s)) s = s.replace(/\.0+$/, "");
   return s.slice(0, max);
+}
+
+function sanitizeImportRow(r: StudentImportRow): StudentImportRow {
+  return {
+    full_name_ar: trim(r.full_name_ar, 200) ?? "",
+    national_id: trim(r.national_id, 32),
+    nationality: trim(r.nationality, 80) ?? "سعودي",
+    phone: trim(r.phone, 20),
+    school_name: trim(r.school_name, 120),
+    school_grade: trim(r.school_grade, 80),
+    memorization_amount: trim(r.memorization_amount, 120),
+    guardian_phone: trim(r.guardian_phone, 20),
+    guardian_national_id: trim(r.guardian_national_id, 32),
+    circle_name: trim(r.circle_name, 100),
+    health_notes: trim(r.health_notes, 500),
+  };
 }
 
 async function loadCircleMap(
@@ -166,7 +187,7 @@ export async function handleStudentsBulkImport(
 
   for (let i = 0; i < rows.length; i++) {
     const rowNum = i + 1;
-    const r = rows[i];
+    const r = sanitizeImportRow(rows[i]);
     const full_name_ar = trim(r.full_name_ar, 200);
     const national_id = trim(r.national_id, 32);
     const phone = trim(r.phone, 20);

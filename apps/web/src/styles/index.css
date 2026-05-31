@@ -6,6 +6,21 @@
 @media print {
   body {
     background: #fff !important;
+    color: #000 !important;
+  }
+
+  body * {
+    color: #000 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .print\\:text-black {
+    color: #000 !important;
+  }
+
+  .print\\:bg-white {
+    background: #fff !important;
   }
 
   .admin-reports-screen-only {

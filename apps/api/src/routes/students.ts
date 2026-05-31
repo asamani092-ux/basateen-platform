@@ -48,7 +48,11 @@ export async function handleStudentsList(
     const url = new URL(request.url);
     const q = (url.searchParams.get("q") ?? "").trim();
     const admissionStatus = url.searchParams.get("admission_status")?.trim();
-    const limit = Math.min(Number(url.searchParams.get("limit") ?? 50), 100);
+    const defaultLimit = auth.role === "super_admin" ? 500 : 100;
+    const limit = Math.min(
+      Number(url.searchParams.get("limit") ?? defaultLimit),
+      500,
+    );
     const hasHistory = await hasTable(env, "student_circle_history");
     const hasCircles = await hasTable(env, "circles");
     const hasTracks = await hasTable(env, "tracks");
@@ -65,19 +69,29 @@ export async function handleStudentsList(
       ? `LEFT JOIN student_circle_history h
            ON h.student_id = s.id AND ${activePlacement}`
       : "";
-    const circleJoin =
-      hasCircles && hasHistory
-        ? `LEFT JOIN circles c ON c.id = h.circle_id`
-        : hasCircles && hasCurrentCircle
-          ? `LEFT JOIN circles c ON c.id = s.current_circle_id`
-          : `LEFT JOIN (SELECT NULL AS id, NULL AS name_ar, NULL AS track_id) c ON 1 = 0`;
-    const trackJoin =
-      hasTracks && hasHistory
-        ? `LEFT JOIN tracks t ON t.id = h.track_id`
-        : hasTracks && hasCurrentTrack
-          ? `LEFT JOIN tracks t ON t.id = s.current_track_id`
-          : `LEFT JOIN (SELECT NULL AS id, NULL AS name_ar) t ON 1 = 0`;
-    const circleRef = hasHistory ? "h.circle_id" : hasCurrentCircle ? "s.current_circle_id" : "NULL";
+    const circleIdExpr =
+      hasCurrentCircle && hasHistory
+        ? "COALESCE(s.current_circle_id, h.circle_id)"
+        : hasCurrentCircle
+          ? "s.current_circle_id"
+          : hasHistory
+            ? "h.circle_id"
+            : "NULL";
+    const trackIdExpr =
+      hasCurrentTrack && hasHistory
+        ? "COALESCE(s.current_track_id, h.track_id)"
+        : hasCurrentTrack
+          ? "s.current_track_id"
+          : hasHistory
+            ? "h.track_id"
+            : "NULL";
+    const circleJoin = hasCircles
+      ? `LEFT JOIN circles c ON c.id = ${circleIdExpr}`
+      : `LEFT JOIN (SELECT NULL AS id, NULL AS name_ar, NULL AS track_id) c ON 1 = 0`;
+    const trackJoin = hasTracks
+      ? `LEFT JOIN tracks t ON t.id = ${trackIdExpr}`
+      : `LEFT JOIN (SELECT NULL AS id, NULL AS name_ar) t ON 1 = 0`;
+    const circleRef = circleIdExpr;
 
     let sql = `
     SELECT
@@ -132,16 +146,29 @@ export async function handleStudentsList(
           }
         }
       } else if (hasHistory && hasSupervisorScopes) {
-        sql += ` AND (
-          h.circle_id IN (SELECT circle_id FROM supervisor_scopes WHERE user_id = ?)
-          OR (${
-            hasAdmissionStatus ? "s.admission_status = 'pending_placement' AND" : ""
-          } s.stage_id IN (
-            SELECT DISTINCT c.stage_id FROM supervisor_scopes ss
-            JOIN circles c ON c.id = ss.circle_id WHERE ss.user_id = ?
-          ))
-        )`;
-        binds.push(auth.userId, auth.userId);
+        const scopeRow = await env.DB.prepare(
+          `SELECT supervisor_scope FROM users WHERE id = ?`,
+        )
+          .bind(auth.userId)
+          .first<{ supervisor_scope: string | null }>();
+        const scope = (scopeRow?.supervisor_scope ?? "global").trim();
+        if (scope !== "global") {
+          const scopeParts: string[] = [];
+          if (hasCurrentCircle) {
+            scopeParts.push(
+              `s.current_circle_id IN (SELECT circle_id FROM supervisor_scopes WHERE user_id = ?)`,
+            );
+          }
+          if (hasHistory) {
+            scopeParts.push(
+              `h.circle_id IN (SELECT circle_id FROM supervisor_scopes WHERE user_id = ?)`,
+            );
+          }
+          if (scopeParts.length > 0) {
+            sql += ` AND (${scopeParts.join(" OR ")})`;
+            binds.push(...scopeParts.map(() => auth.userId));
+          }
+        }
       }
     }
 

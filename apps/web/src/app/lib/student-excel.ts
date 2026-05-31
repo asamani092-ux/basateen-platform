@@ -45,7 +45,13 @@ const HEADER_TO_FIELD: Record<string, keyof StudentExcelRow> = {
 
 function cellStr(v: unknown): string {
   if (v == null) return "";
-  return String(v).trim();
+  if (typeof v === "number" && Number.isFinite(v)) {
+    const s = String(Math.trunc(v));
+    return /^\d+\.0+$/.test(String(v)) ? s : String(v).trim();
+  }
+  let s = String(v).trim();
+  if (/^\d+\.0+$/.test(s)) s = s.replace(/\.0+$/, "");
+  return s;
 }
 
 export function downloadTemplate(): void {

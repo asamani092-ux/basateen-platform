@@ -56,10 +56,27 @@ function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-function formatDisciplinePct(value: unknown): string {
+function formatDisciplinePct(row: {
+  discipline_pct?: unknown;
+  official_days?: unknown;
+  present_days?: unknown;
+}): string {
+  const totalDays = Number(row.official_days ?? 0);
+  const presentDays = Number(row.present_days ?? 0);
+  const fromApi = Number(row.discipline_pct);
+  const percentage =
+    totalDays > 0
+      ? Math.round((presentDays / totalDays) * 100)
+      : Number.isFinite(fromApi)
+        ? Math.round(fromApi)
+        : 0;
+  return `${percentage}%`;
+}
+
+function formatPctValue(value: unknown): string {
   const n = Number(value);
-  if (!Number.isFinite(n) || n < 0) return "0%";
-  return `${Math.round(n)}%`;
+  const percentage = Number.isFinite(n) ? Math.round(n) : 0;
+  return `${percentage}%`;
 }
 
 function rangeForPreset(preset: DatePreset): { start: string; end: string } {
@@ -448,9 +465,17 @@ export function AdminReportsPage() {
         </p>
       )}
 
-      <div id="admin-reports-print" className="admin-reports-print-body space-y-6">
-        <div className="hidden print:block text-center border-b border-border pb-4 mb-4">
-          <h1 className="text-2xl font-bold" style={tajawal}>
+      <div
+        id="admin-reports-print"
+        className="admin-reports-print-body space-y-6 print:bg-white print:text-black"
+      >
+        <div className="hidden print:block text-center border-b border-black/20 pb-4 mb-4 print:text-black">
+          <img
+            src="/logo-light.png"
+            alt="شعار مجمع البساتين"
+            className="h-16 mx-auto mb-3 object-contain print:block"
+          />
+          <h1 className="text-2xl font-bold print:text-black" style={tajawal}>
             تقرير القسم الإداري — مجمع البساتين
           </h1>
           <p className="text-sm text-muted-foreground mt-1" style={tajawal}>
@@ -567,13 +592,13 @@ export function AdminReportsPage() {
                               className={`${ds.table.cell} tabular-nums`}
                               style={tajawal}
                             >
-                              {formatDisciplinePct(row.discipline_pct)}
+                              {formatDisciplinePct(row)}
                             </TableCell>
                             <TableCell
                               className={`${ds.table.cell} tabular-nums`}
                               style={tajawal}
                             >
-                              {formatDisciplinePct(row.circle_discipline_pct)}
+                              {formatPctValue(row.circle_discipline_pct)}
                             </TableCell>
                           </TableRow>
                         ))}

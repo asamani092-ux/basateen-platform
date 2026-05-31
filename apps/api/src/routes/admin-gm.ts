@@ -1267,35 +1267,90 @@ export async function handleAdminSupervisorsPatch(
   }
 }
 
+async function clearUserRelationsBeforeDelete(
+  env: Env,
+  userId: number,
+  complexId: number,
+): Promise<void> {
+  const childDeletes: Array<[string, string]> = [
+    ["sessions", "user_id"],
+    ["user_sections", "user_id"],
+    ["supervisor_scopes", "user_id"],
+    ["teacher_assignments", "user_id"],
+    ["staff_attendance", "user_id"],
+    ["teacher_daily_marks", "user_id"],
+    ["teacher_escalations", "created_by_user_id"],
+    ["teacher_escalations", "resolved_by_user_id"],
+  ];
+  for (const [table, column] of childDeletes) {
+    if (!(await hasTable(env, table))) continue;
+    if (!(await tableHasColumn(env, table, column))) continue;
+    await env.DB.prepare(`DELETE FROM ${table} WHERE ${column} = ?`)
+      .bind(userId)
+      .run();
+  }
+  if (await tableHasColumn(env, "circles", "teacher_id")) {
+    await env.DB.prepare(
+      `UPDATE circles SET teacher_id = NULL WHERE teacher_id = ? AND complex_id = ?`,
+    )
+      .bind(userId, complexId)
+      .run();
+  }
+}
+
 export async function handleAdminSupervisorsDelete(
   request: Request,
   env: Env,
   url: URL,
 ): Promise<Response> {
-  const auth = await getAuth(request, env);
-  const denied = requireGm(auth);
-  if (denied) return denied;
+  try {
+    const auth = await getAuth(request, env);
+    const denied = requireGm(auth);
+    if (denied) return denied;
 
-  const m = url.pathname.match(/^\/api\/admin\/supervisors\/(\d+)$/);
-  const userId = m ? Number(m[1]) : NaN;
-  if (!Number.isFinite(userId)) return json({ error: "invalid_id" }, 400);
+    const m = url.pathname.match(/^\/api\/admin\/supervisors\/(\d+)$/);
+    const userId = m ? Number(m[1]) : NaN;
+    if (!Number.isFinite(userId)) return json({ error: "invalid_id" }, 400);
 
-  const hasRole = await usersHaveRoleColumn(env);
-  const supervisorFilter = hasRole
-    ? `role IN (${SUPERVISOR_DB_ROLE_SQL})`
-    : `(
+    const hasRole = await usersHaveRoleColumn(env);
+    const supervisorFilter = hasRole
+      ? `role IN (${SUPERVISOR_DB_ROLE_SQL})`
+      : `(
         COALESCE(is_track_supervisor, 0) = 1 OR COALESCE(is_educational, 0) = 1 OR
         COALESCE(is_programs, 0) = 1 OR COALESCE(is_admin, 0) = 1
       )`;
-  const user = await env.DB.prepare(
-    `SELECT id FROM users WHERE id = ? AND complex_id = ? AND ${supervisorFilter}`,
-  )
-    .bind(userId, auth!.complexId)
-    .first();
-  if (!user) return json({ error: "supervisor_not_found" }, 404);
+    const user = await env.DB.prepare(
+      `SELECT id FROM users WHERE id = ? AND complex_id = ? AND ${supervisorFilter}`,
+    )
+      .bind(userId, auth!.complexId)
+      .first();
+    if (!user) return json({ error: "supervisor_not_found" }, 404);
 
-  await env.DB.prepare(`DELETE FROM users WHERE id = ?`).bind(userId).run();
-  return json({ ok: true });
+    await clearUserRelationsBeforeDelete(env, userId, auth!.complexId);
+
+    try {
+      await env.DB.prepare(`DELETE FROM users WHERE id = ?`).bind(userId).run();
+      return json({ ok: true });
+    } catch (deleteErr) {
+      if (await tableHasColumn(env, "users", "is_active")) {
+        await env.DB.prepare(`UPDATE users SET is_active = 0 WHERE id = ?`)
+          .bind(userId)
+          .run();
+        return json({ ok: true, soft_deleted: true });
+      }
+      throw deleteErr;
+    }
+  } catch (error: unknown) {
+    console.error("[admin-gm] supervisors delete:", error);
+    return json(
+      {
+        error: "supervisor_delete_failed",
+        message:
+          error instanceof Error ? error.message : "Failed to delete supervisor",
+      },
+      500,
+    );
+  }
 }
 
 export async function handleAdminGmRouter(

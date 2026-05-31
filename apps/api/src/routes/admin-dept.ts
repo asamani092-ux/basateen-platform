@@ -1044,6 +1044,7 @@ async function handleAdminDeptRouterImpl(
              sr.circle_id,
              sr.circle_name,
              sr.official_days,
+             sr.present_days,
              CASE WHEN COALESCE(sr.official_days, 0) > 0
                THEN ROUND((COALESCE(sr.present_days, 0) * 100.0) / sr.official_days, 0)
                ELSE 0 END AS discipline_pct,
@@ -1064,6 +1065,7 @@ async function handleAdminDeptRouterImpl(
         circle_id: number | null;
         circle_name: string | null;
         official_days: number;
+        present_days: number;
         discipline_pct: number;
         circle_discipline_pct: number;
       }>();

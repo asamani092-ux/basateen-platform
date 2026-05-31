@@ -50,7 +50,17 @@ export function StudentsPage() {
     }
     try {
       const res = await api.students(query);
-      setItems(res.items);
+      const payload = res as {
+        items?: StudentRow[];
+        error?: string;
+        message?: string;
+      };
+      if (payload.error) {
+        setError(payload.message ?? "تعذّر تحميل قائمة الطلاب");
+        setItems(payload.items ?? []);
+      } else {
+        setItems(payload.items ?? []);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل تحميل الطلاب");
       setItems([]);

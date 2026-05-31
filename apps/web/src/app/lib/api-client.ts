@@ -1574,6 +1574,7 @@ export const api = {
     access_code: string;
     show_score_instantly?: boolean;
     custom_success_message?: string | null;
+    require_student_name?: boolean;
     questions?: Array<Record<string, unknown>>;
   }) =>
     request<{ ok: boolean; id: number }>("/api/prog-supervisor/quizzes", {
@@ -1608,6 +1609,7 @@ export const api = {
       show_score_instantly?: boolean;
       custom_success_message?: string | null;
       is_active?: number;
+      require_student_name?: boolean;
       questions?: Array<Record<string, unknown>>;
     },
   ) =>
@@ -1775,6 +1777,7 @@ export const api = {
       quiz_id: number;
       title_ar: string;
       requires_access_code: boolean;
+      require_student_name?: boolean;
       status: string;
       show_score_instantly?: boolean;
     }>(
@@ -1782,7 +1785,10 @@ export const api = {
         ? `/api/public/quiz/${quizId}/public`
         : `/api/quiz/${quizId}/public`,
     ),
-  publicQuizGate: (quizId: number, body: { access_code: string }) =>
+  publicQuizGate: (
+    quizId: number,
+    body: { access_code: string; student_name?: string },
+  ) =>
     request<{ ok: boolean; session_token: string }>(
       `/api/public/quiz/${quizId}/gate`,
       { method: "POST", body: JSON.stringify(body) },

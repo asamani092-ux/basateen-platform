@@ -85,6 +85,7 @@ export function QuizBuilderPage() {
   const [titleAr, setTitleAr] = useState("");
   const [accessCode, setAccessCode] = useState("");
   const [showScore, setShowScore] = useState(true);
+  const [requireStudentName, setRequireStudentName] = useState(false);
   const [customMessage, setCustomMessage] = useState("");
   const [questions, setQuestions] = useState<QuestionDraft[]>([emptyQuestion(0)]);
   const [saving, setSaving] = useState(false);
@@ -145,6 +146,7 @@ export function QuizBuilderPage() {
     setTitleAr("");
     setAccessCode("");
     setShowScore(true);
+    setRequireStudentName(false);
     setCustomMessage("");
     setQuestions([emptyQuestion(0)]);
     setFormOpen(true);
@@ -159,6 +161,7 @@ export function QuizBuilderPage() {
       setTitleAr(String(q.title_ar ?? ""));
       setAccessCode(String(q.access_code ?? ""));
       setShowScore(Number(q.show_score_instantly ?? 1) === 1);
+      setRequireStudentName(Number(q.require_student_name ?? 0) === 1);
       setCustomMessage(String(q.custom_success_message ?? ""));
       const qs = (res.questions as Array<Record<string, unknown>>).map((row, i) => {
         let options: string[] = [];
@@ -217,6 +220,10 @@ export function QuizBuilderPage() {
       setError("أضف سؤالاً واحداً على الأقل");
       return;
     }
+    if (payload.some((q) => q.question_type !== "text" && !String(q.correct_answer).trim())) {
+      setError("حدد الإجابة الصحيحة لكل سؤال");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -225,6 +232,7 @@ export function QuizBuilderPage() {
           title_ar: titleAr.trim(),
           access_code: accessCode.trim(),
           show_score_instantly: showScore,
+          require_student_name: requireStudentName,
           custom_success_message: customMessage.trim() || null,
           questions: payload,
         });
@@ -233,6 +241,7 @@ export function QuizBuilderPage() {
           title_ar: titleAr.trim(),
           access_code: accessCode.trim(),
           show_score_instantly: showScore,
+          require_student_name: requireStudentName,
           custom_success_message: customMessage.trim() || null,
           questions: payload,
         });
@@ -342,6 +351,9 @@ export function QuizBuilderPage() {
                 {expandedId === q.id && (
                   <TableRow key={`${q.id}-responses`}>
                     <TableCell colSpan={4} className="bg-muted/30 p-4">
+                      <p className={`${ds.page.section} mb-3`} style={tajawal}>
+                        نتائج الطلاب
+                      </p>
                       {responsesLoading ? (
                         <p className="text-sm text-muted-foreground" style={tajawal}>
                           جاري تحميل النتائج…
@@ -355,16 +367,13 @@ export function QuizBuilderPage() {
                           <TableHeader>
                             <TableRow>
                               <TableHead className={ds.table.head} style={tajawal}>
-                                الطالب
-                              </TableHead>
-                              <TableHead className={ds.table.head} style={tajawal}>
-                                الجوال
+                                اسم الطالب
                               </TableHead>
                               <TableHead className={ds.table.head} style={tajawal}>
                                 الدرجة
                               </TableHead>
                               <TableHead className={ds.table.head} style={tajawal}>
-                                التاريخ
+                                وقت التسليم
                               </TableHead>
                             </TableRow>
                           </TableHeader>
@@ -372,10 +381,9 @@ export function QuizBuilderPage() {
                             {responses.map((r, i) => (
                               <TableRow key={i}>
                                 <TableCell className={ds.table.cell} style={tajawal}>
-                                  {r.student_name}
-                                </TableCell>
-                                <TableCell className={ds.table.cell} dir="ltr">
-                                  {r.student_phone ?? "—"}
+                                  {r.student_name && r.student_name !== "مشارك"
+                                    ? r.student_name
+                                    : "—"}
                                 </TableCell>
                                 <TableCell className={ds.table.cell} style={tajawal}>
                                   {r.total_score != null
@@ -429,7 +437,11 @@ export function QuizBuilderPage() {
                   required
                 />
               </div>
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-border p-3">
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-border p-3 sm:col-span-2">
+                <Label style={tajawal}>طلب اسم الطالب قبل بدء الاختبار</Label>
+                <Switch checked={requireStudentName} onCheckedChange={setRequireStudentName} />
+              </div>
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-border p-3 sm:col-span-2">
                 <Label style={tajawal}>إظهار الدرجة فوراً مع رسالة مخصصة</Label>
                 <Switch checked={showScore} onCheckedChange={setShowScore} />
               </div>
@@ -524,24 +536,74 @@ export function QuizBuilderPage() {
                   />
                   {q.question_type === "mcq" &&
                     q.options.map((opt, oi) => (
-                      <Input
-                        key={oi}
-                        className={ds.field}
-                        placeholder={`خيار ${oi + 1}`}
-                        value={opt}
-                        onChange={(e) =>
-                          setQuestions((prev) =>
-                            prev.map((row, i) => {
-                              if (i !== idx) return row;
-                              const options = [...row.options];
-                              options[oi] = e.target.value;
-                              return { ...row, options };
-                            }),
-                          )
-                        }
-                      />
+                      <div key={oi} className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          aria-label={`تعيين الخيار ${oi + 1} كإجابة صحيحة`}
+                          className={cn(
+                            "shrink-0 w-5 h-5 rounded-full border-2 transition",
+                            q.correct_answer === opt && opt.trim()
+                              ? "border-primary bg-primary"
+                              : "border-muted-foreground/40 hover:border-primary",
+                          )}
+                          onClick={() => {
+                            if (!opt.trim()) return;
+                            setQuestions((prev) =>
+                              prev.map((row, i) =>
+                                i === idx ? { ...row, correct_answer: opt } : row,
+                              ),
+                            );
+                          }}
+                        />
+                        <Input
+                          className={ds.field}
+                          placeholder={`خيار ${oi + 1}`}
+                          value={opt}
+                          onChange={(e) =>
+                            setQuestions((prev) =>
+                              prev.map((row, i) => {
+                                if (i !== idx) return row;
+                                const options = [...row.options];
+                                const prevOpt = options[oi];
+                                options[oi] = e.target.value;
+                                const correct_answer =
+                                  row.correct_answer === prevOpt
+                                    ? e.target.value
+                                    : row.correct_answer;
+                                return { ...row, options, correct_answer };
+                              }),
+                            )
+                          }
+                        />
+                      </div>
                     ))}
-                  <div className="grid grid-cols-2 gap-2">
+                  {q.question_type === "true_false" && (
+                    <div className="flex gap-2">
+                      {(["صح", "خطأ"] as const).map((label) => (
+                        <button
+                          key={label}
+                          type="button"
+                          className={cn(
+                            "flex-1 rounded-full border px-4 py-2.5 text-sm font-medium transition",
+                            q.correct_answer === label
+                              ? "bg-primary text-primary-foreground border-primary"
+                              : "border-border hover:bg-muted",
+                          )}
+                          onClick={() =>
+                            setQuestions((prev) =>
+                              prev.map((row, i) =>
+                                i === idx ? { ...row, correct_answer: label } : row,
+                              ),
+                            )
+                          }
+                          style={tajawal}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <Input
                       type="number"
                       min={0.5}
@@ -557,20 +619,20 @@ export function QuizBuilderPage() {
                         )
                       }
                     />
-                    <Input
-                      className={ds.field}
-                      placeholder={
-                        q.question_type === "true_false" ? "صح أو خطأ" : "الإجابة الصحيحة"
-                      }
-                      value={q.correct_answer}
-                      onChange={(e) =>
-                        setQuestions((prev) =>
-                          prev.map((row, i) =>
-                            i === idx ? { ...row, correct_answer: e.target.value } : row,
-                          ),
-                        )
-                      }
-                    />
+                    {q.question_type === "text" && (
+                      <Input
+                        className={ds.field}
+                        placeholder="الإجابة الصحيحة (نصي)"
+                        value={q.correct_answer}
+                        onChange={(e) =>
+                          setQuestions((prev) =>
+                            prev.map((row, i) =>
+                              i === idx ? { ...row, correct_answer: e.target.value } : row,
+                            ),
+                          )
+                        }
+                      />
+                    )}
                   </div>
                 </div>
               ))}

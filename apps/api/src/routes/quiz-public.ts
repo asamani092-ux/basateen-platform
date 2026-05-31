@@ -18,6 +18,7 @@ type QuizRow = {
   show_score_instantly: number;
   custom_success_message: string | null;
   is_active: number;
+  require_student_name: number;
 };
 
 async function loadQuiz(env: Env, quizId: number): Promise<QuizRow | null> {
@@ -40,6 +41,7 @@ async function loadQuiz(env: Env, quizId: number): Promise<QuizRow | null> {
   let show_score_instantly = 1;
   let custom_success_message: string | null = null;
   let is_active = 1;
+  let require_student_name = 0;
 
   if (await tableHasColumn(env, "quizzes", "show_score_instantly")) {
     const extra = await env.DB.prepare(
@@ -60,11 +62,21 @@ async function loadQuiz(env: Env, quizId: number): Promise<QuizRow | null> {
     }
   }
 
+  if (await tableHasColumn(env, "quizzes", "require_student_name")) {
+    const row = await env.DB.prepare(
+      `SELECT COALESCE(require_student_name, 0) AS require_student_name FROM quizzes WHERE id = ?`,
+    )
+      .bind(quizId)
+      .first<{ require_student_name: number }>();
+    if (row) require_student_name = Number(row.require_student_name ?? 0);
+  }
+
   return {
     ...base,
     show_score_instantly,
     custom_success_message,
     is_active,
+    require_student_name,
   };
 }
 
@@ -166,7 +178,13 @@ function parseQuizAction(pathname: string) {
   };
 }
 
-async function gateWithAccessCodeOnly(env: Env, quiz: QuizRow, quizId: number, code: string) {
+async function gatePublicQuiz(
+  env: Env,
+  quiz: QuizRow,
+  quizId: number,
+  code: string,
+  studentName?: string,
+) {
   const expected = quiz.access_code?.trim() ?? "";
   if (!expected) {
     return json({ error: "quiz_not_configured" }, 503);
@@ -179,15 +197,25 @@ async function gateWithAccessCodeOnly(env: Env, quiz: QuizRow, quizId: number, c
     return json({ error: "migration_required" }, 503);
   }
 
+  const needsName = quiz.require_student_name === 1;
+  const name = String(studentName ?? "").trim();
+  if (needsName && !name) {
+    return json(
+      { error: "student_name_required", message: "اسم الطالب مطلوب" },
+      400,
+    );
+  }
+
   const token = randomToken();
+  const displayName = needsName ? name : "مشارك";
   await env.DB.prepare(
     `INSERT INTO quiz_responses (quiz_id, student_name, student_phone, session_token)
      VALUES (?, ?, ?, ?)`,
   )
-    .bind(quizId, "مشارك", token, token)
+    .bind(quizId, displayName, token, token)
     .run();
 
-  return json({ ok: true, session_token: token });
+  return json({ ok: true, session_token: token, student_name: displayName });
 }
 
 export async function handleQuizPublicRouter(
@@ -209,6 +237,7 @@ export async function handleQuizPublicRouter(
       quiz_id: quiz.id,
       title_ar: quiz.title_ar,
       requires_access_code: true,
+      require_student_name: quiz.require_student_name === 1,
       status: quiz.status,
       show_score_instantly: quiz.show_score_instantly === 1,
     });
@@ -233,7 +262,7 @@ export async function handleQuizPublicRouter(
       if (!code) {
         return json({ error: "access_code_required", message: "رمز المرور مطلوب" }, 400);
       }
-      return gateWithAccessCodeOnly(env, quiz, quizId, code);
+      return gatePublicQuiz(env, quiz, quizId, code, body.student_name);
     }
 
     // مسار قديم /api/quiz — يبقى للتوافق مع الطلاب المسجّلين

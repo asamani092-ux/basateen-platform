@@ -49,7 +49,9 @@ export function PublicQuizPage() {
 
   const [phase, setPhase] = useState<"gate" | "take" | "done">("gate");
   const [title, setTitle] = useState("");
+  const [requireStudentName, setRequireStudentName] = useState(false);
   const [accessCode, setAccessCode] = useState("");
+  const [studentName, setStudentName] = useState("");
   const [sessionToken, setSessionToken] = useState("");
 
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -107,6 +109,7 @@ export function PublicQuizPage() {
       .quizPublicMeta(quizId, true)
       .then((meta) => {
         setTitle(meta.title_ar);
+        setRequireStudentName(Boolean(meta.require_student_name));
         setError(null);
       })
       .catch(() => {
@@ -134,16 +137,25 @@ export function PublicQuizPage() {
       setError("رمز المرور غير صحيح");
       return;
     }
+    if (requireStudentName && !studentName.trim()) {
+      setError("اسم الطالب مطلوب");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      const res = await api.publicQuizGate(quizId, { access_code: accessCode.trim() });
+      const res = await api.publicQuizGate(quizId, {
+        access_code: accessCode.trim(),
+        ...(requireStudentName ? { student_name: studentName.trim() } : {}),
+      });
       setSessionToken(res.session_token);
       saveDraft(quizId, { token: res.session_token, answers: {}, step: 0 });
       await loadTake(res.session_token);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "";
-      if (msg.includes("403") || msg.includes("invalid_access")) {
+      if (msg.includes("student_name")) {
+        setError("اسم الطالب مطلوب");
+      } else if (msg.includes("403") || msg.includes("invalid_access")) {
         setError("رمز المرور غير صحيح");
       } else if (msg.includes("404") || msg.includes("not_found")) {
         setError("الاختبار غير متاح");
@@ -198,6 +210,21 @@ export function PublicQuizPage() {
 
         {phase === "gate" && (
           <form onSubmit={submitGate} className="space-y-4">
+            {requireStudentName && (
+              <div className="space-y-2">
+                <Label htmlFor="quiz-student-name" style={tajawal}>
+                  اسم الطالب
+                </Label>
+                <Input
+                  id="quiz-student-name"
+                  className={ds.field}
+                  value={studentName}
+                  onChange={(e) => setStudentName(e.target.value)}
+                  placeholder="اكتب اسمك"
+                  required
+                />
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="quiz-access-code" style={tajawal}>
                 رمز المرور للاختبار

@@ -1318,6 +1318,7 @@ export function resolveDevPreviewMock<T>(
       requires_access_code: Boolean(quiz.access_code),
       status: quiz.status,
       show_score_instantly: true,
+      require_student_name: false,
     } as T;
   }
   const publicQuizGate = p.match(/^\/api\/public\/quiz\/(\d+)\/gate$/);

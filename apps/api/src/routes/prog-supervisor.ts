@@ -244,9 +244,11 @@ async function insertQuizHeader(
     stage_id?: number | null;
     show_score_instantly?: boolean;
     custom_success_message?: string | null;
+    require_student_name?: boolean;
   },
 ): Promise<number> {
   const showScore = asSqliteBool(body.show_score_instantly, true);
+  const requireName = asSqliteBool(body.require_student_name, false);
   const customMsg =
     body.custom_success_message === undefined || body.custom_success_message === null
       ? null
@@ -280,6 +282,10 @@ async function insertQuizHeader(
     cols.push("custom_success_message");
     vals.push(customMsg);
   }
+  if (await tableHasColumn(env, "quizzes", "require_student_name")) {
+    cols.push("require_student_name");
+    vals.push(requireName);
+  }
   if (await tableHasColumn(env, "quizzes", "is_active")) {
     cols.push("is_active");
     vals.push(1);
@@ -305,6 +311,7 @@ async function patchQuizRecord(
     show_score_instantly?: boolean;
     custom_success_message?: string | null;
     is_active?: number;
+    require_student_name?: boolean;
   },
 ): Promise<void> {
   const sets: string[] = [];
@@ -336,6 +343,13 @@ async function patchQuizRecord(
     binds.push(body.custom_success_message?.trim() || null);
   }
   if (
+    (await tableHasColumn(env, "quizzes", "require_student_name")) &&
+    body.require_student_name !== undefined
+  ) {
+    sets.push("require_student_name = ?");
+    binds.push(asSqliteBool(body.require_student_name, false));
+  }
+  if (
     (await tableHasColumn(env, "quizzes", "is_active")) &&
     body.is_active !== undefined
   ) {
@@ -359,6 +373,7 @@ type QuizPatchBody = {
   show_score_instantly?: boolean;
   custom_success_message?: string | null;
   is_active?: number;
+  require_student_name?: boolean;
   questions?: QuizQuestionInput[];
 };
 
@@ -403,6 +418,13 @@ async function patchQuizWithQuestionsBatch(
   ) {
     sets.push("custom_success_message = ?");
     binds.push(body.custom_success_message?.trim() || null);
+  }
+  if (
+    (await tableHasColumn(env, "quizzes", "require_student_name")) &&
+    body.require_student_name !== undefined
+  ) {
+    sets.push("require_student_name = ?");
+    binds.push(asSqliteBool(body.require_student_name, false));
   }
   if (await tableHasColumn(env, "quizzes", "is_active")) {
     sets.push("is_active = ?");
@@ -508,15 +530,25 @@ export async function handleProgSupervisorRouter(
     const hasQuizStage = await tableHasColumn(env, "quizzes", "stage_id");
     const { where: quizWhere, binds: quizScopeBinds } = quizListScopeSql(scope, hasQuizStage);
     const hasShow = await tableHasColumn(env, "quizzes", "show_score_instantly");
+    const hasRequireName = await tableHasColumn(env, "quizzes", "require_student_name");
     const extraCols = hasShow
       ? `, COALESCE(q.show_score_instantly, 1) AS show_score_instantly,
          q.custom_success_message,
-         COALESCE(q.is_active, 1) AS is_active`
-      : "";
+         COALESCE(q.is_active, 1) AS is_active${
+           hasRequireName ? ", COALESCE(q.require_student_name, 0) AS require_student_name" : ""
+         }`
+      : hasRequireName
+        ? ", COALESCE(q.require_student_name, 0) AS require_student_name"
+        : "";
     const hasAttempts = await hasTable(env, "quiz_attempts");
+    const hasResponses = await hasTable(env, "quiz_responses");
     const attemptsSql = hasAttempts
       ? `(SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.quiz_id = q.id AND qa.submitted_at IS NOT NULL)`
       : `0`;
+    const responsesSql = hasResponses
+      ? `(SELECT COUNT(*) FROM quiz_responses qr WHERE qr.quiz_id = q.id AND qr.submitted_at IS NOT NULL)`
+      : `0`;
+    const submissionsSql = `(${attemptsSql} + ${responsesSql})`;
     const hasQuestions = await hasTable(env, "quiz_questions");
     const questionsSql = hasQuestions
       ? `(SELECT COUNT(*) FROM quiz_questions qq WHERE qq.quiz_id = q.id)`
@@ -530,7 +562,7 @@ export async function handleProgSupervisorRouter(
     const rows = await env.DB.prepare(
       `SELECT q.id, q.title_ar, ${statusCol}, ${accessCol}, q.total_points, q.created_at${extraCols},
               ${questionsSql} AS question_count,
-              ${attemptsSql} AS attempts_count
+              ${submissionsSql} AS attempts_count
        FROM quizzes q
        WHERE ${quizWhere}
        ORDER BY q.created_at DESC LIMIT 100`,
@@ -547,6 +579,7 @@ export async function handleProgSupervisorRouter(
       stage_id?: number | null;
       show_score_instantly?: boolean;
       custom_success_message?: string | null;
+      require_student_name?: boolean;
       questions?: QuizQuestionInput[];
     };
     try {
@@ -575,6 +608,7 @@ export async function handleProgSupervisorRouter(
         stage_id: body.stage_id ?? null,
         show_score_instantly: body.show_score_instantly,
         custom_success_message: body.custom_success_message,
+        require_student_name: body.require_student_name,
       });
 
       const totalPoints = await replaceQuizQuestions(env, quizId, questionList);

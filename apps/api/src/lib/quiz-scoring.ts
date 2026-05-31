@@ -7,6 +7,16 @@ export type QuizQuestionRow = {
   options_json: string | null;
 };
 
+export function normalizeQuizAnswer(value: unknown, questionType: string): string {
+  const raw = String(value ?? "").trim();
+  if (questionType === "true_false") {
+    const lower = raw.toLowerCase();
+    if (lower === "صح" || lower === "true" || lower === "1") return "true";
+    if (lower === "خطأ" || lower === "false" || lower === "0") return "false";
+  }
+  return raw;
+}
+
 export function scoreQuizAttempt(
   questions: QuizQuestionRow[],
   answers: Record<string, string>,
@@ -16,8 +26,9 @@ export function scoreQuizAttempt(
   for (const q of questions) {
     total += Number(q.points) || 0;
     const key = String(q.id);
-    const given = (answers[key] ?? answers[q.id] ?? "").trim().toLowerCase();
-    const correct = String(q.correct_answer).trim().toLowerCase();
+    const givenRaw = answers[key] ?? answers[q.id] ?? "";
+    const given = normalizeQuizAnswer(givenRaw, q.question_type);
+    const correct = normalizeQuizAnswer(q.correct_answer, q.question_type);
     if (given && given === correct) {
       earned += Number(q.points) || 0;
     }

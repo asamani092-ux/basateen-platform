@@ -56,6 +56,7 @@ FILES_UPGRADE=(
   "028_quranic_day_refactor.sql"
   "029_edu_hotfixes.sql"
   "030_programs_and_display_core.sql"
+  "031_quiz_require_student_name.sql"
 )
 
 FILES_ALL=(

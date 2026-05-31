@@ -10,13 +10,15 @@ export type UserRole =
   | "super_admin"
   | "edu_supervisor"
   | "admin_supervisor"
-  | "prog_supervisor"
+  | "programs_supervisor"
   | "track_supervisor"
   | "teacher";
 
 const LEGACY_ROLE_MAP: Record<string, UserRole> = {
   general_manager: "super_admin",
-  general_supervisor: "admin_supervisor",
+  general_supervisor: "super_admin",
+  admin_supervisor: "super_admin",
+  prog_supervisor: "programs_supervisor",
 };
 
 export function normalizeClientRole(role: string): UserRole {
@@ -98,7 +100,7 @@ const MOCK_BY_MOBILE: Record<string, Omit<AuthUser, "mobile">> = {
 
     full_name_ar: "مشرف البرامج",
 
-    role: "prog_supervisor",
+    role: "programs_supervisor",
 
     sections: ["programs"],
 
@@ -112,7 +114,7 @@ const MOCK_BY_MOBILE: Record<string, Omit<AuthUser, "mobile">> = {
 
     full_name_ar: "مشرف عام",
 
-    role: "admin_supervisor",
+    role: "super_admin",
 
     sections: ["admin", "education", "programs"],
 
@@ -166,9 +168,9 @@ function isValidSession(data: unknown): data is AuthSession {
 
     "edu_supervisor",
 
-    "prog_supervisor",
+    "programs_supervisor",
 
-    "admin_supervisor",
+    "track_supervisor",
 
     "super_admin",
 

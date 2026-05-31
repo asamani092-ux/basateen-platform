@@ -8,6 +8,7 @@ export type UserRole =
   | "edu_supervisor"
   | "admin_supervisor"
   | "prog_supervisor"
+  | "programs_supervisor"
   | "track_supervisor"
   | "teacher";
 
@@ -15,13 +16,14 @@ export type UserRole =
 export function normalizeUserRole(role: string): UserRole {
   switch (role) {
     case "general_manager":
-      return "super_admin";
+    case "admin_supervisor":
     case "general_supervisor":
-      return "admin_supervisor";
+      return "super_admin";
+    case "prog_supervisor":
+    case "programs_supervisor":
+      return "programs_supervisor";
     case "super_admin":
     case "edu_supervisor":
-    case "admin_supervisor":
-    case "prog_supervisor":
     case "track_supervisor":
     case "teacher":
       return role;
@@ -307,7 +309,7 @@ export function resolveRoleFromUser(row: DbUserRow): UserRole {
   const flat = row as UserFlatFlags;
   if (flat.is_admin === 1) return "super_admin";
   if (flat.is_educational === 1) return "edu_supervisor";
-  if (flat.is_programs === 1) return "prog_supervisor";
+  if (flat.is_programs === 1) return "programs_supervisor";
   if (flat.is_track_supervisor === 1) return "track_supervisor";
   if (flat.is_teacher === 1) return "teacher";
   return "super_admin";

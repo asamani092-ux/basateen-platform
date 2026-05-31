@@ -29,7 +29,7 @@ const RECITATION_ROLES = [
   "track_supervisor",
   "edu_supervisor",
   "super_admin",
-  "prog_supervisor",
+  "programs_supervisor",
 ] as const;
 
 function json(data: unknown, status = 200): Response {
@@ -177,7 +177,7 @@ async function resolveRecitationCircles(
     return [circle];
   }
 
-  if (auth.role === "prog_supervisor") {
+  if (auth.role === "programs_supervisor") {
     const scope = await loadUserScope(env, auth.userId);
     let sql = `SELECT c.id, c.name_ar FROM circles c WHERE c.complex_id = ?`;
     const binds: (string | number)[] = [auth.complexId];

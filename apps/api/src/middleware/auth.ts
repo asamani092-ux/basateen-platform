@@ -7,8 +7,7 @@ const authFailureFlags = new WeakMap<Request, "legacy_session_detected" | "unaut
 const VALID_ROLES: UserRole[] = [
   "super_admin",
   "edu_supervisor",
-  "admin_supervisor",
-  "prog_supervisor",
+  "programs_supervisor",
   "track_supervisor",
   "teacher",
 ];

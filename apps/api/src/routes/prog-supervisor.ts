@@ -13,7 +13,7 @@ import {
 } from "../lib/dept-scope";
 import { randomToken, upsertQuizAttemptToken } from "../lib/quiz-scoring";
 import { writeProgAudit } from "../lib/prog-audit";
-import { hasTable, tableHasColumn } from "../lib/db-schema";
+import { activePlacementSql, hasTable, tableHasColumn } from "../lib/db-schema";
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
@@ -542,11 +542,16 @@ export async function handleProgSupervisorRouter(
         : "";
     const hasAttempts = await hasTable(env, "quiz_attempts");
     const hasResponses = await hasTable(env, "quiz_responses");
+    const hasResponsePending =
+      hasResponses && (await tableHasColumn(env, "quiz_responses", "grading_pending"));
     const attemptsSql = hasAttempts
       ? `(SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.quiz_id = q.id AND qa.submitted_at IS NOT NULL)`
       : `0`;
     const responsesSql = hasResponses
       ? `(SELECT COUNT(*) FROM quiz_responses qr WHERE qr.quiz_id = q.id AND qr.submitted_at IS NOT NULL)`
+      : `0`;
+    const pendingReviewSql = hasResponsePending
+      ? `(SELECT COUNT(*) FROM quiz_responses qr WHERE qr.quiz_id = q.id AND qr.submitted_at IS NOT NULL AND qr.grading_pending = 1)`
       : `0`;
     const submissionsSql = `(${attemptsSql} + ${responsesSql})`;
     const hasQuestions = await hasTable(env, "quiz_questions");
@@ -562,7 +567,8 @@ export async function handleProgSupervisorRouter(
     const rows = await env.DB.prepare(
       `SELECT q.id, q.title_ar, ${statusCol}, ${accessCol}, q.total_points, q.created_at${extraCols},
               ${questionsSql} AS question_count,
-              ${submissionsSql} AS attempts_count
+              ${submissionsSql} AS attempts_count,
+              ${pendingReviewSql} AS pending_review_count
        FROM quizzes q
        WHERE ${quizWhere}
        ORDER BY q.created_at DESC LIMIT 100`,
@@ -759,25 +765,27 @@ export async function handleProgSupervisorRouter(
       }
     }
 
-    const attemptRows = await env.DB.prepare(
-      `SELECT s.full_name_ar, s.phone, a.score_percent, a.submitted_at
+    if (await hasTable(env, "quiz_attempts")) {
+      const attemptRows = await env.DB.prepare(
+        `SELECT s.full_name_ar, s.phone, a.score_percent, a.submitted_at
        FROM quiz_attempts a
        JOIN students s ON s.id = a.student_id
        WHERE a.quiz_id = ? AND a.submitted_at IS NOT NULL
        ORDER BY a.submitted_at DESC`,
-    )
-      .bind(quizId)
-      .all();
+      )
+        .bind(quizId)
+        .all();
 
-    for (const r of attemptRows.results ?? []) {
-      items.push({
-        source: "student",
-        student_name: r.full_name_ar,
-        student_phone: r.phone,
-        total_score: null,
-        score_percent: r.score_percent,
-        submitted_at: r.submitted_at,
-      });
+      for (const r of attemptRows.results ?? []) {
+        items.push({
+          source: "student",
+          student_name: r.full_name_ar,
+          student_phone: r.phone,
+          total_score: null,
+          score_percent: r.score_percent,
+          submitted_at: r.submitted_at,
+        });
+      }
     }
 
     return json({ items });
@@ -1090,7 +1098,7 @@ export async function handleProgSupervisorRouter(
     const itemType = body.type === "file" ? "file" : "link";
     const urlValue = String(body.file_url_or_link ?? "").trim();
     if (!title || !urlValue) return json({ error: "title_and_url_required" }, 400);
-    if (urlValue.length > 500_000) return json({ error: "payload_too_large" }, 400);
+    if (urlValue.length > 10_000_000) return json({ error: "payload_too_large" }, 400);
 
     const ins = await env.DB.prepare(
       `INSERT INTO program_archives (complex_id, title, type, file_url_or_link, description, tags, created_by_user_id)
@@ -1147,7 +1155,7 @@ export async function handleProgSupervisorRouter(
         }>();
       if (!row) return json({ error: "not_found" }, 404);
       const urlValue = body.file_url_or_link?.trim() ?? row.file_url_or_link;
-      if (urlValue.length > 500_000) return json({ error: "payload_too_large" }, 400);
+      if (urlValue.length > 10_000_000) return json({ error: "payload_too_large" }, 400);
       await env.DB.prepare(
         `UPDATE program_archives SET
            title = ?,
@@ -1255,8 +1263,10 @@ async function handleAnalytics(
   scope: ScopeMode,
   _url: URL,
 ): Promise<Response> {
-  const scopeStudentWhere = studentsInScopeWhere(scope);
-  const scopeBinds = studentsInScopeBinds(complexId, scope);
+  try {
+    const scopeStudentWhere = studentsInScopeWhere(scope);
+    const scopeBinds = studentsInScopeBinds(complexId, scope);
+    const hasStudents = await hasTable(env, "students");
 
   let publishedQuizzes = 0;
   if (await hasTable(env, "quizzes")) {
@@ -1277,7 +1287,7 @@ async function handleAnalytics(
 
   let attemptsCount = 0;
   let avgScore = 0;
-  if (await hasTable(env, "quiz_attempts") && (await hasTable(env, "students"))) {
+  if (await hasTable(env, "quiz_attempts") && hasStudents) {
     const attempts = await env.DB.prepare(
       `SELECT AVG(a.score_percent) AS avg_score, COUNT(*) AS c
        FROM quiz_attempts a
@@ -1290,15 +1300,20 @@ async function handleAnalytics(
     avgScore = Math.round(Number(attempts?.avg_score ?? 0) * 10) / 10;
   }
 
-  if (await hasTable(env, "quiz_responses")) {
+  if (await hasTable(env, "quiz_responses") && (await hasTable(env, "quizzes"))) {
     const publicAttempts = await env.DB.prepare(
-      `SELECT COUNT(*) AS c FROM quiz_responses WHERE submitted_at IS NOT NULL`,
-    ).first<{ c: number }>();
+      `SELECT COUNT(*) AS c
+       FROM quiz_responses qr
+       JOIN quizzes q ON q.id = qr.quiz_id
+       WHERE qr.submitted_at IS NOT NULL AND q.complex_id = ?`,
+    )
+      .bind(complexId)
+      .first<{ c: number }>();
     attemptsCount += Number(publicAttempts?.c ?? 0);
   }
 
   let topStudents: Record<string, unknown>[] = [];
-  if (await hasTable(env, "quiz_attempts") && (await hasTable(env, "students"))) {
+  if (await hasTable(env, "quiz_attempts") && hasStudents) {
     const rows = await env.DB.prepare(
       `SELECT s.id, s.full_name_ar, AVG(a.score_percent) AS avg_score, COUNT(a.id) AS quiz_count
        FROM quiz_attempts a
@@ -1314,11 +1329,23 @@ async function handleAnalytics(
   }
 
   let topCircles: Record<string, unknown>[] = [];
+  const hasCircles = await hasTable(env, "circles");
+  const hasHistory = await hasTable(env, "student_circle_history");
+  const hasLegacyHistory = hasHistory && (await tableHasColumn(env, "student_circle_history", "circle_id"));
+  const hasCurrentCircle = hasStudents && (await tableHasColumn(env, "students", "current_circle_id"));
+  const activePlacement = hasLegacyHistory ? await activePlacementSql(env, "h") : "1=0";
+  const circleJoin = hasLegacyHistory
+    ? `JOIN student_circle_history h ON h.student_id = s.id AND ${activePlacement}
+       JOIN circles c ON c.id = h.circle_id`
+    : hasCurrentCircle
+      ? `JOIN circles c ON c.id = s.current_circle_id`
+      : "";
+
   if (
     (await hasTable(env, "program_participation")) &&
-    (await hasTable(env, "students")) &&
-    (await hasTable(env, "student_circle_history")) &&
-    (await hasTable(env, "circles"))
+    hasStudents &&
+    hasCircles &&
+    circleJoin
   ) {
     const rows = await env.DB.prepare(
       `SELECT c.id, c.name_ar,
@@ -1326,8 +1353,7 @@ async function handleAnalytics(
               COUNT(pp.id) AS participation_events
        FROM program_participation pp
        JOIN students s ON s.id = pp.student_id
-       JOIN student_circle_history h ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL
-       JOIN circles c ON c.id = h.circle_id
+       ${circleJoin}
        WHERE ${scopeStudentWhere}
        GROUP BY c.id
        ORDER BY participants DESC
@@ -1341,16 +1367,15 @@ async function handleAnalytics(
   let circleQuizAvg: Record<string, unknown>[] = [];
   if (
     (await hasTable(env, "quiz_attempts")) &&
-    (await hasTable(env, "students")) &&
-    (await hasTable(env, "student_circle_history")) &&
-    (await hasTable(env, "circles"))
+    hasStudents &&
+    hasCircles &&
+    circleJoin
   ) {
     const rows = await env.DB.prepare(
       `SELECT c.id, c.name_ar, AVG(a.score_percent) AS avg_score, COUNT(a.id) AS attempts
        FROM quiz_attempts a
        JOIN students s ON s.id = a.student_id
-       JOIN student_circle_history h ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL
-       JOIN circles c ON c.id = h.circle_id
+       ${circleJoin}
        WHERE a.submitted_at IS NOT NULL AND ${scopeStudentWhere}
        GROUP BY c.id
        ORDER BY avg_score DESC
@@ -1361,15 +1386,25 @@ async function handleAnalytics(
     circleQuizAvg = rows.results ?? [];
   }
 
-  return json({
-    scope_label: scopeLabel(scope),
-    kpis: {
-      published_quizzes: publishedQuizzes,
-      quiz_attempts_submitted: attemptsCount,
-      average_quiz_score: avgScore,
-    },
-    top_students: topStudents,
-    top_circles_participation: topCircles,
-    circle_quiz_averages: circleQuizAvg,
-  });
+    return json({
+      scope_label: scopeLabel(scope),
+      kpis: {
+        published_quizzes: publishedQuizzes,
+        quiz_attempts_submitted: attemptsCount,
+        average_quiz_score: avgScore,
+      },
+      top_students: topStudents,
+      top_circles_participation: topCircles,
+      circle_quiz_averages: circleQuizAvg,
+    });
+  } catch (err) {
+    console.error("prog_analytics_failed", err);
+    return json(
+      {
+        error: "prog_analytics_failed",
+        message: err instanceof Error ? err.message : String(err),
+      },
+      500,
+    );
+  }
 }

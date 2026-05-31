@@ -70,7 +70,7 @@ export async function handleAdminStats(
 
   const supervisors = await env.DB.prepare(
     `SELECT COUNT(*) AS c FROM users
-     WHERE complex_id = ? AND role IN ('edu_supervisor','prog_supervisor','admin_supervisor', 'general_supervisor') AND is_active = 1`,
+     WHERE complex_id = ? AND role IN ('edu_supervisor','programs_supervisor','prog_supervisor','admin_supervisor', 'general_supervisor') AND is_active = 1`,
   )
     .bind(auth.complexId)
     .first<{ c: number }>();

@@ -5,6 +5,7 @@ export const ROLE_HOME: Record<UserRole, string> = {
   edu_supervisor: "/edu-dept/dashboard",
   admin_supervisor: "/admin-dept/staff-attendance",
   prog_supervisor: "/prog-dept/quizzes",
+  programs_supervisor: "/prog-dept/quizzes",
   track_supervisor: "/edu-dept/daily-recitation",
   teacher: "/edu-dept/daily-recitation",
 };
@@ -29,22 +30,23 @@ export function normalizeStoredHomePath(role: UserRole, homePath: string): strin
 export const STAFF_ROLES: UserRole[] = [
   "super_admin",
   "edu_supervisor",
-  "admin_supervisor",
-  "prog_supervisor",
+  "programs_supervisor",
+  "track_supervisor",
+  "teacher",
 ];
 
 const PATH_RULES: Array<{ prefix: string; roles: UserRole[] }> = [
   { prefix: "/super-admin", roles: ["super_admin"] },
   { prefix: "/edu-dept", roles: ["edu_supervisor", "super_admin", "teacher", "track_supervisor"] },
-  { prefix: "/admin-dept", roles: ["admin_supervisor", "super_admin"] },
-  { prefix: "/prog-dept", roles: ["prog_supervisor", "super_admin"] },
+  { prefix: "/admin-dept", roles: ["super_admin"] },
+  { prefix: "/prog-dept", roles: ["programs_supervisor", "super_admin"] },
   { prefix: "/display-dept", roles: ["super_admin"] },
   { prefix: "/teacher", roles: ["teacher"] },
   { prefix: "/tv-live", roles: STAFF_ROLES },
   { prefix: "/live-log", roles: STAFF_ROLES },
   {
     prefix: "/welcome",
-    roles: ["super_admin", "edu_supervisor", "admin_supervisor", "prog_supervisor", "track_supervisor", "teacher"],
+    roles: ["super_admin", "edu_supervisor", "programs_supervisor", "track_supervisor", "teacher"],
   },
 ];
 
@@ -87,7 +89,7 @@ const RECITATION_ROLES: UserRole[] = [
   "track_supervisor",
   "edu_supervisor",
   "super_admin",
-  "prog_supervisor",
+  "programs_supervisor",
 ];
 
 export function pathAllowedForRole(role: UserRole, pathname: string): boolean {
@@ -138,4 +140,4 @@ export function resolveLegacyRedirect(
   return null;
 }
 
-export const TV_LAUNCH_ROLES: UserRole[] = ["super_admin", "admin_supervisor"];
+export const TV_LAUNCH_ROLES: UserRole[] = ["super_admin"];

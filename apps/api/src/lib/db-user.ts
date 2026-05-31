@@ -37,7 +37,7 @@ export function resolveRoleFromFlat(row: {
 }): UserRole {
   if (row.is_admin === 1) return "super_admin";
   if (row.is_educational === 1) return "edu_supervisor";
-  if (row.is_programs === 1) return "prog_supervisor";
+  if (row.is_programs === 1) return "programs_supervisor";
   if (row.is_track_supervisor === 1) return "track_supervisor";
   if (row.is_teacher === 1) return "teacher";
   return "super_admin";

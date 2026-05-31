@@ -20,7 +20,7 @@ export function isNavGroup(entry: NavEntry): entry is NavGroup {
   return "children" in entry;
 }
 
-const ADMIN_DEPT_ROLES: UserRole[] = ["admin_supervisor", "super_admin"];
+const ADMIN_DEPT_ROLES: UserRole[] = ["super_admin"];
 
 const EDU_SUPERVISOR_ROLES: UserRole[] = ["edu_supervisor", "super_admin"];
 
@@ -36,7 +36,7 @@ const EDU_DEPT_CORE_NAV: NavItem[] = [
     id: "daily-recitation",
     label: "الرصد اليومي",
     path: "/edu-dept/daily-recitation",
-    roles: ["teacher", "edu_supervisor", "prog_supervisor", "track_supervisor"],
+    roles: ["teacher", "edu_supervisor", "programs_supervisor", "track_supervisor"],
   },
   {
     id: "teacher-competitions",
@@ -158,7 +158,7 @@ export const ADMIN_DEPT_NAV: NavItem[] = [
 /** @deprecated — استخدم ADMIN_DEPT_NAV داخل ADMIN_DEPT_GROUP */
 export const SUPER_ADMIN_NAV: NavItem[] = [];
 
-const PROG_DEPT_ROLES: UserRole[] = ["prog_supervisor", "super_admin"];
+const PROG_DEPT_ROLES: UserRole[] = ["programs_supervisor", "super_admin"];
 
 /** قسم إشراف البرامج */
 export const PROG_DEPT_NAV: NavItem[] = [
@@ -226,15 +226,11 @@ export function navForRole(role: UserRole): NavEntry[] {
     entries.push(ADMIN_DEPT_GROUP, EDU_DEPT_GROUP, PROG_DEPT_GROUP, DISPLAY_DEPT_GROUP);
     return entries;
   }
-  if (role === "admin_supervisor") {
-    entries.push(ADMIN_DEPT_GROUP);
-    return entries;
-  }
   if (role === "edu_supervisor") {
     entries.push(EDU_DEPT_GROUP);
     return entries;
   }
-  if (role === "prog_supervisor") {
+  if (role === "programs_supervisor") {
     entries.push(PROG_DEPT_GROUP);
     return entries;
   }

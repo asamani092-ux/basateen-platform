@@ -344,7 +344,6 @@ export async function handleQuizPublicRouter(
       if (response.submitted_at) {
         return json({
           already_submitted: true,
-          total_score: response.total_score,
           student_name: response.student_name,
           ...resultPayload(quiz, 0, response.total_score, quiz.total_points),
         });

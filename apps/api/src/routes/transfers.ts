@@ -5,6 +5,8 @@ import {
   capacityWarningMessage,
 } from "../lib/circle-capacity";
 import { canManageCircle } from "../lib/dept-scope";
+import { activePlacementSql, hasTable, tableHasColumn } from "../lib/db-schema";
+import { transferStudentCircle } from "../lib/edu-transfer";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 
 type PlacementRow = {
@@ -43,11 +45,12 @@ export async function handleStudentDetail(
   env: Env,
   url: URL,
 ): Promise<Response> {
-  const auth = await getAuth(request, env);
-  if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
-  if (!requireRoles(auth, ADMIN_DATA_ROLES)) {
-    return json({ error: "forbidden" }, 403);
-  }
+  try {
+    const auth = await getAuth(request, env);
+    if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
+    if (!requireRoles(auth, ADMIN_DATA_ROLES)) {
+      return json({ error: "forbidden" }, 403);
+    }
 
   const studentId = parseStudentId(url);
   if (!studentId) return json({ error: "invalid_student_id" }, 400);
@@ -61,25 +64,31 @@ export async function handleStudentDetail(
 
   if (!student) return json({ error: "student_not_found" }, 404);
 
-  const current = await env.DB.prepare(
-    `SELECT h.id AS history_id, h.circle_id, c.name_ar AS circle_name,
+    const hasHistory = await hasTable(env, "student_circle_history");
+    const hasLegacyHistory = hasHistory && (await tableHasColumn(env, "student_circle_history", "circle_id"));
+    const activePlacement = hasLegacyHistory ? await activePlacementSql(env, "h") : "1=0";
+    const current = hasLegacyHistory
+      ? await env.DB.prepare(
+        `SELECT h.id AS history_id, h.circle_id, c.name_ar AS circle_name,
             h.track_id, t.name_ar AS track_name, h.from_at, h.to_at
      FROM student_circle_history h
      JOIN circles c ON c.id = h.circle_id
      LEFT JOIN tracks t ON t.id = h.track_id
-     WHERE h.student_id = ? AND h.to_at IS NULL AND h.frozen_at IS NULL
+     WHERE h.student_id = ? AND ${activePlacement}
      ORDER BY h.id DESC LIMIT 1`,
-  )
-    .bind(studentId)
-    .first<PlacementRow>();
+      )
+        .bind(studentId)
+        .first<PlacementRow>()
+      : null;
 
   if (current && auth.role === "edu_supervisor") {
     const ok = await canManageCircle(env, auth, current.circle_id);
     if (!ok) return json({ error: "forbidden" }, 403);
   }
 
-  const history = await env.DB.prepare(
-    `SELECT h.id, c.name_ar AS circle_name, t.name_ar AS track_name,
+    const history = hasLegacyHistory
+      ? await env.DB.prepare(
+        `SELECT h.id, c.name_ar AS circle_name, t.name_ar AS track_name,
             h.from_at, h.to_at, h.frozen_at, h.note
      FROM student_circle_history h
      JOIN circles c ON c.id = h.circle_id
@@ -87,15 +96,26 @@ export async function handleStudentDetail(
      WHERE h.student_id = ?
      ORDER BY h.id DESC
      LIMIT 20`,
-  )
-    .bind(studentId)
-    .all<HistoryRow>();
+      )
+        .bind(studentId)
+        .all<HistoryRow>()
+      : { results: [] as HistoryRow[] };
 
-  return json({
-    student,
-    current: current ?? null,
-    history: history.results ?? [],
-  });
+    return json({
+      student,
+      current: current ?? null,
+      history: history.results ?? [],
+    });
+  } catch (err) {
+    console.error("student_detail_failed", err);
+    return json(
+      {
+        error: "student_detail_failed",
+        message: err instanceof Error ? err.message : String(err),
+      },
+      500,
+    );
+  }
 }
 
 export async function handleStudentTransfer(
@@ -103,11 +123,12 @@ export async function handleStudentTransfer(
   env: Env,
   url: URL,
 ): Promise<Response> {
-  const auth = await getAuth(request, env);
-  if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
-  if (!requireRoles(auth, ADMIN_DATA_ROLES)) {
-    return json({ error: "forbidden" }, 403);
-  }
+  try {
+    const auth = await getAuth(request, env);
+    if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
+    if (!requireRoles(auth, ADMIN_DATA_ROLES)) {
+      return json({ error: "forbidden" }, 403);
+    }
 
   const studentId = parseStudentId(url);
   if (!studentId) return json({ error: "invalid_student_id" }, 400);
@@ -155,15 +176,28 @@ export async function handleStudentTransfer(
       ? Number(body.track_id)
       : targetCircle.track_id;
 
-  const current = await env.DB.prepare(
-    `SELECT id, circle_id, track_id FROM student_circle_history
-     WHERE student_id = ? AND to_at IS NULL AND frozen_at IS NULL
+    const hasHistory = await hasTable(env, "student_circle_history");
+    const hasLegacyHistory = hasHistory && (await tableHasColumn(env, "student_circle_history", "circle_id"));
+    const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
+    const activePlacement = hasLegacyHistory ? await activePlacementSql(env, "h") : "1=0";
+    const current = hasLegacyHistory
+      ? await env.DB.prepare(
+        `SELECT h.id, h.circle_id, h.track_id FROM student_circle_history h
+     WHERE h.student_id = ? AND ${activePlacement}
      ORDER BY id DESC LIMIT 1`,
-  )
-    .bind(studentId)
-    .first<{ id: number; circle_id: number; track_id: number | null }>();
+      )
+        .bind(studentId)
+        .first<{ id: number; circle_id: number; track_id: number | null }>()
+      : hasCurrentCircle
+        ? await env.DB.prepare(
+          `SELECT current_circle_id AS circle_id, current_track_id AS track_id
+           FROM students WHERE id = ?`,
+        )
+          .bind(studentId)
+          .first<{ circle_id: number | null; track_id: number | null }>()
+        : null;
 
-  if (current) {
+  if (current?.circle_id) {
     if (!(await canManageCircle(env, auth, current.circle_id))) {
       return json({ error: "forbidden_current_circle" }, 403);
     }
@@ -175,56 +209,66 @@ export async function handleStudentTransfer(
     }
   }
 
-  const note = typeof body.note === "string" ? body.note.trim().slice(0, 500) : null;
-  const statements = [];
+    const note = typeof body.note === "string" ? body.note.trim().slice(0, 500) : null;
+    await transferStudentCircle(env, {
+      studentId,
+      newCircleId: targetCircleId,
+      newTrackId: trackId,
+      movedByUserId: auth.userId,
+      reason: note,
+    });
 
-  if (current) {
-    statements.push(
-      env.DB.prepare(
-        `UPDATE student_circle_history
-         SET to_at = datetime('now'), frozen_at = datetime('now')
-         WHERE id = ?`,
-      ).bind(current.id),
-    );
-  }
+    const hasAdmission = await tableHasColumn(env, "students", "admission_status");
+    if (hasAdmission) {
+      await env.DB.prepare(
+        `UPDATE students SET admission_status = NULL WHERE id = ? AND admission_status = 'pending_placement'`,
+      )
+        .bind(studentId)
+        .run();
+    }
 
-  statements.push(
-    env.DB.prepare(
-      `INSERT INTO student_circle_history
-        (student_id, circle_id, track_id, from_at, note)
-       VALUES (?, ?, ?, datetime('now'), ?)`,
-    ).bind(studentId, targetCircleId, trackId, note),
-  );
-
-  await env.DB.batch(statements);
-
-  await env.DB.prepare(
-    `UPDATE students SET admission_status = NULL WHERE id = ? AND admission_status = 'pending_placement'`,
-  )
-    .bind(studentId)
-    .run();
-
-  const placement = await env.DB.prepare(
-    `SELECT h.id AS history_id, c.name_ar AS circle_name, t.name_ar AS track_name,
+    const placement = hasLegacyHistory
+      ? await env.DB.prepare(
+        `SELECT h.id AS history_id, c.name_ar AS circle_name, t.name_ar AS track_name,
             h.from_at, h.circle_id, h.track_id
      FROM student_circle_history h
      JOIN circles c ON c.id = h.circle_id
      LEFT JOIN tracks t ON t.id = h.track_id
-     WHERE h.student_id = ? AND h.to_at IS NULL AND h.frozen_at IS NULL
+     WHERE h.student_id = ? AND ${activePlacement}
      ORDER BY h.id DESC LIMIT 1`,
-  )
-    .bind(studentId)
-    .first();
+      )
+        .bind(studentId)
+        .first()
+      : await env.DB.prepare(
+        `SELECT s.current_circle_id AS circle_id, s.current_track_id AS track_id,
+                c.name_ar AS circle_name, t.name_ar AS track_name
+         FROM students s
+         LEFT JOIN circles c ON c.id = s.current_circle_id
+         LEFT JOIN tracks t ON t.id = s.current_track_id
+         WHERE s.id = ?`,
+      )
+        .bind(studentId)
+        .first();
 
   const afterCapacity = await getCircleCapacity(env, targetCircleId);
 
-  return json({
-    ok: true,
-    message: "تم النقل التراكمي — السجل السابق مُجمّد",
-    placement,
-    capacity: afterCapacity,
-    capacity_warning: afterCapacity
-      ? capacityWarningMessage(afterCapacity)
-      : capacity_warning,
-  });
+    return json({
+      ok: true,
+      message: "تم النقل التراكمي — السجل السابق مُجمّد",
+      placement,
+      capacity: afterCapacity,
+      capacity_warning: afterCapacity
+        ? capacityWarningMessage(afterCapacity)
+        : capacity_warning,
+    });
+  } catch (err) {
+    console.error("student_transfer_failed", err);
+    return json(
+      {
+        error: "student_transfer_failed",
+        message: err instanceof Error ? err.message : String(err),
+      },
+      500,
+    );
+  }
 }

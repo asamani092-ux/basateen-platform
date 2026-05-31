@@ -101,7 +101,7 @@ export function studentsInScopeBinds(
 }
 
 const STAFF_ROLE_SQL = `u.role IN (
-  'super_admin','admin_supervisor','edu_supervisor','prog_supervisor','track_supervisor','teacher',
+  'super_admin','admin_supervisor','edu_supervisor','programs_supervisor','prog_supervisor','track_supervisor','teacher',
   'general_manager','general_supervisor'
 )`;
 

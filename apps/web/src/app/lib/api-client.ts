@@ -848,6 +848,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  adminDeptPledgesList: () =>
+    request<{
+      items: Array<{
+        student_id: number;
+        full_name_ar: string;
+        guardian_phone: string | null;
+        pledge_count: number;
+        latest_reason: string | null;
+      }>;
+    }>("/api/admin-dept/pledges"),
   adminDeptReports: (params?: {
     startDate?: string;
     endDate?: string;
@@ -884,6 +894,17 @@ export const api = {
       }>;
     }>(`/api/admin-dept/reports${qs ? `?${qs}` : ""}`);
   },
+  adminDeptStudentAttendanceReport: (studentId: number) =>
+    request<{
+      student: {
+        id: number;
+        full_name_ar: string;
+        guardian_phone: string | null;
+        stage_id: number | null;
+      };
+      summary: { present: number; absent: number; excused: number; total: number };
+      items: Array<{ date: string; status: string }>;
+    }>(`/api/admin-dept/reports/student/${studentId}`),
   adminDeptPledgeReport: (studentId: number) =>
     request<{
       student: Record<string, unknown>;
@@ -920,6 +941,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({}),
     }),
+  adminDeptPatchEscalation: (requestId: number, notes: string) =>
+    request<{ ok: boolean; id: number }>(`/api/admin-dept/teacher-requests/${requestId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ notes }),
+    }),
+  adminDeptDeleteEscalation: (requestId: number) =>
+    request<{ ok: boolean; id: number }>(`/api/admin-dept/teacher-requests/${requestId}`, {
+      method: "DELETE",
+    }),
   eduDeptSettingsGet: () =>
     request<{
       settings: {
@@ -928,6 +958,19 @@ export const api = {
         weight_repeat: number;
         rabt_weight: number;
         penalty_per_error: number;
+        himma_defaults?: {
+          hizb_points: number;
+          alert_penalty: number;
+          error_penalty: number;
+          alerts_per_error: number;
+          fail_threshold_errors: number;
+        };
+        competition_defaults?: {
+          mistake_penalty: number;
+          alert_penalty: number;
+          lahn_penalty: number;
+          default_task_weight: number;
+        };
       };
     }>("/api/edu-dept/settings"),
   eduDeptSettingsPatch: (body: {
@@ -936,6 +979,19 @@ export const api = {
     weight_repeat: number;
     rabt_weight: number;
     penalty_per_error: number;
+    himma_defaults?: {
+      hizb_points: number;
+      alert_penalty: number;
+      error_penalty: number;
+      alerts_per_error: number;
+      fail_threshold_errors: number;
+    };
+    competition_defaults?: {
+      mistake_penalty: number;
+      alert_penalty: number;
+      lahn_penalty: number;
+      default_task_weight: number;
+    };
   }) =>
     request<{ ok: boolean }>("/api/edu-dept/settings", {
       method: "PATCH",
@@ -1065,6 +1121,7 @@ export const api = {
         end_date: string | null;
         created_at: string;
       }>;
+      default_task_weight?: number;
     }>("/api/edu-dept/teacher-competitions"),
   eduDeptTeacherCompetitionCreate: (body: {
     name_ar: string;

@@ -62,7 +62,7 @@ async function staffListSql(env: Env): Promise<{ sql: string; flat: boolean }> {
             LEFT JOIN staff_attendance sa
               ON sa.user_id = u.id AND sa.attendance_date = ? AND sa.complex_id = ?
             WHERE u.complex_id = ? AND u.is_active = 1
-              AND u.role IN ('super_admin','admin_supervisor','edu_supervisor','prog_supervisor','teacher')
+              AND u.role IN ('super_admin','admin_supervisor','edu_supervisor','prog_supervisor','track_supervisor','teacher')
             ORDER BY u.full_name_ar`,
     };
   }
@@ -699,6 +699,44 @@ async function handleAdminDeptRouterImpl(
     });
   }
 
+  // GET /api/admin-dept/pledges — جدول ملخص التعهدات
+  if (request.method === "GET" && path === "/api/admin-dept/pledges") {
+    if (!(await hasTable(env, "student_pledges"))) {
+      return json({ error: "migration_required", migration: "024_admin_department" }, 503);
+    }
+    const hasGuardian = await tableHasColumn(env, "students", "guardian_phone");
+    const guardianCol = hasGuardian ? "s.guardian_phone" : "NULL AS guardian_phone";
+    const rows = await env.DB.prepare(
+      `SELECT s.id AS student_id, s.full_name_ar, ${guardianCol},
+              COALESCE(d.pledge_count, pc.cnt, 0) AS pledge_count,
+              lp.reason_ar AS latest_reason
+       FROM students s
+       INNER JOIN (
+         SELECT student_id, COUNT(*) AS cnt
+         FROM student_pledges
+         GROUP BY student_id
+       ) pc ON pc.student_id = s.id
+       LEFT JOIN student_disciplinary_summary d ON d.student_id = s.id
+       LEFT JOIN student_pledges lp ON lp.id = (
+         SELECT p2.id FROM student_pledges p2
+         WHERE p2.student_id = s.id
+         ORDER BY p2.pledge_date DESC, p2.id DESC
+         LIMIT 1
+       )
+       WHERE s.complex_id = ? AND COALESCE(s.is_active, 1) = 1
+       ORDER BY pledge_count DESC, s.full_name_ar`,
+    )
+      .bind(admin.complexId)
+      .all<{
+        student_id: number;
+        full_name_ar: string;
+        guardian_phone: string | null;
+        pledge_count: number;
+        latest_reason: string | null;
+      }>();
+    return json({ items: rows.results ?? [] });
+  }
+
   // GET /api/admin-dept/pledges/:studentId
   const pledgeGet = path.match(/^\/api\/admin-dept\/pledges\/(\d+)$/);
   if (request.method === "GET" && pledgeGet) {
@@ -884,6 +922,59 @@ async function handleAdminDeptRouterImpl(
         students_absent_pct: pct(studentsAbsent, studentsTotal),
       },
       items,
+    });
+  }
+
+  // GET /api/admin-dept/reports/student/:studentId — سجل حضور طالب كامل
+  const studentReport = path.match(/^\/api\/admin-dept\/reports\/student\/(\d+)$/);
+  if (request.method === "GET" && studentReport) {
+    const studentId = Number(studentReport[1]);
+    const hasGuardian = await tableHasColumn(env, "students", "guardian_phone");
+    const student = await env.DB.prepare(
+      hasGuardian
+        ? `SELECT id, full_name_ar, guardian_phone, stage_id FROM students
+           WHERE id = ? AND complex_id = ? AND COALESCE(is_active, 1) = 1`
+        : `SELECT id, full_name_ar, stage_id FROM students
+           WHERE id = ? AND complex_id = ? AND COALESCE(is_active, 1) = 1`,
+    )
+      .bind(studentId, admin.complexId)
+      .first<{
+        id: number;
+        full_name_ar: string;
+        guardian_phone: string | null;
+        stage_id: number | null;
+      }>();
+    if (!student) return json({ error: "student_not_found" }, 404);
+
+    type AttRow = { date: string; status: string };
+    const history: AttRow[] = [];
+    const attTable = await resolveAttendanceTableName(env);
+    if (attTable) {
+      const attRows = await env.DB.prepare(
+        `SELECT attendance_date AS date, status
+         FROM ${attTable}
+         WHERE student_id = ? AND complex_id = ?
+         ORDER BY attendance_date DESC`,
+      )
+        .bind(studentId, admin.complexId)
+        .all<AttRow>();
+      for (const r of attRows.results ?? []) history.push(r);
+    }
+
+    let present = 0;
+    let absent = 0;
+    let excused = 0;
+    for (const r of history) {
+      if (r.status === "present") present++;
+      else if (r.status === "excused") excused++;
+      else absent++;
+    }
+
+    return json({
+      student,
+      summary: { present, absent, excused, total: history.length },
+      items: history,
+      stage_labels: STAGE_LABELS,
     });
   }
 
@@ -1117,6 +1208,51 @@ async function handleAdminDeptRouterImpl(
       .bind(admin.complexId)
       .all();
     return json({ items: items.results ?? [] });
+  }
+
+  const escReq = path.match(/^\/api\/admin-dept\/teacher-requests\/(\d+)$/);
+  if (escReq && request.method === "PATCH") {
+    if (!(await hasTable(env, "teacher_requests"))) {
+      return json({ error: "migration_required", migration: "026_edu_department_core" }, 503);
+    }
+    const reqId = Number(escReq[1]);
+    let body: { notes?: string };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+    const notes = body.notes?.trim();
+    if (!notes) return json({ error: "notes_required" }, 400);
+    const row = await env.DB.prepare(
+      `SELECT id, status FROM teacher_requests
+       WHERE id = ? AND complex_id = ? AND request_type = 'escalation'`,
+    )
+      .bind(reqId, admin.complexId)
+      .first<{ id: number; status: string }>();
+    if (!row) return json({ error: "not_found" }, 404);
+    if (row.status !== "pending") return json({ error: "already_resolved" }, 409);
+    await env.DB.prepare(`UPDATE teacher_requests SET notes = ? WHERE id = ?`)
+      .bind(notes, reqId)
+      .run();
+    return json({ ok: true, id: reqId });
+  }
+
+  if (escReq && request.method === "DELETE") {
+    if (!(await hasTable(env, "teacher_requests"))) {
+      return json({ error: "migration_required", migration: "026_edu_department_core" }, 503);
+    }
+    const reqId = Number(escReq[1]);
+    const row = await env.DB.prepare(
+      `SELECT id, status FROM teacher_requests
+       WHERE id = ? AND complex_id = ? AND request_type = 'escalation'`,
+    )
+      .bind(reqId, admin.complexId)
+      .first<{ id: number; status: string }>();
+    if (!row) return json({ error: "not_found" }, 404);
+    if (row.status !== "pending") return json({ error: "already_resolved" }, 409);
+    await env.DB.prepare(`DELETE FROM teacher_requests WHERE id = ?`).bind(reqId).run();
+    return json({ ok: true, id: reqId });
   }
 
   const convertPledge = path.match(

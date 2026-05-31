@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Printer, Users, GraduationCap } from "lucide-react";
+import { Printer, Users, GraduationCap, Search } from "lucide-react";
+import { AdminStudentSearchCombobox } from "../../components/admin/AdminStudentSearchCombobox";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Label } from "../../components/ui/label";
@@ -80,16 +81,16 @@ function DetailTable({
     );
   }
   return (
-    <Table className="table-fixed w-full">
+    <Table className={`${ds.tableMin} text-right`} dir="rtl">
       <TableHeader>
         <TableRow>
-          <TableHead className="text-right w-[32%]" style={tajawal}>
+          <TableHead className={`${ds.table.head} text-right w-[32%]`} style={tajawal}>
             الاسم
           </TableHead>
-          <TableHead className="text-right w-[22%]" style={tajawal}>
+          <TableHead className={`${ds.table.head} text-right w-[22%]`} style={tajawal}>
             التاريخ
           </TableHead>
-          <TableHead className="text-right w-[22%]" style={tajawal}>
+          <TableHead className={`${ds.table.head} text-right w-[22%]`} style={tajawal}>
             الحالة
           </TableHead>
         </TableRow>
@@ -122,6 +123,11 @@ export function AdminReportsPage() {
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState(emptySummary);
   const [items, setItems] = useState<ReportRow[]>([]);
+  const [studentId, setStudentId] = useState<number | null>(null);
+  const [studentReport, setStudentReport] = useState<Awaited<
+    ReturnType<typeof api.adminDeptStudentAttendanceReport>
+  > | null>(null);
+  const [studentLoading, setStudentLoading] = useState(false);
 
   const { startDate, endDate } = useMemo(() => {
     if (preset === "custom") {
@@ -167,6 +173,21 @@ export function AdminReportsPage() {
     load();
   }, [load]);
 
+  const loadStudentReport = useCallback(async (sid: number) => {
+    if (!canUseApi()) return;
+    setStudentLoading(true);
+    setError(null);
+    try {
+      const res = await api.adminDeptStudentAttendanceReport(sid);
+      setStudentReport(res);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "فشل تحميل تقرير الطالب");
+      setStudentReport(null);
+    } finally {
+      setStudentLoading(false);
+    }
+  }, []);
+
   function handlePrint() {
     window.print();
   }
@@ -175,7 +196,7 @@ export function AdminReportsPage() {
   const studentAttendanceSub = `حاضر ${summary.students_present} (${summary.students_present_pct}%) · غائب/مستأذن ${summary.students_absent} (${summary.students_absent_pct}%) — آخر يوم`;
 
   return (
-    <div className="space-y-6 max-w-[1200px]">
+    <div className="space-y-6 max-w-[1200px]" dir="rtl">
       <div className="admin-reports-screen-only flex flex-col gap-4">
         <div>
           <h2 className={ds.page.title} style={tajawal}>
@@ -275,6 +296,70 @@ export function AdminReportsPage() {
                 طباعة / تصدير PDF
               </Button>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card className={ds.card}>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2" style={tajawal}>
+              <Search className="w-4 h-4 text-primary" />
+              بحث عن طالب — سجل الحضور الكامل
+            </CardTitle>
+            <CardDescription style={tajawal}>
+              اختر طالباً لعرض حضوره وغيابه واستئذانه في تاريخه بالكامل.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <AdminStudentSearchCombobox
+              id="admin-reports-student-search"
+              value={studentId}
+              onChange={(id) => {
+                setStudentId(id);
+                setStudentReport(null);
+                if (id != null) void loadStudentReport(id);
+              }}
+            />
+            {studentLoading && (
+              <p className="text-sm text-muted-foreground text-right" style={tajawal}>
+                جاري تحميل سجل الطالب…
+              </p>
+            )}
+            {studentReport && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <KpiCard label="حاضر" value={studentReport.summary.present} />
+                  <KpiCard label="غائب" value={studentReport.summary.absent} />
+                  <KpiCard label="مستأذن" value={studentReport.summary.excused} />
+                  <KpiCard label="إجمالي الأيام" value={studentReport.summary.total} />
+                </div>
+                <div className={`${ds.card} overflow-hidden`}>
+                  <Table className={`${ds.tableMin} text-right`} dir="rtl">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className={`${ds.table.head} text-right`} style={tajawal}>
+                          التاريخ
+                        </TableHead>
+                        <TableHead className={`${ds.table.head} text-right`} style={tajawal}>
+                          الحالة
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {studentReport.items.map((row) => (
+                        <TableRow key={row.date}>
+                          <TableCell className={`${ds.table.cell} text-right`} style={tajawal}>
+                            {row.date}
+                          </TableCell>
+                          <TableCell className={`${ds.table.cell} text-right`} style={tajawal}>
+                            {STATUS_AR[row.status] ?? row.status}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -377,7 +462,7 @@ function KpiCard({
   value,
   sub,
 }: {
-  icon: React.ReactNode;
+  icon?: React.ReactNode;
   label: string;
   value: number;
   sub?: string;

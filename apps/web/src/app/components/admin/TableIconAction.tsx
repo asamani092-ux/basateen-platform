@@ -4,6 +4,7 @@ import {
   Archive,
   CheckCircle2,
   Copy,
+  Eye,
   FileWarning,
   Gauge,
   MessageCircle,
@@ -47,6 +48,11 @@ const ACTION_STYLES: Record<
   copy: {
     Icon: Copy,
     label: "نسخ",
+    className: "text-muted-foreground hover:text-foreground hover:bg-muted",
+  },
+  view: {
+    Icon: Eye,
+    label: "عرض",
     className: "text-muted-foreground hover:text-foreground hover:bg-muted",
   },
   capacity: {

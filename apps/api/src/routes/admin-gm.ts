@@ -60,7 +60,7 @@ const SUPERVISOR_INPUT_ROLES = [
   "admin_supervisor",
 ] as const;
 
-const SUPERVISOR_DB_ROLE_SQL = `'edu_supervisor','programs_supervisor','prog_supervisor','track_supervisor','admin_supervisor','general_supervisor'`;
+const SUPERVISOR_DB_ROLE_SQL = `'edu_supervisor','programs_supervisor','prog_supervisor','admin_supervisor','general_supervisor'`;
 
 function normalizeSupervisorRoleForDb(role: string): UserRole {
   if (role === "prog_supervisor" || role === "programs_supervisor") {
@@ -219,6 +219,7 @@ export async function handleAdminTeachersCreate(
     full_name_ar?: string;
     mobile?: string;
     circle_id?: number;
+    role?: string;
   };
   try {
     body = await request.json();
@@ -233,6 +234,8 @@ export async function handleAdminTeachersCreate(
   if (!Number.isFinite(circleId) || circleId <= 0) {
     return json({ error: "circle_id_required" }, 400);
   }
+  const staffRole =
+    body.role === "track_supervisor" ? "track_supervisor" : "teacher";
 
   const circle = await env.DB.prepare(
     `SELECT id FROM circles WHERE id = ? AND complex_id = ? AND is_active = 1`,
@@ -253,14 +256,15 @@ export async function handleAdminTeachersCreate(
   const passwordHash = await hashPassword(DEFAULT_PASSWORD);
   const ins = await env.DB.prepare(
     `INSERT INTO users (complex_id, email, mobile, password_hash, full_name_ar, role)
-     VALUES (?, ?, ?, ?, ?, 'teacher')`,
+     VALUES (?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       auth!.complexId,
-      emailForMobile(mobile, "teacher"),
+      emailForMobile(mobile, staffRole),
       mobile,
       passwordHash,
       body.full_name_ar.trim(),
+      staffRole,
     )
     .run();
 
@@ -338,6 +342,7 @@ export async function handleAdminSupervisorsCreate(
     mobile?: string;
     role?: UserRole;
     supervisor_scope?: string;
+    circle_id?: number;
   };
   try {
     body = await request.json();
@@ -349,6 +354,7 @@ export async function handleAdminSupervisorsCreate(
   if (!role || !isSupervisorInputRole(role)) {
     return json({ error: "invalid_supervisor_role" }, 400);
   }
+  const dbRole = normalizeSupervisorRoleForDb(role);
   if (!body.full_name_ar?.trim() || !body.mobile?.trim()) {
     return json({ error: "name_and_mobile_required" }, 400);
   }
@@ -368,6 +374,29 @@ export async function handleAdminSupervisorsCreate(
   });
 
   await syncSupervisorSections(env, userId, role);
+
+  if (dbRole === "track_supervisor") {
+    const circleId = Number(body.circle_id);
+    if (!Number.isFinite(circleId) || circleId <= 0) {
+      return json({ error: "circle_id_required" }, 400);
+    }
+    const circle = await env.DB.prepare(
+      `SELECT id FROM circles WHERE id = ? AND complex_id = ? AND is_active = 1`,
+    )
+      .bind(circleId, auth!.complexId)
+      .first();
+    if (!circle) return json({ error: "circle_not_found" }, 404);
+    if (await hasTable(env, "teacher_assignments")) {
+      await env.DB.prepare(`DELETE FROM teacher_assignments WHERE user_id = ?`)
+        .bind(userId)
+        .run();
+      await env.DB.prepare(
+        `INSERT INTO teacher_assignments (user_id, circle_id) VALUES (?, ?)`,
+      )
+        .bind(userId, circleId)
+        .run();
+    }
+  }
 
   return json({ ok: true, id: userId });
 }
@@ -1028,8 +1057,8 @@ export async function handleAdminTeachersPatch(
 
   const hasRole = await usersHaveRoleColumn(env);
   const teacherFilter = hasRole
-    ? "role = 'teacher'"
-    : "COALESCE(is_teacher, 0) = 1";
+    ? "role IN ('teacher', 'track_supervisor')"
+    : "(COALESCE(is_teacher, 0) = 1 OR COALESCE(is_track_supervisor, 0) = 1)";
   const user = await env.DB.prepare(
     `SELECT id FROM users WHERE id = ? AND complex_id = ? AND ${teacherFilter}`,
   )
@@ -1106,8 +1135,8 @@ export async function handleAdminTeachersDelete(
 
   const hasRole = await usersHaveRoleColumn(env);
   const teacherFilter = hasRole
-    ? "role = 'teacher'"
-    : "COALESCE(is_teacher, 0) = 1";
+    ? "role IN ('teacher', 'track_supervisor')"
+    : "(COALESCE(is_teacher, 0) = 1 OR COALESCE(is_track_supervisor, 0) = 1)";
   const user = await env.DB.prepare(
     `SELECT id FROM users WHERE id = ? AND complex_id = ? AND ${teacherFilter}`,
   )

@@ -35,6 +35,7 @@ import {
 import {
   EDUCATIONAL_STAGES,
   SCOPE_GLOBAL,
+  CIRCLE_STAFF_TYPES,
   SUPERVISOR_TYPES,
   stageLabel,
   type StageId,
@@ -110,6 +111,7 @@ function TeachersPanel() {
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
   const [circleId, setCircleId] = useState("");
+  const [staffRole, setStaffRole] = useState<string>(CIRCLE_STAFF_TYPES[0].value);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -154,6 +156,7 @@ function TeachersPanel() {
         full_name_ar: name.trim(),
         mobile: mobile.trim(),
         circle_id: Number(circleId),
+        role: staffRole === "track_supervisor" ? "track_supervisor" : "teacher",
       });
       setAddOpen(false);
       setName("");
@@ -173,10 +176,10 @@ function TeachersPanel() {
         <div>
           <CardTitle className="flex items-center gap-2" style={tajawal}>
             <Users className="w-5 h-5 text-primary" />
-            قائمة المعلمين
+            المعلمون ومشرفو المسارات
           </CardTitle>
           <CardDescription style={tajawal}>
-            كل معلم مربوط بحلقة واحدة (إلزامي)
+            معلم أو مشرف مسار — كل منسوب مربوط بحلقة واحدة (إلزامي)
           </CardDescription>
         </div>
         <Button
@@ -222,6 +225,23 @@ function TeachersPanel() {
               </div>
               <div>
                 <label className="block text-sm font-semibold mb-1" style={tajawal}>
+                  المسمى *
+                </label>
+                <select
+                  value={staffRole}
+                  onChange={(e) => setStaffRole(e.target.value)}
+                  className={ds.select}
+                  style={tajawal}
+                >
+                  {CIRCLE_STAFF_TYPES.map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-1" style={tajawal}>
                   الحلقة *
                 </label>
                 <select
@@ -240,7 +260,7 @@ function TeachersPanel() {
                 </select>
               </div>
               <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
-                {saving ? "جاري الحفظ…" : "حفظ المعلم"}
+                {saving ? "جاري الحفظ…" : "حفظ"}
               </Button>
             </form>
           </DialogContent>
@@ -292,16 +312,19 @@ function TeachersPanel() {
           <Table className={ds.tableMin}>
             <TableHeader>
               <TableRow>
-                <TableHead className={`${ds.table.head} w-[26%]`} style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[22%]`} style={tajawal}>
                   الاسم
                 </TableHead>
-                <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
+                  المسمى
+                </TableHead>
+                <TableHead className={`${ds.table.head} w-[16%]`} style={tajawal}>
                   الجوال
                 </TableHead>
-                <TableHead className={`${ds.table.head} w-[24%]`} style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[20%]`} style={tajawal}>
                   الحلقة
                 </TableHead>
-                <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[10%]`} style={tajawal}>
                   الحالة
                 </TableHead>
                 <TableHead className={ds.table.headActions} style={tajawal}>
@@ -314,6 +337,9 @@ function TeachersPanel() {
                 <TableRow key={t.id}>
                   <TableCell className={ds.table.cell} style={tajawal}>
                     {t.full_name_ar}
+                  </TableCell>
+                  <TableCell className={ds.table.cell} style={tajawal}>
+                    {roleLabelAr(t.role ?? "teacher")}
                   </TableCell>
                   <TableCell className={ds.table.cell} style={tajawal}>
                     {t.mobile ?? "—"}
@@ -424,6 +450,7 @@ function TeacherEditDialog({
 
 function SupervisorsPanel() {
   const [items, setItems] = useState<StaffSupervisorRow[]>([]);
+  const [circles, setCircles] = useState<AdminCircleRow[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [editSupervisor, setEditSupervisor] = useState<StaffSupervisorRow | null>(null);
   const [actionSupervisor, setActionSupervisor] = useState<StaffSupervisorRow | null>(
@@ -433,6 +460,7 @@ function SupervisorsPanel() {
   const [mobile, setMobile] = useState("");
   const [roleType, setRoleType] = useState(SUPERVISOR_TYPES[0].value);
   const [scope, setScope] = useState<string>(SCOPE_GLOBAL);
+  const [trackCircleId, setTrackCircleId] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -446,8 +474,16 @@ function SupervisorsPanel() {
     }
     setLoading(true);
     try {
-      const res = await api.adminSupervisors();
-      setItems(res.items);
+      const [res, circlesRes] = await Promise.all([
+        api.adminSupervisors(),
+        api.adminCirclesSummary(),
+      ]);
+      setItems(
+        res.items.filter(
+          (s) => s.role !== "track_supervisor" && s.role !== "teacher",
+        ),
+      );
+      setCircles(circlesRes.items.filter((x) => x.is_active));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل التحميل");
@@ -465,11 +501,18 @@ function SupervisorsPanel() {
     setSaving(true);
     setError(null);
     try {
+      if (roleType === "track_supervisor" && !trackCircleId) {
+        setError("اختر الحلقة لمشرف المسار");
+        setSaving(false);
+        return;
+      }
       await api.adminSupervisorsCreate({
         full_name_ar: name.trim(),
         mobile: mobile.trim(),
         role: roleType,
-        supervisor_scope: scope,
+        supervisor_scope: roleType === "track_supervisor" ? SCOPE_GLOBAL : scope,
+        circle_id:
+          roleType === "track_supervisor" ? Number(trackCircleId) : undefined,
       });
       setAddOpen(false);
       setName("");
@@ -549,24 +592,46 @@ function SupervisorsPanel() {
                   ))}
                 </select>
               </div>
-              <div>
-                <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                  نطاق المرحلة *
-                </label>
-                <select
-                  value={scope}
-                  onChange={(e) => setScope(e.target.value)}
-                  className={ds.select}
-                  style={tajawal}
-                >
-                  <option value={SCOPE_GLOBAL}>{stageLabel(SCOPE_GLOBAL)}</option>
-                  {EDUCATIONAL_STAGES.map((s) => (
-                    <option key={s.id} value={String(s.id)}>
-                      {s.name_ar}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {roleType === "track_supervisor" ? (
+                <div>
+                  <label className="block text-sm font-semibold mb-1" style={tajawal}>
+                    الحلقة *
+                  </label>
+                  <select
+                    value={trackCircleId}
+                    onChange={(e) => setTrackCircleId(e.target.value)}
+                    className={ds.select}
+                    style={tajawal}
+                    required
+                  >
+                    <option value="">— اختر الحلقة —</option>
+                    {circles.map((c) => (
+                      <option key={c.id} value={String(c.id)}>
+                        {c.name_ar}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-sm font-semibold mb-1" style={tajawal}>
+                    نطاق المرحلة *
+                  </label>
+                  <select
+                    value={scope}
+                    onChange={(e) => setScope(e.target.value)}
+                    className={ds.select}
+                    style={tajawal}
+                  >
+                    <option value={SCOPE_GLOBAL}>{stageLabel(SCOPE_GLOBAL)}</option>
+                    {EDUCATIONAL_STAGES.map((s) => (
+                      <option key={s.id} value={String(s.id)}>
+                        {s.name_ar}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <Button
                 type="submit"
                 disabled={saving}
@@ -740,10 +805,13 @@ function SupervisorEditDialog({
     }
   }
 
-  const roleOptions = SUPERVISOR_TYPES.some((t) => t.value === roleType)
-    ? SUPERVISOR_TYPES
+  const supervisorRoleOptions = SUPERVISOR_TYPES.filter(
+    (t) => t.value !== "track_supervisor",
+  );
+  const roleOptions = supervisorRoleOptions.some((t) => t.value === roleType)
+    ? supervisorRoleOptions
     : [
-        ...SUPERVISOR_TYPES,
+        ...supervisorRoleOptions,
         {
           value: roleType,
           label: roleLabelAr(roleType),

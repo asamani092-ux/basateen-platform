@@ -114,6 +114,7 @@ export type StaffTeacherRow = {
   full_name_ar: string;
   mobile: string | null;
   is_active: number;
+  role?: string | null;
   circle_id: number | null;
   circle_name: string | null;
   stage_id: number;
@@ -472,6 +473,7 @@ export const api = {
     full_name_ar: string;
     mobile: string;
     circle_id: number;
+    role?: "teacher" | "track_supervisor";
   }) =>
     request<{ ok: boolean; id: number }>("/api/admin/teachers", {
       method: "POST",
@@ -484,6 +486,7 @@ export const api = {
     mobile: string;
     role: string;
     supervisor_scope: string;
+    circle_id?: number;
   }) =>
     request<{ ok: boolean; id: number }>("/api/admin/supervisors", {
       method: "POST",

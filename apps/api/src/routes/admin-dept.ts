@@ -1044,14 +1044,14 @@ async function handleAdminDeptRouterImpl(
              sr.circle_id,
              sr.circle_name,
              sr.official_days,
-             CASE WHEN sr.official_days > 0
-               THEN ROUND((sr.present_days * 100.0) / sr.official_days, 1)
+             CASE WHEN COALESCE(sr.official_days, 0) > 0
+               THEN ROUND((COALESCE(sr.present_days, 0) * 100.0) / sr.official_days, 0)
                ELSE 0 END AS discipline_pct,
-             CASE WHEN cr.circle_days > 0
-               THEN ROUND((cr.circle_present * 100.0) / cr.circle_days, 1)
+             CASE WHEN COALESCE(cr.circle_days, 0) > 0
+               THEN ROUND((COALESCE(cr.circle_present, 0) * 100.0) / cr.circle_days, 0)
                ELSE 0 END AS circle_discipline_pct
       FROM student_rows sr
-      LEFT JOIN circle_rows cr ON cr.circle_id IS sr.circle_id
+      LEFT JOIN circle_rows cr ON cr.circle_id = sr.circle_id
       WHERE sr.official_days > 0
       ORDER BY sr.circle_name, sr.full_name_ar
       LIMIT 500`;

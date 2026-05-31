@@ -227,13 +227,16 @@ export async function teachersListSql(env: Env): Promise<string> {
   const hasTeacherOnCircle = await tableHasColumn(env, "circles", "teacher_id");
   const hasRole = await usersHaveRoleColumn(env);
   const teacherFilter = hasRole
-    ? "u.role = 'teacher'"
-    : "COALESCE(u.is_teacher, 0) = 1";
+    ? "u.role IN ('teacher', 'track_supervisor')"
+    : "(COALESCE(u.is_teacher, 0) = 1 OR COALESCE(u.is_track_supervisor, 0) = 1)";
+  const roleExpr = hasRole
+    ? "u.role"
+    : `CASE WHEN COALESCE(u.is_track_supervisor, 0) = 1 THEN 'track_supervisor' ELSE 'teacher' END`;
   const stageExpr = await circleStageIdExpr(env);
 
   if (hasAssignments) {
     return `SELECT u.id, u.full_name_ar, u.mobile, u.is_active,
-            ta.circle_id, c.name_ar AS circle_name,
+            ${roleExpr} AS role, ta.circle_id, c.name_ar AS circle_name,
             ${stageExpr} AS stage_id
      FROM users u
      LEFT JOIN teacher_assignments ta ON ta.user_id = u.id
@@ -244,7 +247,7 @@ export async function teachersListSql(env: Env): Promise<string> {
 
   if (hasTeacherOnCircle) {
     return `SELECT u.id, u.full_name_ar, u.mobile, u.is_active,
-            c.id AS circle_id, c.name_ar AS circle_name,
+            ${roleExpr} AS role, c.id AS circle_id, c.name_ar AS circle_name,
             ${stageExpr} AS stage_id
      FROM users u
      LEFT JOIN circles c ON c.teacher_id = u.id AND c.complex_id = u.complex_id
@@ -254,7 +257,7 @@ export async function teachersListSql(env: Env): Promise<string> {
   }
 
   return `SELECT u.id, u.full_name_ar, u.mobile, u.is_active,
-          NULL AS circle_id, NULL AS circle_name, 2 AS stage_id
+          'teacher' AS role, NULL AS circle_id, NULL AS circle_name, 2 AS stage_id
    FROM users u
    WHERE u.complex_id = ? AND ${teacherFilter}
    ORDER BY u.full_name_ar`;

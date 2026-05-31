@@ -28,4 +28,9 @@
     width: 100% !important;
     max-width: none !important;
   }
+
+  #admin-reports-print .admin-reports-print-body {
+    display: block !important;
+    visibility: visible !important;
+  }
 }

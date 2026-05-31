@@ -16,13 +16,11 @@ import { canUseApi } from "../../lib/api-access";
 import { normalizeAttendanceStatus } from "../../lib/attendance-status";
 import { matchesArabicName } from "../../lib/attendance-search";
 import { AttendanceStatusButtons } from "../../components/attendance/AttendanceStatusButtons";
-import { roleLabelAr } from "../../lib/role-labels";
 import { ds, tajawal } from "../../lib/design-system";
 
 type Row = {
   user_id: number;
   full_name_ar: string;
-  role: string | null;
   status: string;
 };
 
@@ -37,7 +35,6 @@ export function StaffAttendancePage() {
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nameQuery, setNameQuery] = useState("");
-  const [roleFilter, setRoleFilter] = useState("");
 
   const load = useCallback(async () => {
     if (!canUseApi()) {
@@ -52,7 +49,6 @@ export function StaffAttendancePage() {
       const items = res.items.map((r) => ({
         user_id: r.user_id,
         full_name_ar: r.full_name_ar,
-        role: r.role,
         status: normalizeAttendanceStatus(r.status),
       }));
       setRows(items);
@@ -77,19 +73,13 @@ export function StaffAttendancePage() {
     );
   }
 
-  const roleOptions = useMemo(() => {
-    const roles = new Set(rows.map((r) => r.role).filter(Boolean) as string[]);
-    return [...roles].sort().map((role) => ({ value: role, label: role }));
-  }, [rows]);
-
   const filteredRows = useMemo(
     () =>
       rows.filter((r) => {
-        if (roleFilter && r.role !== roleFilter) return false;
         if (!matchesArabicName(nameQuery, r.full_name_ar)) return false;
         return true;
       }),
-    [rows, nameQuery, roleFilter],
+    [rows, nameQuery],
   );
 
   const dirtyCount = useMemo(
@@ -142,16 +132,17 @@ export function StaffAttendancePage() {
       )}
 
       <p className={ds.alert.info} style={tajawal}>
-        ابحث بالاسم أو فلتر الدور. التغييرات تُرسل دفعة واحدة عند الحفظ.
+        ابحث بالاسم. التغييرات تُرسل دفعة واحدة عند الحفظ.
       </p>
 
       <AttendanceFilterBar
         nameQuery={nameQuery}
         onNameQueryChange={setNameQuery}
         groupLabel="الدور"
-        groupValue={roleFilter}
-        onGroupChange={setRoleFilter}
-        groupOptions={roleOptions}
+        groupValue=""
+        onGroupChange={() => {}}
+        groupOptions={[]}
+        hideGroupFilter
         shownCount={filteredRows.length}
         totalCount={rows.length}
         hiddenDirty={0}
@@ -195,13 +186,10 @@ export function StaffAttendancePage() {
           <Table className="table-fixed w-full">
             <TableHeader>
               <TableRow>
-                <TableHead className="text-right w-[32%]" style={tajawal}>
+                <TableHead className="text-right w-[40%]" style={tajawal}>
                   الاسم
                 </TableHead>
-                <TableHead className="text-right w-[22%]" style={tajawal}>
-                  الدور
-                </TableHead>
-                <TableHead className="text-right w-[46%]" style={tajawal}>
+                <TableHead className="text-right w-[60%]" style={tajawal}>
                   الحالة
                 </TableHead>
               </TableRow>
@@ -211,9 +199,6 @@ export function StaffAttendancePage() {
                 <TableRow key={r.user_id}>
                   <TableCell className="text-right font-medium" style={tajawal}>
                     {r.full_name_ar}
-                  </TableCell>
-                  <TableCell className="text-right text-muted-foreground" style={tajawal}>
-                    {roleLabelAr(r.role)}
                   </TableCell>
                   <TableCell className="text-right align-middle">
                     <AttendanceStatusButtons

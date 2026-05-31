@@ -56,6 +56,12 @@ function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+function formatDisciplinePct(value: unknown): string {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return "0%";
+  return `${Math.round(n)}%`;
+}
+
 function rangeForPreset(preset: DatePreset): { start: string; end: string } {
   const end = new Date();
   const start = new Date(end);
@@ -274,7 +280,13 @@ export function AdminReportsPage() {
   }, []);
 
   function handlePrint() {
-    window.print();
+    if (loading || (activeView === "discipline" && disciplineLoading)) {
+      setError("انتظر اكتمال تحميل البيانات قبل الطباعة");
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      window.setTimeout(() => window.print(), 200);
+    });
   }
 
   function selectReport(id: ReportViewId) {
@@ -436,7 +448,7 @@ export function AdminReportsPage() {
         </p>
       )}
 
-      <div id="admin-reports-print" className="space-y-6">
+      <div id="admin-reports-print" className="admin-reports-print-body space-y-6">
         <div className="hidden print:block text-center border-b border-border pb-4 mb-4">
           <h1 className="text-2xl font-bold" style={tajawal}>
             تقرير القسم الإداري — مجمع البساتين
@@ -448,7 +460,7 @@ export function AdminReportsPage() {
         </div>
 
         {activeView !== "student_lookup" && (
-          <Card className={`${ds.card} admin-reports-screen-only`}>
+          <Card className={ds.card}>
             <CardHeader className="border-b border-border pb-3">
               <CardTitle className={ds.page.section} style={tajawal}>
                 {activeMeta?.title ?? "التقرير"}
@@ -555,13 +567,13 @@ export function AdminReportsPage() {
                               className={`${ds.table.cell} tabular-nums`}
                               style={tajawal}
                             >
-                              {row.discipline_pct}%
+                              {formatDisciplinePct(row.discipline_pct)}
                             </TableCell>
                             <TableCell
                               className={`${ds.table.cell} tabular-nums`}
                               style={tajawal}
                             >
-                              {row.circle_discipline_pct}%
+                              {formatDisciplinePct(row.circle_discipline_pct)}
                             </TableCell>
                           </TableRow>
                         ))}
@@ -575,7 +587,7 @@ export function AdminReportsPage() {
         )}
 
         {activeView === "student_lookup" && (
-          <Card className={`${ds.card} admin-reports-screen-only`}>
+          <Card className={ds.card}>
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2" style={tajawal}>
                 <Search className="w-4 h-4 text-primary" />

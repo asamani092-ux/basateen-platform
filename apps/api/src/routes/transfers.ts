@@ -132,7 +132,13 @@ export async function handleStudentTransfer(
   try {
     const auth = await getAuth(request, env);
     if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
-    if (!requireRoles(auth, ADMIN_DATA_ROLES)) {
+    if (
+      !requireRoles(auth, [
+        ...ADMIN_DATA_ROLES,
+        "track_supervisor",
+        "teacher",
+      ])
+    ) {
       return json({ error: "forbidden" }, 403);
     }
 

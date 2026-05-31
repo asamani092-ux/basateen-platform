@@ -173,6 +173,15 @@ export async function canManageCircle(
       .first<{ ok: number }>();
     return Boolean(row?.ok);
   }
+  if (auth.role === "teacher") {
+    if (!(await hasTable(env, "teacher_assignments"))) return false;
+    const row = await env.DB.prepare(
+      `SELECT 1 AS ok FROM teacher_assignments WHERE user_id = ? AND circle_id = ?`,
+    )
+      .bind(auth.userId, circleId)
+      .first<{ ok: number }>();
+    return Boolean(row?.ok);
+  }
   return false;
 }
 

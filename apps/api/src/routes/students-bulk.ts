@@ -2,6 +2,7 @@ import type { Env } from "../types";
 import { assignStudentCircle } from "../lib/placement";
 import { ADMIN_DATA_ROLES } from "../lib/roles";
 import { canManageCircle } from "../lib/dept-scope";
+import { hasTable, tableHasColumn } from "../lib/db-schema";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 
 export type StudentImportRow = {
@@ -135,9 +136,10 @@ export async function handleStudentsBulkImport(
   request: Request,
   env: Env,
 ): Promise<Response> {
+  try {
   const auth = await getAuth(request, env);
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
-  if (!requireRoles(auth, ADMIN_DATA_ROLES)) {
+  if (!requireRoles(auth, [...ADMIN_DATA_ROLES, "track_supervisor"])) {
     return json({ error: "forbidden" }, 403);
   }
 
@@ -145,7 +147,7 @@ export async function handleStudentsBulkImport(
   try {
     body = (await request.json()) as typeof body;
   } catch {
-    return json({ error: "invalid_json" }, 400);
+    return json({ error: "invalid_json", message: "تعذّر قراءة جسم الطلب JSON" }, 400);
   }
 
   const mode = body.mode === "transfer" ? "transfer" : "register";
@@ -300,26 +302,33 @@ export async function handleStudentsBulkImport(
           action: "updated",
         });
       } else {
+        const insertCols = ["complex_id", "full_name_ar"];
+        const insertVals: (string | number | null)[] = [
+          auth.complexId,
+          fields.full_name_ar,
+        ];
+        const optionalCols: Array<[string, string | null]> = [
+          ["national_id", fields.national_id],
+          ["nationality", fields.nationality],
+          ["phone", fields.phone],
+          ["school_name", fields.school_name],
+          ["school_grade", fields.school_grade],
+          ["memorization_amount", fields.memorization_amount],
+          ["guardian_phone", fields.guardian_phone],
+          ["guardian_national_id", fields.guardian_national_id],
+          ["health_notes", fields.health_notes],
+        ];
+        for (const [col, val] of optionalCols) {
+          if (await tableHasColumn(env, "students", col)) {
+            insertCols.push(col);
+            insertVals.push(val);
+          }
+        }
+        const placeholders = insertCols.map(() => "?").join(", ");
         const ins = await env.DB.prepare(
-          `INSERT INTO students (
-            complex_id, full_name_ar, national_id, nationality, phone,
-            school_name, school_grade, memorization_amount,
-            guardian_phone, guardian_national_id, health_notes
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO students (${insertCols.join(", ")}) VALUES (${placeholders})`,
         )
-          .bind(
-            auth.complexId,
-            fields.full_name_ar,
-            fields.national_id,
-            fields.nationality,
-            fields.phone,
-            fields.school_name,
-            fields.school_grade,
-            fields.memorization_amount,
-            fields.guardian_phone,
-            fields.guardian_national_id,
-            fields.health_notes,
-          )
+          .bind(...insertVals)
           .run();
 
         const studentId = ins.meta.last_row_id as number;
@@ -356,4 +365,16 @@ export async function handleStudentsBulkImport(
     failed: rows.length - okCount,
     results,
   });
+  } catch (error: unknown) {
+    console.error("students_bulk_import_failed", error);
+    return json(
+      {
+        error: "students_bulk_import_failed",
+        message:
+          error instanceof Error ? error.message : "فشل استيراد ملف الطلاب",
+        items: [],
+      },
+      500,
+    );
+  }
 }

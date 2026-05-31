@@ -54,6 +54,9 @@ export async function handleStudentsList(
     const hasTracks = await hasTable(env, "tracks");
     const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
     const hasCurrentTrack = await tableHasColumn(env, "students", "current_track_id");
+    const hasAdmissionStatus = await tableHasColumn(env, "students", "admission_status");
+    const hasSupervisorScopes = await hasTable(env, "supervisor_scopes");
+    const hasTeacherAssignments = await hasTable(env, "teacher_assignments");
     const activePlacement = hasHistory ? await activePlacementSql(env, "h") : "1=0";
     const isActiveExpr = (await tableHasColumn(env, "students", "is_active"))
       ? "COALESCE(s.is_active, 1) = 1"
@@ -102,7 +105,10 @@ export async function handleStudentsList(
 
     const binds: (string | number)[] = [auth.complexId];
 
-    if (auth.role === "teacher" || auth.role === "track_supervisor") {
+    if (
+      (auth.role === "teacher" || auth.role === "track_supervisor") &&
+      hasTeacherAssignments
+    ) {
       sql += ` AND ${circleRef} IN (
       SELECT circle_id FROM teacher_assignments WHERE user_id = ?
     )`;
@@ -110,7 +116,7 @@ export async function handleStudentsList(
     }
 
     if (auth.role === "edu_supervisor") {
-      if (admissionStatus === "pending_placement") {
+      if (admissionStatus === "pending_placement" && hasAdmissionStatus) {
         const scopeRow = await env.DB.prepare(
           `SELECT supervisor_scope FROM users WHERE id = ?`,
         )
@@ -125,10 +131,12 @@ export async function handleStudentsList(
             binds.push(...ids);
           }
         }
-      } else if (hasHistory) {
+      } else if (hasHistory && hasSupervisorScopes) {
         sql += ` AND (
           h.circle_id IN (SELECT circle_id FROM supervisor_scopes WHERE user_id = ?)
-          OR (s.admission_status = 'pending_placement' AND s.stage_id IN (
+          OR (${
+            hasAdmissionStatus ? "s.admission_status = 'pending_placement' AND" : ""
+          } s.stage_id IN (
             SELECT DISTINCT c.stage_id FROM supervisor_scopes ss
             JOIN circles c ON c.id = ss.circle_id WHERE ss.user_id = ?
           ))
@@ -139,6 +147,7 @@ export async function handleStudentsList(
 
     if (
       admissionStatus &&
+      hasAdmissionStatus &&
       !(auth.role === "edu_supervisor" && admissionStatus === "pending_placement")
     ) {
       sql += ` AND s.admission_status = ?`;
@@ -163,12 +172,12 @@ export async function handleStudentsList(
     });
   } catch (err) {
     console.error("students_list_failed", err);
-    return json(
-      {
-        error: "students_list_failed",
-        message: err instanceof Error ? err.message : String(err),
-      },
-      500,
-    );
+    return json({
+      items: [],
+      count: 0,
+      q: null,
+      error: "students_list_failed",
+      message: err instanceof Error ? err.message : String(err),
+    });
   }
 }

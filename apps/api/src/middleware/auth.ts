@@ -9,6 +9,7 @@ const VALID_ROLES: UserRole[] = [
   "edu_supervisor",
   "admin_supervisor",
   "prog_supervisor",
+  "track_supervisor",
   "teacher",
 ];
 

@@ -36,13 +36,13 @@ const EDU_DEPT_CORE_NAV: NavItem[] = [
     id: "daily-recitation",
     label: "الرصد اليومي",
     path: "/edu-dept/daily-recitation",
-    roles: ["teacher", "edu_supervisor", "prog_supervisor"],
+    roles: ["teacher", "edu_supervisor", "prog_supervisor", "track_supervisor"],
   },
   {
     id: "teacher-competitions",
     label: "منافسات الحلقة",
     path: "/edu-dept/teacher-competitions",
-    roles: ["teacher"],
+    roles: ["teacher", "track_supervisor"],
   },
   {
     id: "edu-reports",
@@ -87,7 +87,7 @@ export const EDU_DEPT_NAV: NavItem[] = [
 export const EDU_DEPT_GROUP: NavGroup = {
   id: "edu-dept",
   label: "القسم التعليمي",
-  roles: ["edu_supervisor", "super_admin", "teacher"],
+  roles: ["edu_supervisor", "super_admin", "teacher", "track_supervisor"],
   children: [...EDU_DEPT_CORE_NAV, ...EDU_DEPT_NAV],
 };
 
@@ -238,7 +238,7 @@ export function navForRole(role: UserRole): NavEntry[] {
     entries.push(PROG_DEPT_GROUP);
     return entries;
   }
-  if (role === "teacher") {
+  if (role === "teacher" || role === "track_supervisor") {
     entries.push(EDU_DEPT_GROUP);
     return entries;
   }

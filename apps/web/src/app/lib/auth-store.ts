@@ -11,6 +11,7 @@ export type UserRole =
   | "edu_supervisor"
   | "admin_supervisor"
   | "prog_supervisor"
+  | "track_supervisor"
   | "teacher";
 
 const LEGACY_ROLE_MAP: Record<string, UserRole> = {

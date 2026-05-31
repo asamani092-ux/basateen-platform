@@ -11,8 +11,9 @@ import {
   studentsInTeacherCircle,
   TEACHER_NO_CIRCLE_ACCOUNT_MSG,
 } from "../lib/teacher-circle";
+import { loadEventDefaults } from "../lib/edu-settings-defaults";
 
-const TEACHER_ONLY = ["teacher"] as const;
+const TEACHER_ONLY = ["teacher", "track_supervisor"] as const;
 
 const DEFAULT_COMPETITION_TASKS = [
   { title_ar: "حفظ إضافي", weight_points: 2 },
@@ -127,10 +128,12 @@ export async function handleEduDeptMegaRouter(
         auth.userId,
         auth.complexId,
       );
+      const eventDefaults = await loadEventDefaults(env, auth.complexId);
       return json({
         items: rows.results ?? [],
         circle_id: circle?.id ?? null,
         circle_name: circle?.name_ar ?? null,
+        default_task_weight: eventDefaults.competition.default_task_weight,
       });
     }
 

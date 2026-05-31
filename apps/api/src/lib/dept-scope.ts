@@ -101,7 +101,7 @@ export function studentsInScopeBinds(
 }
 
 const STAFF_ROLE_SQL = `u.role IN (
-  'super_admin','admin_supervisor','edu_supervisor','prog_supervisor','teacher',
+  'super_admin','admin_supervisor','edu_supervisor','prog_supervisor','track_supervisor','teacher',
   'general_manager','general_supervisor'
 )`;
 
@@ -165,7 +165,7 @@ export async function canManageCircle(
   circleId: number,
 ): Promise<boolean> {
   if (auth.role === "super_admin" || auth.role === "general_manager") return true;
-  if (auth.role === "edu_supervisor") {
+  if (auth.role === "edu_supervisor" || auth.role === "track_supervisor") {
     const row = await env.DB.prepare(
       `SELECT 1 AS ok FROM circles WHERE id = ? AND complex_id = ? AND is_active = 1`,
     )

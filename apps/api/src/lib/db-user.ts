@@ -33,10 +33,12 @@ export function resolveRoleFromFlat(row: {
   is_educational?: number | null;
   is_programs?: number | null;
   is_teacher?: number | null;
+  is_track_supervisor?: number | null;
 }): UserRole {
   if (row.is_admin === 1) return "super_admin";
   if (row.is_educational === 1) return "edu_supervisor";
   if (row.is_programs === 1) return "prog_supervisor";
+  if (row.is_track_supervisor === 1) return "track_supervisor";
   if (row.is_teacher === 1) return "teacher";
   return "super_admin";
 }
@@ -70,6 +72,7 @@ type RawUser = {
   is_educational?: number | null;
   is_programs?: number | null;
   is_teacher?: number | null;
+  is_track_supervisor?: number | null;
 };
 
 function toUserRow(raw: RawUser): UserRow {
@@ -108,7 +111,7 @@ export async function loadUserByEmail(env: Env, email: string): Promise<UserRow 
     `SELECT id, email, mobile, password_hash, full_name_ar, complex_id, is_active, role
      FROM users WHERE email = ? LIMIT 1`,
     `SELECT id, email, mobile, password_hash, full_name_ar, complex_id, is_active,
-            is_admin, is_educational, is_programs, is_teacher
+            is_admin, is_educational, is_programs, is_teacher, is_track_supervisor
      FROM users WHERE email = ? LIMIT 1`,
     [email],
   );
@@ -125,7 +128,7 @@ export async function loadUserByMobile(
     `SELECT id, email, mobile, password_hash, full_name_ar, complex_id, is_active, role
      FROM users WHERE mobile IN (${placeholders}) LIMIT 1`,
     `SELECT id, email, mobile, password_hash, full_name_ar, complex_id, is_active,
-            is_admin, is_educational, is_programs, is_teacher
+            is_admin, is_educational, is_programs, is_teacher, is_track_supervisor
      FROM users WHERE mobile IN (${placeholders}) LIMIT 1`,
     keys,
   );
@@ -156,7 +159,7 @@ export async function loadUserPayload(env: Env, userId: number) {
         }>()
     : await env.DB.prepare(
         `SELECT id, email, mobile, full_name_ar, complex_id,
-                is_admin, is_educational, is_programs, is_teacher${
+                is_admin, is_educational, is_programs, is_teacher, is_track_supervisor${
                   hasStageScope ? ", stage_scope" : ""
                 }
          FROM users WHERE id = ? AND is_active = 1`,
@@ -172,6 +175,7 @@ export async function loadUserPayload(env: Env, userId: number) {
           is_educational?: number | null;
           is_programs?: number | null;
           is_teacher?: number | null;
+          is_track_supervisor?: number | null;
           stage_scope?: string | null;
         }>();
 

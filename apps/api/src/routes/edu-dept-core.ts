@@ -13,6 +13,12 @@ import {
   teacherCanAccessStudent,
 } from "../lib/dept-scope";
 import { transferStudentCircle } from "../lib/edu-transfer";
+import {
+  loadEventDefaults,
+  upsertEventDefaults,
+  type CompetitionDefaults,
+  type HimmaDefaults,
+} from "../lib/edu-settings-defaults";
 
 const EDU_SETTINGS_ROLES = ["edu_supervisor", "super_admin"] as const;
 const EDU_SUPERVISOR_ROLES = ["edu_supervisor", "super_admin"] as const;
@@ -20,6 +26,7 @@ const TEACHER_ONLY_ROLES = ["teacher"] as const;
 const TEACHER_EDU_ROLES = ["teacher", "edu_supervisor", "super_admin"] as const;
 const RECITATION_ROLES = [
   "teacher",
+  "track_supervisor",
   "edu_supervisor",
   "super_admin",
   "prog_supervisor",
@@ -307,6 +314,7 @@ export async function handleEduDeptCoreRouter(
       )
         .bind(auth.complexId)
         .first<Record<string, number>>();
+      const eventDefaults = await loadEventDefaults(env, auth.complexId);
       return json({
         settings: {
           weight_listening: row?.weight_listening ?? 1,
@@ -314,12 +322,14 @@ export async function handleEduDeptCoreRouter(
           weight_repeat: row?.weight_repeat ?? 1,
           rabt_weight: hasRabt ? (row?.rabt_weight ?? 1) : 1,
           penalty_per_error: row?.penalty_per_error ?? 0.5,
+          himma_defaults: eventDefaults.himma,
+          competition_defaults: eventDefaults.competition,
         },
       });
     }
 
     if (request.method === "PATCH") {
-      let body: Record<string, number>;
+      let body: Record<string, number | Partial<HimmaDefaults> | Partial<CompetitionDefaults>>;
       try {
         body = await request.json();
       } catch {
@@ -330,6 +340,8 @@ export async function handleEduDeptCoreRouter(
       const wRep = Number(body.weight_repeat ?? 1);
       const wRabt = Number(body.rabt_weight ?? 1);
       const pen = Number(body.penalty_per_error ?? 0.5);
+      const himmaBody = body.himma_defaults as Partial<HimmaDefaults> | undefined;
+      const compBody = body.competition_defaults as Partial<CompetitionDefaults> | undefined;
       if (hasRabt) {
         await env.DB.prepare(
           `INSERT INTO edu_settings (complex_id, weight_listening, weight_revision, weight_repeat, rabt_weight, penalty_per_error, updated_at)
@@ -357,6 +369,9 @@ export async function handleEduDeptCoreRouter(
         )
           .bind(auth.complexId, wL, wR, wRep, pen)
           .run();
+      }
+      if (himmaBody || compBody) {
+        await upsertEventDefaults(env, auth.complexId, himmaBody, compBody);
       }
       return json({ ok: true });
     }

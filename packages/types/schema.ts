@@ -8,6 +8,7 @@ export type UserRole =
   | "edu_supervisor"
   | "admin_supervisor"
   | "prog_supervisor"
+  | "track_supervisor"
   | "teacher";
 
 /** Map legacy JWT/DB role strings to v3.2 department roles */
@@ -21,6 +22,7 @@ export function normalizeUserRole(role: string): UserRole {
     case "edu_supervisor":
     case "admin_supervisor":
     case "prog_supervisor":
+    case "track_supervisor":
     case "teacher":
       return role;
     default:
@@ -306,6 +308,7 @@ export function resolveRoleFromUser(row: DbUserRow): UserRole {
   if (flat.is_admin === 1) return "super_admin";
   if (flat.is_educational === 1) return "edu_supervisor";
   if (flat.is_programs === 1) return "prog_supervisor";
+  if (flat.is_track_supervisor === 1) return "track_supervisor";
   if (flat.is_teacher === 1) return "teacher";
   return "super_admin";
 }

@@ -5,6 +5,7 @@ export const ROLE_HOME: Record<UserRole, string> = {
   edu_supervisor: "/edu-dept/dashboard",
   admin_supervisor: "/admin-dept/staff-attendance",
   prog_supervisor: "/prog-dept/quizzes",
+  track_supervisor: "/edu-dept/daily-recitation",
   teacher: "/edu-dept/daily-recitation",
 };
 
@@ -34,7 +35,7 @@ export const STAFF_ROLES: UserRole[] = [
 
 const PATH_RULES: Array<{ prefix: string; roles: UserRole[] }> = [
   { prefix: "/super-admin", roles: ["super_admin"] },
-  { prefix: "/edu-dept", roles: ["edu_supervisor", "super_admin", "teacher"] },
+  { prefix: "/edu-dept", roles: ["edu_supervisor", "super_admin", "teacher", "track_supervisor"] },
   { prefix: "/admin-dept", roles: ["admin_supervisor", "super_admin"] },
   { prefix: "/prog-dept", roles: ["prog_supervisor", "super_admin"] },
   { prefix: "/display-dept", roles: ["super_admin"] },
@@ -43,7 +44,7 @@ const PATH_RULES: Array<{ prefix: string; roles: UserRole[] }> = [
   { prefix: "/live-log", roles: STAFF_ROLES },
   {
     prefix: "/welcome",
-    roles: ["super_admin", "edu_supervisor", "admin_supervisor", "prog_supervisor", "teacher"],
+    roles: ["super_admin", "edu_supervisor", "admin_supervisor", "prog_supervisor", "track_supervisor", "teacher"],
   },
 ];
 
@@ -83,6 +84,7 @@ const TEACHER_ONLY_EDU_PATHS = ["/edu-dept/teacher-competitions"];
 const RECITATION_EDU_PATH = "/edu-dept/daily-recitation";
 const RECITATION_ROLES: UserRole[] = [
   "teacher",
+  "track_supervisor",
   "edu_supervisor",
   "super_admin",
   "prog_supervisor",
@@ -96,7 +98,7 @@ export function pathAllowedForRole(role: UserRole, pathname: string): boolean {
 
   for (const prefix of TEACHER_ONLY_EDU_PATHS) {
     if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
-      return role === "teacher";
+      return role === "teacher" || role === "track_supervisor";
     }
   }
 

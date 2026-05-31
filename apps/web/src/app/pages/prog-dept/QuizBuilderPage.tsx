@@ -1,7 +1,6 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, Trash2, ClipboardList } from "lucide-react";
 import {
-  TableActionsCell,
   TableIconAction,
 } from "../../components/admin/TableIconAction";
 import { DoubleConfirmDialog } from "../../components/shared/DoubleConfirmDialog";
@@ -16,14 +15,6 @@ import {
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Switch } from "../../components/ui/switch";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../../components/ui/table";
 import { toast } from "sonner";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
@@ -311,142 +302,89 @@ export function QuizBuilderPage() {
         </p>
       )}
 
-      <div className={`${ds.card} overflow-x-auto text-right`} dir="rtl">
-        <Table className={ds.tableMin}>
-          <TableHeader>
-            <TableRow>
-              <TableHead className={ds.table.head} style={tajawal}>
-                الاختبار
-              </TableHead>
-              <TableHead className={ds.table.head} style={tajawal}>
-                الأسئلة
-              </TableHead>
-              <TableHead className={ds.table.head} style={tajawal}>
-                التسليمات
-              </TableHead>
-              <TableHead className={ds.table.headActionsWide} style={tajawal}>
-                إجراءات
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {items.map((q) => (
-              <Fragment key={q.id}>
-                <TableRow className="cursor-pointer" onClick={() => toggleExpand(q.id)}>
-                  <TableCell className={`${ds.table.cell} font-medium`} style={tajawal}>
+      {loading ? (
+        <p className="text-sm text-muted-foreground" style={tajawal}>
+          جاري التحميل…
+        </p>
+      ) : items.length === 0 ? (
+        <p className={ds.alert.info} style={tajawal}>
+          لا توجد اختبارات — أنشئ اختباراً جديداً.
+        </p>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {items.map((q) => (
+            <div
+              key={q.id}
+              className={cn(
+                ds.card,
+                "p-4 flex flex-col gap-3 text-right cursor-pointer",
+                expandedId === q.id && "ring-2 ring-primary/40",
+              )}
+              onClick={() => toggleExpand(q.id)}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <h3 className="font-semibold" style={tajawal}>
                     {q.title_ar}
-                  </TableCell>
-                  <TableCell className={ds.table.cell} style={tajawal}>
-                    {q.question_count}
-                  </TableCell>
-                  <TableCell className={ds.table.cell} style={tajawal}>
-                    {q.attempts_count}
-                  </TableCell>
-                  <TableActionsCell wide>
-                    <div onClick={(e) => e.stopPropagation()} className={ds.table.actionsWrapWide}>
-                      <TableIconAction kind="copy" label="نسخ الرابط" onClick={() => copyQuizLink(q.id)} />
-                      <TableIconAction kind="edit" onClick={() => void openEdit(q.id)} />
-                      <TableIconAction kind="delete" onClick={() => setDeleteId(q.id)} />
-                    </div>
-                  </TableActionsCell>
-                </TableRow>
-                {expandedId === q.id && (
-                  <TableRow key={`${q.id}-responses`}>
-                    <TableCell colSpan={4} className="bg-muted/30 p-4">
-                      <p className={`${ds.page.section} mb-3`} style={tajawal}>
-                        نتائج الطلاب
-                      </p>
-                      {responsesLoading ? (
-                        <p className="text-sm text-muted-foreground" style={tajawal}>
-                          جاري تحميل النتائج…
-                        </p>
-                      ) : responses.length === 0 ? (
-                        <p className={ds.alert.info} style={tajawal}>
-                          لا توجد تسليمات بعد.
-                        </p>
-                      ) : (
-                        <Table className={ds.tableMin}>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead className={ds.table.head} style={tajawal}>
-                                اسم الطالب
-                              </TableHead>
-                              <TableHead className={ds.table.head} style={tajawal}>
-                                الدرجة
-                              </TableHead>
-                              <TableHead className={ds.table.head} style={tajawal}>
-                                الحالة
-                              </TableHead>
-                              <TableHead className={ds.table.head} style={tajawal}>
-                                وقت التسليم
-                              </TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {responses.map((r, i) => (
-                              <TableRow key={i}>
-                                <TableCell className={ds.table.cell} style={tajawal}>
-                                  {r.student_name && r.student_name !== "مشارك"
-                                    ? r.student_name
-                                    : "—"}
-                                </TableCell>
-                                <TableCell className={ds.table.cell} style={tajawal}>
-                                  {r.grading_pending === 1 ? (
-                                    <div className="flex items-center gap-2 justify-end">
-                                      <Input
-                                        type="number"
-                                        min={0}
-                                        step={0.5}
-                                        className={cn(ds.field, "w-20 h-8")}
-                                        defaultValue={String(r.total_score ?? "")}
-                                        onBlur={(e) => {
-                                          const score = Number(e.target.value);
-                                          if (
-                                            !Number.isFinite(score) ||
-                                            r.response_id == null ||
-                                            expandedId == null
-                                          ) {
-                                            return;
-                                          }
-                                          void api
-                                            .progQuizResponseGrade(expandedId, r.response_id, score)
-                                            .then(() => loadResponses(expandedId));
-                                        }}
-                                      />
-                                      <span className="text-xs text-amber-600">يدوي</span>
-                                    </div>
-                                  ) : r.total_score != null ? (
-                                    r.total_score
-                                  ) : r.score_percent != null ? (
-                                    `${r.score_percent}%`
-                                  ) : (
-                                    "—"
-                                  )}
-                                </TableCell>
-                                <TableCell className={ds.table.cell} style={tajawal}>
-                                  {r.grading_pending === 1 ? "بانتظار التصحيح" : "معتمد"}
-                                </TableCell>
-                                <TableCell className={ds.table.cell} style={tajawal}>
-                                  {r.submitted_at?.slice(0, 16) ?? "—"}
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                )}
-              </Fragment>
-            ))}
-          </TableBody>
-        </Table>
-        {!loading && items.length === 0 && (
-          <p className={`p-4 ${ds.alert.info}`} style={tajawal}>
-            لا توجد اختبارات — أنشئ اختباراً جديداً.
-          </p>
-        )}
-      </div>
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-1" style={tajawal}>
+                    {q.question_count} سؤال · {q.attempts_count} تسليم
+                  </p>
+                </div>
+                <div
+                  className={ds.table.actionsWrap}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <TableIconAction kind="copy" label="نسخ الرابط" onClick={() => copyQuizLink(q.id)} />
+                  <TableIconAction kind="edit" onClick={() => void openEdit(q.id)} />
+                  <TableIconAction kind="delete" onClick={() => setDeleteId(q.id)} />
+                </div>
+              </div>
+              {expandedId === q.id && (
+                <div className="border-t border-border pt-3 space-y-2" onClick={(e) => e.stopPropagation()}>
+                  <p className={`${ds.page.section} text-sm`} style={tajawal}>
+                    نتائج الطلاب
+                  </p>
+                  {responsesLoading ? (
+                    <p className="text-sm text-muted-foreground" style={tajawal}>
+                      جاري تحميل النتائج…
+                    </p>
+                  ) : responses.length === 0 ? (
+                    <p className={ds.alert.info} style={tajawal}>
+                      لا توجد تسليمات بعد.
+                    </p>
+                  ) : (
+                    <ul className="space-y-2 text-sm max-h-48 overflow-y-auto">
+                      {responses.map((r, i) => (
+                        <li
+                          key={i}
+                          className="flex flex-wrap justify-between gap-2 border-b border-border pb-2"
+                          style={tajawal}
+                        >
+                          <span>
+                            {r.student_name && r.student_name !== "مشارك"
+                              ? r.student_name
+                              : "—"}
+                          </span>
+                          <span className="text-muted-foreground">
+                            {r.grading_pending === 1
+                              ? "بانتظار التصحيح"
+                              : r.total_score != null
+                                ? r.total_score
+                                : r.score_percent != null
+                                  ? `${r.score_percent}%`
+                                  : "—"}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
         <DialogContent dir="rtl" className={cn(ds.dialog, "text-right sm:max-w-2xl max-h-[90vh] overflow-y-auto")}>

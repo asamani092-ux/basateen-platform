@@ -359,6 +359,46 @@ export function resolveDevPreviewMock<T>(
     } as T;
   }
 
+  if (p === "/api/admin-dept/pledges" && m === "GET") {
+    return {
+      items: [
+        {
+          student_id: 1,
+          full_name_ar: "طالب تجريبي",
+          guardian_phone: "0500000000",
+          pledge_count: 2,
+          latest_reason: "تأخر متكرر",
+        },
+      ],
+    } as T;
+  }
+
+  const studentAttReport = p.match(/^\/api\/admin-dept\/reports\/student\/(\d+)$/);
+  if (studentAttReport && m === "GET") {
+    return {
+      student: {
+        id: Number(studentAttReport[1]),
+        full_name_ar: "طالب تجريبي",
+        guardian_phone: "0500000000",
+        stage_id: 2,
+      },
+      summary: { present: 12, absent: 2, excused: 1, total: 15 },
+      items: [
+        { date: "2026-05-28", status: "present" },
+        { date: "2026-05-27", status: "absent" },
+        { date: "2026-05-26", status: "excused" },
+      ],
+    } as T;
+  }
+
+  const escReqMock = p.match(/^\/api\/admin-dept\/teacher-requests\/(\d+)$/);
+  if (escReqMock && m === "PATCH") {
+    return { ok: true, id: Number(escReqMock[1]) } as T;
+  }
+  if (escReqMock && m === "DELETE") {
+    return { ok: true, id: Number(escReqMock[1]) } as T;
+  }
+
   if (p === "/api/admin-dept/teacher-requests/escalations" && m === "GET") {
     return {
       items: [
@@ -395,6 +435,19 @@ export function resolveDevPreviewMock<T>(
         weight_repeat: 1,
         rabt_weight: 1,
         penalty_per_error: 0.5,
+        himma_defaults: {
+          hizb_points: 1,
+          alert_penalty: 1,
+          error_penalty: 2,
+          alerts_per_error: 5,
+          fail_threshold_errors: 3,
+        },
+        competition_defaults: {
+          mistake_penalty: 1,
+          alert_penalty: 0.5,
+          lahn_penalty: 0.5,
+          default_task_weight: 1,
+        },
       },
     } as T;
   }

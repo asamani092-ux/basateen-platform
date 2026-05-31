@@ -31,3 +31,31 @@ export function randomToken(): string {
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
+
+/** D1-safe upsert without ON CONFLICT (unique index may be missing on older schemas). */
+export async function upsertQuizAttemptToken(
+  db: D1Database,
+  quizId: number,
+  studentId: number,
+  token: string,
+): Promise<void> {
+  const existing = await db
+    .prepare(`SELECT id FROM quiz_attempts WHERE quiz_id = ? AND student_id = ?`)
+    .bind(quizId, studentId)
+    .first();
+  if (existing) {
+    await db
+      .prepare(
+        `UPDATE quiz_attempts SET attempt_token = ? WHERE quiz_id = ? AND student_id = ?`,
+      )
+      .bind(token, quizId, studentId)
+      .run();
+    return;
+  }
+  await db
+    .prepare(
+      `INSERT INTO quiz_attempts (quiz_id, student_id, attempt_token) VALUES (?, ?, ?)`,
+    )
+    .bind(quizId, studentId, token)
+    .run();
+}

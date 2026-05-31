@@ -1608,9 +1608,10 @@ export const api = {
       show_score_instantly?: boolean;
       custom_success_message?: string | null;
       is_active?: number;
+      questions?: Array<Record<string, unknown>>;
     },
   ) =>
-    request<{ ok: boolean }>(`/api/prog-supervisor/quizzes/${id}`, {
+    request<{ ok: boolean; total_points?: number }>(`/api/prog-supervisor/quizzes/${id}`, {
       method: "PATCH",
       body: JSON.stringify(body),
     }),

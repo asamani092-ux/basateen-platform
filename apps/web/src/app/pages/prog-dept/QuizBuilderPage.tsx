@@ -234,9 +234,8 @@ export function QuizBuilderPage() {
           access_code: accessCode.trim(),
           show_score_instantly: showScore,
           custom_success_message: customMessage.trim() || null,
+          questions: payload,
         });
-        await api.progQuizQuestionsSave(editId, payload);
-        await api.progQuizPublish(editId);
       }
       setFormOpen(false);
       const okMsg = editId ? "تم تحديث الاختبار ونشره." : "تم إنشاء الاختبار ونشره.";

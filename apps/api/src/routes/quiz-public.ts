@@ -1,6 +1,6 @@
 import type { Env } from "../types";
 import { normalizeMobile } from "../lib/mobile";
-import { randomToken, scoreQuizAttempt, type QuizQuestionRow } from "../lib/quiz-scoring";
+import { randomToken, scoreQuizAttempt, upsertQuizAttemptToken, type QuizQuestionRow } from "../lib/quiz-scoring";
 import { writeProgAudit } from "../lib/prog-audit";
 import { hasTable, tableHasColumn } from "../lib/db-schema";
 
@@ -289,13 +289,7 @@ export async function handleQuizPublicRouter(
     let token = existing?.attempt_token;
     if (!token) {
       token = randomToken();
-      await env.DB.prepare(
-        `INSERT INTO quiz_attempts (quiz_id, student_id, attempt_token)
-         VALUES (?, ?, ?)
-         ON CONFLICT(quiz_id, student_id) DO UPDATE SET attempt_token = excluded.attempt_token`,
-      )
-        .bind(quizId, student.id, token)
-        .run();
+      await upsertQuizAttemptToken(env.DB, quizId, student.id, token);
     }
 
     return json({

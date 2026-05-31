@@ -107,8 +107,11 @@ function CirclesPanel() {
   const [trackId, setTrackId] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [editId, setEditId] = useState<number | null>(null);
+  const [editCircle, setEditCircle] = useState<AdminCircleRow | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editStageId, setEditStageId] = useState<StageId>(2);
   const [editCapacity, setEditCapacity] = useState("");
+  const [editTrackId, setEditTrackId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const hasApi = Boolean(getApiToken());
 
@@ -364,10 +367,21 @@ function CirclesPanel() {
                   </TableCell>
                   <TableActionsCell>
                     <TableIconAction
-                      kind="capacity"
+                      kind="edit"
                       onClick={() => {
-                        setEditId(c.id);
+                        setEditCircle(c);
+                        setEditName(c.name_ar);
+                        setEditStageId(c.stage_id as StageId);
                         setEditCapacity(String(c.default_capacity));
+                        setEditTrackId(c.track_id ? String(c.track_id) : "");
+                      }}
+                    />
+                    <TableIconAction
+                      kind="delete"
+                      onClick={async () => {
+                        if (!confirm(`تعطيل الحلقة «${c.name_ar}»؟`)) return;
+                        await api.adminCirclesPatch(c.id, { is_active: 0 });
+                        await load();
                       }}
                     />
                   </TableActionsCell>
@@ -376,42 +390,91 @@ function CirclesPanel() {
             </TableBody>
           </Table>
         )}
-        {editId != null && (
-          <form
-            className="flex flex-wrap gap-2 items-end p-4 border rounded-2xl"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              await api.adminCirclesPatch(editId, {
-                default_capacity: Number(editCapacity),
-              });
-              setEditId(null);
-              load();
-            }}
-          >
-            <div>
-              <label className="text-sm" style={tajawal}>
-                السعة الافتراضية الجديدة
-              </label>
-              <Input
-                type="number"
-                min={1}
-                value={editCapacity}
-                onChange={(e) => setEditCapacity(e.target.value)}
-              />
-            </div>
-            <Button type="submit" className={ds.btnRound} style={tajawal}>
-              حفظ
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setEditId(null)}
-              style={tajawal}
-            >
-              إلغاء
-            </Button>
-          </form>
-        )}
+        <Dialog
+          open={editCircle != null}
+          onOpenChange={(o) => {
+            if (!o) setEditCircle(null);
+          }}
+        >
+          <DialogContent className={ds.dialog} dir="rtl">
+            <DialogHeader>
+              <DialogTitle style={tajawal}>تعديل حلقة</DialogTitle>
+            </DialogHeader>
+            {editCircle && (
+              <form
+                className="grid grid-cols-1 sm:grid-cols-2 gap-4"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  await api.adminCirclesPatch(editCircle.id, {
+                    name_ar: editName.trim(),
+                    stage_id: editStageId,
+                    default_capacity: Number(editCapacity),
+                    track_id: editTrackId ? Number(editTrackId) : null,
+                  });
+                  setEditCircle(null);
+                  await load();
+                }}
+              >
+                <div>
+                  <label className="block text-sm font-semibold mb-1" style={tajawal}>
+                    الاسم
+                  </label>
+                  <Input value={editName} onChange={(e) => setEditName(e.target.value)} required />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold mb-1" style={tajawal}>
+                    المرحلة
+                  </label>
+                  <select
+                    value={editStageId}
+                    onChange={(e) => setEditStageId(Number(e.target.value) as StageId)}
+                    className={ds.select}
+                    style={tajawal}
+                  >
+                    {EDUCATIONAL_STAGES.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name_ar}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold mb-1" style={tajawal}>
+                    السعة
+                  </label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={editCapacity}
+                    onChange={(e) => setEditCapacity(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold mb-1" style={tajawal}>
+                    المسار
+                  </label>
+                  <select
+                    value={editTrackId}
+                    onChange={(e) => setEditTrackId(e.target.value)}
+                    className={ds.select}
+                    style={tajawal}
+                  >
+                    <option value="">— بدون —</option>
+                    {tracks.map((tr) => (
+                      <option key={tr.id} value={String(tr.id)}>
+                        {tr.name_ar}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <Button type="submit" className={`sm:col-span-2 ${ds.btnRound}`} style={tajawal}>
+                  حفظ التعديلات
+                </Button>
+              </form>
+            )}
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   );
@@ -427,6 +490,9 @@ function TracksPanel() {
   const [supervisorId, setSupervisorId] = useState("");
   const [selectedStages, setSelectedStages] = useState<number[]>([3, 4]);
   const [selectedCircles, setSelectedCircles] = useState<number[]>([]);
+  const [editTrack, setEditTrack] = useState<AdminTrackRow | null>(null);
+  const [editTrackName, setEditTrackName] = useState("");
+  const [editTrackCapacity, setEditTrackCapacity] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -661,6 +727,9 @@ function TracksPanel() {
                 <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
                   الطلاب
                 </TableHead>
+                <TableHead className={ds.table.headActions} style={tajawal}>
+                  إجراء
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -685,11 +754,71 @@ function TracksPanel() {
                   <TableCell className={ds.table.cell} style={tajawal}>
                     {t.student_count}
                   </TableCell>
+                  <TableActionsCell>
+                    <TableIconAction
+                      kind="edit"
+                      onClick={() => {
+                        setEditTrack(t);
+                        setEditTrackName(t.name_ar);
+                        setEditTrackCapacity(String(t.default_capacity));
+                      }}
+                    />
+                    <TableIconAction
+                      kind="delete"
+                      onClick={async () => {
+                        if (!confirm(`تعطيل المسار «${t.name_ar}»؟`)) return;
+                        await api.adminTracksPatch(t.id, { is_active: 0 });
+                        await load();
+                      }}
+                    />
+                  </TableActionsCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         )}
+        <Dialog
+          open={editTrack != null}
+          onOpenChange={(o) => {
+            if (!o) setEditTrack(null);
+          }}
+        >
+          <DialogContent className={ds.dialog} dir="rtl">
+            <DialogHeader>
+              <DialogTitle style={tajawal}>تعديل مسار</DialogTitle>
+            </DialogHeader>
+            {editTrack && (
+              <form
+                className="grid gap-4"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  await api.adminTracksPatch(editTrack.id, {
+                    name_ar: editTrackName.trim(),
+                    default_capacity: Number(editTrackCapacity),
+                  });
+                  setEditTrack(null);
+                  await load();
+                }}
+              >
+                <Input
+                  value={editTrackName}
+                  onChange={(e) => setEditTrackName(e.target.value)}
+                  required
+                />
+                <Input
+                  type="number"
+                  min={1}
+                  value={editTrackCapacity}
+                  onChange={(e) => setEditTrackCapacity(e.target.value)}
+                  required
+                />
+                <Button type="submit" className={ds.btnRound} style={tajawal}>
+                  حفظ
+                </Button>
+              </form>
+            )}
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   );

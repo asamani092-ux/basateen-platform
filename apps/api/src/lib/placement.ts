@@ -1,4 +1,5 @@
 import type { Env } from "../types";
+import { syncStudentPlacementColumns } from "./admin-dept-schema";
 import { tableHasColumn } from "./db-schema";
 
 /** O(n) statements — تجميد السجل المفتوح وإضافة حلقة جديدة (يتكيف مع مخطط flat/legacy) */
@@ -22,6 +23,7 @@ export async function assignStudentCircle(
     )
       .bind(studentId, circleId, trackId, note)
       .run();
+    await syncStudentPlacementColumns(env, studentId, circleId, trackId);
     return;
   }
 
@@ -65,4 +67,5 @@ export async function assignStudentCircle(
   );
 
   await env.DB.batch(statements);
+  await syncStudentPlacementColumns(env, studentId, circleId, trackId);
 }

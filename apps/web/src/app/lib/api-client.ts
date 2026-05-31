@@ -472,7 +472,8 @@ export const api = {
   adminTeachersCreate: (body: {
     full_name_ar: string;
     mobile: string;
-    circle_id: number;
+    circle_id?: number;
+    track_id?: number;
     role?: "teacher" | "track_supervisor";
   }) =>
     request<{ ok: boolean; id: number }>("/api/admin/teachers", {
@@ -487,6 +488,7 @@ export const api = {
     role: string;
     supervisor_scope: string;
     circle_id?: number;
+    track_id?: number;
   }) =>
     request<{ ok: boolean; id: number }>("/api/admin/supervisors", {
       method: "POST",
@@ -513,6 +515,7 @@ export const api = {
       teacher_user_id?: number;
       name_ar?: string;
       stage_id?: number;
+      track_id?: number | null;
       is_active?: number;
     },
   ) =>
@@ -866,12 +869,16 @@ export const api = {
     endDate?: string;
     status?: "all" | "absent_only";
     type?: "all" | "staff" | "student";
+    circle_id?: number;
+    track_id?: number;
   }) => {
     const q = new URLSearchParams();
     if (params?.startDate) q.set("startDate", params.startDate);
     if (params?.endDate) q.set("endDate", params.endDate);
     if (params?.status) q.set("status", params.status);
     if (params?.type) q.set("type", params.type);
+    if (params?.circle_id) q.set("circle_id", String(params.circle_id));
+    if (params?.track_id) q.set("track_id", String(params.track_id));
     const qs = q.toString();
     return request<{
       start_date: string;
@@ -912,11 +919,13 @@ export const api = {
     startDate?: string;
     endDate?: string;
     circle_id?: number;
+    track_id?: number;
   }) => {
     const q = new URLSearchParams();
     if (params?.startDate) q.set("startDate", params.startDate);
     if (params?.endDate) q.set("endDate", params.endDate);
     if (params?.circle_id) q.set("circle_id", String(params.circle_id));
+    if (params?.track_id) q.set("track_id", String(params.track_id));
     const qs = q.toString();
     return request<{
       start_date: string;

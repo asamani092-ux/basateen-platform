@@ -1,8 +1,10 @@
 import type { Env } from "../types";
+import { syncStudentPlacementColumns } from "../lib/admin-dept-schema";
 import { assignStudentCircle } from "../lib/placement";
 import { ADMIN_DATA_ROLES } from "../lib/roles";
 import { canManageCircle } from "../lib/dept-scope";
 import { hasTable, tableHasColumn } from "../lib/db-schema";
+import { buildStudentPlacementSql } from "../lib/student-list-sql";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 
 export type StudentImportRow = {
@@ -83,15 +85,22 @@ async function loadCircleMap(
   return map;
 }
 
+async function activeStudentFilter(env: Env): Promise<string> {
+  return (await tableHasColumn(env, "students", "is_active"))
+    ? "AND COALESCE(is_active, 1) = 1"
+    : "";
+}
+
 async function findStudentId(
   env: Env,
   complexId: number,
   nationalId: string | null,
   phone: string | null,
 ): Promise<number | null> {
+  const active = await activeStudentFilter(env);
   if (nationalId) {
     const row = await env.DB.prepare(
-      `SELECT id FROM students WHERE complex_id = ? AND national_id = ? AND is_active = 1`,
+      `SELECT id FROM students WHERE complex_id = ? AND national_id = ? ${active}`,
     )
       .bind(complexId, nationalId)
       .first<{ id: number }>();
@@ -99,13 +108,38 @@ async function findStudentId(
   }
   if (phone) {
     const row = await env.DB.prepare(
-      `SELECT id FROM students WHERE complex_id = ? AND phone = ? AND is_active = 1`,
+      `SELECT id FROM students WHERE complex_id = ? AND phone = ? ${active}`,
     )
       .bind(complexId, phone)
       .first<{ id: number }>();
     if (row) return row.id;
   }
   return null;
+}
+
+async function dynamicStudentUpdate(
+  env: Env,
+  studentId: number,
+  fields: Record<string, string | null>,
+): Promise<void> {
+  const sets: string[] = [];
+  const binds: (string | number | null)[] = [];
+  for (const [col, val] of Object.entries(fields)) {
+    if (!(await tableHasColumn(env, "students", col))) continue;
+    if (col === "national_id" || col === "phone") {
+      sets.push(`${col} = COALESCE(?, ${col})`);
+    } else {
+      sets.push(`${col} = ?`);
+    }
+    binds.push(val);
+  }
+  if (sets.length === 0) return;
+  binds.push(studentId);
+  await env.DB.prepare(
+    `UPDATE students SET ${sets.join(", ")} WHERE id = ?`,
+  )
+    .bind(...binds)
+    .run();
 }
 
 export async function handleStudentsExport(
@@ -118,29 +152,38 @@ export async function handleStudentsExport(
     return json({ error: "forbidden" }, 403);
   }
 
+  const placement = await buildStudentPlacementSql(env);
+  const active = await activeStudentFilter(env);
   let sql = `
     SELECT
       s.full_name_ar,
-      s.national_id,
-      s.nationality,
-      s.phone,
-      s.school_name,
-      s.school_grade,
-      s.memorization_amount,
-      s.guardian_phone,
-      s.guardian_national_id,
-      s.health_notes,
+      ${(await tableHasColumn(env, "students", "national_id")) ? "s.national_id" : "NULL AS national_id"},
+      ${(await tableHasColumn(env, "students", "nationality")) ? "s.nationality" : "NULL AS nationality"},
+      ${(await tableHasColumn(env, "students", "phone")) ? "s.phone" : "NULL AS phone"},
+      ${(await tableHasColumn(env, "students", "school_name")) ? "s.school_name" : "NULL AS school_name"},
+      ${(await tableHasColumn(env, "students", "school_grade")) ? "s.school_grade" : "NULL AS school_grade"},
+      ${(await tableHasColumn(env, "students", "memorization_amount")) ? "s.memorization_amount" : "NULL AS memorization_amount"},
+      ${(await tableHasColumn(env, "students", "guardian_phone")) ? "s.guardian_phone" : "NULL AS guardian_phone"},
+      ${(await tableHasColumn(env, "students", "guardian_national_id")) ? "s.guardian_national_id" : "NULL AS guardian_national_id"},
+      ${(await tableHasColumn(env, "students", "health_notes")) ? "s.health_notes" : "NULL AS health_notes"},
       c.name_ar AS circle_name
     FROM students s
-    LEFT JOIN student_circle_history h
-      ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL
-    LEFT JOIN circles c ON c.id = h.circle_id
-    WHERE s.complex_id = ? AND s.is_active = 1
+    ${placement.historyJoin}
+    ${placement.circleJoin}
+    WHERE s.complex_id = ? ${active}
   `;
   const binds: (string | number)[] = [auth.complexId];
 
-  if (auth.role === "edu_supervisor") {
-    sql += ` AND h.circle_id IN (
+  if (auth.role === "edu_supervisor" && placement.historyCircleRef) {
+    sql += ` AND ${placement.historyCircleRef} IN (
+      SELECT circle_id FROM supervisor_scopes WHERE user_id = ?
+    )`;
+    binds.push(auth.userId);
+  } else if (
+    auth.role === "edu_supervisor" &&
+    (await tableHasColumn(env, "students", "current_circle_id"))
+  ) {
+    sql += ` AND s.current_circle_id IN (
       SELECT circle_id FROM supervisor_scopes WHERE user_id = ?
     )`;
     binds.push(auth.userId);
@@ -224,6 +267,12 @@ export async function handleStudentsBulkImport(
           circle.track_id,
           "نقل جماعي — Excel",
         );
+        await syncStudentPlacementColumns(
+          env,
+          studentId,
+          circle.id,
+          circle.track_id,
+        );
         results.push({
           row: rowNum,
           ok: true,
@@ -277,34 +326,18 @@ export async function handleStudentsBulkImport(
 
     try {
       if (existingId) {
-        await env.DB.prepare(
-          `UPDATE students SET
-            full_name_ar = ?,
-            national_id = COALESCE(?, national_id),
-            nationality = ?,
-            phone = COALESCE(?, phone),
-            school_name = ?,
-            school_grade = ?,
-            memorization_amount = ?,
-            guardian_phone = ?,
-            guardian_national_id = ?,
-            health_notes = ?
-           WHERE id = ?`,
-        )
-          .bind(
-            fields.full_name_ar,
-            fields.national_id,
-            fields.nationality,
-            fields.phone,
-            fields.school_name,
-            fields.school_grade,
-            fields.memorization_amount,
-            fields.guardian_phone,
-            fields.guardian_national_id,
-            fields.health_notes,
-            existingId,
-          )
-          .run();
+        await dynamicStudentUpdate(env, existingId, {
+          full_name_ar: fields.full_name_ar,
+          national_id: fields.national_id,
+          nationality: fields.nationality,
+          phone: fields.phone,
+          school_name: fields.school_name,
+          school_grade: fields.school_grade,
+          memorization_amount: fields.memorization_amount,
+          guardian_phone: fields.guardian_phone,
+          guardian_national_id: fields.guardian_national_id,
+          health_notes: fields.health_notes,
+        });
 
         if (circle) {
           await assignStudentCircle(
@@ -313,6 +346,12 @@ export async function handleStudentsBulkImport(
             circle.id,
             circle.track_id,
             "تحديث/نقل — استيراد Excel",
+          );
+          await syncStudentPlacementColumns(
+            env,
+            existingId,
+            circle.id,
+            circle.track_id,
           );
         }
 
@@ -362,6 +401,12 @@ export async function handleStudentsBulkImport(
             circle.track_id,
             "تسجيل — استيراد Excel",
           );
+          await syncStudentPlacementColumns(
+            env,
+            studentId,
+            circle.id,
+            circle.track_id,
+          );
         }
 
         results.push({
@@ -371,7 +416,8 @@ export async function handleStudentsBulkImport(
           action: "created",
         });
       }
-    } catch {
+    } catch (rowErr: unknown) {
+      console.error("students_bulk_row_failed", rowNum, rowErr);
       results.push({ row: rowNum, ok: false, error: "save_failed" });
     }
   }

@@ -128,6 +128,9 @@ export function AdminReportsPage() {
     ReturnType<typeof api.adminDeptStudentAttendanceReport>
   > | null>(null);
   const [studentLoading, setStudentLoading] = useState(false);
+  const [disciplineRows, setDisciplineRows] = useState<Awaited<
+    ReturnType<typeof api.adminDeptCircleDisciplineReport>
+  >["items"]>([]);
 
   const { startDate, endDate } = useMemo(() => {
     if (preset === "custom") {
@@ -159,11 +162,17 @@ export function AdminReportsPage() {
         status: statusFilter,
         type: "all",
       });
+      const discipline = await api.adminDeptCircleDisciplineReport({
+        startDate,
+        endDate,
+      });
       setSummary({ ...emptySummary, ...res.summary });
       setItems(res.items ?? []);
+      setDisciplineRows(discipline.items ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل تحميل التقرير");
       setItems([]);
+      setDisciplineRows([]);
     } finally {
       setLoading(false);
     }
@@ -449,6 +458,67 @@ export function AdminReportsPage() {
                 />
               </TabsContent>
             </Tabs>
+          </CardContent>
+        </Card>
+
+        <Card className={`${ds.card} overflow-hidden print:shadow-none print:border`}>
+          <CardHeader className="border-b border-border print:border-0">
+            <CardTitle className={ds.page.section} style={tajawal}>
+              التقرير التفصيلي لانضباط الحلقات
+            </CardTitle>
+            <CardDescription style={tajawal}>
+              اسم الطالب، أيام الحضور الرسمية، نسبة انضباط الطالب، ونسبة الحلقة.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            {disciplineRows.length === 0 ? (
+              <p className="p-4 text-sm text-muted-foreground text-right" style={tajawal}>
+                لا توجد بيانات انضباط للفترة المحددة.
+              </p>
+            ) : (
+              <Table className={`${ds.tableMin} text-right`} dir="rtl">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className={ds.table.head} style={tajawal}>
+                      اسم الطالب
+                    </TableHead>
+                    <TableHead className={ds.table.head} style={tajawal}>
+                      الحلقة
+                    </TableHead>
+                    <TableHead className={ds.table.head} style={tajawal}>
+                      أيام الحضور الرسمية
+                    </TableHead>
+                    <TableHead className={ds.table.head} style={tajawal}>
+                      انضباط الطالب
+                    </TableHead>
+                    <TableHead className={ds.table.head} style={tajawal}>
+                      انضباط الحلقة
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {disciplineRows.map((row) => (
+                    <TableRow key={`${row.student_id}-${row.circle_id ?? "none"}`}>
+                      <TableCell className={ds.table.cell} style={tajawal}>
+                        {row.full_name_ar}
+                      </TableCell>
+                      <TableCell className={ds.table.cell} style={tajawal}>
+                        {row.circle_name ?? "—"}
+                      </TableCell>
+                      <TableCell className={`${ds.table.cell} tabular-nums`} style={tajawal}>
+                        {row.official_days}
+                      </TableCell>
+                      <TableCell className={`${ds.table.cell} tabular-nums`} style={tajawal}>
+                        {row.discipline_pct}%
+                      </TableCell>
+                      <TableCell className={`${ds.table.cell} tabular-nums`} style={tajawal}>
+                        {row.circle_discipline_pct}%
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       </div>

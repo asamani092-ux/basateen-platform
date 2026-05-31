@@ -905,6 +905,30 @@ export const api = {
       summary: { present: number; absent: number; excused: number; total: number };
       items: Array<{ date: string; status: string }>;
     }>(`/api/admin-dept/reports/student/${studentId}`),
+  adminDeptCircleDisciplineReport: (params?: {
+    startDate?: string;
+    endDate?: string;
+    circle_id?: number;
+  }) => {
+    const q = new URLSearchParams();
+    if (params?.startDate) q.set("startDate", params.startDate);
+    if (params?.endDate) q.set("endDate", params.endDate);
+    if (params?.circle_id) q.set("circle_id", String(params.circle_id));
+    const qs = q.toString();
+    return request<{
+      start_date: string;
+      end_date: string;
+      items: Array<{
+        student_id: number;
+        full_name_ar: string;
+        circle_id: number | null;
+        circle_name: string | null;
+        official_days: number;
+        discipline_pct: number;
+        circle_discipline_pct: number;
+      }>;
+    }>(`/api/admin-dept/reports/circle-discipline${qs ? `?${qs}` : ""}`);
+  },
   adminDeptPledgeReport: (studentId: number) =>
     request<{
       student: Record<string, unknown>;

@@ -203,10 +203,7 @@ function CirclesPanel() {
           </p>
         )}
         <Dialog open={showForm} onOpenChange={setShowForm}>
-          <DialogContent
-            className={`${ds.card} max-w-lg max-h-[90vh] overflow-y-auto`}
-            dir="rtl"
-          >
+          <DialogContent className={ds.dialog} dir="rtl">
             <DialogHeader>
               <DialogTitle style={tajawal}>إضافة حلقة</DialogTitle>
               <DialogDescription style={tajawal}>

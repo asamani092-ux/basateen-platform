@@ -22,7 +22,7 @@ import {
   type AttendanceStatus,
 } from "../lib/student-attendance-db";
 
-const ADMIN_ROLES = ["admin_supervisor", "super_admin"] as const;
+const ADMIN_ROLES = ["super_admin"] as const;
 
 const STAGE_ID_TO_CIRCLE_STAGE: Record<number, string> = {
   1: "tlaqeen",
@@ -62,7 +62,7 @@ async function staffListSql(env: Env): Promise<{ sql: string; flat: boolean }> {
             LEFT JOIN staff_attendance sa
               ON sa.user_id = u.id AND sa.attendance_date = ? AND sa.complex_id = ?
             WHERE u.complex_id = ? AND u.is_active = 1
-              AND u.role IN ('super_admin','admin_supervisor','edu_supervisor','prog_supervisor','track_supervisor','teacher')
+              AND u.role IN ('super_admin','admin_supervisor','edu_supervisor','programs_supervisor','prog_supervisor','track_supervisor','teacher')
             ORDER BY u.full_name_ar`,
     };
   }
@@ -976,6 +976,98 @@ async function handleAdminDeptRouterImpl(
       items: history,
       stage_labels: STAGE_LABELS,
     });
+  }
+
+  // GET /api/admin-dept/reports/circle-discipline
+  if (request.method === "GET" && path === "/api/admin-dept/reports/circle-discipline") {
+    const startDate =
+      url.searchParams.get("startDate")?.trim() ||
+      url.searchParams.get("start_date")?.trim() ||
+      todayIso();
+    const endDate =
+      url.searchParams.get("endDate")?.trim() ||
+      url.searchParams.get("end_date")?.trim() ||
+      startDate;
+    const circleIdParam = url.searchParams.get("circle_id")?.trim();
+    const circleId = circleIdParam ? Number(circleIdParam) : null;
+    const attTable = await resolveAttendanceTableName(env);
+    if (!attTable) return json({ items: [] });
+
+    const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
+    const hasHistory = await hasTable(env, "student_circle_history");
+    const hasLegacyHistory =
+      hasHistory && (await tableHasColumn(env, "student_circle_history", "circle_id"));
+    const activePlacement = hasLegacyHistory ? await activePlacementSql(env, "h") : "1=0";
+    const circleExpr = hasCurrentCircle
+      ? "s.current_circle_id"
+      : hasLegacyHistory
+        ? "h.circle_id"
+        : "NULL";
+    const joinHistory =
+      !hasCurrentCircle && hasLegacyHistory
+        ? `LEFT JOIN student_circle_history h ON h.student_id = s.id AND ${activePlacement}`
+        : "";
+
+    let sql = `
+      WITH student_rows AS (
+        SELECT s.id AS student_id,
+               s.full_name_ar,
+               ${circleExpr} AS circle_id,
+               c.name_ar AS circle_name,
+               COUNT(sa.student_id) AS official_days,
+               SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) AS present_days
+        FROM students s
+        ${joinHistory}
+        LEFT JOIN circles c ON c.id = ${circleExpr}
+        LEFT JOIN ${attTable} sa
+          ON sa.student_id = s.id
+         AND sa.complex_id = s.complex_id
+         AND sa.attendance_date BETWEEN ? AND ?
+        WHERE s.complex_id = ? AND COALESCE(s.is_active, 1) = 1`;
+    const binds: (string | number)[] = [startDate, endDate, admin.complexId];
+    if (circleId != null && Number.isFinite(circleId) && circleId > 0) {
+      sql += ` AND ${circleExpr} = ?`;
+      binds.push(circleId);
+    }
+    sql += `
+        GROUP BY s.id, ${circleExpr}
+      ),
+      circle_rows AS (
+        SELECT circle_id,
+               SUM(official_days) AS circle_days,
+               SUM(present_days) AS circle_present
+        FROM student_rows
+        GROUP BY circle_id
+      )
+      SELECT sr.student_id,
+             sr.full_name_ar,
+             sr.circle_id,
+             sr.circle_name,
+             sr.official_days,
+             CASE WHEN sr.official_days > 0
+               THEN ROUND((sr.present_days * 100.0) / sr.official_days, 1)
+               ELSE 0 END AS discipline_pct,
+             CASE WHEN cr.circle_days > 0
+               THEN ROUND((cr.circle_present * 100.0) / cr.circle_days, 1)
+               ELSE 0 END AS circle_discipline_pct
+      FROM student_rows sr
+      LEFT JOIN circle_rows cr ON cr.circle_id IS sr.circle_id
+      WHERE sr.official_days > 0
+      ORDER BY sr.circle_name, sr.full_name_ar
+      LIMIT 500`;
+
+    const rows = await env.DB.prepare(sql)
+      .bind(...binds)
+      .all<{
+        student_id: number;
+        full_name_ar: string;
+        circle_id: number | null;
+        circle_name: string | null;
+        official_days: number;
+        discipline_pct: number;
+        circle_discipline_pct: number;
+      }>();
+    return json({ start_date: startDate, end_date: endDate, items: rows.results ?? [] });
   }
 
   // GET /api/admin-dept/students/search?q=

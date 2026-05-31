@@ -386,7 +386,7 @@ export function PledgesPage() {
       </Tabs>
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className={`${ds.card} max-w-lg rounded-2xl`} dir="rtl">
+        <DialogContent className={ds.dialog} dir="rtl">
           <DialogHeader>
             <DialogTitle style={tajawal}>تفاصيل التعهد</DialogTitle>
           </DialogHeader>
@@ -427,7 +427,7 @@ export function PledgesPage() {
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent
-          className={`${ds.card} max-w-md rounded-2xl border-border bg-card max-h-[min(90vh,640px)] overflow-y-auto`}
+          className={ds.dialog}
           dir="rtl"
           onOpenAutoFocus={(e) => {
             e.preventDefault();
@@ -477,6 +477,7 @@ export function PledgesPage() {
                 onChange={(e) => setReason(e.target.value)}
                 required
                 className={ds.btnRound}
+                style={tajawal}
               />
             </div>
             <Button

@@ -84,18 +84,9 @@ async function recomputeQuizPoints(env: Env, quizId: number): Promise<number> {
     .bind(quizId)
     .first<{ total: number }>();
   const total = Number(row?.total ?? 0);
-  const hasUpdated = await tableHasColumn(env, "quizzes", "updated_at");
-  if (hasUpdated) {
-    await env.DB.prepare(
-      `UPDATE quizzes SET total_points = ?, updated_at = datetime('now') WHERE id = ?`,
-    )
-      .bind(total, quizId)
-      .run();
-  } else {
-    await env.DB.prepare(`UPDATE quizzes SET total_points = ? WHERE id = ?`)
-      .bind(total, quizId)
-      .run();
-  }
+  await env.DB.prepare(`UPDATE quizzes SET total_points = ? WHERE id = ?`)
+    .bind(total, quizId)
+    .run();
   return total;
 }
 
@@ -230,26 +221,18 @@ function quizListScopeSql(
 
 async function markQuizPublished(env: Env, quizId: number): Promise<void> {
   const hasActive = await tableHasColumn(env, "quizzes", "is_active");
-  const hasUpdated = await tableHasColumn(env, "quizzes", "updated_at");
-  if (hasActive && hasUpdated) {
-    await env.DB.prepare(
-      `UPDATE quizzes SET status = 'published', is_active = 1, updated_at = datetime('now') WHERE id = ?`,
-    )
-      .bind(quizId)
-      .run();
-  } else if (hasActive) {
+  const hasStatus = await tableHasColumn(env, "quizzes", "status");
+  if (hasActive && hasStatus) {
     await env.DB.prepare(
       `UPDATE quizzes SET status = 'published', is_active = 1 WHERE id = ?`,
     )
       .bind(quizId)
       .run();
-  } else if (hasUpdated) {
-    await env.DB.prepare(
-      `UPDATE quizzes SET status = 'published', updated_at = datetime('now') WHERE id = ?`,
-    )
+  } else if (hasActive) {
+    await env.DB.prepare(`UPDATE quizzes SET is_active = 1 WHERE id = ?`)
       .bind(quizId)
       .run();
-  } else {
+  } else if (hasStatus) {
     await env.DB.prepare(`UPDATE quizzes SET status = 'published' WHERE id = ?`)
       .bind(quizId)
       .run();
@@ -314,6 +297,64 @@ async function insertQuizHeader(
     .run();
 
   return Number(ins.meta.last_row_id);
+}
+
+async function patchQuizRecord(
+  env: Env,
+  quizId: number,
+  complexId: number,
+  body: {
+    title_ar?: string;
+    access_code?: string | null;
+    show_score_instantly?: boolean;
+    custom_success_message?: string | null;
+    is_active?: number;
+  },
+): Promise<void> {
+  const sets: string[] = [];
+  const binds: (string | number | null)[] = [];
+
+  if (body.title_ar !== undefined) {
+    sets.push("title_ar = ?");
+    binds.push(body.title_ar.trim());
+  }
+  if (
+    (await tableHasColumn(env, "quizzes", "access_code")) &&
+    body.access_code !== undefined
+  ) {
+    sets.push("access_code = ?");
+    binds.push(body.access_code?.trim() || null);
+  }
+  if (
+    (await tableHasColumn(env, "quizzes", "show_score_instantly")) &&
+    body.show_score_instantly !== undefined
+  ) {
+    sets.push("show_score_instantly = ?");
+    binds.push(asSqliteBool(body.show_score_instantly, true));
+  }
+  if (
+    (await tableHasColumn(env, "quizzes", "custom_success_message")) &&
+    body.custom_success_message !== undefined
+  ) {
+    sets.push("custom_success_message = ?");
+    binds.push(body.custom_success_message?.trim() || null);
+  }
+  if (
+    (await tableHasColumn(env, "quizzes", "is_active")) &&
+    body.is_active !== undefined
+  ) {
+    sets.push("is_active = ?");
+    binds.push(asSqliteBool(body.is_active, true));
+  }
+
+  if (sets.length === 0) return;
+
+  binds.push(quizId, complexId);
+  await env.DB.prepare(
+    `UPDATE quizzes SET ${sets.join(", ")} WHERE id = ? AND complex_id = ?`,
+  )
+    .bind(...binds)
+    .run();
 }
 
 export async function handleProgSupervisorRouter(
@@ -528,8 +569,6 @@ export async function handleProgSupervisorRouter(
       let body: {
         title_ar?: string;
         access_code?: string | null;
-        status?: string;
-        stage_id?: number | null;
         show_score_instantly?: boolean;
         custom_success_message?: string | null;
         is_active?: number;
@@ -540,42 +579,13 @@ export async function handleProgSupervisorRouter(
         return json({ error: "invalid_json" }, 400);
       }
 
-      const showScore =
-        body.show_score_instantly === undefined
-          ? null
-          : body.show_score_instantly
-            ? 1
-            : 0;
-
-      await env.DB.prepare(
-        `UPDATE quizzes SET
-           title_ar = COALESCE(?, title_ar),
-           access_code = ?,
-           status = COALESCE(?, status),
-           stage_id = COALESCE(?, stage_id),
-           show_score_instantly = COALESCE(?, show_score_instantly),
-           custom_success_message = COALESCE(?, custom_success_message),
-           is_active = COALESCE(?, is_active),
-           updated_at = datetime('now')
-         WHERE id = ? AND complex_id = ?`,
-      )
-        .bind(
-          body.title_ar?.trim() ?? null,
-          body.access_code !== undefined ? body.access_code?.trim() || null : quiz.access_code,
-          body.status ?? null,
-          body.stage_id ?? null,
-          showScore,
-          body.custom_success_message !== undefined
-            ? body.custom_success_message?.trim() || null
-            : null,
-          body.is_active ?? null,
-          quizId,
-          auth.complexId,
-        )
-        .run();
-
-      await safeWriteProgAudit(env, auth.complexId, "quiz", quizId, "patch", auth.userId, body);
-      return json({ ok: true });
+      try {
+        await patchQuizRecord(env, quizId, auth.complexId, body);
+        await safeWriteProgAudit(env, auth.complexId, "quiz", quizId, "patch", auth.userId, body);
+        return json({ ok: true });
+      } catch (err) {
+        return criticalQuizError(err, "PATCH /api/prog-supervisor/quizzes/:id");
+      }
     }
 
     if (method === "DELETE") {

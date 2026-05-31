@@ -13,6 +13,7 @@ import {
 } from "../lib/admin-dept-schema";
 import { teachersListSql } from "../lib/admin-gm-schema";
 import { activePlacementSql, hasTable, tableHasColumn } from "../lib/db-schema";
+import { buildStudentPlacementSql } from "../lib/student-list-sql";
 import { STAGE_LABELS } from "../lib/dept-scope";
 import { randomMagicToken } from "../lib/magic-link";
 import { assignStudentCircle } from "../lib/placement";
@@ -425,39 +426,25 @@ async function handleAdminDeptRouterImpl(
       return json({ error: "migration_required", table: "student_attendance" }, 503);
     }
 
-    const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
-    const activeHist = await activePlacementSql(env, "h");
+    const placement = await buildStudentPlacementSql(env);
+    const isActiveExpr = (await tableHasColumn(env, "students", "is_active"))
+      ? "COALESCE(s.is_active, 1) = 1"
+      : "1=1";
 
-    let sql: string;
-    if (hasCurrentCircle) {
-      sql = `
+    let sql = `
       SELECT s.id AS student_id, s.full_name_ar, s.guardian_phone, s.stage_id,
              sa.status, c.id AS circle_id, c.name_ar AS circle_name
       FROM students s
       INNER JOIN ${attTable} sa
         ON sa.student_id = s.id AND sa.attendance_date = ?
-      LEFT JOIN circles c ON c.id = s.current_circle_id
-      WHERE s.complex_id = ? AND s.is_active = 1
+      ${placement.historyJoin}
+      ${placement.circleJoin}
+      WHERE s.complex_id = ? AND ${isActiveExpr}
         AND sa.status IN ('absent', 'excused')`;
-    } else {
-      sql = `
-      SELECT s.id AS student_id, s.full_name_ar, s.guardian_phone, s.stage_id,
-             sa.status, c.id AS circle_id, c.name_ar AS circle_name
-      FROM students s
-      INNER JOIN ${attTable} sa
-        ON sa.student_id = s.id AND sa.attendance_date = ?
-      INNER JOIN student_circle_history h
-        ON h.student_id = s.id AND ${activeHist}
-      LEFT JOIN circles c ON c.id = h.circle_id
-      WHERE s.complex_id = ? AND s.is_active = 1
-        AND sa.status IN ('absent', 'excused')`;
-    }
     const binds: (number | string)[] = [date, admin.complexId];
 
     if (circleId != null && Number.isFinite(circleId)) {
-      sql += hasCurrentCircle
-        ? ` AND s.current_circle_id = ?`
-        : ` AND h.circle_id = ?`;
+      sql += ` AND ${placement.circleRef} = ?`;
       binds.push(circleId);
     }
 
@@ -833,18 +820,46 @@ async function handleAdminDeptRouterImpl(
       }
     }
 
+    const circleIdParam = url.searchParams.get("circle_id")?.trim();
+    const trackIdParam = url.searchParams.get("track_id")?.trim();
+    const filterCircleId = circleIdParam ? Number(circleIdParam) : null;
+    const filterTrackId = trackIdParam ? Number(trackIdParam) : null;
+
     const attTable = await resolveAttendanceTableName(env);
     if (includeStudents && attTable) {
+      const placement = await buildStudentPlacementSql(env);
       let stuSql = `
         SELECT s.full_name_ar AS name, sa.attendance_date AS date, sa.status
         FROM ${attTable} sa
         JOIN students s ON s.id = sa.student_id
+        ${placement.historyJoin}
         WHERE sa.complex_id = ? AND sa.attendance_date BETWEEN ? AND ?
           AND COALESCE(s.is_active, 1) = 1`;
+      const stuBinds: (string | number)[] = [
+        admin.complexId,
+        startDate,
+        endDate,
+      ];
+      if (
+        filterCircleId != null &&
+        Number.isFinite(filterCircleId) &&
+        filterCircleId > 0
+      ) {
+        stuSql += ` AND ${placement.circleRef} = ?`;
+        stuBinds.push(filterCircleId);
+      }
+      if (
+        filterTrackId != null &&
+        Number.isFinite(filterTrackId) &&
+        filterTrackId > 0
+      ) {
+        stuSql += ` AND ${placement.trackRef} = ?`;
+        stuBinds.push(filterTrackId);
+      }
       if (absentOnly) stuSql += ` AND sa.status IN ('absent', 'excused')`;
       stuSql += ` ORDER BY sa.attendance_date DESC, s.full_name_ar`;
       const stuRows = await env.DB.prepare(stuSql)
-        .bind(admin.complexId, startDate, endDate)
+        .bind(...stuBinds)
         .all<{ name: string; date: string; status: string }>();
       for (const r of stuRows.results ?? []) {
         items.push({
@@ -989,24 +1004,14 @@ async function handleAdminDeptRouterImpl(
       url.searchParams.get("end_date")?.trim() ||
       startDate;
     const circleIdParam = url.searchParams.get("circle_id")?.trim();
+    const trackIdParam = url.searchParams.get("track_id")?.trim();
     const circleId = circleIdParam ? Number(circleIdParam) : null;
+    const trackId = trackIdParam ? Number(trackIdParam) : null;
     const attTable = await resolveAttendanceTableName(env);
     if (!attTable) return json({ items: [] });
 
-    const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
-    const hasHistory = await hasTable(env, "student_circle_history");
-    const hasLegacyHistory =
-      hasHistory && (await tableHasColumn(env, "student_circle_history", "circle_id"));
-    const activePlacement = hasLegacyHistory ? await activePlacementSql(env, "h") : "1=0";
-    const circleExpr = hasCurrentCircle
-      ? "s.current_circle_id"
-      : hasLegacyHistory
-        ? "h.circle_id"
-        : "NULL";
-    const joinHistory =
-      !hasCurrentCircle && hasLegacyHistory
-        ? `LEFT JOIN student_circle_history h ON h.student_id = s.id AND ${activePlacement}`
-        : "";
+    const placement = await buildStudentPlacementSql(env);
+    const circleExpr = placement.circleRef;
 
     let sql = `
       WITH student_rows AS (
@@ -1017,8 +1022,8 @@ async function handleAdminDeptRouterImpl(
                COUNT(sa.student_id) AS official_days,
                SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) AS present_days
         FROM students s
-        ${joinHistory}
-        LEFT JOIN circles c ON c.id = ${circleExpr}
+        ${placement.historyJoin}
+        ${placement.circleJoin}
         LEFT JOIN ${attTable} sa
           ON sa.student_id = s.id
          AND sa.complex_id = s.complex_id
@@ -1028,6 +1033,10 @@ async function handleAdminDeptRouterImpl(
     if (circleId != null && Number.isFinite(circleId) && circleId > 0) {
       sql += ` AND ${circleExpr} = ?`;
       binds.push(circleId);
+    }
+    if (trackId != null && Number.isFinite(trackId) && trackId > 0) {
+      sql += ` AND ${placement.trackRef} = ?`;
+      binds.push(trackId);
     }
     sql += `
         GROUP BY s.id, ${circleExpr}

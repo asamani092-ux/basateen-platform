@@ -58,7 +58,7 @@ function printPledgeForm(
     <style>
       body{font-family:Tajawal,sans-serif;padding:2rem;line-height:1.8;color:#111}
       .header{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #1e3a8a;padding-bottom:1rem;margin-bottom:1.5rem}
-      .header img{height:64px}
+      .header img{height:120px;max-width:280px;object-fit:contain}
       table{width:100%;border-collapse:collapse;margin:1.5rem 0}
       th,td{border:1px solid #ccc;padding:8px;text-align:right}
       th{background:#f1f5f9}

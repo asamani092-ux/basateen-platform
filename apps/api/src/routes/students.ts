@@ -1,6 +1,7 @@
 import type { Env } from "../types";
 import { ADMIN_DATA_ROLES } from "../lib/roles";
-import { activePlacementSql, hasTable, tableHasColumn } from "../lib/db-schema";
+import { hasTable, tableHasColumn } from "../lib/db-schema";
+import { buildStudentPlacementSql } from "../lib/student-list-sql";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 
 type StudentListRow = {
@@ -53,45 +54,16 @@ export async function handleStudentsList(
       Number(url.searchParams.get("limit") ?? defaultLimit),
       500,
     );
-    const hasHistory = await hasTable(env, "student_circle_history");
-    const hasCircles = await hasTable(env, "circles");
-    const hasTracks = await hasTable(env, "tracks");
     const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
-    const hasCurrentTrack = await tableHasColumn(env, "students", "current_track_id");
     const hasAdmissionStatus = await tableHasColumn(env, "students", "admission_status");
     const hasSupervisorScopes = await hasTable(env, "supervisor_scopes");
     const hasTeacherAssignments = await hasTable(env, "teacher_assignments");
-    const activePlacement = hasHistory ? await activePlacementSql(env, "h") : "1=0";
+    const placement = await buildStudentPlacementSql(env);
+    const { historyJoin, circleJoin, trackJoin, circleRef, historyCircleRef } =
+      placement;
     const isActiveExpr = (await tableHasColumn(env, "students", "is_active"))
       ? "COALESCE(s.is_active, 1) = 1"
       : "1=1";
-    const historyJoin = hasHistory
-      ? `LEFT JOIN student_circle_history h
-           ON h.student_id = s.id AND ${activePlacement}`
-      : "";
-    const circleIdExpr =
-      hasCurrentCircle && hasHistory
-        ? "COALESCE(s.current_circle_id, h.circle_id)"
-        : hasCurrentCircle
-          ? "s.current_circle_id"
-          : hasHistory
-            ? "h.circle_id"
-            : "NULL";
-    const trackIdExpr =
-      hasCurrentTrack && hasHistory
-        ? "COALESCE(s.current_track_id, h.track_id)"
-        : hasCurrentTrack
-          ? "s.current_track_id"
-          : hasHistory
-            ? "h.track_id"
-            : "NULL";
-    const circleJoin = hasCircles
-      ? `LEFT JOIN circles c ON c.id = ${circleIdExpr}`
-      : `LEFT JOIN (SELECT NULL AS id, NULL AS name_ar, NULL AS track_id) c ON 1 = 0`;
-    const trackJoin = hasTracks
-      ? `LEFT JOIN tracks t ON t.id = ${trackIdExpr}`
-      : `LEFT JOIN (SELECT NULL AS id, NULL AS name_ar) t ON 1 = 0`;
-    const circleRef = circleIdExpr;
 
     let sql = `
     SELECT
@@ -145,7 +117,7 @@ export async function handleStudentsList(
             binds.push(...ids);
           }
         }
-      } else if (hasHistory && hasSupervisorScopes) {
+      } else if (hasSupervisorScopes) {
         const scopeRow = await env.DB.prepare(
           `SELECT supervisor_scope FROM users WHERE id = ?`,
         )
@@ -159,9 +131,9 @@ export async function handleStudentsList(
               `s.current_circle_id IN (SELECT circle_id FROM supervisor_scopes WHERE user_id = ?)`,
             );
           }
-          if (hasHistory) {
+          if (historyCircleRef) {
             scopeParts.push(
-              `h.circle_id IN (SELECT circle_id FROM supervisor_scopes WHERE user_id = ?)`,
+              `${historyCircleRef} IN (SELECT circle_id FROM supervisor_scopes WHERE user_id = ?)`,
             );
           }
           if (scopeParts.length > 0) {

@@ -43,6 +43,7 @@ import {
 import {
   api,
   type AdminCircleRow,
+  type AdminTrackRow,
   type StaffSupervisorRow,
   type StaffTeacherRow,
 } from "../../lib/api-client";
@@ -105,12 +106,14 @@ export function StaffManagementPage() {
 function TeachersPanel() {
   const [items, setItems] = useState<StaffTeacherRow[]>([]);
   const [circles, setCircles] = useState<AdminCircleRow[]>([]);
+  const [tracks, setTracks] = useState<AdminTrackRow[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [editTeacher, setEditTeacher] = useState<StaffTeacherRow | null>(null);
   const [actionTeacher, setActionTeacher] = useState<StaffTeacherRow | null>(null);
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
   const [circleId, setCircleId] = useState("");
+  const [trackId, setTrackId] = useState("");
   const [staffRole, setStaffRole] = useState<string>(CIRCLE_STAFF_TYPES[0].value);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -125,12 +128,14 @@ function TeachersPanel() {
     }
     setLoading(true);
     try {
-      const [t, c] = await Promise.all([
+      const [t, c, tr] = await Promise.all([
         api.adminTeachers(),
         api.adminCirclesSummary(),
+        api.adminTracks(),
       ]);
       setItems(t.items);
       setCircles(c.items.filter((x) => x.is_active));
+      setTracks(tr.items.filter((x) => x.is_active));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل التحميل");
@@ -143,9 +148,19 @@ function TeachersPanel() {
     load();
   }, [load]);
 
+  const isTrackStaff = staffRole === "track_supervisor";
+  const circlesForTrack = trackId
+    ? circles.filter((c) => c.track_id === Number(trackId))
+    : circles;
+
   async function submitAdd(e: React.FormEvent) {
     e.preventDefault();
-    if (!circleId) {
+    if (isTrackStaff) {
+      if (!trackId) {
+        setError("اختر مساراً لمشرف المسار");
+        return;
+      }
+    } else if (!circleId) {
       setError("اختر حلقة للمعلم");
       return;
     }
@@ -155,13 +170,16 @@ function TeachersPanel() {
       await api.adminTeachersCreate({
         full_name_ar: name.trim(),
         mobile: mobile.trim(),
-        circle_id: Number(circleId),
-        role: staffRole === "track_supervisor" ? "track_supervisor" : "teacher",
+        role: isTrackStaff ? "track_supervisor" : "teacher",
+        ...(isTrackStaff
+          ? { track_id: Number(trackId), circle_id: circleId ? Number(circleId) : undefined }
+          : { circle_id: Number(circleId) }),
       });
       setAddOpen(false);
       setName("");
       setMobile("");
       setCircleId("");
+      setTrackId("");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "فشل الحفظ");
@@ -229,7 +247,11 @@ function TeachersPanel() {
                 </label>
                 <select
                   value={staffRole}
-                  onChange={(e) => setStaffRole(e.target.value)}
+                  onChange={(e) => {
+                    setStaffRole(e.target.value);
+                    setCircleId("");
+                    setTrackId("");
+                  }}
                   className={ds.select}
                   style={tajawal}
                 >
@@ -240,19 +262,45 @@ function TeachersPanel() {
                   ))}
                 </select>
               </div>
+              {isTrackStaff ? (
+                <div>
+                  <label className="block text-sm font-semibold mb-1" style={tajawal}>
+                    المسار *
+                  </label>
+                  <select
+                    value={trackId}
+                    onChange={(e) => {
+                      setTrackId(e.target.value);
+                      setCircleId("");
+                    }}
+                    required
+                    className={ds.select}
+                    style={tajawal}
+                  >
+                    <option value="">— اختر المسار —</option>
+                    {tracks.map((tr) => (
+                      <option key={tr.id} value={String(tr.id)}>
+                        {tr.name_ar}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
               <div>
                 <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                  الحلقة *
+                  {isTrackStaff ? "حلقة ضمن المسار (اختياري)" : "الحلقة *"}
                 </label>
                 <select
                   value={circleId}
                   onChange={(e) => setCircleId(e.target.value)}
-                  required
+                  required={!isTrackStaff}
                   className={ds.select}
                   style={tajawal}
                 >
-                  <option value="">— اختر الحلقة —</option>
-                  {circles.map((c) => (
+                  <option value="">
+                    {isTrackStaff ? "— كل حلقات المسار —" : "— اختر الحلقة —"}
+                  </option>
+                  {(isTrackStaff ? circlesForTrack : circles).map((c) => (
                     <option key={c.id} value={String(c.id)}>
                       {c.name_ar} ({c.student_count}/{c.default_capacity})
                     </option>
@@ -454,6 +502,7 @@ function TeacherEditDialog({
 function SupervisorsPanel() {
   const [items, setItems] = useState<StaffSupervisorRow[]>([]);
   const [circles, setCircles] = useState<AdminCircleRow[]>([]);
+  const [tracks, setTracks] = useState<AdminTrackRow[]>([]);
   const [addOpen, setAddOpen] = useState(false);
   const [editSupervisor, setEditSupervisor] = useState<StaffSupervisorRow | null>(null);
   const [actionSupervisor, setActionSupervisor] = useState<StaffSupervisorRow | null>(
@@ -463,7 +512,7 @@ function SupervisorsPanel() {
   const [mobile, setMobile] = useState("");
   const [roleType, setRoleType] = useState(SUPERVISOR_TYPES[0].value);
   const [scope, setScope] = useState<string>(SCOPE_GLOBAL);
-  const [trackCircleId, setTrackCircleId] = useState("");
+  const [trackId, setTrackId] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -477,9 +526,10 @@ function SupervisorsPanel() {
     }
     setLoading(true);
     try {
-      const [res, circlesRes] = await Promise.all([
+      const [res, circlesRes, tracksRes] = await Promise.all([
         api.adminSupervisors(),
         api.adminCirclesSummary(),
+        api.adminTracks(),
       ]);
       setItems(
         res.items.filter(
@@ -487,6 +537,7 @@ function SupervisorsPanel() {
         ),
       );
       setCircles(circlesRes.items.filter((x) => x.is_active));
+      setTracks(tracksRes.items.filter((x) => x.is_active));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل التحميل");
@@ -504,8 +555,8 @@ function SupervisorsPanel() {
     setSaving(true);
     setError(null);
     try {
-      if (roleType === "track_supervisor" && !trackCircleId) {
-        setError("اختر الحلقة لمشرف المسار");
+      if (roleType === "track_supervisor" && !trackId) {
+        setError("اختر المسار لمشرف المسار");
         setSaving(false);
         return;
       }
@@ -514,8 +565,7 @@ function SupervisorsPanel() {
         mobile: mobile.trim(),
         role: roleType,
         supervisor_scope: roleType === "track_supervisor" ? SCOPE_GLOBAL : scope,
-        circle_id:
-          roleType === "track_supervisor" ? Number(trackCircleId) : undefined,
+        track_id: roleType === "track_supervisor" ? Number(trackId) : undefined,
       });
       setAddOpen(false);
       setName("");
@@ -584,7 +634,10 @@ function SupervisorsPanel() {
                 </label>
                 <select
                   value={roleType}
-                  onChange={(e) => setRoleType(e.target.value)}
+                  onChange={(e) => {
+                    setRoleType(e.target.value);
+                    setTrackId("");
+                  }}
                   className={ds.select}
                   style={tajawal}
                 >
@@ -598,19 +651,19 @@ function SupervisorsPanel() {
               {roleType === "track_supervisor" ? (
                 <div>
                   <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                    الحلقة *
+                    المسار *
                   </label>
                   <select
-                    value={trackCircleId}
-                    onChange={(e) => setTrackCircleId(e.target.value)}
+                    value={trackId}
+                    onChange={(e) => setTrackId(e.target.value)}
                     className={ds.select}
                     style={tajawal}
                     required
                   >
-                    <option value="">— اختر الحلقة —</option>
-                    {circles.map((c) => (
-                      <option key={c.id} value={String(c.id)}>
-                        {c.name_ar}
+                    <option value="">— اختر المسار —</option>
+                    {tracks.map((tr) => (
+                      <option key={tr.id} value={String(tr.id)}>
+                        {tr.name_ar}
                       </option>
                     ))}
                   </select>

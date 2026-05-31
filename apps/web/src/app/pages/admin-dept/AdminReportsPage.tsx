@@ -212,6 +212,14 @@ export function AdminReportsPage() {
     ReturnType<typeof api.adminDeptStudentAttendanceReport>
   > | null>(null);
   const [studentLoading, setStudentLoading] = useState(false);
+  const [circles, setCircles] = useState<
+    Awaited<ReturnType<typeof api.adminCirclesSummary>>["items"]
+  >([]);
+  const [tracks, setTracks] = useState<
+    Awaited<ReturnType<typeof api.adminTracks>>["items"]
+  >([]);
+  const [filterCircleId, setFilterCircleId] = useState<string>("all");
+  const [filterTrackId, setFilterTrackId] = useState<string>("all");
 
   const { startDate, endDate } = useMemo(() => {
     if (preset === "custom") {
@@ -229,6 +237,30 @@ export function AdminReportsPage() {
     [items],
   );
 
+  useEffect(() => {
+    if (!canUseApi()) return;
+    void (async () => {
+      try {
+        const [c, t] = await Promise.all([
+          api.adminCirclesSummary(),
+          api.adminTracks(),
+        ]);
+        setCircles(c.items.filter((x) => x.is_active));
+        setTracks(t.items.filter((x) => x.is_active));
+      } catch {
+        setCircles([]);
+        setTracks([]);
+      }
+    })();
+  }, []);
+
+  const scopeParams = useMemo(() => {
+    const p: { circle_id?: number; track_id?: number } = {};
+    if (filterCircleId !== "all") p.circle_id = Number(filterCircleId);
+    if (filterTrackId !== "all") p.track_id = Number(filterTrackId);
+    return p;
+  }, [filterCircleId, filterTrackId]);
+
   const loadCore = useCallback(async () => {
     if (!canUseApi()) {
       setError("أعد تسجيل الدخول");
@@ -242,6 +274,7 @@ export function AdminReportsPage() {
         endDate,
         status: statusFilter,
         type: "all",
+        ...scopeParams,
       });
       setSummary({ ...emptySummary, ...res.summary });
       setItems(res.items ?? []);
@@ -251,7 +284,7 @@ export function AdminReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, [startDate, endDate, statusFilter]);
+  }, [startDate, endDate, statusFilter, scopeParams]);
 
   const loadDiscipline = useCallback(async () => {
     if (!canUseApi()) return;
@@ -261,6 +294,7 @@ export function AdminReportsPage() {
       const discipline = await api.adminDeptCircleDisciplineReport({
         startDate,
         endDate,
+        ...scopeParams,
       });
       setDisciplineRows(discipline.items ?? []);
     } catch (e) {
@@ -269,7 +303,7 @@ export function AdminReportsPage() {
     } finally {
       setDisciplineLoading(false);
     }
-  }, [startDate, endDate]);
+  }, [startDate, endDate, scopeParams]);
 
   useEffect(() => {
     void loadCore();
@@ -375,6 +409,41 @@ export function AdminReportsPage() {
               </div>
             </div>
 
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label style={tajawal}>حلقة (تفصيلي)</Label>
+                <Select value={filterCircleId} onValueChange={setFilterCircleId}>
+                  <SelectTrigger className={ds.btnRound}>
+                    <SelectValue placeholder="كل الحلقات" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">كل الحلقات</SelectItem>
+                    {circles.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        {c.name_ar}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label style={tajawal}>مسار (تفصيلي)</Label>
+                <Select value={filterTrackId} onValueChange={setFilterTrackId}>
+                  <SelectTrigger className={ds.btnRound}>
+                    <SelectValue placeholder="كل المسارات" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">كل المسارات</SelectItem>
+                    {tracks.map((tr) => (
+                      <SelectItem key={tr.id} value={String(tr.id)}>
+                        {tr.name_ar}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
             {preset === "custom" && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -473,14 +542,20 @@ export function AdminReportsPage() {
           <img
             src="/logo-light.png"
             alt="شعار مجمع البساتين"
-            className="h-16 mx-auto mb-3 object-contain print:block"
+            className="h-24 mx-auto mb-3 object-contain print:block"
           />
           <h1 className="text-2xl font-bold print:text-black" style={tajawal}>
             تقرير القسم الإداري — مجمع البساتين
           </h1>
-          <p className="text-sm text-muted-foreground mt-1" style={tajawal}>
+          <p className="text-sm text-muted-foreground mt-1 print:text-black" style={tajawal}>
             {activeMeta?.title ?? "تقرير"} — من {startDate} إلى {endDate}
             {statusFilter === "absent_only" ? " — الغائبون فقط" : ""}
+            {filterCircleId !== "all"
+              ? ` — حلقة: ${circles.find((c) => String(c.id) === filterCircleId)?.name_ar ?? filterCircleId}`
+              : ""}
+            {filterTrackId !== "all"
+              ? ` — مسار: ${tracks.find((t) => String(t.id) === filterTrackId)?.name_ar ?? filterTrackId}`
+              : ""}
           </p>
         </div>
 

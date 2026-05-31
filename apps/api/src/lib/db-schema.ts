@@ -46,3 +46,39 @@ export async function activePlacementSql(
   const p = `${alias}.to_at IS NULL`;
   return hasFrozen ? `${p} AND ${alias}.frozen_at IS NULL` : p;
 }
+
+/** Legacy placement row uses circle_id; v25 archive log uses new_circle_id only. */
+export async function historyCircleColumn(
+  env: Env,
+  alias = "h",
+): Promise<string | null> {
+  if (!(await hasTable(env, "student_circle_history"))) return null;
+  if (await tableHasColumn(env, "student_circle_history", "circle_id")) {
+    return `${alias}.circle_id`;
+  }
+  if (await tableHasColumn(env, "student_circle_history", "new_circle_id")) {
+    return `${alias}.new_circle_id`;
+  }
+  return null;
+}
+
+export async function historyTrackColumn(
+  env: Env,
+  alias = "h",
+): Promise<string | null> {
+  if (!(await hasTable(env, "student_circle_history"))) return null;
+  if (await tableHasColumn(env, "student_circle_history", "track_id")) {
+    return `${alias}.track_id`;
+  }
+  if (await tableHasColumn(env, "student_circle_history", "new_track_id")) {
+    return `${alias}.new_track_id`;
+  }
+  return null;
+}
+
+/** Join history only when it represents current placement (legacy schema). */
+export async function canJoinStudentHistoryForPlacement(env: Env): Promise<boolean> {
+  const circleCol = await historyCircleColumn(env, "h");
+  if (!circleCol) return false;
+  return tableHasColumn(env, "student_circle_history", "to_at");
+}

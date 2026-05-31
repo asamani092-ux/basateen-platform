@@ -50,6 +50,54 @@ function emailForMobile(mobile: string, role: string): string {
   return `${role}-${clean}@basateen.local`;
 }
 
+/** O(k) — k = حلقات المسار؛ ربط المستخدم بكل حلقات المسار */
+async function assignUserToTrackCircles(
+  env: Env,
+  userId: number,
+  trackId: number,
+  complexId: number,
+): Promise<void> {
+  if (!(await hasTable(env, "teacher_assignments"))) return;
+
+  const hasCircleTrack = await tableHasColumn(env, "circles", "track_id");
+  const hasTrackCircles = await hasTable(env, "track_circles");
+  let circleSql = `SELECT id FROM circles WHERE complex_id = ? AND COALESCE(is_active, 1) = 1 AND (`;
+  const parts: string[] = [];
+  if (hasCircleTrack) parts.push(`track_id = ?`);
+  if (hasTrackCircles) parts.push(`id IN (SELECT circle_id FROM track_circles WHERE track_id = ?)`);
+  if (parts.length === 0) return;
+  circleSql += parts.join(" OR ") + ")";
+  const circleBinds: number[] = [complexId];
+  for (let i = 0; i < parts.length; i++) circleBinds.push(trackId);
+
+  const circles = await env.DB.prepare(circleSql)
+    .bind(...circleBinds)
+    .all<{ id: number }>();
+
+  await env.DB.prepare(`DELETE FROM teacher_assignments WHERE user_id = ?`)
+    .bind(userId)
+    .run();
+
+  for (const c of circles.results ?? []) {
+    await env.DB.prepare(`DELETE FROM teacher_assignments WHERE circle_id = ?`)
+      .bind(c.id)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO teacher_assignments (user_id, circle_id) VALUES (?, ?)`,
+    )
+      .bind(userId, c.id)
+      .run();
+  }
+
+  if (await tableHasColumn(env, "tracks", "supervisor_id")) {
+    await env.DB.prepare(
+      `UPDATE tracks SET supervisor_id = ? WHERE id = ? AND complex_id = ?`,
+    )
+      .bind(userId, trackId, complexId)
+      .run();
+  }
+}
+
 /** أدوار المشرفين المسموح إنشاؤها/تعديلها (v3.2 — خمسة أدوار تشغيلية) */
 const SUPERVISOR_INPUT_ROLES = [
   "edu_supervisor",
@@ -219,6 +267,7 @@ export async function handleAdminTeachersCreate(
     full_name_ar?: string;
     mobile?: string;
     circle_id?: number;
+    track_id?: number;
     role?: string;
   };
   try {
@@ -230,20 +279,39 @@ export async function handleAdminTeachersCreate(
   if (!body.full_name_ar?.trim() || !body.mobile?.trim()) {
     return json({ error: "name_and_mobile_required" }, 400);
   }
-  const circleId = Number(body.circle_id);
-  if (!Number.isFinite(circleId) || circleId <= 0) {
-    return json({ error: "circle_id_required" }, 400);
-  }
   const staffRole =
     body.role === "track_supervisor" ? "track_supervisor" : "teacher";
+  const trackId = Number(body.track_id);
+  const circleId = Number(body.circle_id);
+  const useTrack =
+    staffRole === "track_supervisor" &&
+    Number.isFinite(trackId) &&
+    trackId > 0;
 
-  const circle = await env.DB.prepare(
-    `SELECT id FROM circles WHERE id = ? AND complex_id = ? AND is_active = 1`,
-  )
-    .bind(circleId, auth!.complexId)
-    .first();
-
-  if (!circle) return json({ error: "circle_not_found" }, 404);
+  if (!useTrack && (!Number.isFinite(circleId) || circleId <= 0)) {
+    return json(
+      {
+        error:
+          staffRole === "track_supervisor" ? "track_id_required" : "circle_id_required",
+      },
+      400,
+    );
+  }
+  if (useTrack) {
+    const track = await env.DB.prepare(
+      `SELECT id FROM tracks WHERE id = ? AND complex_id = ? AND COALESCE(is_active, 1) = 1`,
+    )
+      .bind(trackId, auth!.complexId)
+      .first();
+    if (!track) return json({ error: "track_not_found" }, 404);
+  } else {
+    const circle = await env.DB.prepare(
+      `SELECT id FROM circles WHERE id = ? AND complex_id = ? AND is_active = 1`,
+    )
+      .bind(circleId, auth!.complexId)
+      .first();
+    if (!circle) return json({ error: "circle_not_found" }, 404);
+  }
 
   const mobile = body.mobile.trim();
   const existing = await env.DB.prepare(
@@ -275,14 +343,18 @@ export async function handleAdminTeachersCreate(
     .bind(userId)
     .run();
 
-  await env.DB.prepare(`DELETE FROM teacher_assignments WHERE circle_id = ?`)
-    .bind(circleId)
-    .run();
-  await env.DB.prepare(
-    `INSERT INTO teacher_assignments (user_id, circle_id) VALUES (?, ?)`,
-  )
-    .bind(userId, circleId)
-    .run();
+  if (useTrack) {
+    await assignUserToTrackCircles(env, userId, trackId, auth!.complexId);
+  } else {
+    await env.DB.prepare(`DELETE FROM teacher_assignments WHERE circle_id = ?`)
+      .bind(circleId)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO teacher_assignments (user_id, circle_id) VALUES (?, ?)`,
+    )
+      .bind(userId, circleId)
+      .run();
+  }
 
   return json({ ok: true, id: userId });
 }
@@ -343,6 +415,7 @@ export async function handleAdminSupervisorsCreate(
     role?: UserRole;
     supervisor_scope?: string;
     circle_id?: number;
+    track_id?: number;
   };
   try {
     body = await request.json();
@@ -376,25 +449,35 @@ export async function handleAdminSupervisorsCreate(
   await syncSupervisorSections(env, userId, role);
 
   if (dbRole === "track_supervisor") {
+    const trackId = Number(body.track_id);
     const circleId = Number(body.circle_id);
-    if (!Number.isFinite(circleId) || circleId <= 0) {
-      return json({ error: "circle_id_required" }, 400);
-    }
-    const circle = await env.DB.prepare(
-      `SELECT id FROM circles WHERE id = ? AND complex_id = ? AND is_active = 1`,
-    )
-      .bind(circleId, auth!.complexId)
-      .first();
-    if (!circle) return json({ error: "circle_not_found" }, 404);
-    if (await hasTable(env, "teacher_assignments")) {
-      await env.DB.prepare(`DELETE FROM teacher_assignments WHERE user_id = ?`)
-        .bind(userId)
-        .run();
-      await env.DB.prepare(
-        `INSERT INTO teacher_assignments (user_id, circle_id) VALUES (?, ?)`,
+    if (Number.isFinite(trackId) && trackId > 0) {
+      const track = await env.DB.prepare(
+        `SELECT id FROM tracks WHERE id = ? AND complex_id = ? AND COALESCE(is_active, 1) = 1`,
       )
-        .bind(userId, circleId)
-        .run();
+        .bind(trackId, auth!.complexId)
+        .first();
+      if (!track) return json({ error: "track_not_found" }, 404);
+      await assignUserToTrackCircles(env, userId, trackId, auth!.complexId);
+    } else if (Number.isFinite(circleId) && circleId > 0) {
+      const circle = await env.DB.prepare(
+        `SELECT id FROM circles WHERE id = ? AND complex_id = ? AND is_active = 1`,
+      )
+        .bind(circleId, auth!.complexId)
+        .first();
+      if (!circle) return json({ error: "circle_not_found" }, 404);
+      if (await hasTable(env, "teacher_assignments")) {
+        await env.DB.prepare(`DELETE FROM teacher_assignments WHERE user_id = ?`)
+          .bind(userId)
+          .run();
+        await env.DB.prepare(
+          `INSERT INTO teacher_assignments (user_id, circle_id) VALUES (?, ?)`,
+        )
+          .bind(userId, circleId)
+          .run();
+      }
+    } else {
+      return json({ error: "track_id_required" }, 400);
     }
   }
 

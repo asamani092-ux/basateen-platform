@@ -111,18 +111,21 @@ export async function syncStudentPlacementColumns(
   trackId: number | null,
   stageId?: number,
 ): Promise<void> {
-  if (await tableHasColumn(env, "students", "current_circle_id")) {
-    const sets = ["current_circle_id = ?", "current_track_id = ?"];
-    const binds: (number | null)[] = [circleId, trackId];
-    if (stageId != null && (await tableHasColumn(env, "students", "stage_id"))) {
-      sets.push("stage_id = ?");
-      binds.push(stageId);
-    }
-    binds.push(studentId);
-    await env.DB.prepare(
-      `UPDATE students SET ${sets.join(", ")} WHERE id = ?`,
-    )
-      .bind(...binds)
-      .run();
+  if (!(await tableHasColumn(env, "students", "current_circle_id"))) {
+    return;
   }
+  const sets = ["current_circle_id = ?"];
+  const binds: (number | null)[] = [circleId];
+  if (await tableHasColumn(env, "students", "current_track_id")) {
+    sets.push("current_track_id = ?");
+    binds.push(trackId);
+  }
+  if (stageId != null && (await tableHasColumn(env, "students", "stage_id"))) {
+    sets.push("stage_id = ?");
+    binds.push(stageId);
+  }
+  binds.push(studentId);
+  await env.DB.prepare(`UPDATE students SET ${sets.join(", ")} WHERE id = ?`)
+    .bind(...binds)
+    .run();
 }

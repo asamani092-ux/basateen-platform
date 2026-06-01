@@ -38,7 +38,6 @@ import { PublicMagicLinkPage } from "./pages/public/PublicMagicLinkPage";
 import { StaffAttendancePage } from "./pages/admin-dept/StaffAttendancePage";
 import { StudentDailyAttendancePage } from "./pages/admin-dept/StudentDailyAttendancePage";
 import { AbsentWhatsappPage } from "./pages/admin-dept/AbsentWhatsappPage";
-import { AdmissionPage } from "./pages/admin-dept/AdmissionPage";
 import { PledgesPage } from "./pages/admin-dept/PledgesPage";
 import { AdminReportsPage } from "./pages/admin-dept/AdminReportsPage";
 import { MagicLinksManagerPage } from "./pages/admin-dept/MagicLinksManagerPage";
@@ -105,7 +104,10 @@ export default function App() {
               <Route path="admin-dept/staff-attendance" element={<StaffAttendancePage />} />
               <Route path="admin-dept/student-attendance" element={<StudentDailyAttendancePage />} />
               <Route path="admin-dept/absent-whatsapp" element={<AbsentWhatsappPage />} />
-              <Route path="admin-dept/admissions" element={<AdmissionPage />} />
+              <Route
+                path="admin-dept/admissions"
+                element={<Navigate to="/admin-dept/students" replace />}
+              />
               <Route path="admin-dept/pledges" element={<PledgesPage />} />
               <Route path="admin-dept/reports" element={<AdminReportsPage />} />
               <Route path="admin-dept/magic-links" element={<MagicLinksManagerPage />} />

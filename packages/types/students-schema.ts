@@ -44,14 +44,22 @@ export const studentCreateBodySchema = z
   .object({
     full_name_ar: requiredText,
     national_id: requiredText,
-    nationality: requiredText,
+    nationality: z
+      .union([z.string(), z.number(), z.null(), z.undefined()])
+      .transform((v) => {
+        const s = v == null ? "" : String(v).trim();
+        return s.length > 0 ? s : "سعودي";
+      }),
     phone: requiredText,
     guardian_phone: requiredText,
     school_name: optionalText.optional(),
     school_grade: optionalText.optional(),
     memorization_amount: optionalText.optional(),
     guardian_national_id: optionalText.optional(),
+    guardian_work: optionalText.optional(),
     health_notes: optionalText.optional(),
+    stage_id: z.unknown().optional(),
+    age: z.unknown().optional(),
   })
   .merge(placementFields)
   .transform((body) => {
@@ -78,17 +86,27 @@ export const studentCreateBodySchema = z
       }
     }
 
+    const stage_id = parsePositiveIntField(body.stage_id);
+    let age: number | null = null;
+    if (body.age != null && body.age !== "") {
+      const n = Math.trunc(Number(body.age));
+      if (Number.isFinite(n) && n >= 4 && n <= 25) age = n;
+    }
+
     return {
       full_name_ar: body.full_name_ar,
       national_id: body.national_id,
-      nationality: body.nationality || "سعودي",
+      nationality: body.nationality,
       phone: body.phone,
       guardian_phone: body.guardian_phone,
       school_name: body.school_name ?? null,
       school_grade: body.school_grade ?? null,
       memorization_amount: body.memorization_amount ?? null,
       guardian_national_id: body.guardian_national_id ?? null,
+      guardian_work: body.guardian_work ?? null,
       health_notes: body.health_notes ?? null,
+      stage_id,
+      age,
       circle_id,
       track_id,
     };

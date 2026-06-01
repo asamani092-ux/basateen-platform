@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Search } from "lucide-react";
 import {
@@ -15,6 +15,10 @@ import {
 } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
+import {
+  StudentUnifiedSingleForm,
+  type StudentUnifiedFormValues,
+} from "../../components/admin/StudentUnifiedSingleForm";
 import {
   Card,
   CardContent,
@@ -323,28 +327,8 @@ function StudentAddDialog({
   const [parsedCount, setParsedCount] = useState(0);
   const [bulkLoading, setBulkLoading] = useState(false);
 
-  const [name, setName] = useState("");
-  const [nationalId, setNationalId] = useState("");
-  const [nationality, setNationality] = useState("سعودي");
-  const [phone, setPhone] = useState("");
-  const [guardianPhone, setGuardianPhone] = useState("");
-  const [school, setSchool] = useState("");
-  const [grade, setGrade] = useState("");
-  const [memorization, setMemorization] = useState("");
-  const [guardianNationalId, setGuardianNationalId] = useState("");
-  const [placement, setPlacement] = useState("");
-  const [healthNotes, setHealthNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-
-  const groupOptions = useMemo(
-    () =>
-      groups.map((g) => ({
-        value: `${g.entity_type}:${g.id}`,
-        label: `${g.name_ar} (${g.entity_type === "circle" ? "حلقة" : "مسار"})`,
-      })),
-    [groups],
-  );
 
   useEffect(() => {
     if (!open) return;
@@ -352,17 +336,6 @@ function StudentAddDialog({
     setImportFile(null);
     setParsedCount(0);
     setFormError(null);
-    setName("");
-    setNationalId("");
-    setNationality("سعودي");
-    setPhone("");
-    setGuardianPhone("");
-    setSchool("");
-    setGrade("");
-    setMemorization("");
-    setGuardianNationalId("");
-    setPlacement("");
-    setHealthNotes("");
   }, [open]);
 
   async function onFileSelected(file: File | null) {
@@ -382,22 +355,9 @@ function StudentAddDialog({
     }
   }
 
-  async function submitSingle(e: React.FormEvent) {
-    e.preventDefault();
+  async function submitSingle(values: StudentUnifiedFormValues) {
     setFormError(null);
-    const validated = validateStudentCreateForm({
-      full_name_ar: name,
-      national_id: nationalId,
-      nationality,
-      phone,
-      guardian_phone: guardianPhone,
-      school_name: school,
-      school_grade: grade,
-      memorization_amount: memorization,
-      guardian_national_id: guardianNationalId,
-      health_notes: healthNotes,
-      placement,
-    });
+    const validated = validateStudentCreateForm(values);
     if (!validated.success) {
       setFormError("تحقق من الحقول الإلزامية والحلقة/المسار");
       return;
@@ -469,84 +429,11 @@ function StudentAddDialog({
           </TabsList>
 
           <TabsContent value="single" className="mt-4">
-            <form onSubmit={submitSingle} className="grid gap-3">
-              <div>
-                <Label style={tajawal}>الاسم الرباعي *</Label>
-                <Input value={name} onChange={(e) => setName(e.target.value)} required />
-              </div>
-              <div>
-                <Label style={tajawal}>رقم الهوية *</Label>
-                <Input value={nationalId} onChange={(e) => setNationalId(e.target.value)} required />
-              </div>
-              <div>
-                <Label style={tajawal}>الجنسية *</Label>
-                <Input value={nationality} onChange={(e) => setNationality(e.target.value)} required />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label style={tajawal}>جوال الطالب *</Label>
-                  <Input value={phone} onChange={(e) => setPhone(e.target.value)} required />
-                </div>
-                <div>
-                  <Label style={tajawal}>جوال ولي الأمر *</Label>
-                  <Input
-                    value={guardianPhone}
-                    onChange={(e) => setGuardianPhone(e.target.value)}
-                    required
-                  />
-                </div>
-              </div>
-              <div>
-                <Label style={tajawal}>الحلقة / المسار *</Label>
-                <select
-                  value={placement}
-                  onChange={(e) => setPlacement(e.target.value)}
-                  className={ds.select}
-                  style={tajawal}
-                  required
-                >
-                  <option value="">— اختر —</option>
-                  {groupOptions.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label style={tajawal}>المدرسة</Label>
-                  <Input value={school} onChange={(e) => setSchool(e.target.value)} />
-                </div>
-                <div>
-                  <Label style={tajawal}>الصف</Label>
-                  <Input value={grade} onChange={(e) => setGrade(e.target.value)} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label style={tajawal}>مقدار الحفظ</Label>
-                  <Input
-                    value={memorization}
-                    onChange={(e) => setMemorization(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <Label style={tajawal}>هوية ولي الأمر</Label>
-                  <Input
-                    value={guardianNationalId}
-                    onChange={(e) => setGuardianNationalId(e.target.value)}
-                  />
-                </div>
-              </div>
-              <div>
-                <Label style={tajawal}>أعراض صحية</Label>
-                <Input value={healthNotes} onChange={(e) => setHealthNotes(e.target.value)} />
-              </div>
-              <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
-                {saving ? "جاري الحفظ…" : "حفظ الطالب"}
-              </Button>
-            </form>
+            <StudentUnifiedSingleForm
+              groups={groups}
+              submitting={saving}
+              onSubmit={submitSingle}
+            />
           </TabsContent>
 
           <TabsContent value="bulk" className="mt-4 space-y-4">

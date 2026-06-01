@@ -338,13 +338,22 @@ export function resolveDevPreviewMock<T>(
     return { date, items, template: "غياب {{student_name}}" } as T;
   }
 
-  if (p === "/api/admin-dept/admission" && m === "POST") {
+  if (
+    (p === "/api/admin/students" || p === "/api/admin-dept/admission") &&
+    m === "POST"
+  ) {
+    return { ok: true, id: 901, student_id: 901, stage_id: 2, circle_id: 1 } as T;
+  }
+
+  if (p === "/api/admin/students/bulk" && m === "POST") {
+    const body = init?.body ? (JSON.parse(String(init.body)) as { rows?: unknown[] }) : {};
+    const total = Array.isArray(body.rows) ? body.rows.length : 0;
     return {
       ok: true,
-      student_id: 901,
-      stage_id: 2,
-      stage_label: "ابتدائي",
-      circle_id: 1,
+      total,
+      success: total,
+      failed: 0,
+      message: `تمت إضافة ${total} طالب بنجاح، وفشل 0`,
     } as T;
   }
 

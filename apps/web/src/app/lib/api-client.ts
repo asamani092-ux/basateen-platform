@@ -256,6 +256,9 @@ export const api = {
     health_notes?: string | null;
     memorization_amount?: string | null;
     guardian_national_id?: string | null;
+    guardian_work?: string | null;
+    stage_id?: number | null;
+    age?: number | null;
     circle_id?: number | null;
     track_id?: number | null;
     group_id?: number | null;
@@ -937,6 +940,7 @@ export const api = {
       count: number;
     }>(`/api/admin-dept/students/search?${params.toString()}`);
   },
+  /** @deprecated استخدم studentsCreate — دُمج القبول في بيانات الطلاب */
   adminDeptAdmission: (body: {
     full_name_ar: string;
     national_id: string;
@@ -953,17 +957,30 @@ export const api = {
     nationality?: string;
     school_name?: string;
   }) =>
-    request<{
-      ok: boolean;
-      student_id: number;
-      stage_id: number;
-      stage_label?: string;
-      circle_id: number;
-      admission_status?: string;
-    }>("/api/admin-dept/admission", {
+    request<{ ok: boolean; id: number }>("/api/admin/students", {
       method: "POST",
-      body: JSON.stringify(body),
-    }),
+      body: JSON.stringify({
+        full_name_ar: body.full_name_ar,
+        national_id: body.national_id,
+        nationality: body.nationality ?? "سعودي",
+        phone: body.phone?.trim() || body.guardian_phone,
+        guardian_phone: body.guardian_phone,
+        school_grade: body.school_grade ?? null,
+        school_name: body.school_name ?? null,
+        health_notes: body.health_notes ?? null,
+        guardian_national_id: body.guardian_national_id ?? null,
+        guardian_work: body.guardian_work ?? null,
+        circle_id: body.circle_id,
+        track_id: body.track_id ?? null,
+        stage_id: body.stage_id,
+        age: body.age,
+      }),
+    }).then((r) => ({
+      ok: r.ok,
+      student_id: r.id,
+      stage_id: body.stage_id,
+      circle_id: body.circle_id,
+    })),
   adminDeptAddPledge: (body: {
     student_id: number;
     reason_ar: string;

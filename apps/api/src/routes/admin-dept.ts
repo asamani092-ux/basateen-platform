@@ -481,155 +481,17 @@ async function handleAdminDeptRouterImpl(
     return json({ date, items, template });
   }
 
-  // POST /api/admin-dept/admission
+  // POST /api/admin-dept/admission — مُلغى: مصدر الحقيقة POST /api/admin/students
   if (request.method === "POST" && path === "/api/admin-dept/admission") {
-    let body: {
-      full_name_ar?: string;
-      national_id?: string;
-      phone?: string;
-      school_grade?: string;
-      stage_id?: number;
-      age?: number | null;
-      guardian_phone?: string;
-      guardian_national_id?: string;
-      guardian_work?: string;
-      health_notes?: string;
-      circle_id?: number;
-      track_id?: number | null;
-      nationality?: string;
-      school_name?: string;
-    };
-    try {
-      body = await request.json();
-    } catch {
-      return json({ error: "invalid_json" }, 400);
-    }
-
-    const fullName = body.full_name_ar?.trim();
-    const nationalId = body.national_id?.trim();
-    const guardianPhone = body.guardian_phone?.trim();
-    const stageId = Number(body.stage_id);
-    const circleId = Number(body.circle_id);
-
-    if (!fullName || !nationalId || !guardianPhone) {
-      return json({ error: "full_name_national_id_guardian_required" }, 400);
-    }
-    if (!Number.isFinite(stageId) || stageId < 1 || stageId > 4) {
-      return json({ error: "invalid_stage_id" }, 400);
-    }
-    if (!Number.isFinite(circleId)) {
-      return json({ error: "circle_id_required" }, 400);
-    }
-
-    const stageCheck = await validateCircleStage(
-      env,
-      circleId,
-      admin.complexId,
-      stageId,
-    );
-    if (!stageCheck.ok) {
-      if (stageCheck.error === "circle_not_found") {
-        return json({ error: "circle_not_found" }, 404);
-      }
-      return json(
-        {
-          error: "circle_stage_mismatch",
-          expected_stage: STAGE_ID_TO_CIRCLE_STAGE[stageId],
-        },
-        400,
-      );
-    }
-
-    const trackId =
-      body.track_id != null && Number.isFinite(Number(body.track_id))
-        ? Number(body.track_id)
-        : null;
-
-    const hasStageId = await tableHasColumn(env, "students", "stage_id");
-    const hasGuardian = await tableHasColumn(env, "students", "guardian_phone");
-    if (!hasGuardian) {
-      return json({ error: "migration_required", hint: "students.guardian_phone" }, 503);
-    }
-
-    const insertCols = [
-      "complex_id",
-      "full_name_ar",
-      "national_id",
-      "guardian_phone",
-      "is_active",
-    ];
-    const insertVals: (string | number | null)[] = [
-      admin.complexId,
-      fullName,
-      nationalId,
-      guardianPhone,
-      1,
-    ];
-
-    const optionalPairs: Array<[string, string | number | null]> = [
-      ["phone", body.phone?.trim() ?? null],
-      ["nationality", body.nationality?.trim() ?? null],
-      ["school_name", body.school_name?.trim() ?? null],
-      ["school_grade", body.school_grade?.trim() ?? null],
-      ["age", body.age != null && Number.isFinite(Number(body.age)) ? Number(body.age) : null],
-      ["guardian_national_id", body.guardian_national_id?.trim() ?? null],
-      ["guardian_work", body.guardian_work?.trim() ?? null],
-      ["health_notes", body.health_notes?.trim() ?? null],
-    ];
-    if (hasStageId) optionalPairs.push(["stage_id", stageId]);
-    if (await tableHasColumn(env, "students", "current_circle_id")) {
-      optionalPairs.push(["current_circle_id", circleId]);
-    }
-    if (await tableHasColumn(env, "students", "current_track_id")) {
-      optionalPairs.push(["current_track_id", trackId]);
-    }
-    if (await tableHasColumn(env, "students", "admission_status")) {
-      optionalPairs.push(["admission_status", "active"]);
-    }
-    if (await tableHasColumn(env, "students", "account_status")) {
-      optionalPairs.push(["account_status", "active"]);
-    }
-
-    for (const [col, val] of optionalPairs) {
-      if (await tableHasColumn(env, "students", col)) {
-        insertCols.push(col);
-        insertVals.push(val);
-      }
-    }
-
-    const placeholders = insertCols.map(() => "?").join(", ");
-    let ins;
-    try {
-      ins = await env.DB.prepare(
-        `INSERT INTO students (${insertCols.join(", ")}) VALUES (${placeholders})`,
-      )
-        .bind(...insertVals)
-        .run();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (msg.includes("UNIQUE") && msg.includes("national_id")) {
-        return json({ error: "national_id_exists" }, 409);
-      }
-      throw e;
-    }
-
-    const studentId = ins.meta.last_row_id as number;
-
-    if (await hasTable(env, "student_circle_history")) {
-      await assignStudentCircle(env, studentId, circleId, trackId, "admission");
-    }
-    await syncStudentPlacementColumns(env, studentId, circleId, trackId, stageId);
-
+    console.warn("deprecated_admission_endpoint", path);
     return json(
       {
-        ok: true,
-        student_id: studentId,
-        stage_id: stageId,
-        stage_label: STAGE_LABELS[stageId],
-        circle_id: circleId,
-        admission_status: "active",
+        error: "endpoint_deprecated",
+        message:
+          "تم دمج القبول والتسجيل في بيانات الطلاب — استخدم POST /api/admin/students",
+        use: "/api/admin/students",
       },
-      201,
+      410,
     );
   }
 

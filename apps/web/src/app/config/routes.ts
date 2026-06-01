@@ -130,12 +130,6 @@ export const ADMIN_DEPT_NAV: NavItem[] = [
     roles: ADMIN_DEPT_ROLES,
   },
   {
-    id: "admissions",
-    label: "القبول والتسجيل",
-    path: "/admin-dept/admissions",
-    roles: ADMIN_DEPT_ROLES,
-  },
-  {
     id: "pledges",
     label: "التعهدات والإجراءات",
     path: "/admin-dept/pledges",

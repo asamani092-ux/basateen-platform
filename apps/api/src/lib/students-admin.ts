@@ -1,4 +1,5 @@
 import type { Env } from "../types";
+import { parsePositiveIntField } from "../../../../packages/types/students-schema";
 import { syncStudentPlacementColumns } from "./admin-dept-schema";
 import { canManageCircle } from "./dept-scope";
 import { hasTable, tableHasColumn } from "./db-schema";
@@ -159,6 +160,9 @@ export type CreateStudentInput = {
   health_notes?: string | null;
   memorization_amount?: string | null;
   guardian_national_id?: string | null;
+  guardian_work?: string | null;
+  stage_id?: number | null;
+  age?: number | null;
   circle_id?: number | null;
   track_id?: number | null;
 };
@@ -169,14 +173,8 @@ export async function createStudentWithPlacement(
   input: CreateStudentInput,
   auth: { userId: number; role: string; complexId: number },
 ): Promise<{ id: number }> {
-  const circleId =
-    input.circle_id != null && Number.isFinite(Number(input.circle_id))
-      ? Number(input.circle_id)
-      : null;
-  const trackId =
-    input.track_id != null && Number.isFinite(Number(input.track_id))
-      ? Number(input.track_id)
-      : null;
+  const circleId = parsePositiveIntField(input.circle_id);
+  const trackId = parsePositiveIntField(input.track_id);
 
   if (!circleId && !trackId) {
     throw new Error("placement_required");
@@ -221,11 +219,19 @@ export async function createStudentWithPlacement(
     ["health_notes", opt(input.health_notes)],
     ["memorization_amount", opt(input.memorization_amount)],
     ["guardian_national_id", opt(input.guardian_national_id)],
+    ["guardian_work", opt(input.guardian_work)],
     ["account_status", "active"],
     ["is_active", 1],
   ];
+  if (input.stage_id != null) {
+    optional.push(["stage_id", input.stage_id]);
+  }
+  if (input.age != null) {
+    optional.push(["age", input.age]);
+  }
 
   for (const [col, val] of optional) {
+    if (val === null && col !== "account_status") continue;
     if (await tableHasColumn(env, "students", col)) {
       insertCols.push(col);
       insertVals.push(val);
@@ -264,6 +270,15 @@ export async function createStudentWithPlacement(
       { kind: "circle", id: circleId, track_id: resolvedTrack },
       "تسجيل — إضافة فردية",
     );
+    if (input.stage_id != null) {
+      await syncStudentPlacementColumns(
+        env,
+        studentId,
+        circleId,
+        resolvedTrack,
+        input.stage_id,
+      );
+    }
   } else if (trackId) {
     await applyStudentPlacement(
       env,

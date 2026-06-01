@@ -171,7 +171,10 @@ export function validateStudentCreateForm(body: {
   school_grade?: string | null;
   memorization_amount?: string | null;
   guardian_national_id?: string | null;
+  guardian_work?: string | null;
   health_notes?: string | null;
+  stage_id?: string | null;
+  age?: string | null;
   placement: string;
 }) {
   const { circle_id, track_id } = parsePlacementValue(body.placement);
@@ -183,7 +186,10 @@ export function validateStudentCreateForm(body: {
     school_grade: body.school_grade ?? "",
     memorization_amount: body.memorization_amount ?? "",
     guardian_national_id: body.guardian_national_id ?? "",
+    guardian_work: body.guardian_work ?? "",
     health_notes: body.health_notes ?? "",
+    stage_id: body.stage_id ?? "",
+    age: body.age ?? "",
   });
 }
 

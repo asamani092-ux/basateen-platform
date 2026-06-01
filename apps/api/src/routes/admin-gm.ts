@@ -18,8 +18,15 @@ import {
   teachersListSql,
 } from "../lib/admin-gm-schema";
 import {
+  safeDeleteStaffUser,
+  staffListSql,
+  SOVEREIGN_USER_ID,
+} from "../lib/admin-staff";
+import {
   usesV25FlatStaffSchema,
   v25SupervisorFlagsForRole,
+  v25TeacherFlags,
+  v25TrackSupervisorFlags,
 } from "../lib/schema-v25";
 import { usersHaveRoleColumn } from "../lib/db-user";
 import { activePlacementSql, hasTable, tableHasColumn } from "../lib/db-schema";
@@ -246,6 +253,257 @@ async function syncSupervisorSections(
     )
       .bind(userId, section)
       .run();
+  }
+}
+
+export async function handleAdminStaffList(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  try {
+    const auth = await getAuth(request, env);
+    const denied = requireGm(auth);
+    if (denied) return denied;
+
+    const sql = await staffListSql(env);
+    const rows = await env.DB.prepare(sql)
+      .bind(auth!.complexId)
+      .all<{
+        id: number;
+        full_name_ar: string;
+        mobile: string | null;
+        is_active: number;
+        role: string;
+        circle_id: number | null;
+        circle_name: string | null;
+        track_id: number | null;
+        track_name: string | null;
+        supervisor_scope: string | null;
+      }>();
+
+    return json({ items: rows.results ?? [] });
+  } catch (error: unknown) {
+    console.error("[admin-gm] staff list:", error);
+    return json({ items: [] });
+  }
+}
+
+export async function handleAdminStaffDelete(
+  request: Request,
+  env: Env,
+  url: URL,
+): Promise<Response> {
+  try {
+    const auth = await getAuth(request, env);
+    const denied = requireGm(auth);
+    if (denied) return denied;
+
+    const m = url.pathname.match(/^\/api\/admin\/staff\/(\d+)$/);
+    const userId = m ? Number(m[1]) : NaN;
+    if (!Number.isFinite(userId)) return json({ error: "invalid_id" }, 400);
+
+    const result = await safeDeleteStaffUser(env, userId, auth!.complexId);
+    return json({ ok: true, ...result });
+  } catch (error: unknown) {
+    console.error("[admin-gm] staff delete:", error);
+    const message =
+      error instanceof Error ? error.message : "Failed to delete staff member";
+    const status =
+      message === "cannot_delete_sovereign_user"
+        ? 403
+        : message === "staff_not_found"
+          ? 404
+          : 500;
+    return json({ error: "admin_gm_error", message }, status);
+  }
+}
+
+export async function handleAdminStaffPatch(
+  request: Request,
+  env: Env,
+  url: URL,
+): Promise<Response> {
+  try {
+    const auth = await getAuth(request, env);
+    const denied = requireGm(auth);
+    if (denied) return denied;
+
+    const m = url.pathname.match(/^\/api\/admin\/staff\/(\d+)$/);
+    const userId = m ? Number(m[1]) : NaN;
+    if (!Number.isFinite(userId)) return json({ error: "invalid_id" }, 400);
+    if (userId === SOVEREIGN_USER_ID) {
+      return json({ error: "cannot_modify_sovereign_user" }, 403);
+    }
+
+    let body: {
+      full_name_ar?: string;
+      mobile?: string;
+      role?: UserRole | string;
+      supervisor_scope?: string;
+      circle_id?: number;
+      track_id?: number;
+      is_active?: number;
+    };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+
+    const user = await env.DB.prepare(
+      `SELECT id FROM users WHERE id = ? AND complex_id = ?`,
+    )
+      .bind(userId, auth!.complexId)
+      .first();
+    if (!user) return json({ error: "staff_not_found" }, 404);
+
+    if (body.full_name_ar?.trim()) {
+      await env.DB.prepare(`UPDATE users SET full_name_ar = ? WHERE id = ?`)
+        .bind(body.full_name_ar.trim(), userId)
+        .run();
+    }
+    if (body.mobile?.trim()) {
+      const dup = await env.DB.prepare(
+        `SELECT id FROM users WHERE mobile = ? AND id != ?`,
+      )
+        .bind(body.mobile.trim(), userId)
+        .first();
+      if (dup) return json({ error: "mobile_already_used" }, 409);
+      await env.DB.prepare(`UPDATE users SET mobile = ? WHERE id = ?`)
+        .bind(body.mobile.trim(), userId)
+        .run();
+    }
+    if (body.is_active != null) {
+      await env.DB.prepare(`UPDATE users SET is_active = ? WHERE id = ?`)
+        .bind(body.is_active ? 1 : 0, userId)
+        .run();
+    }
+
+    if (body.role) {
+      if (body.role === "teacher") {
+        if (await usersHaveRoleColumn(env)) {
+          await env.DB.prepare(`UPDATE users SET role = 'teacher' WHERE id = ?`)
+            .bind(userId)
+            .run();
+        } else if (await usesV25FlatStaffSchema(env)) {
+          for (const [flag, value] of Object.entries(v25TeacherFlags())) {
+            if (await tableHasColumn(env, "users", flag)) {
+              await env.DB.prepare(`UPDATE users SET ${flag} = ? WHERE id = ?`)
+                .bind(value, userId)
+                .run();
+            }
+          }
+        }
+        await syncSupervisorSections(env, userId, "teacher");
+      } else if (body.role === "track_supervisor") {
+        if (await usersHaveRoleColumn(env)) {
+          await env.DB.prepare(`UPDATE users SET role = 'track_supervisor' WHERE id = ?`)
+            .bind(userId)
+            .run();
+        } else if (await usesV25FlatStaffSchema(env)) {
+          for (const [flag, value] of Object.entries(v25TrackSupervisorFlags())) {
+            if (await tableHasColumn(env, "users", flag)) {
+              await env.DB.prepare(`UPDATE users SET ${flag} = ? WHERE id = ?`)
+                .bind(value, userId)
+                .run();
+            }
+          }
+        }
+        await syncSupervisorSections(env, userId, "track_supervisor");
+      } else if (isSupervisorInputRole(body.role)) {
+        const dbRole = normalizeSupervisorRoleForDb(body.role);
+        if (await usersHaveRoleColumn(env)) {
+          await env.DB.prepare(`UPDATE users SET role = ? WHERE id = ?`)
+            .bind(dbRole, userId)
+            .run();
+        } else if (await usesV25FlatStaffSchema(env)) {
+          await applyFlatSupervisorRole(env, userId, body.role);
+        }
+        await syncSupervisorSections(env, userId, dbRole);
+      }
+    }
+
+    if (body.supervisor_scope != null) {
+      if (await tableHasColumn(env, "users", "supervisor_scope")) {
+        await env.DB.prepare(`UPDATE users SET supervisor_scope = ? WHERE id = ?`)
+          .bind(body.supervisor_scope, userId)
+          .run();
+      } else if (await tableHasColumn(env, "users", "stage_scope")) {
+        await env.DB.prepare(`UPDATE users SET stage_scope = ? WHERE id = ?`)
+          .bind(body.supervisor_scope, userId)
+          .run();
+      }
+    }
+
+    if (body.circle_id != null) {
+      const circleId = Number(body.circle_id);
+      if (Number.isFinite(circleId) && circleId > 0) {
+        if (await hasTable(env, "teacher_assignments")) {
+          await env.DB.prepare(`DELETE FROM teacher_assignments WHERE circle_id = ?`)
+            .bind(circleId)
+            .run();
+          await env.DB.prepare(`DELETE FROM teacher_assignments WHERE user_id = ?`)
+            .bind(userId)
+            .run();
+          await env.DB.prepare(
+            `INSERT INTO teacher_assignments (user_id, circle_id) VALUES (?, ?)`,
+          )
+            .bind(userId, circleId)
+            .run();
+        } else if (await tableHasColumn(env, "circles", "teacher_id")) {
+          const v25 = await usesV25FlatStaffSchema(env);
+          const fallbackId = SOVEREIGN_USER_ID;
+          if (v25) {
+            await env.DB.prepare(
+              `UPDATE circles SET teacher_id = ? WHERE teacher_id = ? AND complex_id = ?`,
+            )
+              .bind(fallbackId, userId, auth!.complexId)
+              .run();
+          } else {
+            await env.DB.prepare(
+              `UPDATE circles SET teacher_id = NULL WHERE teacher_id = ? AND complex_id = ?`,
+            )
+              .bind(userId, auth!.complexId)
+              .run();
+          }
+          await env.DB.prepare(
+            `UPDATE circles SET teacher_id = ? WHERE id = ? AND complex_id = ?`,
+          )
+            .bind(userId, circleId, auth!.complexId)
+            .run();
+        }
+      }
+    }
+
+    if (body.track_id != null) {
+      const trackId = Number(body.track_id);
+      if (Number.isFinite(trackId) && trackId > 0) {
+        if (await tableHasColumn(env, "tracks", "supervisor_id")) {
+          await env.DB.prepare(
+            `UPDATE tracks SET supervisor_id = ? WHERE supervisor_id = ? AND complex_id = ?`,
+          )
+            .bind(SOVEREIGN_USER_ID, userId, auth!.complexId)
+            .run();
+          await env.DB.prepare(
+            `UPDATE tracks SET supervisor_id = ? WHERE id = ? AND complex_id = ?`,
+          )
+            .bind(userId, trackId, auth!.complexId)
+            .run();
+        }
+      }
+    }
+
+    return json({ ok: true });
+  } catch (error: unknown) {
+    console.error("[admin-gm] staff patch:", error);
+    return json(
+      {
+        error: "admin_gm_error",
+        message:
+          error instanceof Error ? error.message : "Failed to update staff member",
+      },
+      500,
+    );
   }
 }
 
@@ -1223,40 +1481,10 @@ export async function handleAdminTeachersDelete(
   env: Env,
   url: URL,
 ): Promise<Response> {
-  const auth = await getAuth(request, env);
-  const denied = requireGm(auth);
-  if (denied) return denied;
-
   const m = url.pathname.match(/^\/api\/admin\/teachers\/(\d+)$/);
-  const userId = m ? Number(m[1]) : NaN;
-  if (!Number.isFinite(userId)) return json({ error: "invalid_id" }, 400);
-
-  const hasRole = await usersHaveRoleColumn(env);
-  const teacherFilter = hasRole
-    ? "role IN ('teacher', 'track_supervisor')"
-    : "(COALESCE(is_teacher, 0) = 1 OR COALESCE(is_track_supervisor, 0) = 1)";
-  const user = await env.DB.prepare(
-    `SELECT id FROM users WHERE id = ? AND complex_id = ? AND ${teacherFilter}`,
-  )
-    .bind(userId, auth!.complexId)
-    .first();
-  if (!user) return json({ error: "teacher_not_found" }, 404);
-
-  if (await tableHasColumn(env, "circles", "teacher_id")) {
-    await env.DB.prepare(
-      `UPDATE circles SET teacher_id = NULL WHERE teacher_id = ? AND complex_id = ?`,
-    )
-      .bind(userId, auth!.complexId)
-      .run();
-  }
-  if (await hasTable(env, "teacher_assignments")) {
-    await env.DB.prepare(`DELETE FROM teacher_assignments WHERE user_id = ?`)
-      .bind(userId)
-      .run();
-  }
-  await env.DB.prepare(`DELETE FROM users WHERE id = ?`).bind(userId).run();
-
-  return json({ ok: true });
+  const staffUrl = new URL(url);
+  staffUrl.pathname = `/api/admin/staff/${m?.[1] ?? ""}`;
+  return handleAdminStaffDelete(request, env, staffUrl);
 }
 
 export async function handleAdminSupervisorsPatch(
@@ -1426,25 +1654,14 @@ export async function handleAdminSupervisorsDelete(
       .first();
     if (!user) return json({ error: "supervisor_not_found" }, 404);
 
-    await clearUserRelationsBeforeDelete(env, userId, auth!.complexId);
-
-    try {
-      await env.DB.prepare(`DELETE FROM users WHERE id = ?`).bind(userId).run();
-      return json({ ok: true });
-    } catch (deleteErr) {
-      if (await tableHasColumn(env, "users", "is_active")) {
-        await env.DB.prepare(`UPDATE users SET is_active = 0 WHERE id = ?`)
-          .bind(userId)
-          .run();
-        return json({ ok: true, soft_deleted: true });
-      }
-      throw deleteErr;
-    }
+    const staffUrl = new URL(url);
+    staffUrl.pathname = `/api/admin/staff/${userId}`;
+    return handleAdminStaffDelete(request, env, staffUrl);
   } catch (error: unknown) {
     console.error("[admin-gm] supervisors delete:", error);
     return json(
       {
-        error: "supervisor_delete_failed",
+        error: "admin_gm_error",
         message:
           error instanceof Error ? error.message : "Failed to delete supervisor",
       },
@@ -1483,14 +1700,23 @@ async function handleAdminGmRouterImpl(
   path: string,
   method: string,
 ): Promise<Response | null> {
+  if (method === "GET" && path === "/api/admin/staff") {
+    return handleAdminStaffList(request, env);
+  }
+  if (method === "PATCH" && /^\/api\/admin\/staff\/\d+$/.test(path)) {
+    return handleAdminStaffPatch(request, env, url);
+  }
+  if (method === "DELETE" && /^\/api\/admin\/staff\/\d+$/.test(path)) {
+    return handleAdminStaffDelete(request, env, url);
+  }
   if (method === "GET" && path === "/api/admin/teachers") {
-    return handleAdminTeachersList(request, env);
+    return handleAdminStaffList(request, env);
   }
   if (method === "POST" && path === "/api/admin/teachers") {
     return handleAdminTeachersCreate(request, env);
   }
   if (method === "GET" && path === "/api/admin/supervisors") {
-    return handleAdminSupervisorsList(request, env);
+    return handleAdminStaffList(request, env);
   }
   if (method === "POST" && path === "/api/admin/supervisors") {
     return handleAdminSupervisorsCreate(request, env);

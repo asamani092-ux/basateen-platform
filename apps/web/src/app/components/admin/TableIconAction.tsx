@@ -15,6 +15,7 @@ import {
   UserMinus,
   XCircle,
   ArrowLeftRight,
+  Link2,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import {
@@ -94,6 +95,11 @@ const ACTION_STYLES: Record<
     Icon: ArrowLeftRight,
     label: "نقل",
     className: "text-muted-foreground hover:text-foreground hover:bg-muted",
+  },
+  assign: {
+    Icon: Link2,
+    label: "إسناد",
+    className: "text-primary hover:bg-primary/10",
   },
   print: {
     Icon: Printer,

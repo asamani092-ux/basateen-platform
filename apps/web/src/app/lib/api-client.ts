@@ -131,6 +131,20 @@ export type StaffSupervisorRow = {
   is_active: number;
 };
 
+/** صف موحّد — GET /api/admin/staff */
+export type StaffMemberRow = {
+  id: number;
+  full_name_ar: string;
+  mobile: string | null;
+  role: string;
+  is_active: number;
+  circle_id: number | null;
+  circle_name: string | null;
+  track_id: number | null;
+  track_name: string | null;
+  supervisor_scope: string | null;
+};
+
 export type StudentPlacement = {
   history_id: number;
   circle_id: number;
@@ -488,8 +502,29 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  adminStaff: () => request<{ items: StaffMemberRow[] }>("/api/admin/staff"),
+  adminStaffPatch: (
+    id: number,
+    body: {
+      full_name_ar?: string;
+      mobile?: string;
+      role?: string;
+      supervisor_scope?: string;
+      circle_id?: number;
+      track_id?: number;
+      is_active?: number;
+    },
+  ) =>
+    request<{ ok: boolean }>(`/api/admin/staff/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  adminStaffDelete: (id: number) =>
+    request<{ ok: boolean; soft_deleted?: boolean }>(`/api/admin/staff/${id}`, {
+      method: "DELETE",
+    }),
   adminTeachers: () =>
-    request<{ items: StaffTeacherRow[] }>("/api/admin/teachers"),
+    request<{ items: StaffTeacherRow[] }>("/api/admin/staff"),
   adminTeachersCreate: (body: {
     full_name_ar: string;
     mobile: string;
@@ -502,7 +537,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
   adminSupervisors: () =>
-    request<{ items: StaffSupervisorRow[] }>("/api/admin/supervisors"),
+    request<{ items: StaffSupervisorRow[] }>("/api/admin/staff"),
   adminSupervisorsCreate: (body: {
     full_name_ar: string;
     mobile: string;
@@ -576,15 +611,17 @@ export const api = {
       full_name_ar?: string;
       mobile?: string;
       circle_id?: number;
+      track_id?: number;
+      role?: string;
       is_active?: number;
     },
   ) =>
-    request<{ ok: boolean }>(`/api/admin/teachers/${id}`, {
+    request<{ ok: boolean }>(`/api/admin/staff/${id}`, {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
   adminTeachersDelete: (id: number) =>
-    request<{ ok: boolean }>(`/api/admin/teachers/${id}`, { method: "DELETE" }),
+    request<{ ok: boolean }>(`/api/admin/staff/${id}`, { method: "DELETE" }),
   adminSupervisorsPatch: (
     id: number,
     body: {
@@ -592,15 +629,17 @@ export const api = {
       mobile?: string;
       role?: string;
       supervisor_scope?: string;
+      circle_id?: number;
+      track_id?: number;
       is_active?: number;
     },
   ) =>
-    request<{ ok: boolean }>(`/api/admin/supervisors/${id}`, {
+    request<{ ok: boolean }>(`/api/admin/staff/${id}`, {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
   adminSupervisorsDelete: (id: number) =>
-    request<{ ok: boolean }>(`/api/admin/supervisors/${id}`, { method: "DELETE" }),
+    request<{ ok: boolean }>(`/api/admin/staff/${id}`, { method: "DELETE" }),
   adminStats: (period?: string) => {
     const qs = period ? `?period=${encodeURIComponent(period)}` : "";
     return request<{

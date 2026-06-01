@@ -63,6 +63,26 @@ export const V25_SUPERVISOR_FLAG_RESET = {
 } as const;
 
 /** Map API supervisor role → v25 flat flags (023 users table). */
+export function v25TeacherFlags(): Record<
+  keyof typeof V25_SUPERVISOR_FLAG_RESET,
+  number
+> {
+  return {
+    ...V25_SUPERVISOR_FLAG_RESET,
+    is_teacher: 1,
+  };
+}
+
+export function v25TrackSupervisorFlags(): Record<
+  keyof typeof V25_SUPERVISOR_FLAG_RESET,
+  number
+> {
+  return {
+    ...V25_SUPERVISOR_FLAG_RESET,
+    is_track_supervisor: 1,
+  };
+}
+
 export function v25SupervisorFlagsForRole(
   role: string,
 ): Record<keyof typeof V25_SUPERVISOR_FLAG_RESET, number> {

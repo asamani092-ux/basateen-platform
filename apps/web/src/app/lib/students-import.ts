@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { studentCreateBodySchema } from "../../../../../packages/types/students-schema";
+import { studentCreateBodySchema } from "./students-schema";
 
 export const STUDENT_TEMPLATE_HEADERS = [
   "الاسم الرباعي",

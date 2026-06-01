@@ -1,7 +1,7 @@
 import type { Env } from "../types";
 import { ADMIN_DATA_ROLES } from "../lib/roles";
 import { createStudentWithPlacement } from "../lib/students-admin";
-import { studentCreateBodySchema } from "../../../../packages/types/students-schema";
+import { studentCreateBodySchema } from "../lib/students-schema";
 import { hasTable, tableHasColumn } from "../lib/db-schema";
 import { buildStudentPlacementSql } from "../lib/student-list-sql";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";

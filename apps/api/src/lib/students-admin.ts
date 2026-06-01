@@ -1,5 +1,5 @@
 import type { Env } from "../types";
-import { parsePositiveIntField } from "../../../../packages/types/students-schema";
+import { parsePositiveIntField } from "./students-schema";
 import { syncStudentPlacementColumns } from "./admin-dept-schema";
 import { canManageCircle } from "./dept-scope";
 import { hasTable, tableHasColumn } from "./db-schema";

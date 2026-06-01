@@ -10,7 +10,7 @@ import {
   studentBulkBodySchema,
   studentBulkRowSchema,
   studentCreateBodySchema,
-} from "../../../../packages/types/students-schema";
+} from "../lib/students-schema";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 
 function json(data: unknown, status = 200): Response {

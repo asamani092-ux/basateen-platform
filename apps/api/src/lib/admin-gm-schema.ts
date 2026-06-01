@@ -1,5 +1,6 @@
 import type { Env } from "../types";
 import { activePlacementSql, hasTable, tableHasColumn } from "./db-schema";
+import { teachersListSqlV25, usesV25FlatStaffSchema } from "./schema-v25";
 import { usersHaveRoleColumn } from "./db-user";
 
 const STAGE_TEXT_TO_ID_SQL = `CASE c.stage
@@ -228,6 +229,10 @@ export async function circleTeacherJoinSql(env: Env): Promise<{
 }
 
 export async function teachersListSql(env: Env): Promise<string> {
+  if (await usesV25FlatStaffSchema(env)) {
+    return teachersListSqlV25();
+  }
+
   const hasAssignments = await hasTable(env, "teacher_assignments");
   const hasTeacherOnCircle = await tableHasColumn(env, "circles", "teacher_id");
   const hasRole = await usersHaveRoleColumn(env);

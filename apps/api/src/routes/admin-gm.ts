@@ -17,6 +17,10 @@ import {
   createCircleRow,
   teachersListSql,
 } from "../lib/admin-gm-schema";
+import {
+  usesV25FlatStaffSchema,
+  v25SupervisorFlagsForRole,
+} from "../lib/schema-v25";
 import { usersHaveRoleColumn } from "../lib/db-user";
 import { activePlacementSql, hasTable, tableHasColumn } from "../lib/db-schema";
 
@@ -101,6 +105,7 @@ async function assignUserToTrackCircles(
 
 /** أدوار المشرفين المسموح إنشاؤها/تعديلها (v3.2 — خمسة أدوار تشغيلية) */
 const SUPERVISOR_INPUT_ROLES = [
+  "super_admin",
   "edu_supervisor",
   "programs_supervisor",
   "prog_supervisor",
@@ -115,7 +120,11 @@ function normalizeSupervisorRoleForDb(role: string): UserRole {
   if (role === "prog_supervisor" || role === "programs_supervisor") {
     return "programs_supervisor";
   }
-  if (role === "general_supervisor" || role === "admin_supervisor") {
+  if (
+    role === "general_supervisor" ||
+    role === "admin_supervisor" ||
+    role === "super_admin"
+  ) {
     return "admin_supervisor";
   }
   if (role === "edu_supervisor" || role === "track_supervisor") {
@@ -131,11 +140,22 @@ function isSupervisorInputRole(role: string): boolean {
 }
 
 function legacySupervisorFlags(role: string): Record<string, number> {
-  const dbRole = normalizeSupervisorRoleForDb(role);
-  if (dbRole === "edu_supervisor") return { is_educational: 1 };
-  if (dbRole === "programs_supervisor") return { is_programs: 1 };
-  if (dbRole === "track_supervisor") return { is_track_supervisor: 1 };
-  return { is_admin: 1 };
+  return v25SupervisorFlagsForRole(normalizeSupervisorRoleForDb(role));
+}
+
+async function applyFlatSupervisorRole(
+  env: Env,
+  userId: number,
+  role: string,
+): Promise<void> {
+  const flags = v25SupervisorFlagsForRole(normalizeSupervisorRoleForDb(role));
+  for (const [flag, value] of Object.entries(flags)) {
+    if (await tableHasColumn(env, "users", flag)) {
+      await env.DB.prepare(`UPDATE users SET ${flag} = ? WHERE id = ?`)
+        .bind(value, userId)
+        .run();
+    }
+  }
 }
 
 async function insertSupervisorUser(
@@ -166,6 +186,15 @@ async function insertSupervisorUser(
   if (hasRoleCol) {
     cols.push("role");
     vals.push(dbRole);
+  } else if (await usesV25FlatStaffSchema(env)) {
+    for (const [flag, value] of Object.entries(
+      v25SupervisorFlagsForRole(dbRole),
+    )) {
+      if (await tableHasColumn(env, "users", flag)) {
+        cols.push(flag);
+        vals.push(value);
+      }
+    }
   } else {
     for (const [flag, value] of Object.entries(legacySupervisorFlags(body.role))) {
       if (await tableHasColumn(env, "users", flag)) {
@@ -376,7 +405,7 @@ export async function handleAdminSupervisorsList(
                 CASE
                   WHEN COALESCE(is_track_supervisor, 0) = 1 THEN 'track_supervisor'
                   WHEN COALESCE(is_educational, 0) = 1 THEN 'edu_supervisor'
-                  WHEN COALESCE(is_programs, 0) = 1 THEN 'prog_supervisor'
+                  WHEN COALESCE(is_programs, 0) = 1 THEN 'programs_supervisor'
                   WHEN COALESCE(is_admin, 0) = 1 THEN 'admin_supervisor'
                   ELSE 'admin_supervisor'
                 END AS role,
@@ -1293,6 +1322,8 @@ export async function handleAdminSupervisorsPatch(
       await env.DB.prepare(`UPDATE users SET role = ? WHERE id = ?`)
         .bind(dbRole, userId)
         .run();
+    } else if (await usesV25FlatStaffSchema(env)) {
+      await applyFlatSupervisorRole(env, userId, body.role);
     } else {
       const flags = legacySupervisorFlags(body.role);
       for (const [flag, value] of Object.entries(flags)) {

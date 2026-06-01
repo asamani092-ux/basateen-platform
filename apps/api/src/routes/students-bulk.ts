@@ -116,18 +116,57 @@ async function loadCircleMap(
   env: Env,
   complexId: number,
 ): Promise<Map<string, { id: number; track_id: number | null }>> {
-  const result = await env.DB.prepare(
-    `SELECT id, name_ar, track_id FROM circles
-     WHERE complex_id = ? AND is_active = 1`,
-  )
+  const hasTrackId = await tableHasColumn(env, "circles", "track_id");
+  const hasIsActive = await tableHasColumn(env, "circles", "is_active");
+  const activeFilter = hasIsActive ? " AND is_active = 1" : "";
+  const sql = hasTrackId
+    ? `SELECT id, name_ar, track_id FROM circles WHERE complex_id = ?${activeFilter}`
+    : `SELECT id, name_ar, NULL AS track_id FROM circles WHERE complex_id = ?${activeFilter}`;
+  const result = await env.DB.prepare(sql)
     .bind(complexId)
     .all<{ id: number; name_ar: string; track_id: number | null }>();
 
   const map = new Map<string, { id: number; track_id: number | null }>();
   for (const c of result.results ?? []) {
-    map.set(c.name_ar.trim(), { id: c.id, track_id: c.track_id });
+    map.set(c.name_ar.trim(), { id: c.id, track_id: c.track_id ?? null });
   }
   return map;
+}
+
+/** v25 students: national_id + guardian_phone NOT NULL (023_rebuild_v25.sql) */
+async function appendRequiredStudentInsertColumns(
+  env: Env,
+  insertCols: string[],
+  insertVals: (string | number | null)[],
+  fields: {
+    national_id: string | null;
+    guardian_phone: string | null;
+    phone: string | null;
+  },
+  rowNum: number,
+  complexId: number,
+): Promise<void> {
+  if (
+    (await tableHasColumn(env, "students", "national_id")) &&
+    !insertCols.includes("national_id")
+  ) {
+    const nid =
+      fields.national_id?.trim() ||
+      `import-${complexId}-${rowNum}-${Date.now()}`;
+    insertCols.push("national_id");
+    insertVals.push(nid);
+  }
+  if (
+    (await tableHasColumn(env, "students", "guardian_phone")) &&
+    !insertCols.includes("guardian_phone")
+  ) {
+    const gp =
+      fields.guardian_phone?.trim() ||
+      fields.phone?.trim() ||
+      "0000000000";
+    insertCols.push("guardian_phone");
+    insertVals.push(gp);
+  }
 }
 
 async function activeStudentFilter(env: Env): Promise<string> {
@@ -459,6 +498,18 @@ export async function handleStudentsBulkImport(
             insertVals.push(val);
           }
         }
+        await appendRequiredStudentInsertColumns(
+          env,
+          insertCols,
+          insertVals,
+          {
+            national_id: fields.national_id,
+            guardian_phone: fields.guardian_phone,
+            phone: fields.phone,
+          },
+          rowNum,
+          auth.complexId,
+        );
         const placeholders = insertCols.map(() => "?").join(", ");
         const insertStmt = env.DB.prepare(
           `INSERT INTO students (${insertCols.join(", ")}) VALUES (${placeholders})`,

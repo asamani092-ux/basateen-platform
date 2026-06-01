@@ -150,21 +150,39 @@ function TeachersPanel() {
       return;
     }
     setLoading(true);
-    try {
-      const [t, c, tr] = await Promise.all([
-        api.adminTeachers(),
-        api.adminCirclesSummary(),
-        api.adminTracks(),
-      ]);
-      setItems(t.items);
-      setCircles(c.items.filter((x) => x.is_active));
-      setTracks(tr.items ?? []);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل التحميل");
-    } finally {
-      setLoading(false);
+    const [t, c, tr] = await Promise.allSettled([
+      api.adminTeachers(),
+      api.adminCirclesSummary(),
+      api.adminTracks(),
+    ]);
+    const loadErrors: string[] = [];
+    if (t.status === "fulfilled") {
+      setItems(t.value.items ?? []);
+    } else {
+      console.error("[staff] teachers:", t.reason);
+      setItems([]);
+      loadErrors.push("المعلمين");
     }
+    if (c.status === "fulfilled") {
+      setCircles((c.value.items ?? []).filter((x) => x.is_active));
+    } else {
+      console.error("[staff] circles:", c.reason);
+      setCircles([]);
+      loadErrors.push("الحلقات");
+    }
+    if (tr.status === "fulfilled") {
+      setTracks(tr.value.items ?? []);
+    } else {
+      console.error("[staff] tracks:", tr.reason);
+      setTracks([]);
+      loadErrors.push("المسارات");
+    }
+    setError(
+      loadErrors.length > 0
+        ? `تعذر تحميل: ${loadErrors.join("، ")}`
+        : null,
+    );
+    setLoading(false);
   }, [hasApi]);
 
   useEffect(() => {
@@ -893,9 +911,27 @@ function SupervisorsPanel() {
   );
 }
 
+const SUPERVISOR_EDIT_ROLE_OPTIONS = [
+  { value: "super_admin", label: "مشرف عام" },
+  { value: "edu_supervisor", label: "مشرف تعليمي" },
+  { value: "programs_supervisor", label: "مشرف إدارة برامج" },
+] as const;
+
 function normalizeSupervisorRoleForForm(role: string): string {
   if (role === "prog_supervisor") return "programs_supervisor";
-  if (role === "general_supervisor") return "admin_supervisor";
+  if (
+    role === "general_supervisor" ||
+    role === "admin_supervisor" ||
+    role === "super_admin"
+  ) {
+    return "super_admin";
+  }
+  if (role === "edu_supervisor" || role === "programs_supervisor") return role;
+  return "super_admin";
+}
+
+function supervisorRoleForApi(role: string): string {
+  if (role === "super_admin") return "admin_supervisor";
   return role;
 }
 
@@ -936,7 +972,7 @@ function SupervisorEditDialog({
       await api.adminSupervisorsPatch(supervisor.id, {
         full_name_ar: name.trim(),
         mobile: mobile.trim(),
-        role: roleType,
+        role: supervisorRoleForApi(roleType),
         supervisor_scope: scope,
       });
       onSaved();
@@ -947,18 +983,7 @@ function SupervisorEditDialog({
     }
   }
 
-  const supervisorRoleOptions = SUPERVISOR_TYPES.filter(
-    (t) => t.value !== "track_supervisor",
-  );
-  const roleOptions = supervisorRoleOptions.some((t) => t.value === roleType)
-    ? supervisorRoleOptions
-    : [
-        ...supervisorRoleOptions,
-        {
-          value: roleType,
-          label: roleLabelAr(roleType),
-        },
-      ];
+  const roleOptions = SUPERVISOR_EDIT_ROLE_OPTIONS;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

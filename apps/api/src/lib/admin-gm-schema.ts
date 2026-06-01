@@ -120,6 +120,11 @@ export async function circleStageIdExpr(env: Env): Promise<string> {
   return `2`;
 }
 
+export async function circleIsActiveSelectExpr(env: Env): Promise<string> {
+  const has = await tableHasColumn(env, "circles", "is_active");
+  return has ? `COALESCE(c.is_active, 1) AS is_active` : `1 AS is_active`;
+}
+
 export async function circleCapacityExpr(env: Env): Promise<string> {
   const hasDefault = await tableHasColumn(env, "circles", "default_capacity");
   if (hasDefault) {
@@ -237,12 +242,27 @@ export async function teachersListSql(env: Env): Promise<string> {
   const hasTracks = await hasTable(env, "tracks");
   const hasTrackSupervisorCol =
     hasTracks && (await tableHasColumn(env, "tracks", "supervisor_id"));
+  const tracksHaveComplexId =
+    hasTrackSupervisorCol &&
+    (await tableHasColumn(env, "tracks", "complex_id"));
+  const trackJoinOn = tracksHaveComplexId
+    ? "tr_sup.supervisor_id = u.id AND tr_sup.complex_id = u.complex_id"
+    : "tr_sup.supervisor_id = u.id";
   const trackJoin = hasTrackSupervisorCol
-    ? `LEFT JOIN tracks tr_sup ON tr_sup.supervisor_id = u.id AND tr_sup.complex_id = u.complex_id`
+    ? `LEFT JOIN tracks tr_sup ON ${trackJoinOn}`
     : "";
   const trackNameCol = hasTrackSupervisorCol
     ? `tr_sup.name_ar AS track_name`
     : `NULL AS track_name`;
+  const hasCircleTrackId =
+    hasTracks && (await tableHasColumn(env, "circles", "track_id"));
+  const circleTrackJoin = hasCircleTrackId
+    ? `LEFT JOIN tracks t_circ ON t_circ.id = c.track_id`
+    : "";
+  const hasCircleIsActive = await tableHasColumn(env, "circles", "is_active");
+  const circleActiveFilter = hasCircleIsActive
+    ? " AND COALESCE(c.is_active, 1) = 1"
+    : "";
 
   if (hasAssignments) {
     return `SELECT u.id, u.full_name_ar, u.mobile, u.is_active,
@@ -263,10 +283,9 @@ export async function teachersListSql(env: Env): Promise<string> {
             ${hasTrackSupervisorCol ? `COALESCE(tr_sup.name_ar, t_circ.name_ar) AS track_name` : `NULL AS track_name`},
             ${stageExpr} AS stage_id
      FROM users u
-     LEFT JOIN circles c ON c.teacher_id = u.id AND c.complex_id = u.complex_id
-       AND COALESCE(c.is_active, 1) = 1
+     LEFT JOIN circles c ON c.teacher_id = u.id AND c.complex_id = u.complex_id${circleActiveFilter}
      ${trackJoin}
-     ${hasTracks ? `LEFT JOIN tracks t_circ ON t_circ.id = c.track_id` : ""}
+     ${circleTrackJoin}
      WHERE u.complex_id = ? AND ${teacherFilter}
      ORDER BY u.full_name_ar`;
   }

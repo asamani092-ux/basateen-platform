@@ -43,6 +43,13 @@ import { ds, tajawal } from "../../lib/design-system";
 
 type SetupTab = "circles" | "tracks";
 
+type EntityKind = "circle" | "track";
+
+const ENTITY_TYPE_LABEL: Record<EntityKind, string> = {
+  circle: "حلقة",
+  track: "مسار",
+};
+
 export function CirclesSetupPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tab: SetupTab = searchParams.get("tab") === "tracks" ? "tracks" : "circles";
@@ -122,21 +129,39 @@ function CirclesPanel() {
       return;
     }
     setLoading(true);
-    try {
-      const [c, t, tr] = await Promise.all([
-        api.adminCirclesSummary(),
-        api.adminTeachers(),
-        api.adminTracks(),
-      ]);
-      setItems(c.items);
-      setTeachers(t.items);
-      setTracks(tr.items);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل التحميل");
-    } finally {
-      setLoading(false);
+    const [c, t, tr] = await Promise.allSettled([
+      api.adminCirclesSummary(),
+      api.adminTeachers(),
+      api.adminTracks(),
+    ]);
+    const loadErrors: string[] = [];
+    if (c.status === "fulfilled") {
+      setItems(c.value.items ?? []);
+    } else {
+      console.error("[circles-setup] circles:", c.reason);
+      setItems([]);
+      loadErrors.push("الحلقات");
     }
+    if (t.status === "fulfilled") {
+      setTeachers(t.value.items ?? []);
+    } else {
+      console.error("[circles-setup] teachers:", t.reason);
+      setTeachers([]);
+      loadErrors.push("المعلمين");
+    }
+    if (tr.status === "fulfilled") {
+      setTracks(tr.value.items ?? []);
+    } else {
+      console.error("[circles-setup] tracks:", tr.reason);
+      setTracks([]);
+      loadErrors.push("المسارات");
+    }
+    setError(
+      loadErrors.length > 0
+        ? `تعذر تحميل: ${loadErrors.join("، ")}`
+        : null,
+    );
+    setLoading(false);
   }, [hasApi]);
 
   useEffect(() => {
@@ -214,6 +239,20 @@ function CirclesPanel() {
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={submit} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-semibold mb-1" style={tajawal}>
+                نوع الكيان *
+              </label>
+              <select
+                value="circle"
+                disabled
+                className={ds.select}
+                style={tajawal}
+                aria-readonly
+              >
+                <option value="circle">{ENTITY_TYPE_LABEL.circle}</option>
+              </select>
+            </div>
             <div>
               <label className="block text-sm font-semibold mb-1" style={tajawal}>
                 اسم الحلقة *
@@ -321,22 +360,25 @@ function CirclesPanel() {
           <Table className={ds.tableMin}>
             <TableHeader>
               <TableRow>
-                <TableHead className={`${ds.table.head} w-[22%]`} style={tajawal}>
-                  اسم الحلقة
+                <TableHead className={`${ds.table.head} w-[10%]`} style={tajawal}>
+                  نوع الكيان
                 </TableHead>
                 <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
+                  اسم الحلقة
+                </TableHead>
+                <TableHead className={`${ds.table.head} w-[16%]`} style={tajawal}>
                   المعلم
                 </TableHead>
-                <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[10%]`} style={tajawal}>
                   المرحلة
                 </TableHead>
-                <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[10%]`} style={tajawal}>
                   عدد الطلاب
                 </TableHead>
-                <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[10%]`} style={tajawal}>
                   السعة
                 </TableHead>
-                <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
                   تنبيه
                 </TableHead>
                 <TableHead className={ds.table.headActions} style={tajawal}>
@@ -347,6 +389,9 @@ function CirclesPanel() {
             <TableBody>
               {items.map((c) => (
                 <TableRow key={c.id}>
+                  <TableCell className={ds.table.cell} style={tajawal}>
+                    {ENTITY_TYPE_LABEL.circle}
+                  </TableCell>
                   <TableCell className={ds.table.cell} style={tajawal}>
                     {c.name_ar}
                   </TableCell>
@@ -415,6 +460,20 @@ function CirclesPanel() {
                   await load();
                 }}
               >
+                <div>
+                  <label className="block text-sm font-semibold mb-1" style={tajawal}>
+                    نوع الكيان
+                  </label>
+                  <select
+                    value="circle"
+                    disabled
+                    className={ds.select}
+                    style={tajawal}
+                    aria-readonly
+                  >
+                    <option value="circle">{ENTITY_TYPE_LABEL.circle}</option>
+                  </select>
+                </div>
                 <div>
                   <label className="block text-sm font-semibold mb-1" style={tajawal}>
                     الاسم
@@ -505,26 +564,44 @@ function TracksPanel() {
       return;
     }
     setLoading(true);
-    try {
-      const [tr, c, sup] = await Promise.all([
-        api.adminTracks(),
-        api.adminCirclesSummary(),
-        api.adminSupervisors(),
-      ]);
-      setItems(tr.items);
-      setCircles(c.items);
-      const trackSup = (sup.items ?? []).filter((s) =>
+    const [tr, c, sup] = await Promise.allSettled([
+      api.adminTracks(),
+      api.adminCirclesSummary(),
+      api.adminSupervisors(),
+    ]);
+    const loadErrors: string[] = [];
+    if (tr.status === "fulfilled") {
+      setItems(tr.value.items ?? []);
+    } else {
+      console.error("[circles-setup] tracks:", tr.reason);
+      setItems([]);
+      loadErrors.push("المسارات");
+    }
+    if (c.status === "fulfilled") {
+      setCircles(c.value.items ?? []);
+    } else {
+      console.error("[circles-setup] circles:", c.reason);
+      setCircles([]);
+      loadErrors.push("الحلقات");
+    }
+    if (sup.status === "fulfilled") {
+      const trackSup = (sup.value.items ?? []).filter((s) =>
         ["track_supervisor", "admin_supervisor", "general_supervisor"].includes(
           s.role,
         ),
       );
-      setSupervisors(trackSup.length > 0 ? trackSup : sup.items ?? []);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل التحميل");
-    } finally {
-      setLoading(false);
+      setSupervisors(trackSup.length > 0 ? trackSup : sup.value.items ?? []);
+    } else {
+      console.error("[circles-setup] supervisors:", sup.reason);
+      setSupervisors([]);
+      loadErrors.push("المشرفين");
     }
+    setError(
+      loadErrors.length > 0
+        ? `تعذر تحميل: ${loadErrors.join("، ")}`
+        : null,
+    );
+    setLoading(false);
   }, [hasApi]);
 
   useEffect(() => {
@@ -615,6 +692,20 @@ function TracksPanel() {
             </DialogHeader>
             <form onSubmit={submit} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-semibold mb-1" style={tajawal}>
+                  نوع الكيان *
+                </label>
+                <select
+                  value="track"
+                  disabled
+                  className={ds.select}
+                  style={tajawal}
+                  aria-readonly
+                >
+                  <option value="track">{ENTITY_TYPE_LABEL.track}</option>
+                </select>
+              </div>
               <div>
                 <label className="block text-sm font-semibold mb-1" style={tajawal}>
                   اسم المسار *
@@ -712,19 +803,22 @@ function TracksPanel() {
           <Table className={ds.tableMin}>
             <TableHeader>
               <TableRow>
-                <TableHead className={`${ds.table.head} w-[22%]`} style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[10%]`} style={tajawal}>
+                  نوع الكيان
+                </TableHead>
+                <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
                   المسار
                 </TableHead>
-                <TableHead className={`${ds.table.head} w-[20%]`} style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
                   مشرف المسار
                 </TableHead>
-                <TableHead className={`${ds.table.head} w-[24%]`} style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[22%]`} style={tajawal}>
                   المراحل
                 </TableHead>
-                <TableHead className={`${ds.table.head} w-[20%]`} style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
                   الحلقات
                 </TableHead>
-                <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
+                <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
                   الطلاب
                 </TableHead>
                 <TableHead className={ds.table.headActions} style={tajawal}>
@@ -735,6 +829,9 @@ function TracksPanel() {
             <TableBody>
               {items.map((t) => (
                 <TableRow key={t.id}>
+                  <TableCell className={ds.table.cell} style={tajawal}>
+                    {ENTITY_TYPE_LABEL.track}
+                  </TableCell>
                   <TableCell className={ds.table.cell} style={tajawal}>
                     {t.name_ar}
                   </TableCell>
@@ -800,6 +897,20 @@ function TracksPanel() {
                   await load();
                 }}
               >
+                <div>
+                  <label className="block text-sm font-semibold mb-1" style={tajawal}>
+                    نوع الكيان
+                  </label>
+                  <select
+                    value="track"
+                    disabled
+                    className={ds.select}
+                    style={tajawal}
+                    aria-readonly
+                  >
+                    <option value="track">{ENTITY_TYPE_LABEL.track}</option>
+                  </select>
+                </div>
                 <Input
                   value={editTrackName}
                   onChange={(e) => setEditTrackName(e.target.value)}

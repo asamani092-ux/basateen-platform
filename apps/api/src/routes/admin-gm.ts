@@ -9,6 +9,7 @@ import {
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 import {
   circleCapacityExpr,
+  circleIsActiveSelectExpr,
   circleStageIdExpr,
   circleStudentCountSubquery,
   circleTeacherJoinSql,
@@ -244,14 +245,7 @@ export async function handleAdminTeachersList(
     return json({ items: rows.results ?? [] });
   } catch (error: unknown) {
     console.error("[admin-gm] teachers list:", error);
-    return json(
-      {
-        error: "admin_teachers_error",
-        message:
-          error instanceof Error ? error.message : "Failed to load teachers",
-      },
-      500,
-    );
+    return json({ items: [] });
   }
 }
 
@@ -495,6 +489,7 @@ export async function handleAdminCirclesSummary(
 
     const stageExpr = await circleStageIdExpr(env);
     const capacityExpr = await circleCapacityExpr(env);
+    const isActiveExpr = await circleIsActiveSelectExpr(env);
     const track = await circleTrackSelectSql(env);
     const teacher = await circleTeacherJoinSql(env);
     const studentCount = await circleStudentCountSubquery(env);
@@ -503,7 +498,7 @@ export async function handleAdminCirclesSummary(
       `SELECT c.id, c.name_ar, ${stageExpr} AS stage_id,
               ${capacityExpr} AS default_capacity,
               ${track.trackIdCol}, ${track.trackNameCol},
-              COALESCE(c.is_active, 1) AS is_active,
+              ${isActiveExpr},
               ${teacher.teacherIdCol}, ${teacher.teacherNameCol},
               ${studentCount} AS student_count
        FROM circles c
@@ -541,16 +536,7 @@ export async function handleAdminCirclesSummary(
     return json({ items });
   } catch (error: unknown) {
     console.error("[admin-gm] circles summary:", error);
-    return json(
-      {
-        error: "admin_circles_summary_error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "Failed to load circles summary",
-      },
-      500,
-    );
+    return json({ items: [] });
   }
 }
 

@@ -72,19 +72,23 @@ export async function applyStudentPlacement(
   note: string,
 ): Promise<void> {
   if (placement.kind === "circle") {
-    await assignStudentCircle(
-      env,
-      studentId,
-      placement.id,
-      placement.track_id,
-      note,
-    );
-    await syncStudentPlacementColumns(
-      env,
-      studentId,
-      placement.id,
-      placement.track_id,
-    );
+    try {
+      await assignStudentCircle(
+        env,
+        studentId,
+        placement.id,
+        placement.track_id,
+        note,
+      );
+    } catch (err) {
+      console.error("applyStudentPlacement_assign_failed", studentId, err);
+      await syncStudentPlacementColumns(
+        env,
+        studentId,
+        placement.id,
+        placement.track_id,
+      );
+    }
     return;
   }
 
@@ -202,16 +206,21 @@ export async function createStudentWithPlacement(
   const insertCols = ["complex_id", "full_name_ar"];
   const insertVals: (string | number | null)[] = [complexId, input.full_name_ar.trim()];
 
+  const opt = (v: string | null | undefined): string | null => {
+    const s = (v ?? "").trim();
+    return s.length > 0 ? s : null;
+  };
+
   const optional: Array<[string, string | number | null]> = [
     ["national_id", input.national_id.trim()],
     ["nationality", input.nationality.trim()],
     ["phone", input.phone.trim()],
     ["guardian_phone", input.guardian_phone.trim()],
-    ["school_name", input.school_name?.trim() ?? null],
-    ["school_grade", input.school_grade?.trim() ?? null],
-    ["health_notes", input.health_notes?.trim() ?? null],
-    ["memorization_amount", input.memorization_amount?.trim() ?? null],
-    ["guardian_national_id", input.guardian_national_id?.trim() ?? null],
+    ["school_name", opt(input.school_name)],
+    ["school_grade", opt(input.school_grade)],
+    ["health_notes", opt(input.health_notes)],
+    ["memorization_amount", opt(input.memorization_amount)],
+    ["guardian_national_id", opt(input.guardian_national_id)],
     ["account_status", "active"],
     ["is_active", 1],
   ];
@@ -305,4 +314,118 @@ export function parseBulkPasteLines(text: string): ParsedBulkRow[] {
     });
   }
   return rows;
+}
+
+export type AdminBulkStudentRow = {
+  full_name_ar: string;
+  national_id: string;
+  nationality: string;
+  phone: string;
+  guardian_phone: string;
+  school_name: string | null;
+  school_grade: string | null;
+  memorization_amount: string | null;
+  guardian_national_id: string | null;
+  health_notes: string | null;
+  group_name: string | null;
+};
+
+/** O(1) — تحويل قيم Excel إلى نصوص آمنة */
+export function sanitizeExcelCell(v: unknown, max = 500): string | null {
+  if (v == null) return null;
+  if (typeof v === "number" && Number.isFinite(v)) {
+    if (Number.isInteger(v) || Math.abs(v - Math.trunc(v)) < 1e-9) {
+      return String(Math.trunc(v)).slice(0, max);
+    }
+    const raw = String(v);
+    if (/e\+?/i.test(raw)) {
+      return String(Math.trunc(v)).slice(0, max);
+    }
+    return raw.replace(/\.0+$/, "").slice(0, max);
+  }
+  let s = String(v).trim();
+  if (!s) return null;
+  if (/^\d+\.0+$/.test(s)) s = s.replace(/\.0+$/, "");
+  if (/e\+?/i.test(s)) {
+    const n = Number(s);
+    if (Number.isFinite(n)) return String(Math.trunc(n)).slice(0, max);
+  }
+  return s.slice(0, max);
+}
+
+/** O(n) — معالجة مصفوفة الاستيراد مع تجاوز الصفوف الفاشلة */
+export async function processAdminStudentsBulk(
+  env: Env,
+  complexId: number,
+  auth: { userId: number; role: string; complexId: number },
+  rows: AdminBulkStudentRow[],
+): Promise<{ success: number; failed: number; total: number; message: string }> {
+  const maps = await loadGroupNameMaps(env, complexId);
+  let success = 0;
+  let failed = 0;
+
+  for (const row of rows) {
+    const full_name_ar = sanitizeExcelCell(row.full_name_ar, 200);
+    const national_id = sanitizeExcelCell(row.national_id, 32);
+    const nationality = sanitizeExcelCell(row.nationality, 80) ?? "سعودي";
+    const phone = sanitizeExcelCell(row.phone, 20);
+    const guardian_phone =
+      sanitizeExcelCell(row.guardian_phone, 20) ?? phone;
+
+    const groupName = sanitizeExcelCell(row.group_name, 100);
+
+    if (
+      !full_name_ar ||
+      !national_id ||
+      !phone ||
+      !guardian_phone
+    ) {
+      failed += 1;
+      continue;
+    }
+
+    const placement = resolveEducationalGroupByName(maps, groupName);
+    if (!placement) {
+      failed += 1;
+      continue;
+    }
+
+    if (placement.kind === "circle") {
+      if (!(await canManageCircle(env, auth, placement.id))) {
+        failed += 1;
+        continue;
+      }
+    }
+
+    try {
+      await createStudentWithPlacement(env, complexId, {
+        full_name_ar,
+        national_id,
+        nationality,
+        phone,
+        guardian_phone,
+        school_name: sanitizeExcelCell(row.school_name, 120),
+        school_grade: sanitizeExcelCell(row.school_grade, 80),
+        memorization_amount: sanitizeExcelCell(row.memorization_amount, 120),
+        guardian_national_id: sanitizeExcelCell(row.guardian_national_id, 32),
+        health_notes: sanitizeExcelCell(row.health_notes, 500),
+        circle_id: placement.kind === "circle" ? placement.id : null,
+        track_id:
+          placement.kind === "track"
+            ? placement.id
+            : placement.track_id,
+      }, auth);
+      success += 1;
+    } catch (err) {
+      console.error("admin_students_bulk_row_failed", row.national_id, err);
+      failed += 1;
+    }
+  }
+
+  return {
+    success,
+    failed,
+    total: rows.length,
+    message: `تمت إضافة ${success} طالب بنجاح، وفشل ${failed}`,
+  };
 }

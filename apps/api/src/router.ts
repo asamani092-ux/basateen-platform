@@ -4,6 +4,10 @@ import { handleHealth } from "./routes/health";
 import { handleTvSummary } from "./routes/tv-summary";
 import { handleLogin, handleLoginMobile, handleMe } from "./routes/auth";
 import { handleSeedUsers } from "./routes/setup";
+import {
+  handleAdminStudentCreate,
+  handleAdminStudentsBulk,
+} from "./routes/admin-students";
 import { handleStudentCreate, handleStudentsList } from "./routes/students";
 import {
   handleStudentsBulkImport,
@@ -82,6 +86,8 @@ const sharedRoutes: Array<{ method: string; pattern: RegExp; handler: RouteHandl
   { method: "GET", pattern: /^\/api\/circles$/, handler: handleCirclesList },
   { method: "GET", pattern: /^\/api\/students$/, handler: handleStudentsList },
   { method: "POST", pattern: /^\/api\/students$/, handler: handleStudentCreate },
+  { method: "POST", pattern: /^\/api\/admin\/students$/, handler: handleAdminStudentCreate },
+  { method: "POST", pattern: /^\/api\/admin\/students\/bulk$/, handler: handleAdminStudentsBulk },
   { method: "GET", pattern: /^\/api\/students\/export$/, handler: handleStudentsExport },
   { method: "POST", pattern: /^\/api\/students\/bulk$/, handler: handleStudentsBulkImport },
   { method: "POST", pattern: /^\/api\/students\/bulk-paste$/, handler: handleStudentsBulkPaste },

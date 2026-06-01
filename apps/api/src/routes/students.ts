@@ -1,6 +1,7 @@
 import type { Env } from "../types";
 import { ADMIN_DATA_ROLES } from "../lib/roles";
 import { createStudentWithPlacement } from "../lib/students-admin";
+import { studentCreateBodySchema } from "../../../../packages/types/students-schema";
 import { hasTable, tableHasColumn } from "../lib/db-schema";
 import { buildStudentPlacementSql } from "../lib/student-list-sql";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
@@ -198,70 +199,47 @@ export async function handleStudentCreate(
       return json({ error: "migration_required", table: "students" }, 503);
     }
 
-    let body: Record<string, unknown>;
+    let body: unknown;
     try {
-      body = (await request.json()) as Record<string, unknown>;
+      body = await request.json();
     } catch {
       return json({ error: "invalid_json" }, 400);
     }
 
-    const full_name_ar =
-      typeof body.full_name_ar === "string" ? body.full_name_ar.trim() : "";
-    const national_id =
-      typeof body.national_id === "string" ? body.national_id.trim() : "";
-    const nationality =
-      typeof body.nationality === "string" ? body.nationality.trim() : "";
-    const phone = typeof body.phone === "string" ? body.phone.trim() : "";
-    const guardian_phone =
-      typeof body.guardian_phone === "string" ? body.guardian_phone.trim() : "";
-
-    if (!full_name_ar) return json({ error: "full_name_required" }, 400);
-    if (!national_id) return json({ error: "national_id_required" }, 400);
-    if (!nationality) return json({ error: "nationality_required" }, 400);
-    if (!phone) return json({ error: "phone_required" }, 400);
-    if (!guardian_phone) return json({ error: "guardian_phone_required" }, 400);
-
-    const circle_id =
-      body.circle_id != null ? Number(body.circle_id) : null;
-    const track_id = body.track_id != null ? Number(body.track_id) : null;
-    if (
-      (!circle_id || !Number.isFinite(circle_id)) &&
-      (!track_id || !Number.isFinite(track_id))
-    ) {
-      return json({ error: "placement_required", message: "اختر حلقة أو مساراً" }, 400);
+    const parsed = studentCreateBodySchema.safeParse(body);
+    if (!parsed.success) {
+      console.error("student_create_validation", parsed.error.flatten());
+      return json(
+        { error: "validation_failed", details: parsed.error.flatten() },
+        400,
+      );
     }
+
+    const data = parsed.data;
 
     try {
       const created = await createStudentWithPlacement(
         env,
         auth.complexId,
         {
-          full_name_ar,
-          national_id,
-          nationality,
-          phone,
-          guardian_phone,
-          school_name:
-            typeof body.school_name === "string" ? body.school_name : null,
-          school_grade:
-            typeof body.school_grade === "string" ? body.school_grade : null,
-          health_notes:
-            typeof body.health_notes === "string" ? body.health_notes : null,
-          memorization_amount:
-            typeof body.memorization_amount === "string"
-              ? body.memorization_amount
-              : null,
-          guardian_national_id:
-            typeof body.guardian_national_id === "string"
-              ? body.guardian_national_id
-              : null,
-          circle_id: Number.isFinite(circle_id) ? circle_id : null,
-          track_id: Number.isFinite(track_id) ? track_id : null,
+          full_name_ar: data.full_name_ar,
+          national_id: data.national_id,
+          nationality: data.nationality,
+          phone: data.phone,
+          guardian_phone: data.guardian_phone,
+          school_name: data.school_name,
+          school_grade: data.school_grade,
+          health_notes: data.health_notes,
+          memorization_amount: data.memorization_amount,
+          guardian_national_id: data.guardian_national_id,
+          circle_id: data.circle_id,
+          track_id: data.track_id,
         },
         auth,
       );
       return json({ ok: true, id: created.id }, 201);
     } catch (e: unknown) {
+      console.error("student_create_inner", e);
       const msg = e instanceof Error ? e.message : String(e);
       if (msg === "placement_required") {
         return json({ error: "placement_required" }, 400);

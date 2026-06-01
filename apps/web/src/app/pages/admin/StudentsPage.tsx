@@ -40,23 +40,12 @@ import {
 import { getApiToken } from "../../lib/api-token";
 import { ds, tajawal } from "../../lib/design-system";
 import { cn } from "../../components/ui/utils";
-
-const BULK_PLACEHOLDER =
-  "انسخ البيانات من الإكسل والصقها هنا\n" +
-  "الترتيب (مفصولة بتاب): الاسم، الهوية، الجنسية، جوال الطالب، جوال الولي، المدرسة، الصف، اسم الحلقة/المسار";
-
-function parsePlacementValue(value: string): {
-  circle_id: number | null;
-  track_id: number | null;
-} {
-  if (!value) return { circle_id: null, track_id: null };
-  const [kind, idStr] = value.split(":");
-  const id = Number(idStr);
-  if (!Number.isFinite(id)) return { circle_id: null, track_id: null };
-  if (kind === "circle") return { circle_id: id, track_id: null };
-  if (kind === "track") return { circle_id: null, track_id: id };
-  return { circle_id: null, track_id: null };
-}
+import {
+  downloadStudentTemplateCsv,
+  downloadStudentTemplateXlsx,
+  parseStudentImportFile,
+  validateStudentCreateForm,
+} from "../../lib/students-import";
 
 export function StudentsPage() {
   const [q, setQ] = useState("");
@@ -330,7 +319,8 @@ function StudentAddDialog({
   onCreated: () => void;
 }) {
   const [tab, setTab] = useState("single");
-  const [pasteText, setPasteText] = useState("");
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [parsedCount, setParsedCount] = useState(0);
   const [bulkLoading, setBulkLoading] = useState(false);
 
   const [name, setName] = useState("");
@@ -340,6 +330,8 @@ function StudentAddDialog({
   const [guardianPhone, setGuardianPhone] = useState("");
   const [school, setSchool] = useState("");
   const [grade, setGrade] = useState("");
+  const [memorization, setMemorization] = useState("");
+  const [guardianNationalId, setGuardianNationalId] = useState("");
   const [placement, setPlacement] = useState("");
   const [healthNotes, setHealthNotes] = useState("");
   const [saving, setSaving] = useState(false);
@@ -357,7 +349,8 @@ function StudentAddDialog({
   useEffect(() => {
     if (!open) return;
     setTab("single");
-    setPasteText("");
+    setImportFile(null);
+    setParsedCount(0);
     setFormError(null);
     setName("");
     setNationalId("");
@@ -366,53 +359,80 @@ function StudentAddDialog({
     setGuardianPhone("");
     setSchool("");
     setGrade("");
+    setMemorization("");
+    setGuardianNationalId("");
     setPlacement("");
     setHealthNotes("");
   }, [open]);
 
+  async function onFileSelected(file: File | null) {
+    setImportFile(file);
+    setParsedCount(0);
+    if (!file) return;
+    try {
+      const rows = await parseStudentImportFile(file);
+      setParsedCount(rows.length);
+      if (rows.length === 0) {
+        setFormError("لم يُعثر على صفوف صالحة — استخدم النموذج الرسمي");
+      } else {
+        setFormError(null);
+      }
+    } catch {
+      setFormError("تعذّر قراءة الملف");
+    }
+  }
+
   async function submitSingle(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
-    const { circle_id, track_id } = parsePlacementValue(placement);
-    if (!circle_id && !track_id) {
-      setFormError("اختر حلقة أو مساراً");
+    const validated = validateStudentCreateForm({
+      full_name_ar: name,
+      national_id: nationalId,
+      nationality,
+      phone,
+      guardian_phone: guardianPhone,
+      school_name: school,
+      school_grade: grade,
+      memorization_amount: memorization,
+      guardian_national_id: guardianNationalId,
+      health_notes: healthNotes,
+      placement,
+    });
+    if (!validated.success) {
+      setFormError("تحقق من الحقول الإلزامية والحلقة/المسار");
       return;
     }
     setSaving(true);
     try {
-      await api.studentsCreate({
-        full_name_ar: name.trim(),
-        national_id: nationalId.trim(),
-        nationality: nationality.trim(),
-        phone: phone.trim(),
-        guardian_phone: guardianPhone.trim(),
-        school_name: school.trim() || null,
-        school_grade: grade.trim() || null,
-        health_notes: healthNotes.trim() || null,
-        circle_id,
-        track_id,
-      });
+      await api.studentsCreate(validated.data);
       toast.success("تمت إضافة الطالب");
       onCreated();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "فشل الحفظ");
+      const msg = err instanceof Error ? err.message : "فشل الحفظ";
+      setFormError(msg.includes("national_id") ? "رقم الهوية مسجّل مسبقاً" : msg);
     } finally {
       setSaving(false);
     }
   }
 
   async function submitBulk() {
-    if (!pasteText.trim()) {
-      setFormError("الصق بيانات الطلاب أولاً");
+    if (!importFile) {
+      setFormError("اختر ملف Excel أو CSV");
       return;
     }
     setBulkLoading(true);
     setFormError(null);
     try {
-      const res = await api.studentsBulkPaste(pasteText);
-      toast.success(`تم حفظ ${res.success} طالب — تم تجاوز ${res.skipped} سطر`);
+      const rows = await parseStudentImportFile(importFile);
+      if (rows.length === 0) {
+        setFormError("لا توجد صفوف صالحة في الملف");
+        return;
+      }
+      const res = await api.adminStudentsBulk(rows);
+      toast.success(res.message);
       if (res.success > 0) {
-        setPasteText("");
+        setImportFile(null);
+        setParsedCount(0);
         onCreated();
       }
     } catch (err) {
@@ -428,7 +448,7 @@ function StudentAddDialog({
         <DialogHeader>
           <DialogTitle style={tajawal}>إضافة طلاب</DialogTitle>
           <DialogDescription style={tajawal}>
-            إضافة فردية أو لصق جماعي من Excel
+            إضافة فردية أو رفع ملف Excel/CSV بعد تنزيل النموذج
           </DialogDescription>
         </DialogHeader>
 
@@ -503,8 +523,24 @@ function StudentAddDialog({
                   <Input value={grade} onChange={(e) => setGrade(e.target.value)} />
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label style={tajawal}>مقدار الحفظ</Label>
+                  <Input
+                    value={memorization}
+                    onChange={(e) => setMemorization(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label style={tajawal}>هوية ولي الأمر</Label>
+                  <Input
+                    value={guardianNationalId}
+                    onChange={(e) => setGuardianNationalId(e.target.value)}
+                  />
+                </div>
+              </div>
               <div>
-                <Label style={tajawal}>ملاحظات صحية</Label>
+                <Label style={tajawal}>أعراض صحية</Label>
                 <Input value={healthNotes} onChange={(e) => setHealthNotes(e.target.value)} />
               </div>
               <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
@@ -513,27 +549,54 @@ function StudentAddDialog({
             </form>
           </TabsContent>
 
-          <TabsContent value="bulk" className="mt-4 space-y-3">
-            <textarea
-              value={pasteText}
-              onChange={(e) => setPasteText(e.target.value)}
-              placeholder={BULK_PLACEHOLDER}
-              rows={12}
-              dir="rtl"
-              className={`w-full min-h-[220px] border border-border rounded-2xl p-4 text-sm bg-background ${ds.btnRound}`}
-              style={tajawal}
-            />
+          <TabsContent value="bulk" className="mt-4 space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="default"
+                className={ds.btnRound}
+                onClick={() => downloadStudentTemplateXlsx()}
+                style={tajawal}
+              >
+                تنزيل نموذج الإضافة ⬇️
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className={ds.btnRound}
+                onClick={() => downloadStudentTemplateCsv()}
+                style={tajawal}
+              >
+                تنزيل CSV
+              </Button>
+            </div>
             <p className="text-xs text-muted-foreground" style={tajawal}>
-              الصق من Excel — الأعمدة مفصولة بتاب (Tab). السطور غير الصالحة تُتجاوز بصمت.
+              عبّئ النموذج ثم ارفع الملف. تُقرأ البيانات في المتصفح وترسل كـ JSON — بدون رفع
+              ملف للسيرفر.
             </p>
+            <div>
+              <Label style={tajawal}>ملف الطلاب (.xlsx أو .csv)</Label>
+              <Input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="mt-2"
+                onChange={(e) => void onFileSelected(e.target.files?.[0] ?? null)}
+              />
+              {importFile && (
+                <p className="text-xs text-muted-foreground mt-2" style={tajawal}>
+                  {importFile.name}
+                  {parsedCount > 0 ? ` — ${parsedCount} صف جاهز` : ""}
+                </p>
+              )}
+            </div>
             <Button
               type="button"
               className={ds.btnRound}
               onClick={() => void submitBulk()}
-              disabled={bulkLoading}
+              disabled={bulkLoading || !importFile || parsedCount === 0}
               style={tajawal}
             >
-              {bulkLoading ? "جاري الاستيراد…" : "استيراد الطلاب"}
+              {bulkLoading ? "جاري الاستيراد…" : "رفع واستيراد الطلاب"}
             </Button>
           </TabsContent>
         </Tabs>

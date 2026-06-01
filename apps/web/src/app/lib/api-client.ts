@@ -255,12 +255,29 @@ export const api = {
     school_grade?: string | null;
     health_notes?: string | null;
     memorization_amount?: string | null;
+    guardian_national_id?: string | null;
     circle_id?: number | null;
     track_id?: number | null;
+    group_id?: number | null;
+    group_type?: "circle" | "track";
+    placement?: string;
   }) =>
-    request<{ ok: boolean; id: number }>("/api/students", {
+    request<{ ok: boolean; id: number }>("/api/admin/students", {
       method: "POST",
       body: JSON.stringify(body),
+    }),
+  adminStudentsBulk: (
+    rows: Array<Record<string, string | null>>,
+  ) =>
+    request<{
+      ok: boolean;
+      total: number;
+      success: number;
+      failed: number;
+      message: string;
+    }>("/api/admin/students/bulk", {
+      method: "POST",
+      body: JSON.stringify({ rows }),
     }),
   circles: () => request<{ items: CircleOption[] }>("/api/circles"),
   studentDetail: (id: number) =>

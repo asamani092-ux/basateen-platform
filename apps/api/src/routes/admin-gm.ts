@@ -18,6 +18,11 @@ import {
   teachersListSql,
 } from "../lib/admin-gm-schema";
 import {
+  fetchEducationalGroups,
+  parseEducationalEntityType,
+  safeDeleteEducationalGroup,
+} from "../lib/admin-educational-groups";
+import {
   safeDeleteStaffUser,
   staffListSql,
   SOVEREIGN_USER_ID,
@@ -763,6 +768,61 @@ export async function handleAdminSupervisorsCreate(
   }
 
   return json({ ok: true, id: userId });
+}
+
+export async function handleAdminEducationalGroupsList(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  try {
+    const auth = await getAuth(request, env);
+    const denied = requireGm(auth);
+    if (denied) return denied;
+
+    const items = await fetchEducationalGroups(env, auth!.complexId);
+    return json({ items });
+  } catch (error: unknown) {
+    console.error("[admin-gm] educational-groups list:", error);
+    return json({ items: [] });
+  }
+}
+
+export async function handleAdminEducationalGroupsDelete(
+  request: Request,
+  env: Env,
+  url: URL,
+): Promise<Response> {
+  try {
+    const auth = await getAuth(request, env);
+    const denied = requireGm(auth);
+    if (denied) return denied;
+
+    const m = url.pathname.match(
+      /^\/api\/admin\/educational-groups\/(circle|track)\/(\d+)$/,
+    );
+    const entityType = parseEducationalEntityType(m?.[1] ?? null);
+    const id = m ? Number(m[2]) : NaN;
+    if (!entityType || !Number.isFinite(id)) {
+      return json({ error: "invalid_id_or_type" }, 400);
+    }
+
+    const result = await safeDeleteEducationalGroup(
+      env,
+      entityType,
+      id,
+      auth!.complexId,
+    );
+    return json({ ok: true, ...result });
+  } catch (error: unknown) {
+    console.error("[admin-gm] educational-groups delete:", error);
+    const message =
+      error instanceof Error ? error.message : "Failed to delete group";
+    const status =
+      message === "circle_not_found" || message === "track_not_found"
+        ? 404
+        : 500;
+    return json({ error: "admin_gm_error", message }, status);
+  }
 }
 
 export async function handleAdminCirclesSummary(
@@ -1720,6 +1780,15 @@ async function handleAdminGmRouterImpl(
   }
   if (method === "POST" && path === "/api/admin/supervisors") {
     return handleAdminSupervisorsCreate(request, env);
+  }
+  if (method === "GET" && path === "/api/admin/educational-groups") {
+    return handleAdminEducationalGroupsList(request, env);
+  }
+  if (
+    method === "DELETE" &&
+    /^\/api\/admin\/educational-groups\/(circle|track)\/\d+$/.test(path)
+  ) {
+    return handleAdminEducationalGroupsDelete(request, env, url);
   }
   if (method === "GET" && path === "/api/admin/circles/summary") {
     return handleAdminCirclesSummary(request, env);

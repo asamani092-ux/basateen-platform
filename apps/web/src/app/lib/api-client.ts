@@ -79,6 +79,20 @@ export type CircleOption = {
   alert_level?: "ok" | "near" | "full";
 };
 
+export type EducationalGroupRow = {
+  id: number;
+  entity_type: "circle" | "track";
+  name_ar: string;
+  assignee_name: string | null;
+  assignee_id: number | null;
+  student_count: number;
+  default_capacity: number;
+  is_active: number;
+  stage_id?: number;
+  capacity_warning?: string | null;
+  stage_ids?: number[];
+};
+
 export type AdminCircleRow = {
   id: number;
   name_ar: string;
@@ -550,6 +564,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  adminEducationalGroups: () =>
+    request<{ items: EducationalGroupRow[] }>("/api/admin/educational-groups"),
+  adminEducationalGroupDelete: (entityType: "circle" | "track", id: number) =>
+    request<{ ok: boolean; soft_deleted?: boolean }>(
+      `/api/admin/educational-groups/${entityType}/${id}`,
+      { method: "DELETE" },
+    ),
   adminCirclesSummary: () =>
     request<{ items: AdminCircleRow[] }>("/api/admin/circles/summary"),
   adminCirclesCreate: (body: {

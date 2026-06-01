@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "react-router";
-import { CircleDot, Route } from "lucide-react";
-import { CircleCapacityBadge } from "../../components/admin/CircleCapacityBadge";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+import { Layers } from "lucide-react";
 import {
   TableActionsCell,
   TableIconAction,
 } from "../../components/admin/TableIconAction";
+import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import {
   Dialog,
@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
+import { Label } from "../../components/ui/label";
 import {
   Card,
   CardContent,
@@ -32,905 +33,515 @@ import {
 } from "../../components/ui/table";
 import {
   api,
-  type AdminCircleRow,
-  type AdminTrackRow,
-  type StaffSupervisorRow,
-  type StaffTeacherRow,
+  type EducationalGroupRow,
+  type StaffMemberRow,
 } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
-import { EDUCATIONAL_STAGES, stageLabel, type StageId } from "../../lib/stages";
+import { EDUCATIONAL_STAGES, type StageId } from "../../lib/stages";
 import { ds, tajawal } from "../../lib/design-system";
-
-type SetupTab = "circles" | "tracks";
 
 type EntityKind = "circle" | "track";
 
-const ENTITY_TYPE_LABEL: Record<EntityKind, string> = {
+const ENTITY_LABEL: Record<EntityKind, string> = {
+  circle: "حلقة قرآنية",
+  track: "مسار تعليمي",
+};
+
+const ENTITY_BADGE: Record<EntityKind, string> = {
   circle: "حلقة",
   track: "مسار",
 };
 
-export function CirclesSetupPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const tab: SetupTab = searchParams.get("tab") === "tracks" ? "tracks" : "circles";
+function apiErrorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error ? err.message : fallback;
+}
 
-  function setTab(next: SetupTab) {
-    const params = new URLSearchParams(searchParams);
-    if (next === "tracks") params.set("tab", "tracks");
-    else params.delete("tab");
-    setSearchParams(params);
+export function CirclesSetupPage() {
+  const [items, setItems] = useState<EducationalGroupRow[]>([]);
+  const [staff, setStaff] = useState<StaffMemberRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editRow, setEditRow] = useState<EducationalGroupRow | null>(null);
+  const hasApi = Boolean(getApiToken());
+
+  const teachers = useMemo(
+    () => staff.filter((s) => s.role === "teacher"),
+    [staff],
+  );
+  const trackSupervisors = useMemo(
+    () => staff.filter((s) => s.role === "track_supervisor"),
+    [staff],
+  );
+
+  const load = useCallback(async () => {
+    if (!hasApi) {
+      toast.error("أعد تسجيل الدخول لربط API");
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const [groupsRes, staffRes] = await Promise.allSettled([
+      api.adminEducationalGroups(),
+      api.adminStaff(),
+    ]);
+    if (groupsRes.status === "fulfilled") {
+      setItems(
+        (groupsRes.value.items ?? []).filter((g) => g.is_active !== 0),
+      );
+    } else {
+      console.error("[groups] load:", groupsRes.reason);
+      setItems([]);
+      toast.error(apiErrorMessage(groupsRes.reason, "تعذر تحميل الحلقات والمسارات"));
+    }
+    if (staffRes.status === "fulfilled") {
+      setStaff(staffRes.value.items ?? []);
+    } else {
+      setStaff([]);
+    }
+    setLoading(false);
+  }, [hasApi]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function handleDelete(row: EducationalGroupRow) {
+    const label = ENTITY_BADGE[row.entity_type];
+    if (
+      !window.confirm(
+        `حذف ${label} «${row.name_ar}»؟ سيتم فك ارتباط الطلاب المسجّلين فيها.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await api.adminEducationalGroupDelete(row.entity_type, row.id);
+      setItems((prev) =>
+        prev.filter(
+          (x) => !(x.id === row.id && x.entity_type === row.entity_type),
+        ),
+      );
+      toast.success("تم الحذف بنجاح");
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "فشل الحذف"));
+    }
+  }
+
+  function openCreate() {
+    setEditRow(null);
+    setModalOpen(true);
+  }
+
+  function openEdit(row: EducationalGroupRow) {
+    setEditRow(row);
+    setModalOpen(true);
   }
 
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto">
+    <div className="space-y-6 max-w-[1600px] mx-auto" dir="rtl">
       <div>
         <h2 className={ds.page.title} style={tajawal}>
-          إدارة الحلقات والمسارات
+          إعداد الحلقات والمسارات
         </h2>
         <p className={ds.page.description} style={tajawal}>
-          هيكل المجمع — السعة الافتراضية إلزامية؛ العدد الحالي = عدد الطلاب النشطين
+          كيان واحد موحّد — الحلقة والمسار يختلفان في المسمى والإسناد فقط
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant={tab === "circles" ? "default" : "outline"}
-          className={ds.btnRound}
-          onClick={() => setTab("circles")}
-          style={tajawal}
-        >
-          الحلقات
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant={tab === "tracks" ? "default" : "outline"}
-          className={ds.btnRound}
-          onClick={() => setTab("tracks")}
-          style={tajawal}
-        >
-          المسارات
-        </Button>
-      </div>
+      <Card className={ds.card}>
+        <CardHeader className="flex flex-row items-start justify-between gap-4 border-b border-border pb-4">
+          <div>
+            <CardTitle className="flex items-center gap-2" style={tajawal}>
+              <Layers className="w-5 h-5 text-primary" />
+              المجموعات التعليمية
+            </CardTitle>
+            <CardDescription style={tajawal}>
+              {items.length} كيان نشط
+            </CardDescription>
+          </div>
+          <Button
+            type="button"
+            className={ds.btnRound}
+            style={tajawal}
+            onClick={openCreate}
+          >
+            إضافة كيان
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <p className="text-muted-foreground" style={tajawal}>
+              جاري التحميل…
+            </p>
+          ) : (
+            <Table className={ds.tableMin}>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className={`${ds.table.head} w-[20%]`} style={tajawal}>
+                    اسم الكيان
+                  </TableHead>
+                  <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
+                    النوع
+                  </TableHead>
+                  <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
+                    المعلم / المشرف
+                  </TableHead>
+                  <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
+                    الطلاب
+                  </TableHead>
+                  <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
+                    السعة
+                  </TableHead>
+                  <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
+                    تنبيه
+                  </TableHead>
+                  <TableHead className={ds.table.headActions} style={tajawal}>
+                    إجراءات
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={7}
+                      className={`${ds.table.cell} text-center text-muted-foreground`}
+                      style={tajawal}
+                    >
+                      لا توجد حلقات أو مسارات
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  items.map((row) => (
+                    <TableRow key={`${row.entity_type}-${row.id}`}>
+                      <TableCell className={ds.table.cell} style={tajawal}>
+                        {row.name_ar}
+                      </TableCell>
+                      <TableCell className={ds.table.cell}>
+                        <Badge
+                          variant={
+                            row.entity_type === "track" ? "default" : "secondary"
+                          }
+                          className={
+                            row.entity_type === "track"
+                              ? "bg-sky-600 hover:bg-sky-600 text-white"
+                              : "bg-emerald-700 hover:bg-emerald-700 text-white"
+                          }
+                          style={tajawal}
+                        >
+                          {ENTITY_BADGE[row.entity_type]}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className={ds.table.cell} style={tajawal}>
+                        {row.assignee_name ?? "—"}
+                      </TableCell>
+                      <TableCell className={ds.table.cell} style={tajawal}>
+                        {row.student_count}
+                      </TableCell>
+                      <TableCell className={ds.table.cell} style={tajawal}>
+                        {row.student_count}/{row.default_capacity}
+                      </TableCell>
+                      <TableCell className={ds.table.cell} style={tajawal}>
+                        {row.entity_type === "circle" && row.capacity_warning ? (
+                          <span className="text-sm text-amber-700 dark:text-amber-400">
+                            {row.capacity_warning}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
+                      <TableActionsCell>
+                        <TableIconAction
+                          kind="edit"
+                          onClick={() => openEdit(row)}
+                        />
+                        <TableIconAction
+                          kind="delete"
+                          onClick={() => void handleDelete(row)}
+                        />
+                      </TableActionsCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
-      {tab === "circles" ? <CirclesPanel /> : <TracksPanel />}
+      <GroupFormDialog
+        open={modalOpen}
+        editRow={editRow}
+        teachers={teachers}
+        trackSupervisors={trackSupervisors}
+        onOpenChange={setModalOpen}
+        onSaved={() => {
+          setModalOpen(false);
+          setEditRow(null);
+          void load();
+          toast.success(editRow ? "تم حفظ التعديلات" : "تمت الإضافة بنجاح");
+        }}
+      />
     </div>
   );
 }
 
-function CirclesPanel() {
-  const [items, setItems] = useState<AdminCircleRow[]>([]);
-  const [teachers, setTeachers] = useState<StaffTeacherRow[]>([]);
-  const [tracks, setTracks] = useState<AdminTrackRow[]>([]);
-  const [showForm, setShowForm] = useState(false);
+function GroupFormDialog({
+  open,
+  editRow,
+  teachers,
+  trackSupervisors,
+  onOpenChange,
+  onSaved,
+}: {
+  open: boolean;
+  editRow: EducationalGroupRow | null;
+  teachers: StaffMemberRow[];
+  trackSupervisors: StaffMemberRow[];
+  onOpenChange: (open: boolean) => void;
+  onSaved: () => void;
+}) {
+  const isEdit = editRow != null;
+  const [entityType, setEntityType] = useState<EntityKind>("circle");
   const [name, setName] = useState("");
+  const [capacity, setCapacity] = useState("20");
   const [stageId, setStageId] = useState<StageId>(2);
-  const [defaultCapacity, setDefaultCapacity] = useState("20");
   const [teacherId, setTeacherId] = useState("");
   const [newTeacherName, setNewTeacherName] = useState("");
   const [newTeacherMobile, setNewTeacherMobile] = useState("");
-  const [trackId, setTrackId] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [supervisorId, setSupervisorId] = useState("");
   const [saving, setSaving] = useState(false);
-  const [editCircle, setEditCircle] = useState<AdminCircleRow | null>(null);
-  const [editName, setEditName] = useState("");
-  const [editStageId, setEditStageId] = useState<StageId>(2);
-  const [editCapacity, setEditCapacity] = useState("");
-  const [editTrackId, setEditTrackId] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const hasApi = Boolean(getApiToken());
-
-  const load = useCallback(async () => {
-    if (!hasApi) {
-      setError("أعد تسجيل الدخول لربط API");
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    const [c, t, tr] = await Promise.allSettled([
-      api.adminCirclesSummary(),
-      api.adminTeachers(),
-      api.adminTracks(),
-    ]);
-    const loadErrors: string[] = [];
-    if (c.status === "fulfilled") {
-      setItems(c.value.items ?? []);
-    } else {
-      console.error("[circles-setup] circles:", c.reason);
-      setItems([]);
-      loadErrors.push("الحلقات");
-    }
-    if (t.status === "fulfilled") {
-      setTeachers(t.value.items ?? []);
-    } else {
-      console.error("[circles-setup] teachers:", t.reason);
-      setTeachers([]);
-      loadErrors.push("المعلمين");
-    }
-    if (tr.status === "fulfilled") {
-      setTracks(tr.value.items ?? []);
-    } else {
-      console.error("[circles-setup] tracks:", tr.reason);
-      setTracks([]);
-      loadErrors.push("المسارات");
-    }
-    setError(
-      loadErrors.length > 0
-        ? `تعذر تحميل: ${loadErrors.join("، ")}`
-        : null,
-    );
-    setLoading(false);
-  }, [hasApi]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (!open) return;
+    if (editRow) {
+      setEntityType(editRow.entity_type);
+      setName(editRow.name_ar);
+      setCapacity(String(editRow.default_capacity));
+      setStageId((editRow.stage_id as StageId) ?? 2);
+      if (editRow.entity_type === "circle") {
+        setTeacherId(editRow.assignee_id ? String(editRow.assignee_id) : "");
+        setSupervisorId("");
+      } else {
+        setSupervisorId(editRow.assignee_id ? String(editRow.assignee_id) : "");
+        setTeacherId("");
+      }
+      setNewTeacherName("");
+      setNewTeacherMobile("");
+    } else {
+      setEntityType("circle");
+      setName("");
+      setCapacity("20");
+      setStageId(2);
+      setTeacherId("");
+      setSupervisorId("");
+      setNewTeacherName("");
+      setNewTeacherMobile("");
+    }
+  }, [open, editRow]);
+
+  const isCircle = entityType === "circle";
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!teacherId && (!newTeacherName.trim() || !newTeacherMobile.trim())) {
-      setError("اختر معلمًا أو أدخل بيانات معلم جديد");
-      return;
-    }
     setSaving(true);
-    setError(null);
     try {
-      await api.adminCirclesCreate({
-        name_ar: name.trim(),
-        stage_id: stageId,
-        default_capacity: Number(defaultCapacity),
-        teacher_user_id: teacherId ? Number(teacherId) : undefined,
-        new_teacher:
-          !teacherId && newTeacherName.trim()
-            ? {
-                full_name_ar: newTeacherName.trim(),
-                mobile: newTeacherMobile.trim(),
-              }
-            : undefined,
-        track_id: trackId ? Number(trackId) : null,
-      });
-      setShowForm(false);
-      setName("");
-      setTeacherId("");
-      await load();
+      if (isEdit && editRow) {
+        if (editRow.entity_type === "circle") {
+          await api.adminCirclesPatch(editRow.id, {
+            name_ar: name.trim(),
+            stage_id: stageId,
+            default_capacity: Number(capacity),
+            ...(teacherId ? { teacher_user_id: Number(teacherId) } : {}),
+          });
+        } else {
+          await api.adminTracksPatch(editRow.id, {
+            name_ar: name.trim(),
+            default_capacity: Number(capacity),
+          });
+        }
+      } else if (isCircle) {
+        if (!teacherId && (!newTeacherName.trim() || !newTeacherMobile.trim())) {
+          toast.error("اختر معلمًا أو أدخل بيانات معلم جديد");
+          return;
+        }
+        await api.adminCirclesCreate({
+          name_ar: name.trim(),
+          stage_id: stageId,
+          default_capacity: Number(capacity),
+          teacher_user_id: teacherId ? Number(teacherId) : undefined,
+          new_teacher:
+            !teacherId && newTeacherName.trim()
+              ? {
+                  full_name_ar: newTeacherName.trim(),
+                  mobile: newTeacherMobile.trim(),
+                }
+              : undefined,
+        });
+      } else {
+        if (!supervisorId) {
+          toast.error("اختر مشرف المسار");
+          return;
+        }
+        await api.adminTracksCreate({
+          name_ar: name.trim(),
+          default_capacity: Number(capacity),
+          supervisor_id: Number(supervisorId),
+          stage_ids: [stageId],
+          circle_ids: [],
+        });
+      }
+      onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "فشل الحفظ");
+      toast.error(apiErrorMessage(err, "فشل الحفظ"));
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <Card className={ds.card}>
-      <CardHeader className="flex flex-row items-start justify-between gap-4 border-b border-border pb-4">
-        <div>
-          <CardTitle className="flex items-center gap-2" style={tajawal}>
-            <CircleDot className="w-5 h-5 text-primary" />
-            الحلقات
-          </CardTitle>
-          <CardDescription style={tajawal}>
-            اسم الحلقة · المعلم · المرحلة · عدد الطلاب · السعة (حالي/افتراضي)
-          </CardDescription>
-        </div>
-        <Button
-          variant="default"
-          className={`${ds.btnRound} shrink-0`}
-          style={tajawal}
-          type="button"
-          onClick={() => setShowForm(true)}
-        >
-          إضافة حلقة
-        </Button>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {error && (
-          <p className="text-sm text-destructive" style={tajawal}>
-            {error}
-          </p>
-        )}
-        <Dialog open={showForm} onOpenChange={setShowForm}>
-          <DialogContent className={ds.dialog} dir="rtl">
-            <DialogHeader>
-              <DialogTitle style={tajawal}>إضافة حلقة</DialogTitle>
-              <DialogDescription style={tajawal}>
-                اسم الحلقة، المرحلة، المعلم، والسعة الافتراضية.
-              </DialogDescription>
-            </DialogHeader>
-            <form onSubmit={submit} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                نوع الكيان *
-              </label>
-              <select
-                value="circle"
-                disabled
-                className={ds.select}
-                style={tajawal}
-                aria-readonly
-              >
-                <option value="circle">{ENTITY_TYPE_LABEL.circle}</option>
-              </select>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className={`${ds.dialog} sm:max-w-lg`} dir="rtl">
+        <DialogHeader className="text-right">
+          <DialogTitle style={tajawal}>
+            {isEdit ? "تعديل كيان" : "إضافة كيان"}
+          </DialogTitle>
+          <DialogDescription style={tajawal}>
+            اختر نوع الكيان ثم أكمل البيانات
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="grid gap-4">
+          <fieldset className="space-y-2" disabled={isEdit}>
+            <legend className="text-sm font-semibold mb-2" style={tajawal}>
+              نوع الكيان *
+            </legend>
+            <div className="flex flex-wrap gap-4">
+              {(["circle", "track"] as const).map((kind) => (
+                <label
+                  key={kind}
+                  className="flex items-center gap-2 cursor-pointer"
+                  style={tajawal}
+                >
+                  <input
+                    type="radio"
+                    name="entity_type"
+                    value={kind}
+                    checked={entityType === kind}
+                    onChange={() => setEntityType(kind)}
+                    className="size-4"
+                  />
+                  {ENTITY_LABEL[kind]}
+                </label>
+              ))}
             </div>
-            <div>
-              <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                اسم الحلقة *
-              </label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} required />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                المرحلة *
-              </label>
-              <select
-                value={stageId}
-                onChange={(e) => setStageId(Number(e.target.value) as StageId)}
-                className={ds.select}
-                style={tajawal}
-              >
-                {EDUCATIONAL_STAGES.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name_ar}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                السعة الافتراضية *
-              </label>
+          </fieldset>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1 sm:col-span-2">
+              <Label style={tajawal}>الاسم *</Label>
               <Input
-                type="number"
-                min={1}
-                value={defaultCapacity}
-                onChange={(e) => setDefaultCapacity(e.target.value)}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
                 required
               />
             </div>
-            <div>
-              <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                المعلم *
-              </label>
-              <select
-                value={teacherId}
-                onChange={(e) => setTeacherId(e.target.value)}
-                className={ds.select}
-                style={tajawal}
-              >
-                <option value="">— معلم جديد أدناه —</option>
-                {teachers.map((t) => (
-                  <option key={t.id} value={String(t.id)}>
-                    {t.full_name_ar}
-                  </option>
-                ))}
-              </select>
+            <div className="space-y-1">
+              <Label style={tajawal}>السعة الافتراضية *</Label>
+              <Input
+                type="number"
+                min={1}
+                value={capacity}
+                onChange={(e) => setCapacity(e.target.value)}
+                required
+              />
             </div>
-            {!teacherId && (
-              <>
-                <div>
-                  <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                    اسم المعلم الجديد *
-                  </label>
-                  <Input
-                    value={newTeacherName}
-                    onChange={(e) => setNewTeacherName(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                    جوال المعلم *
-                  </label>
-                  <Input
-                    value={newTeacherMobile}
-                    onChange={(e) => setNewTeacherMobile(e.target.value)}
-                  />
-                </div>
-              </>
-            )}
-            <div className="sm:col-span-2">
-              <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                مسار (اختياري)
-              </label>
-              <select
-                value={trackId}
-                onChange={(e) => setTrackId(e.target.value)}
-                className={ds.select}
-                style={tajawal}
-              >
-                <option value="">— بدون مسار —</option>
-                {tracks.map((tr) => (
-                  <option key={tr.id} value={String(tr.id)}>
-                    {tr.name_ar}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
-              {saving ? "جاري الحفظ…" : "حفظ الحلقة"}
-            </Button>
-            </form>
-          </DialogContent>
-        </Dialog>
-        {loading ? (
-          <p className="text-muted-foreground" style={tajawal}>
-            جاري التحميل…
-          </p>
-        ) : (
-          <Table className={ds.tableMin}>
-            <TableHeader>
-              <TableRow>
-                <TableHead className={`${ds.table.head} w-[10%]`} style={tajawal}>
-                  نوع الكيان
-                </TableHead>
-                <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
-                  اسم الحلقة
-                </TableHead>
-                <TableHead className={`${ds.table.head} w-[16%]`} style={tajawal}>
-                  المعلم
-                </TableHead>
-                <TableHead className={`${ds.table.head} w-[10%]`} style={tajawal}>
-                  المرحلة
-                </TableHead>
-                <TableHead className={`${ds.table.head} w-[10%]`} style={tajawal}>
-                  عدد الطلاب
-                </TableHead>
-                <TableHead className={`${ds.table.head} w-[10%]`} style={tajawal}>
-                  السعة
-                </TableHead>
-                <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
-                  تنبيه
-                </TableHead>
-                <TableHead className={ds.table.headActions} style={tajawal}>
-                  إجراء
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((c) => (
-                <TableRow key={c.id}>
-                  <TableCell className={ds.table.cell} style={tajawal}>
-                    {ENTITY_TYPE_LABEL.circle}
-                  </TableCell>
-                  <TableCell className={ds.table.cell} style={tajawal}>
-                    {c.name_ar}
-                  </TableCell>
-                  <TableCell className={ds.table.cell} style={tajawal}>
-                    {c.teacher_name ?? "—"}
-                  </TableCell>
-                  <TableCell className={ds.table.cell} style={tajawal}>
-                    {stageLabel(c.stage_id as StageId)}
-                  </TableCell>
-                  <TableCell className={ds.table.cell} style={tajawal}>
-                    {c.student_count}
-                  </TableCell>
-                  <TableCell className={ds.table.cell} style={tajawal}>
-                    {c.student_count}/{c.default_capacity}
-                  </TableCell>
-                  <TableCell className={ds.table.cell}>
-                    <CircleCapacityBadge circle={c} showFraction={false} />
-                  </TableCell>
-                  <TableActionsCell>
-                    <TableIconAction
-                      kind="edit"
-                      onClick={() => {
-                        setEditCircle(c);
-                        setEditName(c.name_ar);
-                        setEditStageId(c.stage_id as StageId);
-                        setEditCapacity(String(c.default_capacity));
-                        setEditTrackId(c.track_id ? String(c.track_id) : "");
-                      }}
-                    />
-                    <TableIconAction
-                      kind="delete"
-                      onClick={async () => {
-                        if (!confirm(`تعطيل الحلقة «${c.name_ar}»؟`)) return;
-                        await api.adminCirclesPatch(c.id, { is_active: 0 });
-                        await load();
-                      }}
-                    />
-                  </TableActionsCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-        <Dialog
-          open={editCircle != null}
-          onOpenChange={(o) => {
-            if (!o) setEditCircle(null);
-          }}
-        >
-          <DialogContent className={ds.dialog} dir="rtl">
-            <DialogHeader>
-              <DialogTitle style={tajawal}>تعديل حلقة</DialogTitle>
-            </DialogHeader>
-            {editCircle && (
-              <form
-                className="grid grid-cols-1 sm:grid-cols-2 gap-4"
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  await api.adminCirclesPatch(editCircle.id, {
-                    name_ar: editName.trim(),
-                    stage_id: editStageId,
-                    default_capacity: Number(editCapacity),
-                    track_id: editTrackId ? Number(editTrackId) : null,
-                  });
-                  setEditCircle(null);
-                  await load();
-                }}
-              >
-                <div>
-                  <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                    نوع الكيان
-                  </label>
-                  <select
-                    value="circle"
-                    disabled
-                    className={ds.select}
-                    style={tajawal}
-                    aria-readonly
-                  >
-                    <option value="circle">{ENTITY_TYPE_LABEL.circle}</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                    الاسم
-                  </label>
-                  <Input value={editName} onChange={(e) => setEditName(e.target.value)} required />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                    المرحلة
-                  </label>
-                  <select
-                    value={editStageId}
-                    onChange={(e) => setEditStageId(Number(e.target.value) as StageId)}
-                    className={ds.select}
-                    style={tajawal}
-                  >
-                    {EDUCATIONAL_STAGES.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name_ar}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                    السعة
-                  </label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={editCapacity}
-                    onChange={(e) => setEditCapacity(e.target.value)}
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                    المسار
-                  </label>
-                  <select
-                    value={editTrackId}
-                    onChange={(e) => setEditTrackId(e.target.value)}
-                    className={ds.select}
-                    style={tajawal}
-                  >
-                    <option value="">— بدون —</option>
-                    {tracks.map((tr) => (
-                      <option key={tr.id} value={String(tr.id)}>
-                        {tr.name_ar}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <Button type="submit" className={`sm:col-span-2 ${ds.btnRound}`} style={tajawal}>
-                  حفظ التعديلات
-                </Button>
-              </form>
-            )}
-          </DialogContent>
-        </Dialog>
-      </CardContent>
-    </Card>
-  );
-}
-
-function TracksPanel() {
-  const [items, setItems] = useState<AdminTrackRow[]>([]);
-  const [circles, setCircles] = useState<AdminCircleRow[]>([]);
-  const [supervisors, setSupervisors] = useState<StaffSupervisorRow[]>([]);
-  const [showForm, setShowForm] = useState(false);
-  const [name, setName] = useState("");
-  const [defaultCapacity, setDefaultCapacity] = useState("20");
-  const [supervisorId, setSupervisorId] = useState("");
-  const [selectedStages, setSelectedStages] = useState<number[]>([3, 4]);
-  const [selectedCircles, setSelectedCircles] = useState<number[]>([]);
-  const [editTrack, setEditTrack] = useState<AdminTrackRow | null>(null);
-  const [editTrackName, setEditTrackName] = useState("");
-  const [editTrackCapacity, setEditTrackCapacity] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const hasApi = Boolean(getApiToken());
-
-  const load = useCallback(async () => {
-    if (!hasApi) {
-      setError("أعد تسجيل الدخول لربط API");
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    const [tr, c, sup] = await Promise.allSettled([
-      api.adminTracks(),
-      api.adminCirclesSummary(),
-      api.adminSupervisors(),
-    ]);
-    const loadErrors: string[] = [];
-    if (tr.status === "fulfilled") {
-      setItems(tr.value.items ?? []);
-    } else {
-      console.error("[circles-setup] tracks:", tr.reason);
-      setItems([]);
-      loadErrors.push("المسارات");
-    }
-    if (c.status === "fulfilled") {
-      setCircles(c.value.items ?? []);
-    } else {
-      console.error("[circles-setup] circles:", c.reason);
-      setCircles([]);
-      loadErrors.push("الحلقات");
-    }
-    if (sup.status === "fulfilled") {
-      const trackSup = (sup.value.items ?? []).filter((s) =>
-        ["track_supervisor", "admin_supervisor", "general_supervisor"].includes(
-          s.role,
-        ),
-      );
-      setSupervisors(trackSup.length > 0 ? trackSup : sup.value.items ?? []);
-    } else {
-      console.error("[circles-setup] supervisors:", sup.reason);
-      setSupervisors([]);
-      loadErrors.push("المشرفين");
-    }
-    setError(
-      loadErrors.length > 0
-        ? `تعذر تحميل: ${loadErrors.join("، ")}`
-        : null,
-    );
-    setLoading(false);
-  }, [hasApi]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  function toggleStage(id: number) {
-    setSelectedStages((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    );
-  }
-
-  function toggleCircle(id: number) {
-    setSelectedCircles((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    );
-  }
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!supervisorId) {
-      setError("اختر مشرف المسار");
-      return;
-    }
-    if (selectedStages.length === 0) {
-      setError("اختر مرحلة واحدة على الأقل للمسار");
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      await api.adminTracksCreate({
-        name_ar: name.trim(),
-        default_capacity: Number(defaultCapacity),
-        supervisor_id: Number(supervisorId),
-        stage_ids: selectedStages,
-        circle_ids: selectedCircles,
-      });
-      setShowForm(false);
-      setName("");
-      setSupervisorId("");
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "فشل الحفظ");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Card className={ds.card}>
-      <CardHeader className="flex flex-row items-start justify-between gap-4 border-b border-border pb-4">
-        <div>
-          <CardTitle className="flex items-center gap-2" style={tajawal}>
-            <Route className="w-5 h-5 text-primary" />
-            المسارات
-          </CardTitle>
-          <CardDescription style={tajawal}>
-            مسار قد يضم طلاباً من حلقات ومراحل متعددة
-          </CardDescription>
-        </div>
-        <Button
-          variant="default"
-          className={`${ds.btnRound} shrink-0`}
-          style={tajawal}
-          type="button"
-          onClick={() => setShowForm(true)}
-        >
-          إضافة مسار
-        </Button>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {error && (
-          <p className="text-sm text-destructive" style={tajawal}>
-            {error}
-          </p>
-        )}
-        <Dialog open={showForm} onOpenChange={setShowForm}>
-          <DialogContent
-            className={`${ds.card} max-w-lg max-h-[90vh] overflow-y-auto`}
-            dir="rtl"
-          >
-            <DialogHeader>
-              <DialogTitle style={tajawal}>إضافة مسار</DialogTitle>
-              <DialogDescription style={tajawal}>
-                اسم المسار، المشرف، المراحل، والحلقات المرتبطة.
-              </DialogDescription>
-            </DialogHeader>
-            <form onSubmit={submit} className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                  نوع الكيان *
-                </label>
+            {isCircle && (
+              <div className="space-y-1">
+                <Label style={tajawal}>المرحلة *</Label>
                 <select
-                  value="track"
-                  disabled
+                  value={stageId}
+                  onChange={(e) => setStageId(Number(e.target.value) as StageId)}
                   className={ds.select}
                   style={tajawal}
-                  aria-readonly
                 >
-                  <option value="track">{ENTITY_TYPE_LABEL.track}</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                  اسم المسار *
-                </label>
-                <Input value={name} onChange={(e) => setName(e.target.value)} required />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                  السعة الافتراضية *
-                </label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={defaultCapacity}
-                  onChange={(e) => setDefaultCapacity(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                  مشرف المسار *
-                </label>
-                <select
-                  value={supervisorId}
-                  onChange={(e) => setSupervisorId(e.target.value)}
-                  className={ds.select}
-                  required
-                  style={tajawal}
-                >
-                  <option value="">— اختر المشرف —</option>
-                  {supervisors.map((s) => (
+                  {EDUCATIONAL_STAGES.map((s) => (
                     <option key={s.id} value={s.id}>
-                      {s.full_name_ar}
+                      {s.name_ar}
                     </option>
                   ))}
                 </select>
-                {supervisors.length === 0 && (
-                  <p className="text-xs text-muted-foreground mt-1" style={tajawal}>
-                    أضف مشرفاً من تبويب «المشرفون» في إدارة المنسوبين أولاً.
-                  </p>
-                )}
               </div>
-            </div>
-            <div>
-              <p className="text-sm font-semibold mb-2" style={tajawal}>
-                المراحل المشمولة *
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {EDUCATIONAL_STAGES.map((s) => (
-                  <Button
-                    key={s.id}
-                    type="button"
-                    size="sm"
-                    variant={selectedStages.includes(s.id) ? "default" : "outline"}
-                    className={ds.btnRound}
-                    onClick={() => toggleStage(s.id)}
-                    style={tajawal}
-                  >
-                    {s.name_ar}
-                  </Button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <p className="text-sm font-semibold mb-2" style={tajawal}>
-                حلقات مرتبطة (اختياري)
-              </p>
-              <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-                {circles.map((c) => (
-                  <Button
-                    key={c.id}
-                    type="button"
-                    size="sm"
-                    variant={selectedCircles.includes(c.id) ? "default" : "outline"}
-                    className={ds.btnRound}
-                    onClick={() => toggleCircle(c.id)}
-                    style={tajawal}
-                  >
-                    {c.name_ar}
-                  </Button>
-                ))}
-              </div>
-            </div>
-            <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
-              {saving ? "جاري الحفظ…" : "حفظ المسار"}
-            </Button>
-            </form>
-          </DialogContent>
-        </Dialog>
-        {loading ? (
-          <p className="text-muted-foreground" style={tajawal}>
-            جاري التحميل…
-          </p>
-        ) : (
-          <Table className={ds.tableMin}>
-            <TableHeader>
-              <TableRow>
-                <TableHead className={`${ds.table.head} w-[10%]`} style={tajawal}>
-                  نوع الكيان
-                </TableHead>
-                <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
-                  المسار
-                </TableHead>
-                <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
-                  مشرف المسار
-                </TableHead>
-                <TableHead className={`${ds.table.head} w-[22%]`} style={tajawal}>
-                  المراحل
-                </TableHead>
-                <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
-                  الحلقات
-                </TableHead>
-                <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
-                  الطلاب
-                </TableHead>
-                <TableHead className={ds.table.headActions} style={tajawal}>
-                  إجراء
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((t) => (
-                <TableRow key={t.id}>
-                  <TableCell className={ds.table.cell} style={tajawal}>
-                    {ENTITY_TYPE_LABEL.track}
-                  </TableCell>
-                  <TableCell className={ds.table.cell} style={tajawal}>
-                    {t.name_ar}
-                  </TableCell>
-                  <TableCell className={ds.table.cell} style={tajawal}>
-                    {t.supervisor_name ?? "—"}
-                  </TableCell>
-                  <TableCell className={ds.table.cell} style={tajawal}>
-                    {t.stage_ids.length > 0
-                      ? t.stage_ids
-                          .map((id) => stageLabel(id as StageId))
-                          .join(" · ")
-                      : "—"}
-                  </TableCell>
-                  <TableCell className={ds.table.cell} style={tajawal}>
-                    {t.circles.map((c) => c.name_ar).join("، ") || "—"}
-                  </TableCell>
-                  <TableCell className={ds.table.cell} style={tajawal}>
-                    {t.student_count}
-                  </TableCell>
-                  <TableActionsCell>
-                    <TableIconAction
-                      kind="edit"
-                      onClick={() => {
-                        setEditTrack(t);
-                        setEditTrackName(t.name_ar);
-                        setEditTrackCapacity(String(t.default_capacity));
-                      }}
-                    />
-                    <TableIconAction
-                      kind="delete"
-                      onClick={async () => {
-                        if (!confirm(`تعطيل المسار «${t.name_ar}»؟`)) return;
-                        await api.adminTracksPatch(t.id, { is_active: 0 });
-                        await load();
-                      }}
-                    />
-                  </TableActionsCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-        <Dialog
-          open={editTrack != null}
-          onOpenChange={(o) => {
-            if (!o) setEditTrack(null);
-          }}
-        >
-          <DialogContent className={ds.dialog} dir="rtl">
-            <DialogHeader>
-              <DialogTitle style={tajawal}>تعديل مسار</DialogTitle>
-            </DialogHeader>
-            {editTrack && (
-              <form
-                className="grid gap-4"
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  await api.adminTracksPatch(editTrack.id, {
-                    name_ar: editTrackName.trim(),
-                    default_capacity: Number(editTrackCapacity),
-                  });
-                  setEditTrack(null);
-                  await load();
-                }}
-              >
-                <div>
-                  <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                    نوع الكيان
-                  </label>
-                  <select
-                    value="track"
-                    disabled
-                    className={ds.select}
-                    style={tajawal}
-                    aria-readonly
-                  >
-                    <option value="track">{ENTITY_TYPE_LABEL.track}</option>
-                  </select>
-                </div>
-                <Input
-                  value={editTrackName}
-                  onChange={(e) => setEditTrackName(e.target.value)}
-                  required
-                />
-                <Input
-                  type="number"
-                  min={1}
-                  value={editTrackCapacity}
-                  onChange={(e) => setEditTrackCapacity(e.target.value)}
-                  required
-                />
-                <Button type="submit" className={ds.btnRound} style={tajawal}>
-                  حفظ
-                </Button>
-              </form>
             )}
-          </DialogContent>
-        </Dialog>
-      </CardContent>
-    </Card>
+          </div>
+
+          {isCircle ? (
+            <>
+              <div className="space-y-1">
+                <Label style={tajawal}>المعلم *</Label>
+                <select
+                  value={teacherId}
+                  onChange={(e) => setTeacherId(e.target.value)}
+                  className={ds.select}
+                  style={tajawal}
+                >
+                  <option value="">— معلم جديد أدناه —</option>
+                  {teachers.map((t) => (
+                    <option key={t.id} value={String(t.id)}>
+                      {t.full_name_ar}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {!teacherId && !isEdit && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label style={tajawal}>اسم المعلم الجديد</Label>
+                    <Input
+                      value={newTeacherName}
+                      onChange={(e) => setNewTeacherName(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label style={tajawal}>جوال المعلم</Label>
+                    <Input
+                      value={newTeacherMobile}
+                      onChange={(e) => setNewTeacherMobile(e.target.value)}
+                      dir="ltr"
+                    />
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="space-y-1">
+              <Label style={tajawal}>مشرف المسار *</Label>
+              <select
+                value={supervisorId}
+                onChange={(e) => setSupervisorId(e.target.value)}
+                className={ds.select}
+                style={tajawal}
+                required={!isEdit}
+              >
+                <option value="">— اختر المشرف —</option>
+                {trackSupervisors.map((s) => (
+                  <option key={s.id} value={String(s.id)}>
+                    {s.full_name_ar}
+                  </option>
+                ))}
+              </select>
+              {trackSupervisors.length === 0 && (
+                <p className="text-xs text-muted-foreground" style={tajawal}>
+                  أضف مشرف مسار من تبويب إدارة المنسوبين أولاً
+                </p>
+              )}
+            </div>
+          )}
+
+          <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
+            {saving ? "جاري الحفظ…" : isEdit ? "حفظ التعديلات" : "حفظ"}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

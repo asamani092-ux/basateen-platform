@@ -7,6 +7,7 @@ import {
   loadGroupNameMaps,
   parseBulkPasteLines,
   resolveEducationalGroupByName,
+  type GroupNameMaps,
 } from "../lib/students-admin";
 import { ADMIN_DATA_ROLES } from "../lib/roles";
 import { canManageCircle } from "../lib/dept-scope";
@@ -122,22 +123,9 @@ function resolveCircleByNames(
 async function loadCircleMap(
   env: Env,
   complexId: number,
-): Promise<Map<string, { id: number; track_id: number | null }>> {
-  const hasTrackId = await tableHasColumn(env, "circles", "track_id");
-  const hasIsActive = await tableHasColumn(env, "circles", "is_active");
-  const activeFilter = hasIsActive ? " AND is_active = 1" : "";
-  const sql = hasTrackId
-    ? `SELECT id, name_ar, track_id FROM circles WHERE complex_id = ?${activeFilter}`
-    : `SELECT id, name_ar, NULL AS track_id FROM circles WHERE complex_id = ?${activeFilter}`;
-  const result = await env.DB.prepare(sql)
-    .bind(complexId)
-    .all<{ id: number; name_ar: string; track_id: number | null }>();
-
-  const map = new Map<string, { id: number; track_id: number | null }>();
-  for (const c of result.results ?? []) {
-    map.set(c.name_ar.trim(), { id: c.id, track_id: c.track_id ?? null });
-  }
-  return map;
+): Promise<GroupNameMaps["circles"]> {
+  const maps = await loadGroupNameMaps(env, complexId);
+  return maps.circles;
 }
 
 /** v25 students: national_id + guardian_phone NOT NULL (023_rebuild_v25.sql) */

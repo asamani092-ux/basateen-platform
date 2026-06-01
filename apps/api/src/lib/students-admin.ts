@@ -1,6 +1,7 @@
 import type { Env } from "../types";
 import { parsePositiveIntField } from "./students-schema";
 import { syncStudentPlacementColumns } from "./admin-dept-schema";
+import { circleExistsInComplex, resolveCircleTrackId } from "./circle-track";
 import { canManageCircle } from "./dept-scope";
 import { hasTable, tableHasColumn } from "./db-schema";
 import { assignStudentCircle } from "./placement";
@@ -21,17 +22,40 @@ export async function loadGroupNameMaps(
 ): Promise<GroupNameMaps> {
   const circles = new Map<string, { id: number; track_id: number | null }>();
   if (await hasTable(env, "circles")) {
-    const hasTrackId = await tableHasColumn(env, "circles", "track_id");
     const hasIsActive = await tableHasColumn(env, "circles", "is_active");
     const activeFilter = hasIsActive ? " AND COALESCE(is_active, 1) = 1" : "";
-    const sql = hasTrackId
-      ? `SELECT id, name_ar, track_id FROM circles WHERE complex_id = ?${activeFilter}`
-      : `SELECT id, name_ar, NULL AS track_id FROM circles WHERE complex_id = ?${activeFilter}`;
-    const result = await env.DB.prepare(sql)
+    const result = await env.DB.prepare(
+      `SELECT id, name_ar FROM circles WHERE complex_id = ?${activeFilter}`,
+    )
       .bind(complexId)
-      .all<{ id: number; name_ar: string; track_id: number | null }>();
+      .all<{ id: number; name_ar: string }>();
     for (const c of result.results ?? []) {
-      circles.set(c.name_ar.trim(), { id: c.id, track_id: c.track_id ?? null });
+      circles.set(c.name_ar.trim(), { id: c.id, track_id: null });
+    }
+    if (await hasTable(env, "track_circles")) {
+      const links = await env.DB.prepare(
+        `SELECT circle_id, track_id FROM track_circles`,
+      ).all<{ circle_id: number; track_id: number }>();
+      for (const link of links.results ?? []) {
+        for (const [name, entry] of circles) {
+          if (entry.id === link.circle_id) {
+            circles.set(name, { ...entry, track_id: link.track_id });
+            break;
+          }
+        }
+      }
+    } else if (await tableHasColumn(env, "circles", "track_id")) {
+      const result2 = await env.DB.prepare(
+        `SELECT id, name_ar, track_id FROM circles WHERE complex_id = ?${activeFilter}`,
+      )
+        .bind(complexId)
+        .all<{ id: number; name_ar: string; track_id: number | null }>();
+      for (const c of result2.results ?? []) {
+        circles.set(c.name_ar.trim(), {
+          id: c.id,
+          track_id: c.track_id ?? null,
+        });
+      }
     }
   }
 
@@ -181,12 +205,9 @@ export async function createStudentWithPlacement(
   }
 
   if (circleId) {
-    const circle = await env.DB.prepare(
-      `SELECT id, track_id FROM circles WHERE id = ? AND complex_id = ?`,
-    )
-      .bind(circleId, complexId)
-      .first<{ id: number; track_id: number | null }>();
-    if (!circle) throw new Error("circle_not_found");
+    if (!(await circleExistsInComplex(env, circleId, complexId))) {
+      throw new Error("circle_not_found");
+    }
     if (!(await canManageCircle(env, auth, circleId))) {
       throw new Error("forbidden_circle");
     }
@@ -259,12 +280,12 @@ export async function createStudentWithPlacement(
   if (!studentId) throw new Error("save_failed");
 
   if (circleId) {
-    const circle = await env.DB.prepare(
-      `SELECT track_id FROM circles WHERE id = ?`,
-    )
-      .bind(circleId)
-      .first<{ track_id: number | null }>();
-    const resolvedTrack = trackId ?? circle?.track_id ?? null;
+    const resolvedTrack = await resolveCircleTrackId(
+      env,
+      circleId,
+      complexId,
+      trackId,
+    );
     await applyStudentPlacement(
       env,
       studentId,

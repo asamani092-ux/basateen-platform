@@ -248,10 +248,11 @@ export async function createStudentWithPlacement(
       .run();
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
+    console.error("students_insert_failed", msg, insertCols, insertVals);
     if (msg.includes("UNIQUE") && msg.includes("national_id")) {
       throw new Error("national_id_exists");
     }
-    throw e;
+    throw new Error(msg || "save_failed");
   }
 
   const studentId = Number(ins.meta.last_row_id ?? 0);
@@ -374,12 +375,31 @@ export async function processAdminStudentsBulk(
   complexId: number,
   auth: { userId: number; role: string; complexId: number },
   rows: AdminBulkStudentRow[],
-): Promise<{ success: number; failed: number; total: number; message: string }> {
+): Promise<{
+  successCount: number;
+  failedCount: number;
+  total: number;
+  message: string;
+  failedDetails: Array<{
+    row: number;
+    national_id: string | null;
+    full_name_ar: string | null;
+    error: string;
+  }>;
+}> {
   const maps = await loadGroupNameMaps(env, complexId);
-  let success = 0;
-  let failed = 0;
+  let successCount = 0;
+  let failedCount = 0;
+  const failedDetails: Array<{
+    row: number;
+    national_id: string | null;
+    full_name_ar: string | null;
+    error: string;
+  }> = [];
 
-  for (const row of rows) {
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]!;
+    const rowNum = i + 1;
     const full_name_ar = sanitizeExcelCell(row.full_name_ar, 200);
     const national_id = sanitizeExcelCell(row.national_id, 32);
     const nationality = sanitizeExcelCell(row.nationality, 80) ?? "سعودي";
@@ -395,19 +415,37 @@ export async function processAdminStudentsBulk(
       !phone ||
       !guardian_phone
     ) {
-      failed += 1;
+      failedCount += 1;
+      failedDetails.push({
+        row: rowNum,
+        national_id,
+        full_name_ar,
+        error: "missing_required_fields",
+      });
       continue;
     }
 
     const placement = resolveEducationalGroupByName(maps, groupName);
     if (!placement) {
-      failed += 1;
+      failedCount += 1;
+      failedDetails.push({
+        row: rowNum,
+        national_id,
+        full_name_ar,
+        error: "group_not_found",
+      });
       continue;
     }
 
     if (placement.kind === "circle") {
       if (!(await canManageCircle(env, auth, placement.id))) {
-        failed += 1;
+        failedCount += 1;
+        failedDetails.push({
+          row: rowNum,
+          national_id,
+          full_name_ar,
+          error: "forbidden_circle",
+        });
         continue;
       }
     }
@@ -430,17 +468,25 @@ export async function processAdminStudentsBulk(
             ? placement.id
             : placement.track_id,
       }, auth);
-      success += 1;
+      successCount += 1;
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       console.error("admin_students_bulk_row_failed", row.national_id, err);
-      failed += 1;
+      failedCount += 1;
+      failedDetails.push({
+        row: rowNum,
+        national_id,
+        full_name_ar,
+        error: msg,
+      });
     }
   }
 
   return {
-    success,
-    failed,
+    successCount,
+    failedCount,
     total: rows.length,
-    message: `تمت إضافة ${success} طالب بنجاح، وفشل ${failed}`,
+    failedDetails,
+    message: `تمت إضافة ${successCount} طالب بنجاح، وفشل ${failedCount}`,
   };
 }

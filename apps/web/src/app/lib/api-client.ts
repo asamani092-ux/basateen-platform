@@ -213,11 +213,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       redirectToLoginAfterSessionReset();
       throw new Error("legacy_session_detected");
     }
-    throw new Error(
-      (body as { error?: string; message?: string }).error ??
-        (body as { message?: string }).message ??
-        `HTTP ${res.status}`,
-    );
+    const payload = body as {
+      error?: string;
+      message?: string;
+      details?: unknown;
+      issues?: unknown;
+    };
+    const err = new Error(
+      payload.message ?? payload.error ?? `HTTP ${res.status}`,
+    ) as Error & { details?: unknown; issues?: unknown };
+    err.details = payload.details ?? payload.issues;
+    throw err;
   }
 
   return res.json() as Promise<T>;
@@ -277,6 +283,15 @@ export const api = {
       total: number;
       success: number;
       failed: number;
+      successCount: number;
+      failedCount: number;
+      failedDetails?: Array<{
+        row: number;
+        national_id: string | null;
+        full_name_ar: string | null;
+        error: string;
+      }>;
+      parseSkipped?: string[];
       message: string;
     }>("/api/admin/students/bulk", {
       method: "POST",

@@ -1,5 +1,10 @@
 import * as XLSX from "xlsx";
-import { studentCreateBodySchema } from "./students-schema";
+import {
+  normalizeIncomingStudentPayload,
+  parsePositiveIntField,
+  studentCreateBodySchema,
+} from "./students-schema";
+import type { StudentUnifiedFormValues } from "../components/admin/StudentUnifiedSingleForm";
 
 export const STUDENT_TEMPLATE_HEADERS = [
   "الاسم الرباعي",
@@ -161,47 +166,51 @@ function triggerDownload(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-export function validateStudentCreateForm(body: {
-  full_name_ar: string;
-  national_id: string;
-  nationality: string;
-  phone: string;
-  guardian_phone: string;
-  school_name?: string | null;
-  school_grade?: string | null;
-  memorization_amount?: string | null;
-  guardian_national_id?: string | null;
-  guardian_work?: string | null;
-  health_notes?: string | null;
-  stage_id?: string | null;
-  age?: string | null;
-  placement: string;
-}) {
-  const { circle_id, track_id } = parsePlacementValue(body.placement);
-  return studentCreateBodySchema.safeParse({
-    ...body,
+/** حمولة JSON موحّدة (snake_case) للـ API */
+export function buildStudentCreatePayload(values: StudentUnifiedFormValues) {
+  const placementKey = values.placement.trim();
+  let circle_id: number | null = null;
+  let track_id: number | null = null;
+  if (placementKey.includes(":")) {
+    const [kind, idStr] = placementKey.split(":");
+    const id = parsePositiveIntField(idStr);
+    if (id && kind === "circle") circle_id = id;
+    if (id && kind === "track") track_id = id;
+  }
+
+  return normalizeIncomingStudentPayload({
+    full_name_ar: values.full_name_ar.trim(),
+    national_id: values.national_id.trim(),
+    nationality: values.nationality.trim() || "سعودي",
+    phone: values.phone.trim(),
+    guardian_phone: values.guardian_phone.trim(),
+    school_name: values.school_name.trim() || null,
+    school_grade: values.school_grade.trim() || null,
+    memorization_amount: values.memorization_amount.trim() || null,
+    guardian_national_id: values.guardian_national_id.trim() || null,
+    guardian_work: values.guardian_work.trim() || null,
+    health_notes: values.health_notes.trim() || null,
+    stage_id: values.stage_id.trim() || null,
+    age: values.age.trim() || null,
+    placement: placementKey,
     circle_id,
     track_id,
-    school_name: body.school_name ?? "",
-    school_grade: body.school_grade ?? "",
-    memorization_amount: body.memorization_amount ?? "",
-    guardian_national_id: body.guardian_national_id ?? "",
-    guardian_work: body.guardian_work ?? "",
-    health_notes: body.health_notes ?? "",
-    stage_id: body.stage_id ?? "",
-    age: body.age ?? "",
   });
 }
 
-function parsePlacementValue(value: string): {
-  circle_id: number | null;
-  track_id: number | null;
-} {
-  if (!value) return { circle_id: null, track_id: null };
-  const [kind, idStr] = value.split(":");
-  const id = Number(idStr);
-  if (!Number.isFinite(id) || id <= 0) return { circle_id: null, track_id: null };
-  if (kind === "circle") return { circle_id: Math.trunc(id), track_id: null };
-  if (kind === "track") return { circle_id: null, track_id: Math.trunc(id) };
-  return { circle_id: null, track_id: null };
+export function validateStudentCreateForm(values: StudentUnifiedFormValues) {
+  return studentCreateBodySchema.safeParse(buildStudentCreatePayload(values));
 }
+
+export function formatStudentApiError(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const base = err.message;
+  const details = (err as Error & { details?: unknown }).details;
+  if (details == null) return base;
+  try {
+    return `${base}\n${JSON.stringify(details, null, 2)}`;
+  } catch {
+    return base;
+  }
+}
+

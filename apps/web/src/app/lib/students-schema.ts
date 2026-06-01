@@ -1,15 +1,20 @@
 import { z } from "zod";
 
 /** يحوّل "" و null و undefined إلى null للحقول الاختيارية */
-export const optionalText = z
-  .union([z.string(), z.number(), z.null(), z.undefined()])
-  .transform((v) => {
-    if (v == null) return null;
+export const optionalText = z.preprocess(
+  (v) => {
+    if (v == null || v === "") return null;
+    if (typeof v === "number" && Number.isFinite(v)) {
+      const digits = String(Math.trunc(v));
+      return digits.length > 0 ? digits : null;
+    }
     const s = String(v).trim();
     if (!s) return null;
     if (/^\d+\.0+$/.test(s)) return s.replace(/\.0+$/, "");
     return s;
-  });
+  },
+  z.string().nullable(),
+);
 
 export const requiredText = z
   .union([z.string(), z.number()])
@@ -32,24 +37,80 @@ export function parsePositiveIntField(v: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+const OPTIONAL_STRING_KEYS = [
+  "school_name",
+  "school_grade",
+  "memorization_amount",
+  "guardian_national_id",
+  "guardian_work",
+  "health_notes",
+] as const;
+
+/** تهيئة الجسم الخام قبل Zod — توحيد المسميات وتحويل الأرقام */
+export function normalizeIncomingStudentPayload(
+  raw: unknown,
+): Record<string, unknown> {
+  if (raw == null || typeof raw !== "object") return {};
+  const src = raw as Record<string, unknown>;
+  const b: Record<string, unknown> = { ...src };
+
+  if (b.fullName != null && b.full_name_ar == null) {
+    b.full_name_ar = b.fullName;
+  }
+  if (b.nationalId != null && b.national_id == null) {
+    b.national_id = b.nationalId;
+  }
+  if (b.guardianPhone != null && b.guardian_phone == null) {
+    b.guardian_phone = b.guardianPhone;
+  }
+
+  for (const key of OPTIONAL_STRING_KEYS) {
+    if (b[key] === "") b[key] = null;
+  }
+
+  for (const key of [
+    "circle_id",
+    "track_id",
+    "group_id",
+    "stage_id",
+  ] as const) {
+    if (b[key] === "" || b[key] == null) continue;
+    const n = parsePositiveIntField(b[key]);
+    b[key] = n ?? b[key];
+  }
+
+  if (b.group_type === "") delete b.group_type;
+
+  if (b.age === "") b.age = null;
+
+  return b;
+}
+
 const placementFields = z.object({
-  circle_id: z.unknown().optional(),
-  track_id: z.unknown().optional(),
-  group_id: z.unknown().optional(),
-  group_type: z.enum(["circle", "track"]).optional(),
-  placement: z.string().optional(),
+  circle_id: z.unknown().optional().nullable(),
+  track_id: z.unknown().optional().nullable(),
+  group_id: z.unknown().optional().nullable(),
+  group_type: z.preprocess(
+    (v) => (v === "" || v == null ? undefined : v),
+    z.enum(["circle", "track"]).optional(),
+  ),
+  placement: z.preprocess(
+    (v) => (v === "" || v == null ? undefined : String(v)),
+    z.string().optional(),
+  ),
 });
 
-export const studentCreateBodySchema = z
+const studentCreateBaseSchema = z
   .object({
     full_name_ar: requiredText,
     national_id: requiredText,
-    nationality: z
-      .union([z.string(), z.number(), z.null(), z.undefined()])
-      .transform((v) => {
-        const s = v == null ? "" : String(v).trim();
-        return s.length > 0 ? s : "سعودي";
-      }),
+    nationality: z.preprocess(
+      (v) => {
+        if (v == null || v === "") return "سعودي";
+        return String(v).trim() || "سعودي";
+      },
+      z.string().min(1),
+    ),
     phone: requiredText,
     guardian_phone: requiredText,
     school_name: optionalText.optional(),
@@ -58,11 +119,14 @@ export const studentCreateBodySchema = z
     guardian_national_id: optionalText.optional(),
     guardian_work: optionalText.optional(),
     health_notes: optionalText.optional(),
-    stage_id: z.unknown().optional(),
-    age: z.unknown().optional(),
+    stage_id: z.unknown().optional().nullable(),
+    age: z.unknown().optional().nullable(),
   })
-  .merge(placementFields)
-  .transform((body) => {
+  .merge(placementFields);
+
+export const studentCreateBodySchema = z.preprocess(
+  (raw) => normalizeIncomingStudentPayload(raw),
+  studentCreateBaseSchema.transform((body) => {
     let circle_id = parsePositiveIntField(body.circle_id);
     let track_id = parsePositiveIntField(body.track_id);
 
@@ -110,10 +174,16 @@ export const studentCreateBodySchema = z
       circle_id,
       track_id,
     };
-  })
-  .refine((d) => d.circle_id != null || d.track_id != null, {
-    message: "placement_required",
-  });
+  }),
+).superRefine((data, ctx) => {
+  if (data.circle_id == null && data.track_id == null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "placement_required",
+      path: ["circle_id"],
+    });
+  }
+});
 
 export const studentBulkRowSchema = z.object({
   full_name_ar: requiredText,

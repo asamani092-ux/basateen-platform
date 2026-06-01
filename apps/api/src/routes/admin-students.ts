@@ -1,4 +1,5 @@
 import type { Env } from "../types";
+import { errorJson, errorPayload } from "../lib/api-error-response";
 import { ADMIN_DATA_ROLES } from "../lib/roles";
 import { hasTable } from "../lib/db-schema";
 import {
@@ -17,7 +18,10 @@ function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
 }
 
-function normalizeBulkRecord(raw: Record<string, unknown>): AdminBulkStudentRow | null {
+function normalizeBulkRecord(
+  raw: Record<string, unknown>,
+  rowIndex: number,
+): { row: AdminBulkStudentRow | null; skipReason?: string } {
   const pick = (...keys: string[]): unknown => {
     for (const k of keys) {
       if (raw[k] != null && String(raw[k]).trim() !== "") return raw[k];
@@ -45,25 +49,49 @@ function normalizeBulkRecord(raw: Record<string, unknown>): AdminBulkStudentRow 
     ),
   });
 
-  if (!parsed.success) return null;
+  if (!parsed.success) {
+    return {
+      row: null,
+      skipReason: `صف ${rowIndex}: ${parsed.error.issues.map((i) => i.message).join(", ")}`,
+    };
+  }
 
   return {
-    full_name_ar: parsed.data.full_name_ar,
-    national_id: parsed.data.national_id,
-    nationality: parsed.data.nationality ?? "سعودي",
-    phone: parsed.data.phone,
-    guardian_phone: parsed.data.guardian_phone,
-    school_name: parsed.data.school_name ?? null,
-    school_grade: parsed.data.school_grade ?? null,
-    memorization_amount: parsed.data.memorization_amount ?? null,
-    guardian_national_id: parsed.data.guardian_national_id ?? null,
-    health_notes: parsed.data.health_notes ?? null,
-    group_name:
-      parsed.data.group_name ??
-      parsed.data.circle_name ??
-      parsed.data.track_name ??
-      null,
+    row: {
+      full_name_ar: parsed.data.full_name_ar,
+      national_id: parsed.data.national_id,
+      nationality: parsed.data.nationality ?? "سعودي",
+      phone: parsed.data.phone,
+      guardian_phone: parsed.data.guardian_phone,
+      school_name: parsed.data.school_name ?? null,
+      school_grade: parsed.data.school_grade ?? null,
+      memorization_amount: parsed.data.memorization_amount ?? null,
+      guardian_national_id: parsed.data.guardian_national_id ?? null,
+      health_notes: parsed.data.health_notes ?? null,
+      group_name:
+        parsed.data.group_name ??
+        parsed.data.circle_name ??
+        parsed.data.track_name ??
+        null,
+    },
   };
+}
+
+function mapKnownCreateError(error: unknown): Response | null {
+  const msg = error instanceof Error ? error.message : String(error);
+  if (msg === "placement_required") {
+    return errorJson(error, 400);
+  }
+  if (msg === "national_id_exists") {
+    return errorJson(error, 409);
+  }
+  if (msg === "circle_not_found" || msg === "track_not_found") {
+    return errorJson(error, 404);
+  }
+  if (msg === "forbidden_circle") {
+    return json({ error: "forbidden", message: "forbidden" }, 403);
+  }
+  return null;
 }
 
 export async function handleAdminStudentCreate(
@@ -83,20 +111,21 @@ export async function handleAdminStudentCreate(
     let body: unknown;
     try {
       body = await request.json();
-    } catch {
-      return json({ error: "invalid_json" }, 400);
+    } catch (parseErr) {
+      console.error("[INCOMING STUDENT PAYLOAD] invalid_json", parseErr);
+      return errorJson(parseErr, 400, "invalid_json");
     }
+
+    console.log("[INCOMING STUDENT PAYLOAD]:", body);
 
     const parsed = studentCreateBodySchema.safeParse(body);
     if (!parsed.success) {
-      console.error("admin_student_create_validation", parsed.error.flatten());
-      return json(
-        {
-          error: "validation_failed",
-          details: parsed.error.flatten(),
-        },
-        400,
+      console.error(
+        "admin_student_create_validation",
+        parsed.error.flatten(),
+        parsed.error.issues,
       );
+      return errorJson(parsed.error, 400, "validation_failed");
     }
 
     const data = parsed.data;
@@ -127,30 +156,14 @@ export async function handleAdminStudentCreate(
       return json({ ok: true, id: created.id }, 201);
     } catch (e: unknown) {
       console.error("admin_student_create_inner", e);
-      const msg = e instanceof Error ? e.message : String(e);
-      if (msg === "placement_required") {
-        return json({ error: "placement_required" }, 400);
-      }
-      if (msg === "national_id_exists") {
-        return json({ error: "national_id_exists" }, 409);
-      }
-      if (msg === "circle_not_found" || msg === "track_not_found") {
-        return json({ error: msg }, 404);
-      }
-      if (msg === "forbidden_circle") {
-        return json({ error: "forbidden" }, 403);
-      }
-      throw e;
+      const known = mapKnownCreateError(e);
+      if (known) return known;
+      return errorJson(e, 400);
     }
   } catch (err) {
     console.error("admin_student_create_failed", err);
-    return json(
-      {
-        error: "student_create_failed",
-        message: err instanceof Error ? err.message : String(err),
-      },
-      500,
-    );
+    const payload = errorPayload(err, "student_create_failed");
+    return json(payload, 500);
   }
 }
 
@@ -168,23 +181,35 @@ export async function handleAdminStudentsBulk(
     let body: unknown;
     try {
       body = await request.json();
-    } catch {
-      return json({ error: "invalid_json" }, 400);
+    } catch (parseErr) {
+      console.error("[INCOMING STUDENT BULK PAYLOAD] invalid_json", parseErr);
+      return errorJson(parseErr, 400, "invalid_json");
     }
+
+    console.log("[INCOMING STUDENT BULK PAYLOAD]:", body);
 
     const envelope = studentBulkBodySchema.safeParse(body);
     if (!envelope.success) {
-      return json({ error: "rows_required", details: envelope.error.flatten() }, 400);
+      return errorJson(envelope.error, 400, "rows_required");
     }
 
     const normalized: AdminBulkStudentRow[] = [];
-    for (const raw of envelope.data.rows) {
-      const row = normalizeBulkRecord(raw);
+    const parseSkipped: string[] = [];
+    envelope.data.rows.forEach((raw, idx) => {
+      const { row, skipReason } = normalizeBulkRecord(raw, idx + 1);
       if (row) normalized.push(row);
-    }
+      else if (skipReason) parseSkipped.push(skipReason);
+    });
 
     if (normalized.length === 0) {
-      return json({ error: "no_valid_rows" }, 400);
+      return json(
+        {
+          error: "no_valid_rows",
+          message: "لا توجد صفوف صالحة للاستيراد",
+          parseSkipped,
+        },
+        400,
+      );
     }
 
     const result = await processAdminStudentsBulk(
@@ -196,18 +221,18 @@ export async function handleAdminStudentsBulk(
 
     return json({
       ok: true,
-      ...result,
-      failed: result.failed,
-      success: result.success,
+      successCount: result.successCount,
+      failedCount: result.failedCount,
+      failedDetails: result.failedDetails,
+      parseSkipped,
+      total: result.total,
+      success: result.successCount,
+      failed: result.failedCount,
+      message: result.message,
     });
   } catch (err) {
     console.error("admin_students_bulk_failed", err);
-    return json(
-      {
-        error: "students_bulk_failed",
-        message: err instanceof Error ? err.message : String(err),
-      },
-      500,
-    );
+    const payload = errorPayload(err, "students_bulk_failed");
+    return json(payload, 500);
   }
 }

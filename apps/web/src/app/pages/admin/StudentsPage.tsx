@@ -47,6 +47,7 @@ import { cn } from "../../components/ui/utils";
 import {
   downloadStudentTemplateCsv,
   downloadStudentTemplateXlsx,
+  formatStudentApiError,
   parseStudentImportFile,
   validateStudentCreateForm,
 } from "../../lib/students-import";
@@ -359,7 +360,10 @@ function StudentAddDialog({
     setFormError(null);
     const validated = validateStudentCreateForm(values);
     if (!validated.success) {
-      setFormError("تحقق من الحقول الإلزامية والحلقة/المسار");
+      const issues = validated.error.issues
+        .map((i) => `${i.path.join(".")}: ${i.message}`)
+        .join(" — ");
+      setFormError(issues || "تحقق من الحقول الإلزامية والحلقة/المسار");
       return;
     }
     setSaving(true);
@@ -368,8 +372,7 @@ function StudentAddDialog({
       toast.success("تمت إضافة الطالب");
       onCreated();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "فشل الحفظ";
-      setFormError(msg.includes("national_id") ? "رقم الهوية مسجّل مسبقاً" : msg);
+      setFormError(formatStudentApiError(err));
     } finally {
       setSaving(false);
     }
@@ -390,13 +393,16 @@ function StudentAddDialog({
       }
       const res = await api.adminStudentsBulk(rows);
       toast.success(res.message);
-      if (res.success > 0) {
+      if (res.failedDetails && res.failedDetails.length > 0) {
+        console.warn("bulk_import_failures", res.failedDetails);
+      }
+      if ((res.successCount ?? res.success) > 0) {
         setImportFile(null);
         setParsedCount(0);
         onCreated();
       }
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "فشل الاستيراد");
+      setFormError(formatStudentApiError(err));
     } finally {
       setBulkLoading(false);
     }

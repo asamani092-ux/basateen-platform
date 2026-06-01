@@ -353,6 +353,10 @@ export function resolveDevPreviewMock<T>(
       total,
       success: total,
       failed: 0,
+      successCount: total,
+      failedCount: 0,
+      failedDetails: [],
+      parseSkipped: [],
       message: `تمت إضافة ${total} طالب بنجاح، وفشل 0`,
     } as T;
   }

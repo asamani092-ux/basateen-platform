@@ -7,6 +7,7 @@ import {
 import { canManageCircle } from "../lib/dept-scope";
 import { activePlacementSql, hasTable, tableHasColumn } from "../lib/db-schema";
 import { transferStudentCircle } from "../lib/edu-transfer";
+import { safeDeleteStudent } from "../lib/students-admin";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 
 type PlacementRow = {
@@ -328,12 +329,25 @@ export async function handleStudentPatch(
       "nationality",
       "health_notes",
       "memorization_amount",
+      "account_status",
     ] as const;
     const sets: string[] = [];
     const binds: (string | number | null)[] = [];
     for (const col of allowed) {
       if (body[col] === undefined) continue;
       if (!(await tableHasColumn(env, "students", col))) continue;
+      if (col === "account_status") {
+        const status =
+          typeof body.account_status === "string"
+            ? body.account_status.trim()
+            : "";
+        if (status !== "active" && status !== "suspended") {
+          return json({ error: "invalid_account_status" }, 400);
+        }
+        sets.push("account_status = ?");
+        binds.push(status);
+        continue;
+      }
       sets.push(`${col} = ?`);
       binds.push(
         typeof body[col] === "string" ? body[col].trim().slice(0, 500) : null,
@@ -375,11 +389,6 @@ export async function handleStudentDelete(
     const studentId = parseStudentId(url);
     if (!studentId) return json({ error: "invalid_student_id" }, 400);
 
-    const hasIsActive = await tableHasColumn(env, "students", "is_active");
-    if (!hasIsActive) {
-      return json({ error: "migration_required", column: "is_active" }, 503);
-    }
-
     const row = await env.DB.prepare(
       `SELECT id FROM students WHERE id = ? AND complex_id = ?`,
     )
@@ -387,11 +396,9 @@ export async function handleStudentDelete(
       .first();
     if (!row) return json({ error: "student_not_found" }, 404);
 
-    await env.DB.prepare(`UPDATE students SET is_active = 0 WHERE id = ?`)
-      .bind(studentId)
-      .run();
+    await safeDeleteStudent(env, studentId);
 
-    return json({ ok: true });
+    return json({ ok: true, deleted: true });
   } catch (err) {
     console.error("student_delete_failed", err);
     return json(

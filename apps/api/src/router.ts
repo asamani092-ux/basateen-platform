@@ -4,9 +4,10 @@ import { handleHealth } from "./routes/health";
 import { handleTvSummary } from "./routes/tv-summary";
 import { handleLogin, handleLoginMobile, handleMe } from "./routes/auth";
 import { handleSeedUsers } from "./routes/setup";
-import { handleStudentsList } from "./routes/students";
+import { handleStudentCreate, handleStudentsList } from "./routes/students";
 import {
   handleStudentsBulkImport,
+  handleStudentsBulkPaste,
   handleStudentsExport,
 } from "./routes/students-bulk";
 import { handleCirclesList } from "./routes/circles";
@@ -80,8 +81,10 @@ const sharedRoutes: Array<{ method: string; pattern: RegExp; handler: RouteHandl
   { method: "POST", pattern: /^\/api\/setup\/seed-users$/, handler: handleSeedUsers },
   { method: "GET", pattern: /^\/api\/circles$/, handler: handleCirclesList },
   { method: "GET", pattern: /^\/api\/students$/, handler: handleStudentsList },
+  { method: "POST", pattern: /^\/api\/students$/, handler: handleStudentCreate },
   { method: "GET", pattern: /^\/api\/students\/export$/, handler: handleStudentsExport },
   { method: "POST", pattern: /^\/api\/students\/bulk$/, handler: handleStudentsBulkImport },
+  { method: "POST", pattern: /^\/api\/students\/bulk-paste$/, handler: handleStudentsBulkPaste },
   { method: "GET", pattern: /^\/api\/students\/\d+$/, handler: handleStudentDetail },
   { method: "PATCH", pattern: /^\/api\/students\/\d+$/, handler: handleStudentPatch },
   { method: "DELETE", pattern: /^\/api\/students\/\d+$/, handler: handleStudentDelete },

@@ -39,6 +39,7 @@ export type StudentRow = {
   health_notes: string | null;
   circle_name: string | null;
   track_name: string | null;
+  account_status?: string | null;
   stage_id?: number | null;
   admission_status?: string | null;
   age?: number | null;
@@ -244,6 +245,23 @@ export const api = {
       `/api/students${qs ? `?${qs}` : ""}`,
     );
   },
+  studentsCreate: (body: {
+    full_name_ar: string;
+    national_id: string;
+    nationality: string;
+    phone: string;
+    guardian_phone: string;
+    school_name?: string | null;
+    school_grade?: string | null;
+    health_notes?: string | null;
+    memorization_amount?: string | null;
+    circle_id?: number | null;
+    track_id?: number | null;
+  }) =>
+    request<{ ok: boolean; id: number }>("/api/students", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   circles: () => request<{ items: CircleOption[] }>("/api/circles"),
   studentDetail: (id: number) =>
     request<StudentDetail>(`/api/students/${id}`),
@@ -258,6 +276,8 @@ export const api = {
       school_grade?: string | null;
       nationality?: string | null;
       health_notes?: string | null;
+      memorization_amount?: string | null;
+      account_status?: "active" | "suspended";
     },
   ) =>
     request<{ ok: boolean }>(`/api/students/${id}`, {
@@ -305,6 +325,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ mode, rows }),
     }),
+  studentsBulkPaste: (text: string) =>
+    request<{ ok: boolean; total: number; success: number; skipped: number }>(
+      "/api/students/bulk-paste",
+      {
+        method: "POST",
+        body: JSON.stringify({ text }),
+      },
+    ),
   yomHimmaList: () =>
     request<{
       items: Array<{

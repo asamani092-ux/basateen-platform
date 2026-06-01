@@ -1,6 +1,13 @@
 import type { Env } from "../types";
 import { syncStudentPlacementColumns } from "../lib/admin-dept-schema";
 import { assignStudentCircle } from "../lib/placement";
+import {
+  applyStudentPlacement,
+  createStudentWithPlacement,
+  loadGroupNameMaps,
+  parseBulkPasteLines,
+  resolveEducationalGroupByName,
+} from "../lib/students-admin";
 import { ADMIN_DATA_ROLES } from "../lib/roles";
 import { canManageCircle } from "../lib/dept-scope";
 import { hasTable, tableHasColumn } from "../lib/db-schema";
@@ -399,21 +406,26 @@ export async function handleStudentsBulkImport(
       continue;
     }
 
+    const groupMaps = {
+      circles: circleMap,
+      tracks: trackMap,
+    };
+    const groupFromName = resolveEducationalGroupByName(
+      groupMaps,
+      circle_name ?? track_name,
+    );
     let circle: { id: number; track_id: number | null } | undefined;
     let circleWarning: string | undefined;
-    if (circle_name) {
-      circle = resolveCircleByNames(
-        circleMap,
-        trackMap,
-        circle_name,
-        track_name,
-      );
-      if (!circle) {
-        circleWarning = "circle_not_found";
-      } else if (!(await canManageCircle(env, auth, circle.id))) {
+    if (groupFromName?.kind === "circle") {
+      circle = { id: groupFromName.id, track_id: groupFromName.track_id };
+      if (!(await canManageCircle(env, auth, circle.id))) {
         results.push({ row: rowNum, ok: false, error: "forbidden_circle" });
         continue;
       }
+    } else if (groupFromName?.kind === "track") {
+      circleWarning = "track_only";
+    } else if (circle_name || track_name) {
+      circleWarning = "group_not_found";
     }
 
     const existingId = await findStudentId(
@@ -476,6 +488,10 @@ export async function handleStudentsBulkImport(
           ...(circleWarning ? { error: circleWarning } : {}),
         });
       } else {
+        if (!groupFromName) {
+          results.push({ row: rowNum, ok: false, error: "placement_required" });
+          continue;
+        }
         const insertCols = ["complex_id", "full_name_ar"];
         const insertVals: (string | number | null)[] = [
           auth.complexId,
@@ -521,19 +537,12 @@ export async function handleStudentsBulkImport(
           continue;
         }
 
-        if (circle) {
-          await assignStudentCircle(
+        if (groupFromName) {
+          await applyStudentPlacement(
             env,
             studentId,
-            circle.id,
-            circle.track_id,
-            "تسجيل — استيراد Excel",
-          );
-          await syncStudentPlacementColumns(
-            env,
-            studentId,
-            circle.id,
-            circle.track_id,
+            groupFromName,
+            "تسجيل — استيراد جماعي",
           );
         }
 
@@ -541,8 +550,7 @@ export async function handleStudentsBulkImport(
           row: rowNum,
           ok: true,
           student_id: studentId,
-          action: circleWarning ? "created_no_circle" : "created",
-          ...(circleWarning ? { error: circleWarning } : {}),
+          action: "created",
         });
       }
     } catch (rowErr: unknown) {
@@ -569,6 +577,137 @@ export async function handleStudentsBulkImport(
         message:
           error instanceof Error ? error.message : "فشل استيراد ملف الطلاب",
         items: [],
+      },
+      500,
+    );
+  }
+}
+
+export async function handleStudentsBulkPaste(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  try {
+    const auth = await getAuth(request, env);
+    if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
+    if (!requireRoles(auth, [...ADMIN_DATA_ROLES, "track_supervisor"])) {
+      return json({ error: "forbidden" }, 403);
+    }
+
+    let body: { text?: string };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+
+    const text = typeof body.text === "string" ? body.text : "";
+    const parsed = parseBulkPasteLines(text);
+    if (parsed.length === 0) {
+      return json({ ok: true, total: 0, success: 0, skipped: 0 });
+    }
+    if (parsed.length > 300) {
+      return json({ error: "too_many_rows", max: 300 }, 400);
+    }
+
+    const maps = await loadGroupNameMaps(env, auth.complexId);
+    let success = 0;
+    let skipped = 0;
+
+    for (const row of parsed) {
+      const national_id = row.national_id;
+      const phone = row.phone;
+      const guardian_phone = row.guardian_phone ?? phone;
+      if (
+        !row.full_name_ar ||
+        !national_id ||
+        !row.nationality ||
+        !phone ||
+        !guardian_phone
+      ) {
+        skipped += 1;
+        continue;
+      }
+
+      const placement = resolveEducationalGroupByName(maps, row.group_name);
+      if (!placement) {
+        skipped += 1;
+        continue;
+      }
+
+      if (placement.kind === "circle") {
+        if (!(await canManageCircle(env, auth, placement.id))) {
+          skipped += 1;
+          continue;
+        }
+      }
+
+      const existingId = await findStudentId(
+        env,
+        auth.complexId,
+        national_id,
+        phone,
+        guardian_phone,
+      );
+
+      try {
+        if (existingId) {
+          await dynamicStudentUpdate(env, existingId, {
+            full_name_ar: row.full_name_ar,
+            national_id,
+            nationality: row.nationality,
+            phone,
+            guardian_phone,
+            school_name: row.school_name,
+            school_grade: row.school_grade,
+          });
+          await applyStudentPlacement(
+            env,
+            existingId,
+            placement,
+            "تحديث — لصق جماعي",
+          );
+          success += 1;
+        } else {
+          await createStudentWithPlacement(
+            env,
+            auth.complexId,
+            {
+              full_name_ar: row.full_name_ar,
+              national_id,
+              nationality: row.nationality,
+              phone,
+              guardian_phone,
+              school_name: row.school_name,
+              school_grade: row.school_grade,
+              circle_id: placement.kind === "circle" ? placement.id : null,
+              track_id:
+                placement.kind === "track"
+                  ? placement.id
+                  : placement.track_id,
+            },
+            auth,
+          );
+          success += 1;
+        }
+      } catch {
+        skipped += 1;
+      }
+    }
+
+    return json({
+      ok: true,
+      total: parsed.length,
+      success,
+      skipped,
+    });
+  } catch (error: unknown) {
+    console.error("students_bulk_paste_failed", error);
+    return json(
+      {
+        error: "students_bulk_paste_failed",
+        message:
+          error instanceof Error ? error.message : "فشل الاستيراد الجماعي",
       },
       500,
     );

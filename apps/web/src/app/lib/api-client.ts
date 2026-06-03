@@ -1070,6 +1070,7 @@ export const api = {
     type?: "all" | "staff" | "student";
     circle_id?: number;
     track_id?: number;
+    include_items?: boolean;
   }) => {
     const q = new URLSearchParams();
     if (params?.startDate) q.set("startDate", params.startDate);
@@ -1078,10 +1079,12 @@ export const api = {
     if (params?.type) q.set("type", params.type);
     if (params?.circle_id) q.set("circle_id", String(params.circle_id));
     if (params?.track_id) q.set("track_id", String(params.track_id));
+    if (params?.include_items === false) q.set("include_items", "false");
     const qs = q.toString();
     return request<{
       start_date: string;
       end_date: string;
+      complex_name?: string | null;
       filters: { status: string; type: string };
       summary: {
         staff_total: number;
@@ -1089,11 +1092,13 @@ export const api = {
         staff_absent: number;
         staff_present_pct: number;
         staff_absent_pct: number;
+        staff_discipline_pct?: number;
         students_total: number;
         students_present: number;
         students_absent: number;
         students_present_pct: number;
         students_absent_pct: number;
+        students_discipline_pct?: number;
       };
       items: Array<{
         name: string;
@@ -1102,6 +1107,35 @@ export const api = {
         type: "staff" | "student";
       }>;
     }>(`/api/admin-dept/reports${qs ? `?${qs}` : ""}`);
+  },
+  adminDeptIndividualReport: (params: {
+    type: "staff" | "student";
+    person_id: number;
+    start: string;
+    end: string;
+  }) => {
+    const q = new URLSearchParams({
+      type: params.type,
+      person_id: String(params.person_id),
+      start: params.start,
+      end: params.end,
+    });
+    return request<{
+      type: "staff" | "student";
+      start_date: string;
+      end_date: string;
+      complex_name: string | null;
+      person: {
+        id: number;
+        full_name_ar: string;
+        role?: string | null;
+        guardian_phone?: string | null;
+        circle_name?: string | null;
+      };
+      summary: { present: number; absent: number; excused: number; total: number };
+      discipline_pct: number;
+      items: Array<{ date: string; status: string }>;
+    }>(`/api/admin-dept/reports/individual?${q}`);
   },
   adminDeptStudentAttendanceReport: (studentId: number) =>
     request<{

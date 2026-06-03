@@ -166,4 +166,63 @@
   body.printing-student-attendance-report .student-attendance-report-print * {
     color: #000 !important;
   }
+
+  /* Individual discipline report modal */
+  body.printing-individual-discipline-report aside,
+  body.printing-individual-discipline-report header,
+  body.printing-individual-discipline-report [data-dev-preview-banner],
+  body.printing-individual-discipline-report main {
+    display: none !important;
+  }
+
+  body.printing-individual-discipline-report [data-slot="dialog-overlay"] {
+    display: none !important;
+  }
+
+  body.printing-individual-discipline-report [data-slot="dialog-content"] {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 210mm !important;
+    max-width: 210mm !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    border: none !important;
+    box-shadow: none !important;
+    transform: none !important;
+    background: #fff !important;
+  }
+
+  body.printing-individual-discipline-report [data-slot="table-container"] {
+    overflow: visible !important;
+  }
+
+  body.printing-individual-discipline-report .print\\:hidden {
+    display: none !important;
+  }
+
+  body.printing-individual-discipline-report .individual-discipline-report-print {
+    display: block !important;
+    position: relative !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 10mm !important;
+    visibility: visible !important;
+    overflow: visible !important;
+    color: #000 !important;
+    background: #fff !important;
+  }
+
+  body.printing-individual-discipline-report tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  body.printing-individual-discipline-report .individual-discipline-report-print * {
+    color: #000 !important;
+  }
 }

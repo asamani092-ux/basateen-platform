@@ -431,6 +431,56 @@ export function resolveDevPreviewMock<T>(
     } as T;
   }
 
+  if (p === "/api/admin-dept/reports" && m === "GET") {
+    return {
+      start_date: url.searchParams.get("startDate") ?? date,
+      end_date: url.searchParams.get("endDate") ?? date,
+      complex_name: "معاينة المجمع",
+      filters: { status: "all", type: "all" },
+      summary: {
+        staff_total: 8,
+        staff_present: 7,
+        staff_absent: 1,
+        staff_present_pct: 88,
+        staff_absent_pct: 12,
+        staff_discipline_pct: 92,
+        students_total: 42,
+        students_present: 38,
+        students_absent: 4,
+        students_present_pct: 90,
+        students_absent_pct: 10,
+        students_discipline_pct: 87,
+      },
+      items: [],
+    } as T;
+  }
+
+  if (p === "/api/admin-dept/reports/individual" && m === "GET") {
+    const type = url.searchParams.get("type") ?? "student";
+    const personId = Number(url.searchParams.get("person_id") ?? 1);
+    const start = url.searchParams.get("start") ?? date;
+    const end = url.searchParams.get("end") ?? date;
+    return {
+      type,
+      start_date: start,
+      end_date: end,
+      complex_name: "معاينة المجمع",
+      person: {
+        id: personId,
+        full_name_ar: type === "staff" ? "منسوب تجريبي" : "طالب تجريبي",
+        guardian_phone: type === "student" ? "0500000000" : undefined,
+        circle_name: type === "student" ? "حلقة معاينة" : undefined,
+        role: type === "staff" ? "teacher" : undefined,
+      },
+      summary: { present: 10, absent: 2, excused: 1, total: 13 },
+      discipline_pct: 77,
+      items: [
+        { date: start, status: "present" },
+        { date: end, status: "absent" },
+      ],
+    } as T;
+  }
+
   const studentAttReport = p.match(/^\/api\/admin-dept\/reports\/student\/(\d+)$/);
   if (studentAttReport && m === "GET") {
     return {

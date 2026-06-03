@@ -802,6 +802,7 @@ async function handleAdminDeptRouterImpl(
     const absentOnly = statusFilter === "absent_only" || statusFilter === "absent";
     const includeStaff = typeFilter === "all" || typeFilter === "staff";
     const includeStudents = typeFilter === "all" || typeFilter === "student";
+    const includeItems = url.searchParams.get("include_items") !== "false";
 
     type ReportRow = {
       name: string;
@@ -811,7 +812,7 @@ async function handleAdminDeptRouterImpl(
     };
     const items: ReportRow[] = [];
 
-    if (includeStaff && (await hasTable(env, "staff_attendance"))) {
+    if (includeItems && includeStaff && (await hasTable(env, "staff_attendance"))) {
       let staffSql = `
         SELECT u.full_name_ar AS name, sa.attendance_date AS date, sa.status
         FROM staff_attendance sa
@@ -838,7 +839,7 @@ async function handleAdminDeptRouterImpl(
     const filterTrackId = trackIdParam ? Number(trackIdParam) : null;
 
     const attTable = await resolveAttendanceTableName(env);
-    if (includeStudents && attTable) {
+    if (includeItems && includeStudents && attTable) {
       const placement = await buildStudentPlacementSql(env);
       let stuSql = `
         SELECT s.full_name_ar AS name, sa.attendance_date AS date, sa.status
@@ -932,9 +933,49 @@ async function handleAdminDeptRouterImpl(
     const staffAbsent = Math.max(0, staffTotal - staffPresent);
     const studentsAbsent = Math.max(0, studentsTotal - studentsPresent);
 
+    let staffDisciplinePct = 0;
+    let studentsDisciplinePct = 0;
+    if (await hasTable(env, "staff_attendance")) {
+      const staffDisc = await env.DB.prepare(
+        `SELECT SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) AS present_cnt,
+                COUNT(*) AS total_cnt
+         FROM staff_attendance
+         WHERE complex_id = ? AND attendance_date BETWEEN ? AND ?`,
+      )
+        .bind(admin.complexId, startDate, endDate)
+        .first<{ present_cnt: number; total_cnt: number }>();
+      const stTotal = Number(staffDisc?.total_cnt ?? 0);
+      staffDisciplinePct =
+        stTotal > 0
+          ? Math.round((Number(staffDisc?.present_cnt ?? 0) / stTotal) * 100)
+          : 0;
+    }
+    if (attTable) {
+      const stuDisc = await env.DB.prepare(
+        `SELECT SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) AS present_cnt,
+                COUNT(*) AS total_cnt
+         FROM ${attTable}
+         WHERE complex_id = ? AND attendance_date BETWEEN ? AND ?`,
+      )
+        .bind(admin.complexId, startDate, endDate)
+        .first<{ present_cnt: number; total_cnt: number }>();
+      const stuTotal = Number(stuDisc?.total_cnt ?? 0);
+      studentsDisciplinePct =
+        stuTotal > 0
+          ? Math.round((Number(stuDisc?.present_cnt ?? 0) / stuTotal) * 100)
+          : 0;
+    }
+
+    const complex = await env.DB.prepare(
+      `SELECT name_ar FROM complexes WHERE id = ?`,
+    )
+      .bind(admin.complexId)
+      .first<{ name_ar: string }>();
+
     return json({
       start_date: startDate,
       end_date: endDate,
+      complex_name: complex?.name_ar ?? null,
       filters: { status: statusFilter, type: typeFilter },
       summary: {
         staff_total: staffTotal,
@@ -942,13 +983,184 @@ async function handleAdminDeptRouterImpl(
         staff_absent: staffAbsent,
         staff_present_pct: pct(staffPresent, staffTotal),
         staff_absent_pct: pct(staffAbsent, staffTotal),
+        staff_discipline_pct: staffDisciplinePct,
         students_total: studentsTotal,
         students_present: studentsPresent,
         students_absent: studentsAbsent,
         students_present_pct: pct(studentsPresent, studentsTotal),
         students_absent_pct: pct(studentsAbsent, studentsTotal),
+        students_discipline_pct: studentsDisciplinePct,
       },
-      items,
+      items: includeItems ? items : [],
+    });
+  }
+
+  // GET /api/admin-dept/reports/individual — تقرير انضباط تفصيلي لفرد
+  if (request.method === "GET" && path === "/api/admin-dept/reports/individual") {
+    const beneficiaryType = (
+      url.searchParams.get("type")?.trim() ||
+      url.searchParams.get("beneficiary_type")?.trim() ||
+      ""
+    ).toLowerCase();
+    const personId = Number(
+      url.searchParams.get("person_id") ??
+        url.searchParams.get("id") ??
+        NaN,
+    );
+    const startDate =
+      url.searchParams.get("start")?.trim() ||
+      url.searchParams.get("startDate")?.trim() ||
+      url.searchParams.get("start_date")?.trim() ||
+      todayIso();
+    const endDate =
+      url.searchParams.get("end")?.trim() ||
+      url.searchParams.get("endDate")?.trim() ||
+      url.searchParams.get("end_date")?.trim() ||
+      startDate;
+
+    if (beneficiaryType !== "staff" && beneficiaryType !== "student") {
+      return json({ error: "invalid_type", allowed: ["staff", "student"] }, 400);
+    }
+    if (!Number.isFinite(personId)) {
+      return json({ error: "person_id_required" }, 400);
+    }
+    if (startDate > endDate) {
+      return json({ error: "invalid_date_range", start: startDate, end: endDate }, 400);
+    }
+
+    const complex = await env.DB.prepare(
+      `SELECT name_ar FROM complexes WHERE id = ?`,
+    )
+      .bind(admin.complexId)
+      .first<{ name_ar: string }>();
+
+    type AttRow = { date: string; status: string };
+    const history: AttRow[] = [];
+
+    if (beneficiaryType === "student") {
+      const hasGuardian = await tableHasColumn(env, "students", "guardian_phone");
+      const student = await env.DB.prepare(
+        hasGuardian
+          ? `SELECT id, full_name_ar, guardian_phone, stage_id, current_circle_id
+             FROM students
+             WHERE id = ? AND complex_id = ? AND COALESCE(is_active, 1) = 1`
+          : `SELECT id, full_name_ar, stage_id, current_circle_id
+             FROM students
+             WHERE id = ? AND complex_id = ? AND COALESCE(is_active, 1) = 1`,
+      )
+        .bind(personId, admin.complexId)
+        .first<{
+          id: number;
+          full_name_ar: string;
+          guardian_phone?: string | null;
+          stage_id: number | null;
+          current_circle_id: number | null;
+        }>();
+      if (!student) return json({ error: "student_not_found" }, 404);
+
+      const attTable = await resolveAttendanceTableName(env);
+      if (attTable) {
+        const attRows = await env.DB.prepare(
+          `SELECT attendance_date AS date, status
+           FROM ${attTable}
+           WHERE student_id = ? AND complex_id = ?
+             AND attendance_date BETWEEN ? AND ?
+           ORDER BY attendance_date DESC`,
+        )
+          .bind(personId, admin.complexId, startDate, endDate)
+          .all<AttRow>();
+        for (const r of attRows.results ?? []) history.push(r);
+      }
+
+      let present = 0;
+      let absent = 0;
+      let excused = 0;
+      for (const r of history) {
+        if (r.status === "present") present++;
+        else if (r.status === "excused") excused++;
+        else absent++;
+      }
+      const total = history.length;
+      const disciplinePct =
+        total > 0 ? Math.round((present / total) * 100) : 100;
+
+      let circleName: string | null = null;
+      if (student.current_circle_id) {
+        const circle = await circleLabelRow(env, student.current_circle_id);
+        circleName = circle?.name_ar ?? null;
+      }
+
+      return json({
+        type: "student",
+        start_date: startDate,
+        end_date: endDate,
+        complex_name: complex?.name_ar ?? null,
+        person: {
+          id: student.id,
+          full_name_ar: student.full_name_ar,
+          guardian_phone: student.guardian_phone ?? null,
+          stage_id: student.stage_id,
+          circle_name: circleName,
+        },
+        summary: { present, absent, excused, total },
+        discipline_pct: disciplinePct,
+        items: history,
+        stage_labels: STAGE_LABELS,
+      });
+    }
+
+    const hasRole = await tableHasColumn(env, "users", "role");
+    const roleCol = hasRole ? "role," : "";
+    const staff = await env.DB.prepare(
+      `SELECT id, full_name_ar, ${roleCol} is_active
+       FROM users
+       WHERE id = ? AND complex_id = ? AND is_active = 1`,
+    )
+      .bind(personId, admin.complexId)
+      .first<{
+        id: number;
+        full_name_ar: string;
+        role?: string;
+      }>();
+    if (!staff) return json({ error: "staff_not_found" }, 404);
+
+    if (await hasTable(env, "staff_attendance")) {
+      const attRows = await env.DB.prepare(
+        `SELECT attendance_date AS date, status
+         FROM staff_attendance
+         WHERE user_id = ? AND complex_id = ?
+           AND attendance_date BETWEEN ? AND ?
+         ORDER BY attendance_date DESC`,
+      )
+        .bind(personId, admin.complexId, startDate, endDate)
+        .all<AttRow>();
+      for (const r of attRows.results ?? []) history.push(r);
+    }
+
+    let present = 0;
+    let absent = 0;
+    let excused = 0;
+    for (const r of history) {
+      if (r.status === "present") present++;
+      else if (r.status === "excused") excused++;
+      else absent++;
+    }
+    const total = history.length;
+    const disciplinePct = total > 0 ? Math.round((present / total) * 100) : 100;
+
+    return json({
+      type: "staff",
+      start_date: startDate,
+      end_date: endDate,
+      complex_name: complex?.name_ar ?? null,
+      person: {
+        id: staff.id,
+        full_name_ar: staff.full_name_ar,
+        role: staff.role ?? null,
+      },
+      summary: { present, absent, excused, total },
+      discipline_pct: disciplinePct,
+      items: history,
     });
   }
 

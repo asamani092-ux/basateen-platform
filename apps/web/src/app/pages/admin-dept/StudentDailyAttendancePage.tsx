@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Link2, Printer, RefreshCw } from "lucide-react";
+import { CheckCircle2, Link2, Printer } from "lucide-react";
 import { AttendanceMagicLinksModal } from "../../components/attendance/AttendanceMagicLinksModal";
 import { StudentAttendanceReportModal } from "../../components/attendance/StudentAttendanceReportModal";
 import { AttendanceFilterBar } from "../../components/attendance/AttendanceFilterBar";
@@ -260,17 +260,6 @@ export function StudentDailyAttendancePage() {
                 >
                   <Printer className="w-4 h-4" />
                   طباعة تقرير التحضير 🖨️
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={`${ds.btnRound} w-full sm:w-auto min-h-11`}
-                  disabled={loading}
-                  onClick={loadStudents}
-                  style={tajawal}
-                >
-                  <RefreshCw className="w-4 h-4" />
-                  تحديث القائمة
                 </Button>
                 <Button
                   type="button"

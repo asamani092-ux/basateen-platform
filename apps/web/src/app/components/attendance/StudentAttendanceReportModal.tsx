@@ -32,6 +32,7 @@ export type StudentReportRow = {
   student_id: number;
   full_name_ar: string;
   present_days: number;
+  excused_days: number;
   absent_days: number;
 };
 
@@ -119,7 +120,8 @@ export function StudentAttendanceReportModal({
     setTimeout(cleanup, 1000);
   }
 
-  const cellClass = "text-right px-4 py-3";
+  const cellClass =
+    "text-right px-4 py-3 print:px-2 print:py-1.5 print:text-xs";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -223,7 +225,7 @@ export function StudentAttendanceReportModal({
           </p>
 
           {rows.length > 0 ? (
-            <Table className="w-full border-collapse">
+            <Table className="w-full border-collapse text-sm print:text-xs">
               <TableHeader>
                 <TableRow className="print:break-inside-avoid">
                   <TableHead className={cellClass} style={tajawal}>
@@ -231,6 +233,9 @@ export function StudentAttendanceReportModal({
                   </TableHead>
                   <TableHead className={cellClass} style={tajawal}>
                     أيام الحضور
+                  </TableHead>
+                  <TableHead className={cellClass} style={tajawal}>
+                    أيام الاستئذان
                   </TableHead>
                   <TableHead className={cellClass} style={tajawal}>
                     أيام الغياب
@@ -248,6 +253,9 @@ export function StudentAttendanceReportModal({
                     </TableCell>
                     <TableCell className={cellClass} style={tajawal}>
                       {r.present_days}
+                    </TableCell>
+                    <TableCell className={cellClass} style={tajawal}>
+                      {r.excused_days}
                     </TableCell>
                     <TableCell className={cellClass} style={tajawal}>
                       {r.absent_days}

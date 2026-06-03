@@ -195,7 +195,7 @@ export function StudentAttendanceReportModal({
 
         <div
           id="student-attendance-report-print"
-          className="student-attendance-report-print space-y-3 print:w-[210mm] print:absolute print:top-0 print:left-0 print:m-0 print:p-8 print:bg-white print:text-black print:overflow-visible print:block hidden"
+          className="student-attendance-report-print space-y-3 print:w-[210mm] print:absolute print:top-0 print:left-0 print:m-0 print:p-8 print:bg-white print:text-black print:overflow-visible print:block"
         >
           <div className="hidden print:flex print:justify-between print:items-start print:border-b print:border-black print:pb-2 print:mb-3 print:pt-0">
             <p className="text-sm font-semibold" style={tajawal}>

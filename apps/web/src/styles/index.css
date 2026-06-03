@@ -62,13 +62,23 @@
   }
 
   body.printing-staff-attendance-report [data-slot="dialog-content"] {
-    position: static !important;
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 210mm !important;
+    max-width: 210mm !important;
     max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
     overflow: visible !important;
     border: none !important;
     box-shadow: none !important;
-    padding: 0 !important;
     transform: none !important;
+    background: #fff !important;
+  }
+
+  body.printing-staff-attendance-report [data-slot="table-container"] {
+    overflow: visible !important;
   }
 
   body.printing-staff-attendance-report .print\\:hidden {
@@ -77,9 +87,21 @@
 
   body.printing-staff-attendance-report .staff-attendance-report-print {
     display: block !important;
+    position: relative !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 10mm !important;
     visibility: visible !important;
+    overflow: visible !important;
     color: #000 !important;
     background: #fff !important;
+  }
+
+  body.printing-staff-attendance-report tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 
   body.printing-staff-attendance-report .staff-attendance-report-print * {

@@ -18,7 +18,20 @@ import { normalizeAttendanceStatus } from "../../lib/attendance-status";
 import { matchesArabicName } from "../../lib/attendance-search";
 import { AttendanceStatusButtons } from "../../components/attendance/AttendanceStatusButtons";
 import { ds, tajawal } from "../../lib/design-system";
-import { roleLabelAr } from "../../lib/role-labels";
+
+function formatRole(role: string | null | undefined): string {
+  return (
+    (
+      {
+        super_admin: "مشرف عام",
+        edu_supervisor: "مشرف تعليمي",
+        programs_supervisor: "مشرف برامج",
+        track_supervisor: "مشرف مسار",
+        teacher: "معلم",
+      } as Record<string, string>
+    )[role ?? ""] || "غير محدد"
+  );
+}
 
 type Row = {
   user_id: number;
@@ -40,9 +53,8 @@ export function StaffAttendancePage() {
   const [nameQuery, setNameQuery] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
 
-  const thClass = "text-right px-4 py-2";
-  const tdNameClass = "text-right px-4 py-2 align-top";
-  const tdActionClass = "text-right px-4 py-2 align-middle whitespace-nowrap";
+  const cellClass =
+    "!px-4 !py-3 h-auto whitespace-normal text-right align-top";
 
   const load = useCallback(async () => {
     if (!canUseApi()) {
@@ -98,17 +110,14 @@ export function StaffAttendancePage() {
   );
 
   async function commit() {
-    const changed = rows.filter(
-      (r) => (baseline[r.user_id] ?? "present") !== r.status,
-    );
-    if (changed.length === 0) return;
+    if (rows.length === 0) return;
 
     setCommitting(true);
     setError(null);
     try {
       await api.adminDeptSaveStaffAttendance({
         attendance_date: date,
-        records: changed.map((r) => ({
+        records: rows.map((r) => ({
           user_id: r.user_id,
           status: r.status,
         })),
@@ -185,7 +194,7 @@ export function StaffAttendancePage() {
             <Button
               type="button"
               className={`${ds.btnRound} w-full sm:w-auto min-h-11`}
-              disabled={committing || dirtyCount === 0 || loading}
+              disabled={committing || loading}
               onClick={commit}
               style={tajawal}
             >
@@ -210,13 +219,13 @@ export function StaffAttendancePage() {
             لا يوجد منسوبون يطابقون البحث.
           </p>
         ) : (
-          <Table className="w-full">
+          <Table className="border-collapse w-full">
             <TableHeader>
               <TableRow>
-                <TableHead className={`${thClass} w-[38%]`} style={tajawal}>
+                <TableHead className={cellClass} style={tajawal}>
                   الاسم
                 </TableHead>
-                <TableHead className={`${thClass} w-[62%]`} style={tajawal}>
+                <TableHead className={cellClass} style={tajawal}>
                   الحالة
                 </TableHead>
               </TableRow>
@@ -224,15 +233,13 @@ export function StaffAttendancePage() {
             <TableBody>
               {filteredRows.map((r) => (
                 <TableRow key={r.user_id}>
-                  <TableCell className={tdNameClass} style={tajawal}>
+                  <TableCell className={cellClass} style={tajawal}>
                     <p className="font-medium">{r.full_name_ar}</p>
-                    {r.role && (
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {roleLabelAr(r.role)}
-                      </p>
-                    )}
+                    <span className="text-sm text-gray-500 block mt-1">
+                      {formatRole(r.role)}
+                    </span>
                   </TableCell>
-                  <TableCell className={tdActionClass}>
+                  <TableCell className={`${cellClass} whitespace-nowrap`}>
                     <AttendanceStatusButtons
                       value={r.status}
                       disabled={committing}

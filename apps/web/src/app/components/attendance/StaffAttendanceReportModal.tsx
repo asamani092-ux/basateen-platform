@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FileDown, Printer } from "lucide-react";
+import { Printer } from "lucide-react";
 import { Button } from "../ui/button";
 import { Label } from "../ui/label";
 import {
@@ -19,8 +19,21 @@ import {
 } from "../ui/table";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
-import { roleLabelAr } from "../../lib/role-labels";
 import { ds, tajawal } from "../../lib/design-system";
+
+function formatRole(role: string | null | undefined): string {
+  return (
+    (
+      {
+        super_admin: "مشرف عام",
+        edu_supervisor: "مشرف تعليمي",
+        programs_supervisor: "مشرف برامج",
+        track_supervisor: "مشرف مسار",
+        teacher: "معلم",
+      } as Record<string, string>
+    )[role ?? ""] || "غير محدد"
+  );
+}
 
 export type StaffReportRow = {
   user_id: number;
@@ -87,16 +100,16 @@ export function StaffAttendanceReportModal({ open, onOpenChange }: Props) {
     setTimeout(cleanup, 1000);
   }
 
-  const thClass = "text-right px-4 py-2";
-  const tdClass = "text-right px-4 py-2 align-top";
+  const cellClass =
+    "!px-4 !py-3 h-auto whitespace-normal text-right align-top";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto print:max-w-none print:overflow-visible print:border-0 print:shadow-none">
+      <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto print:w-[210mm] print:absolute print:top-0 print:left-0 print:m-0 print:p-0 print:overflow-visible print:bg-white print:text-black print:max-h-none print:border-0 print:shadow-none print:translate-x-0 print:translate-y-0">
         <DialogHeader className="print:hidden">
           <DialogTitle style={tajawal}>تقرير تحضير المنسوبين</DialogTitle>
           <DialogDescription style={tajawal}>
-            اختر الفترة ثم اعرض التقرير للطباعة أو التصدير PDF.
+            اختر الفترة ثم اعرض التقرير للطباعة.
           </DialogDescription>
         </DialogHeader>
 
@@ -143,9 +156,9 @@ export function StaffAttendanceReportModal({ open, onOpenChange }: Props) {
 
         <div
           id="staff-attendance-report-print"
-          className="staff-attendance-report-print space-y-3"
+          className="staff-attendance-report-print space-y-3 print:w-[210mm] print:absolute print:top-0 print:left-0 print:m-0 print:p-4 print:overflow-visible print:bg-white print:text-black"
         >
-          <div className="hidden print:flex print:justify-between print:items-center print:border-b print:border-black print:pb-3 print:mb-4">
+          <div className="hidden print:flex print:justify-between print:items-start print:border-b print:border-black print:pb-2 print:mb-3 print:pt-0">
             <p className="text-sm font-semibold" style={tajawal}>
               {complexName ?? "مجمع حلقات البساتين"}
             </p>
@@ -157,7 +170,7 @@ export function StaffAttendanceReportModal({ open, onOpenChange }: Props) {
           </div>
 
           <p
-            className="text-sm font-medium print:block hidden sm:block"
+            className="text-sm font-medium print:block print:mt-0 hidden sm:block"
             style={tajawal}
           >
             {loadedRange ? (
@@ -170,41 +183,39 @@ export function StaffAttendanceReportModal({ open, onOpenChange }: Props) {
           </p>
 
           {rows.length > 0 ? (
-            <Table className="w-full border-collapse">
+            <Table className="border-collapse w-full">
               <TableHeader>
-                <TableRow>
-                  <TableHead className={thClass} style={tajawal}>
+                <TableRow className="print:break-inside-avoid">
+                  <TableHead className={cellClass} style={tajawal}>
                     المنسوب
                   </TableHead>
-                  <TableHead className={thClass} style={tajawal}>
+                  <TableHead className={cellClass} style={tajawal}>
                     أيام الحضور
                   </TableHead>
-                  <TableHead className={thClass} style={tajawal}>
+                  <TableHead className={cellClass} style={tajawal}>
                     أيام الغياب
                   </TableHead>
-                  <TableHead className={thClass} style={tajawal}>
+                  <TableHead className={cellClass} style={tajawal}>
                     أيام الاستئذان
                   </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rows.map((r) => (
-                  <TableRow key={r.user_id}>
-                    <TableCell className={tdClass} style={tajawal}>
+                  <TableRow key={r.user_id} className="print:break-inside-avoid">
+                    <TableCell className={cellClass} style={tajawal}>
                       <p className="font-medium">{r.full_name_ar}</p>
-                      {r.role && (
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {roleLabelAr(r.role)}
-                        </p>
-                      )}
+                      <span className="text-sm text-gray-500 block mt-1">
+                        {formatRole(r.role)}
+                      </span>
                     </TableCell>
-                    <TableCell className={tdClass} style={tajawal}>
+                    <TableCell className={cellClass} style={tajawal}>
                       {r.present_days}
                     </TableCell>
-                    <TableCell className={tdClass} style={tajawal}>
+                    <TableCell className={cellClass} style={tajawal}>
                       {r.absent_days}
                     </TableCell>
-                    <TableCell className={tdClass} style={tajawal}>
+                    <TableCell className={cellClass} style={tajawal}>
                       {r.excused_days}
                     </TableCell>
                   </TableRow>
@@ -222,7 +233,7 @@ export function StaffAttendanceReportModal({ open, onOpenChange }: Props) {
         </div>
 
         {rows.length > 0 && (
-          <div className="flex flex-col sm:flex-row gap-2 print:hidden pt-2">
+          <div className="flex print:hidden pt-2">
             <Button
               type="button"
               variant="outline"
@@ -232,16 +243,6 @@ export function StaffAttendanceReportModal({ open, onOpenChange }: Props) {
             >
               <Printer className="w-4 h-4" />
               طباعة 🖨️
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className={`${ds.btnRound} w-full sm:w-auto`}
-              onClick={handlePrint}
-              style={tajawal}
-            >
-              <FileDown className="w-4 h-4" />
-              حفظ PDF 📄
             </Button>
           </div>
         )}

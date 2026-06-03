@@ -59,7 +59,7 @@ function printPledgeForm(
     day: "numeric",
   });
   w.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head>
-    <meta charset="utf-8"/><title>نموذج تعهد — ${studentName}</title>
+    <meta charset="utf-8"/><title>نموذج تعهد</title>
     <style>
       body{font-family:Tajawal,sans-serif;padding:2rem;line-height:1.8;color:#111;background:#fff}
       .print-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1rem}
@@ -76,16 +76,16 @@ function printPledgeForm(
       <p class="complex">مجمع حلقات البساتين</p>
       <p class="date">${printDate}</p>
     </div>
-    <h2 class="print-title">تعهد طالب — ${studentName}</h2>
+    <h2 class="print-title">تعهد طالب</h2>
     <hr class="print-hr"/>
     <p><strong>اسم الطالب:</strong> ${studentName}</p>
-    <p><strong>رقم ولي الأمر:</strong> ${guardianPhone ?? "—"}</p>
+    <p><strong>رقم ولي الأمر:</strong> ${guardianPhone?.trim() ? guardianPhone : "—"}</p>
     <p><strong>عدد التعهدات:</strong> ${pledgeCount}</p>
     <table>
       <thead><tr><th>التاريخ</th><th>سبب التعهد</th><th>المسجّل</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    <p>أقرّ ولي الأمر باطلاعي على التعهدات المذكورة والالتزام بما ورد فيها.</p>
+    <p>الإجراء: ........................................................</p>
     <div class="pledge-sig">توقيع ولي الأمر: ........................</div>
     </body></html>`);
   w.document.close();
@@ -281,22 +281,22 @@ export function PledgesPage() {
                 لا توجد تعهدات مسجّلة بعد.
               </p>
             ) : (
-              <Table className={`${ds.tableMin} text-right`} dir="rtl">
+              <Table className="w-full border-collapse" dir="rtl">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className={`${ds.table.head} w-[22%]`} style={tajawal}>
+                    <TableHead className="text-right px-4 py-3" style={tajawal}>
                       الاسم
                     </TableHead>
-                    <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
+                    <TableHead className="text-right px-4 py-3" style={tajawal}>
                       رقم ولي الأمر
                     </TableHead>
-                    <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
+                    <TableHead className="text-right px-4 py-3" style={tajawal}>
                       عدد التعهدات
                     </TableHead>
-                    <TableHead className={`${ds.table.head} w-[32%]`} style={tajawal}>
+                    <TableHead className="text-right px-4 py-3" style={tajawal}>
                       سبب التعهد
                     </TableHead>
-                    <TableHead className={ds.table.headActionsWide} style={tajawal}>
+                    <TableHead className="text-right px-4 py-3 whitespace-nowrap" style={tajawal}>
                       إجراء
                     </TableHead>
                   </TableRow>
@@ -304,22 +304,22 @@ export function PledgesPage() {
                 <TableBody>
                   {summaryRows.map((row) => (
                     <TableRow key={row.student_id}>
-                      <TableCell className={ds.table.cell} style={tajawal}>
+                      <TableCell className="text-right px-4 py-3" style={tajawal}>
                         {row.full_name_ar}
                       </TableCell>
-                      <TableCell className={ds.table.cell} dir="ltr" style={tajawal}>
+                      <TableCell className="text-right px-4 py-3" dir="ltr" style={tajawal}>
                         {row.guardian_phone ?? "—"}
                       </TableCell>
-                      <TableCell className={`${ds.table.cell} tabular-nums`} style={tajawal}>
+                      <TableCell className="text-right px-4 py-3 tabular-nums" style={tajawal}>
                         {row.pledge_count}
                       </TableCell>
                       <TableCell
-                        className={`${ds.table.cell} text-muted-foreground text-sm`}
+                        className="text-right px-4 py-3 text-muted-foreground text-sm"
                         style={tajawal}
                       >
                         {row.latest_reason ?? "—"}
                       </TableCell>
-                      <TableCell className={ds.table.actionsCellWide}>
+                      <TableCell className="text-right px-4 py-3 whitespace-nowrap">
                         <div className={ds.table.actionsWrapWide}>
                           <Button
                             type="button"
@@ -340,9 +340,13 @@ export function PledgesPage() {
                             onClick={async () => {
                               setReportStudentId(row.student_id);
                               const res = await api.adminDeptPledgeReport(row.student_id);
+                              const student = res.student as {
+                                full_name_ar?: string;
+                                guardian_phone?: string | null;
+                              };
                               printPledgeForm(
-                                row.full_name_ar,
-                                row.guardian_phone,
+                                student.full_name_ar ?? row.full_name_ar,
+                                student.guardian_phone ?? row.guardian_phone,
                                 res.pledges,
                                 res.pledge_count,
                               );

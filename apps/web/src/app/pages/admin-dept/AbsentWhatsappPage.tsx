@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import {
   TableActionsCell,
   TableIconAction,
@@ -40,7 +41,14 @@ export function AbsentWhatsappPage() {
   const [circles, setCircles] = useState<CircleOption[]>([]);
   const [items, setItems] = useState<AbsentRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [bulkSending, setBulkSending] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
+
+  const sendableItems = useMemo(
+    () => items.filter((r) => Boolean(r.whatsapp_url)),
+    [items],
+  );
 
   useEffect(() => {
     if (!canUseApi()) return;
@@ -71,6 +79,35 @@ export function AbsentWhatsappPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  async function handleBulkSend() {
+    if (sendableItems.length === 0 || bulkSending) return;
+
+    setBulkSending(true);
+    setBulkProgress({ current: 0, total: sendableItems.length });
+
+    try {
+      let index = 0;
+      for (const row of sendableItems) {
+        index += 1;
+        setBulkProgress({ current: index, total: sendableItems.length });
+        if (row.whatsapp_url) {
+          window.open(row.whatsapp_url, "_blank", "noopener,noreferrer");
+        }
+        if (index < sendableItems.length) {
+          await new Promise((resolve) => setTimeout(resolve, 20000));
+        }
+      }
+      toast.success("تم الانتهاء من الإرسال الجماعي بنجاح");
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : "تعذّر إكمال الإرسال الجماعي",
+      );
+    } finally {
+      setBulkSending(false);
+      setBulkProgress({ current: 0, total: 0 });
+    }
+  }
 
   return (
     <div className="space-y-4 max-w-[1200px]">
@@ -128,6 +165,31 @@ export function AbsentWhatsappPage() {
           </Button>
         </div>
       </div>
+
+      {items.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <Button
+            type="button"
+            className={`${ds.btnRound} w-full sm:w-auto min-h-11`}
+            disabled={bulkSending || sendableItems.length === 0 || loading}
+            onClick={() => void handleBulkSend()}
+            style={tajawal}
+          >
+            إرسال جماعي للغائبين 🚀
+          </Button>
+          {bulkSending && bulkProgress.total > 0 && (
+            <p className="text-sm text-muted-foreground" style={tajawal}>
+              جاري إرسال {bulkProgress.current} من {bulkProgress.total}... يرجى
+              الانتظار
+            </p>
+          )}
+          {sendableItems.length === 0 && items.length > 0 && (
+            <p className={`text-sm ${ds.alert.info}`} style={tajawal}>
+              لا يوجد أرقام واتساب صالحة للإرسال الجماعي.
+            </p>
+          )}
+        </div>
+      )}
 
       <div className={ds.card}>
         {loading ? (

@@ -741,8 +741,11 @@ async function handleAdminDeptRouterImpl(
     }
 
     const studentId = Number(pledgeGet[1]);
+    const hasGuardian = await tableHasColumn(env, "students", "guardian_phone");
+    const guardianCol = hasGuardian ? "guardian_phone" : "NULL AS guardian_phone";
     const student = await env.DB.prepare(
-      `SELECT id, full_name_ar, stage_id, current_circle_id FROM students
+      `SELECT id, full_name_ar, stage_id, current_circle_id, ${guardianCol}
+       FROM students
        WHERE id = ? AND complex_id = ?`,
     )
       .bind(studentId, admin.complexId)

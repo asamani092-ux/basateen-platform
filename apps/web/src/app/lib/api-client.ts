@@ -862,6 +862,22 @@ export const api = {
       "/api/admin-dept/staff/attendance",
       { method: "POST", body: JSON.stringify(body) },
     ),
+  adminDeptStaffAttendanceReport: (start: string, end: string) => {
+    const qs = new URLSearchParams({ start, end });
+    return request<{
+      start_date: string;
+      end_date: string;
+      complex_name: string | null;
+      items: Array<{
+        user_id: number;
+        full_name_ar: string;
+        role: string | null;
+        present_days: number;
+        absent_days: number;
+        excused_days: number;
+      }>;
+    }>(`/api/admin-dept/staff/attendance?${qs}`);
+  },
   adminDeptStudentAttendance: (circleId: number, date?: string) => {
     const qs = date ? `?date=${encodeURIComponent(date)}` : "";
     return request<{

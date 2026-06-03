@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Printer } from "lucide-react";
+import { StaffAttendanceReportModal } from "../../components/attendance/StaffAttendanceReportModal";
 import { AttendanceFilterBar } from "../../components/attendance/AttendanceFilterBar";
 import { Button } from "../../components/ui/button";
 import { Label } from "../../components/ui/label";
@@ -16,7 +17,6 @@ import { canUseApi } from "../../lib/api-access";
 import { normalizeAttendanceStatus } from "../../lib/attendance-status";
 import { matchesArabicName } from "../../lib/attendance-search";
 import { AttendanceStatusButtons } from "../../components/attendance/AttendanceStatusButtons";
-import { Badge } from "../../components/ui/badge";
 import { ds, tajawal } from "../../lib/design-system";
 import { roleLabelAr } from "../../lib/role-labels";
 
@@ -38,6 +38,11 @@ export function StaffAttendancePage() {
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nameQuery, setNameQuery] = useState("");
+  const [reportOpen, setReportOpen] = useState(false);
+
+  const thClass = "text-right px-4 py-2";
+  const tdNameClass = "text-right px-4 py-2 align-top";
+  const tdActionClass = "text-right px-4 py-2 align-middle whitespace-nowrap";
 
   const load = useCallback(async () => {
     if (!canUseApi()) {
@@ -166,18 +171,35 @@ export function StaffAttendancePage() {
               className={`block w-full max-w-xs mt-1 border border-border px-3 py-2 ${ds.btnRound}`}
             />
           </div>
-          <Button
-            type="button"
-            className={`${ds.btnRound} w-full sm:w-auto min-h-11`}
-            disabled={committing || dirtyCount === 0 || loading}
-            onClick={commit}
-            style={tajawal}
-          >
-            <CheckCircle2 className="w-4 h-4" />
-            {committing ? "جاري الاعتماد…" : "اعتماد حفظ التحضير 💾"}
-            {dirtyCount > 0 ? ` (${dirtyCount})` : ""}
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <Button
+              type="button"
+              variant="outline"
+              className={`${ds.btnRound} w-full sm:w-auto min-h-11`}
+              onClick={() => setReportOpen(true)}
+              style={tajawal}
+            >
+              <Printer className="w-4 h-4" />
+              طباعة تقرير التحضير 🖨️
+            </Button>
+            <Button
+              type="button"
+              className={`${ds.btnRound} w-full sm:w-auto min-h-11`}
+              disabled={committing || dirtyCount === 0 || loading}
+              onClick={commit}
+              style={tajawal}
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              {committing ? "جاري الاعتماد…" : "اعتماد حفظ التحضير 💾"}
+              {dirtyCount > 0 ? ` (${dirtyCount})` : ""}
+            </Button>
+          </div>
         </div>
+
+        <StaffAttendanceReportModal
+          open={reportOpen}
+          onOpenChange={setReportOpen}
+        />
 
         {loading ? (
           <p className="text-muted-foreground text-sm" style={tajawal}>
@@ -188,13 +210,13 @@ export function StaffAttendancePage() {
             لا يوجد منسوبون يطابقون البحث.
           </p>
         ) : (
-          <Table className="table-fixed w-full">
+          <Table className="w-full">
             <TableHeader>
               <TableRow>
-                <TableHead className="text-right w-[40%]" style={tajawal}>
+                <TableHead className={`${thClass} w-[38%]`} style={tajawal}>
                   الاسم
                 </TableHead>
-                <TableHead className="text-right w-[60%]" style={tajawal}>
+                <TableHead className={`${thClass} w-[62%]`} style={tajawal}>
                   الحالة
                 </TableHead>
               </TableRow>
@@ -202,15 +224,15 @@ export function StaffAttendancePage() {
             <TableBody>
               {filteredRows.map((r) => (
                 <TableRow key={r.user_id}>
-                  <TableCell className="text-right align-top" style={tajawal}>
+                  <TableCell className={tdNameClass} style={tajawal}>
                     <p className="font-medium">{r.full_name_ar}</p>
                     {r.role && (
-                      <Badge variant="secondary" className="mt-1 text-xs font-normal">
+                      <p className="text-xs text-muted-foreground mt-0.5">
                         {roleLabelAr(r.role)}
-                      </Badge>
+                      </p>
                     )}
                   </TableCell>
-                  <TableCell className="text-right align-middle">
+                  <TableCell className={tdActionClass}>
                     <AttendanceStatusButtons
                       value={r.status}
                       disabled={committing}

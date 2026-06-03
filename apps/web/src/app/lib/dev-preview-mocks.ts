@@ -225,6 +225,30 @@ export function resolveDevPreviewMock<T>(
     return { date, items, default_status: "present" } as T;
   }
 
+  if (p === "/api/admin-dept/staff/attendance" && m === "GET") {
+    const start =
+      url.searchParams.get("start")?.trim() ||
+      url.searchParams.get("start_date")?.trim() ||
+      date;
+    const end =
+      url.searchParams.get("end")?.trim() ||
+      url.searchParams.get("end_date")?.trim() ||
+      start;
+    return {
+      start_date: start,
+      end_date: end,
+      complex_name: "مجمع حلقات البساتين (معاينة)",
+      items: MOCK_STAFF.map((r) => ({
+        user_id: r.user_id,
+        full_name_ar: r.full_name_ar,
+        role: r.role,
+        present_days: 4,
+        absent_days: r.status === "absent" ? 1 : 0,
+        excused_days: 0,
+      })),
+    } as T;
+  }
+
   if (p === "/api/admin-dept/staff/attendance" && m === "POST") {
     const body = bodyText ? JSON.parse(bodyText) : {};
     const d = body.attendance_date ?? PREVIEW_TODAY();

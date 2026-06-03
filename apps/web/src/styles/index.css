@@ -48,4 +48,41 @@
     display: block !important;
     visibility: visible !important;
   }
+
+  /* Staff attendance report modal */
+  body.printing-staff-attendance-report aside,
+  body.printing-staff-attendance-report header,
+  body.printing-staff-attendance-report [data-dev-preview-banner],
+  body.printing-staff-attendance-report main {
+    display: none !important;
+  }
+
+  body.printing-staff-attendance-report [data-slot="dialog-overlay"] {
+    display: none !important;
+  }
+
+  body.printing-staff-attendance-report [data-slot="dialog-content"] {
+    position: static !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    transform: none !important;
+  }
+
+  body.printing-staff-attendance-report .print\\:hidden {
+    display: none !important;
+  }
+
+  body.printing-staff-attendance-report .staff-attendance-report-print {
+    display: block !important;
+    visibility: visible !important;
+    color: #000 !important;
+    background: #fff !important;
+  }
+
+  body.printing-staff-attendance-report .staff-attendance-report-print * {
+    color: #000 !important;
+  }
 }

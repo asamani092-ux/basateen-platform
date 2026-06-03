@@ -193,7 +193,9 @@ export async function handleAdminDeptRouter(
   url: URL,
 ): Promise<Response | null> {
   const path = url.pathname;
-  if (!path.startsWith("/api/admin-dept/")) return null;
+  const isAdminDeptPath = path.startsWith("/api/admin-dept/");
+  const isStaffReportAlias = path === "/api/admin/staff/attendance";
+  if (!isAdminDeptPath && !isStaffReportAlias) return null;
 
   try {
     return await handleAdminDeptRouterImpl(request, env, url, path);
@@ -246,6 +248,79 @@ async function handleAdminDeptRouterImpl(
     }));
 
     return json({ date, items, default_status: "present" });
+  }
+
+  // GET /api/admin-dept/staff/attendance | GET /api/admin/staff/attendance (تقرير مجمّع)
+  if (
+    request.method === "GET" &&
+    (path === "/api/admin-dept/staff/attendance" || path === "/api/admin/staff/attendance")
+  ) {
+    const start =
+      url.searchParams.get("start")?.trim() ||
+      url.searchParams.get("start_date")?.trim() ||
+      todayIso();
+    const end =
+      url.searchParams.get("end")?.trim() ||
+      url.searchParams.get("end_date")?.trim() ||
+      start;
+    if (start > end) {
+      return json({ error: "invalid_date_range", start, end }, 400);
+    }
+
+    const hasRole = await tableHasColumn(env, "users", "role");
+    const roleFilter = hasRole
+      ? `u.role IN ('super_admin','admin_supervisor','edu_supervisor','programs_supervisor','prog_supervisor','track_supervisor','teacher')`
+      : `(COALESCE(u.is_admin, 0) = 1 OR COALESCE(u.is_educational, 0) = 1 OR COALESCE(u.is_programs, 0) = 1 OR COALESCE(u.is_teacher, 0) = 1 OR COALESCE(u.is_track_supervisor, 0) = 1)`;
+
+    const roleCol = hasRole ? "u.role," : "";
+    const rows = await env.DB.prepare(
+      `SELECT u.id AS user_id, u.full_name_ar, ${roleCol}
+              SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) AS present_days,
+              SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) AS absent_days,
+              SUM(CASE WHEN sa.status = 'excused' THEN 1 ELSE 0 END) AS excused_days
+       FROM users u
+       LEFT JOIN staff_attendance sa
+         ON sa.user_id = u.id
+        AND sa.complex_id = ?
+        AND sa.attendance_date >= ?
+        AND sa.attendance_date <= ?
+       WHERE u.complex_id = ? AND u.is_active = 1 AND ${roleFilter}
+       GROUP BY u.id
+       ORDER BY u.full_name_ar`,
+    )
+      .bind(admin.complexId, start, end, admin.complexId)
+      .all<{
+        user_id: number;
+        full_name_ar: string;
+        role?: string;
+        present_days: number;
+        absent_days: number;
+        excused_days: number;
+      }>();
+
+    let complexName: string | null = null;
+    if (await hasTable(env, "complexes")) {
+      const cx = await env.DB.prepare(`SELECT name_ar FROM complexes WHERE id = ?`)
+        .bind(admin.complexId)
+        .first<{ name_ar: string }>();
+      complexName = cx?.name_ar ?? null;
+    }
+
+    const items = (rows.results ?? []).map((r) => ({
+      user_id: r.user_id,
+      full_name_ar: r.full_name_ar,
+      role: r.role ?? null,
+      present_days: Number(r.present_days ?? 0),
+      absent_days: Number(r.absent_days ?? 0),
+      excused_days: Number(r.excused_days ?? 0),
+    }));
+
+    return json({
+      start_date: start,
+      end_date: end,
+      complex_name: complexName,
+      items,
+    });
   }
 
   // POST /api/admin-dept/staff/attendance

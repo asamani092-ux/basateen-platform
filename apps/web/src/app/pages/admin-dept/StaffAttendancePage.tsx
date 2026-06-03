@@ -24,8 +24,10 @@ function formatRole(role: string | null | undefined): string {
     (
       {
         super_admin: "مشرف عام",
+        admin_supervisor: "مشرف إداري",
         edu_supervisor: "مشرف تعليمي",
         programs_supervisor: "مشرف برامج",
+        prog_supervisor: "مشرف برامج",
         track_supervisor: "مشرف مسار",
         teacher: "معلم",
       } as Record<string, string>
@@ -45,7 +47,7 @@ type Row = {
  */
 export function StaffAttendancePage() {
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [rows, setRows] = useState<Row[]>([]);
+  const [attendanceData, setAttendanceData] = useState<Row[]>([]);
   const [baseline, setBaseline] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(true);
   const [committing, setCommitting] = useState(false);
@@ -53,8 +55,7 @@ export function StaffAttendancePage() {
   const [nameQuery, setNameQuery] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
 
-  const cellClass =
-    "!px-4 !py-3 h-auto whitespace-normal text-right align-top";
+  const cellClass = "text-right px-4 py-3";
 
   const load = useCallback(async () => {
     if (!canUseApi()) {
@@ -66,19 +67,19 @@ export function StaffAttendancePage() {
     setError(null);
     try {
       const res = await api.adminDeptStaff(date);
-      const items = res.items.map((r) => ({
+      const items: Row[] = res.items.map((r) => ({
         user_id: r.user_id,
         full_name_ar: r.full_name_ar,
         role: r.role ?? null,
-        status: normalizeAttendanceStatus(r.status),
+        status: normalizeAttendanceStatus(r.status ?? "present"),
       }));
-      setRows(items);
+      setAttendanceData(items);
       const base: Record<number, string> = {};
       for (const r of items) base[r.user_id] = r.status;
       setBaseline(base);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل التحميل");
-      setRows([]);
+      setAttendanceData([]);
     } finally {
       setLoading(false);
     }
@@ -89,41 +90,43 @@ export function StaffAttendancePage() {
   }, [load]);
 
   function setStatus(userId: number, status: string) {
-    setRows((prev) =>
+    setAttendanceData((prev) =>
       prev.map((r) => (r.user_id === userId ? { ...r, status } : r)),
     );
   }
 
   const filteredRows = useMemo(
     () =>
-      rows.filter((r) => {
+      attendanceData.filter((r) => {
         if (!matchesArabicName(nameQuery, r.full_name_ar)) return false;
         return true;
       }),
-    [rows, nameQuery],
+    [attendanceData, nameQuery],
   );
 
   const dirtyCount = useMemo(
     () =>
-      rows.filter((r) => (baseline[r.user_id] ?? "present") !== r.status).length,
-    [rows, baseline],
+      attendanceData.filter(
+        (r) => (baseline[r.user_id] ?? "present") !== r.status,
+      ).length,
+    [attendanceData, baseline],
   );
 
   async function commit() {
-    if (rows.length === 0) return;
+    if (attendanceData.length === 0) return;
 
     setCommitting(true);
     setError(null);
     try {
       await api.adminDeptSaveStaffAttendance({
         attendance_date: date,
-        records: rows.map((r) => ({
+        records: attendanceData.map((r) => ({
           user_id: r.user_id,
           status: r.status,
         })),
       });
       const base: Record<number, string> = {};
-      for (const r of rows) base[r.user_id] = r.status;
+      for (const r of attendanceData) base[r.user_id] = r.status;
       setBaseline(base);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل حفظ التحضير");
@@ -163,7 +166,7 @@ export function StaffAttendancePage() {
         groupOptions={[]}
         hideGroupFilter
         shownCount={filteredRows.length}
-        totalCount={rows.length}
+        totalCount={attendanceData.length}
         hiddenDirty={0}
       />
 
@@ -239,7 +242,7 @@ export function StaffAttendancePage() {
                       {formatRole(r.role)}
                     </span>
                   </TableCell>
-                  <TableCell className={`${cellClass} whitespace-nowrap`}>
+                  <TableCell className={cellClass}>
                     <AttendanceStatusButtons
                       value={r.status}
                       disabled={committing}

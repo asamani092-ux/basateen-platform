@@ -39,15 +39,6 @@ export async function batchSaveStaffAttendance(
     const userId = Number(rec.user_id);
     if (!Number.isFinite(userId)) continue;
     const status = rec.status ?? "present";
-    if (status === "present") {
-      stmts.push(
-        env.DB.prepare(
-          `DELETE FROM staff_attendance
-           WHERE user_id = ? AND attendance_date = ? AND complex_id = ?`,
-        ).bind(userId, attendanceDate, complexId),
-      );
-      continue;
-    }
     stmts.push(
       env.DB.prepare(
         `INSERT INTO staff_attendance (complex_id, user_id, attendance_date, status, recorded_by_user_id)

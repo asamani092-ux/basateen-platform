@@ -56,34 +56,32 @@ async function requireAdminDept(auth: Awaited<ReturnType<typeof getAuth>>) {
   return auth;
 }
 
+const STAFF_ROLE_CASE_SQL = `CASE
+  WHEN COALESCE(u.is_admin, 0) = 1 THEN 'super_admin'
+  WHEN COALESCE(u.is_educational, 0) = 1 THEN 'edu_supervisor'
+  WHEN COALESCE(u.is_programs, 0) = 1 THEN 'programs_supervisor'
+  WHEN COALESCE(u.is_track_supervisor, 0) = 1 THEN 'track_supervisor'
+  WHEN COALESCE(u.is_teacher, 0) = 1 THEN 'teacher'
+  ELSE 'teacher'
+END AS role`;
+
 async function staffListSql(env: Env): Promise<{ sql: string; flat: boolean }> {
   const hasRole = await tableHasColumn(env, "users", "role");
-  if (hasRole) {
-    return {
-      flat: false,
-      sql: `SELECT u.id AS user_id, u.full_name_ar, u.role,
-                   sa.status AS saved_status, sa.recorded_at
-            FROM users u
-            LEFT JOIN staff_attendance sa
-              ON sa.user_id = u.id AND sa.attendance_date = ? AND sa.complex_id = ?
-            WHERE u.complex_id = ? AND u.is_active = 1
-              AND u.role IN ('super_admin','admin_supervisor','edu_supervisor','programs_supervisor','prog_supervisor','track_supervisor','teacher')
-            ORDER BY u.full_name_ar`,
-    };
-  }
+  const roleExpr = hasRole ? "u.role AS role" : STAFF_ROLE_CASE_SQL;
+  const staffFilter = hasRole
+    ? `u.role IN ('super_admin','admin_supervisor','edu_supervisor','programs_supervisor','prog_supervisor','track_supervisor','teacher')`
+    : `(COALESCE(u.is_admin, 0) = 1 OR COALESCE(u.is_educational, 0) = 1 OR
+        COALESCE(u.is_programs, 0) = 1 OR COALESCE(u.is_teacher, 0) = 1 OR
+        COALESCE(u.is_track_supervisor, 0) = 1)`;
+
   return {
-    flat: true,
-    sql: `SELECT u.id AS user_id, u.full_name_ar,
+    flat: !hasRole,
+    sql: `SELECT u.id AS user_id, u.full_name_ar, ${roleExpr},
                  sa.status AS saved_status, sa.recorded_at
           FROM users u
           LEFT JOIN staff_attendance sa
             ON sa.user_id = u.id AND sa.attendance_date = ? AND sa.complex_id = ?
-          WHERE u.complex_id = ? AND u.is_active = 1
-            AND (
-              COALESCE(u.is_admin, 0) = 1 OR COALESCE(u.is_educational, 0) = 1 OR
-              COALESCE(u.is_programs, 0) = 1 OR COALESCE(u.is_teacher, 0) = 1 OR
-              COALESCE(u.is_track_supervisor, 0) = 1
-            )
+          WHERE u.complex_id = ? AND u.is_active = 1 AND ${staffFilter}
           ORDER BY u.full_name_ar`,
   };
 }
@@ -242,7 +240,10 @@ async function handleAdminDeptRouterImpl(
     const items = (rows.results ?? []).map((r) => ({
       user_id: r.user_id,
       full_name_ar: r.full_name_ar,
-      role: r.role ?? null,
+      role:
+        typeof r.role === "string" && r.role.trim().length > 0
+          ? r.role.trim()
+          : null,
       status: r.saved_status ?? "present",
       recorded_at: r.recorded_at,
     }));

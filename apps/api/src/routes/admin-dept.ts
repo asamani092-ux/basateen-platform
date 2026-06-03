@@ -15,7 +15,11 @@ import { teachersListSql } from "../lib/admin-gm-schema";
 import { activePlacementSql, hasTable, tableHasColumn } from "../lib/db-schema";
 import { buildStudentPlacementSql } from "../lib/student-list-sql";
 import { STAGE_LABELS } from "../lib/dept-scope";
-import { randomMagicToken } from "../lib/magic-link";
+import { randomMagicToken, type MagicLinkContext } from "../lib/magic-link";
+import {
+  batchSaveStaffAttendance,
+  batchSaveStudentAttendance,
+} from "../lib/attendance-batch";
 import { assignStudentCircle } from "../lib/placement";
 import {
   resolveAttendanceTableName,
@@ -262,39 +266,27 @@ async function handleAdminDeptRouterImpl(
       return json({ error: "records_required" }, 400);
     }
 
-    let saved = 0;
+    const batchRecords = [];
     for (const rec of records) {
       const userId = Number(rec.user_id);
       const status = parseStatus(rec.status) ?? "present";
       if (!Number.isFinite(userId)) continue;
-      if (status === "present") {
-        await env.DB.prepare(
-          `DELETE FROM staff_attendance WHERE user_id = ? AND attendance_date = ? AND complex_id = ?`,
-        )
-          .bind(userId, date, admin.complexId)
-          .run();
-        saved++;
-        continue;
-      }
       const staffOk = await env.DB.prepare(
         `SELECT id FROM users WHERE id = ? AND complex_id = ? AND is_active = 1`,
       )
         .bind(userId, admin.complexId)
         .first();
       if (!staffOk) continue;
-
-      await env.DB.prepare(
-        `INSERT INTO staff_attendance (complex_id, user_id, attendance_date, status, recorded_by_user_id)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(user_id, attendance_date) DO UPDATE SET
-           status = excluded.status,
-           recorded_by_user_id = excluded.recorded_by_user_id,
-           recorded_at = datetime('now')`,
-      )
-        .bind(admin.complexId, userId, date, status, admin.userId)
-        .run();
-      saved++;
+      batchRecords.push({ user_id: userId, status });
     }
+
+    const saved = await batchSaveStaffAttendance(
+      env,
+      admin.complexId,
+      admin.userId,
+      date,
+      batchRecords,
+    );
 
     return json({ ok: true, attendance_date: date, saved });
   }
@@ -354,7 +346,12 @@ async function handleAdminDeptRouterImpl(
       return json({ error: "records_required" }, 400);
     }
 
-    let saved = 0;
+    const batchRecords: Array<{
+      student_id: number;
+      status: AttendanceStatus;
+      notes?: string | null;
+    }> = [];
+
     for (const rec of records) {
       const studentId = Number(rec.student_id);
       const status = parseStatus(rec.status);
@@ -385,32 +382,21 @@ async function handleAdminDeptRouterImpl(
       }
 
       if (!allowed) continue;
-
-      if (status === "present") {
-        const attTable = await resolveAttendanceTableName(env);
-        if (attTable) {
-          await env.DB.prepare(
-            `DELETE FROM ${attTable} WHERE student_id = ? AND attendance_date = ?`,
-          )
-            .bind(studentId, date)
-            .run();
-        }
-        saved++;
-        continue;
-      }
-
-      await upsertStudentAttendance(env, {
-        complexId: admin.complexId,
-        studentId,
-        attendanceDate: date,
+      batchRecords.push({
+        student_id: studentId,
         status,
-        source: "admin_supervisor",
-        circleId,
-        recordedByUserId: admin.userId,
         notes: rec.notes?.trim() ?? null,
       });
-      saved++;
     }
+
+    const saved = await batchSaveStudentAttendance(env, {
+      complexId: admin.complexId,
+      attendanceDate: date,
+      circleId,
+      source: "admin_supervisor",
+      recordedByUserId: admin.userId,
+      records: batchRecords,
+    });
 
     return json({ ok: true, attendance_date: date, circle_id: circleId, saved });
   }
@@ -1029,14 +1015,10 @@ async function handleAdminDeptRouterImpl(
     const items = [];
     for (const row of rows.results ?? []) {
       let circleId: number | null = null;
-      let attendanceDate: string | null = null;
       try {
-        const ctx = JSON.parse(row.context_data) as {
-          circle_id?: number;
-          attendance_date?: string;
-        };
-        circleId = ctx.circle_id != null ? Number(ctx.circle_id) : null;
-        attendanceDate = ctx.attendance_date ?? null;
+        const ctx = JSON.parse(row.context_data) as MagicLinkContext;
+        const group = ctx.group_id ?? ctx.circle_id;
+        circleId = group != null ? Number(group) : null;
       } catch {
         /* ignore malformed context */
       }
@@ -1053,7 +1035,7 @@ async function handleAdminDeptRouterImpl(
         token: row.token,
         circle_id: circleId,
         circle_name: circleName,
-        attendance_date: attendanceDate,
+        evergreen: true,
         is_active: row.is_active,
         created_at: row.created_at,
         public_path: publicPath,
@@ -1112,13 +1094,14 @@ async function handleAdminDeptRouterImpl(
       return json({ error: "circle_not_found" }, 404);
     }
 
-    const attendanceDate = body.attendance_date?.trim() || todayIso();
     const token = randomMagicToken();
-    const context = JSON.stringify({
+    const contextObj: MagicLinkContext = {
+      group_type: "circle",
+      group_id: circleId,
       circle_id: circleId,
-      attendance_date: attendanceDate,
       scope: "circle",
-    });
+    };
+    const context = JSON.stringify(contextObj);
 
     const ins = await env.DB.prepare(
       `INSERT INTO shared_access_tokens (

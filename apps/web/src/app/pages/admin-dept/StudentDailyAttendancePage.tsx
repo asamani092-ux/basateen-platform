@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Copy, Link2, RefreshCw } from "lucide-react";
+import { Link2, RefreshCw } from "lucide-react";
+import { AttendanceMagicLinksModal } from "../../components/attendance/AttendanceMagicLinksModal";
 import { AttendanceStatusGrid } from "../../components/attendance/AttendanceStatusGrid";
 import { AttendanceFilterBar } from "../../components/attendance/AttendanceFilterBar";
 import { Button } from "../../components/ui/button";
-import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import {
   Select,
@@ -12,7 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
-import { Switch } from "../../components/ui/switch";
 import { api, type CircleOption } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { normalizeAttendanceStatus } from "../../lib/attendance-status";
@@ -23,13 +22,6 @@ type StudentRow = {
   student_id: number;
   full_name_ar: string;
   status: string;
-};
-
-type MagicLinkState = {
-  id: number;
-  token: string;
-  publicPath: string;
-  isActive: number;
 };
 
 /**
@@ -47,9 +39,7 @@ export function StudentDailyAttendancePage() {
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nameQuery, setNameQuery] = useState("");
-  const [magicLink, setMagicLink] = useState<MagicLinkState | null>(null);
-  const [magicBusy, setMagicBusy] = useState(false);
-  const [copyHint, setCopyHint] = useState<string | null>(null);
+  const [linksModalOpen, setLinksModalOpen] = useState(false);
 
   useEffect(() => {
     if (!canUseApi()) {
@@ -133,12 +123,6 @@ export function StudentDailyAttendancePage() {
     [filteredRows],
   );
 
-  const publicUrl = useMemo(() => {
-    if (!magicLink?.publicPath) return "";
-    if (typeof window === "undefined") return magicLink.publicPath;
-    return `${window.location.origin}${magicLink.publicPath}`;
-  }, [magicLink]);
-
   async function commit() {
     const cid = Number(circleId);
     if (!Number.isFinite(cid)) return;
@@ -168,69 +152,37 @@ export function StudentDailyAttendancePage() {
     }
   }
 
-  async function createMagicLink() {
-    const cid = Number(circleId);
-    if (!Number.isFinite(cid)) {
-      setError("اختر الحلقة أولاً");
-      return;
-    }
-    setMagicBusy(true);
-    setError(null);
-    try {
-      const res = await api.adminDeptCreateMagicLink({
-        circle_id: cid,
-        attendance_date: date,
-        feature_name: "student_attendance",
-      });
-      setMagicLink({
-        id: res.id,
-        token: res.token,
-        publicPath: res.public_path,
-        isActive: res.is_active,
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل إنشاء الرابط");
-    } finally {
-      setMagicBusy(false);
-    }
-  }
-
-  async function toggleMagicLink() {
-    if (!magicLink) return;
-    setMagicBusy(true);
-    try {
-      const res = await api.adminDeptToggleMagicLink(magicLink.id);
-      setMagicLink((prev) =>
-        prev ? { ...prev, isActive: res.is_active } : prev,
-      );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل تبديل حالة الرابط");
-    } finally {
-      setMagicBusy(false);
-    }
-  }
-
-  async function copyPublicLink() {
-    if (!publicUrl) return;
-    try {
-      await navigator.clipboard.writeText(publicUrl);
-      setCopyHint("تم نسخ الرابط");
-      setTimeout(() => setCopyHint(null), 2500);
-    } catch {
-      setCopyHint("تعذر النسخ — انسخ يدوياً");
-    }
-  }
+  const selectedCircle = circles.find((c) => String(c.id) === circleId);
 
   return (
     <div className="space-y-4 max-w-[1600px]">
-      <div>
-        <h2 className={ds.page.title} style={tajawal}>
-          التحضير اليومي للطلاب
-        </h2>
-        <p className={ds.page.description} style={tajawal}>
-          اختر الحلقة، سجّل الغياب أو الاستئذان، أو شارك رابط تحضير للحلقة.
-        </p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className={ds.page.title} style={tajawal}>
+            تحضير الطلاب
+          </h2>
+          <p className={ds.page.description} style={tajawal}>
+            اختر الحلقة وسجّل الحضور — التغييرات تُحفظ عند الاعتماد فقط. الروابط
+            السحرية تعرض يوم اليوم تلقائياً.
+          </p>
+        </div>
+        <Button
+          type="button"
+          className={`${ds.btnRound} w-full sm:w-auto min-h-11 shrink-0`}
+          onClick={() => setLinksModalOpen(true)}
+          style={tajawal}
+        >
+          <Link2 className="w-4 h-4" />
+          إدارة روابط التحضير 🔗
+        </Button>
       </div>
+
+      <AttendanceMagicLinksModal
+        open={linksModalOpen}
+        onOpenChange={setLinksModalOpen}
+        defaultCircleId={Number(circleId) || undefined}
+        defaultCircleName={selectedCircle?.name_ar ?? circleName}
+      />
 
       {error && (
         <p className={ds.alert.error} style={tajawal}>
@@ -264,64 +216,7 @@ export function StudentDailyAttendancePage() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-col justify-end gap-2">
-            <Button
-              type="button"
-              variant="default"
-              className={`${ds.btnRound} min-h-11`}
-              disabled={!circleId || magicBusy}
-              onClick={createMagicLink}
-              style={tajawal}
-            >
-              <Link2 className="w-4 h-4" />
-              {magicBusy ? "جاري التوليد…" : "إنشاء / نسخ رابط التحضير"}
-            </Button>
-          </div>
         </div>
-
-        {magicLink && (
-          <div className={ds.alert.success}>
-            <p className="font-medium mb-2" style={tajawal}>
-              رابط التحضير — {circleName || "الحلقة"}
-            </p>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Input
-                readOnly
-                value={publicUrl}
-                className={ds.btnRound}
-                dir="ltr"
-              />
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={ds.btnRound}
-                  onClick={copyPublicLink}
-                  style={tajawal}
-                >
-                  <Copy className="w-4 h-4" />
-                  نسخ
-                </Button>
-                <div className="flex items-center gap-2 px-2">
-                  <Switch
-                    checked={magicLink.isActive === 1}
-                    disabled={magicBusy}
-                    onCheckedChange={toggleMagicLink}
-                    aria-label="تفعيل الرابط"
-                  />
-                  <span className="text-sm" style={tajawal}>
-                    {magicLink.isActive === 1 ? "مفعّل" : "موقوف"}
-                  </span>
-                </div>
-              </div>
-            </div>
-            {copyHint && (
-              <p className="text-xs mt-2 text-muted-foreground" style={tajawal}>
-                {copyHint}
-              </p>
-            )}
-          </div>
-        )}
       </div>
 
       {!circleId ? (
@@ -367,8 +262,8 @@ export function StudentDailyAttendancePage() {
             onCommit={commit}
             committing={committing}
             savedBaseline={baseline}
-            commitLabel="حفظ تحضير الطلاب"
-            hint="الافتراضي حاضر — غيّر الحالة ثم احفظ."
+            commitLabel="اعتماد حفظ التحضير 💾"
+            hint="الافتراضي حاضر في الواجهة فقط — اعتمد لحفظ التغييرات في قاعدة البيانات."
           />
         </>
       )}

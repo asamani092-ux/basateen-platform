@@ -16,11 +16,14 @@ import { canUseApi } from "../../lib/api-access";
 import { normalizeAttendanceStatus } from "../../lib/attendance-status";
 import { matchesArabicName } from "../../lib/attendance-search";
 import { AttendanceStatusButtons } from "../../components/attendance/AttendanceStatusButtons";
+import { Badge } from "../../components/ui/badge";
 import { ds, tajawal } from "../../lib/design-system";
+import { roleLabelAr } from "../../lib/role-labels";
 
 type Row = {
   user_id: number;
   full_name_ar: string;
+  role: string | null;
   status: string;
 };
 
@@ -49,6 +52,7 @@ export function StaffAttendancePage() {
       const items = res.items.map((r) => ({
         user_id: r.user_id,
         full_name_ar: r.full_name_ar,
+        role: r.role ?? null,
         status: normalizeAttendanceStatus(r.status),
       }));
       setRows(items);
@@ -121,7 +125,8 @@ export function StaffAttendancePage() {
           تحضير المنسوبين
         </h2>
         <p className={ds.page.description} style={tajawal}>
-          الحالة الافتراضية «حاضر» — اختر مستأذن أو غائب ثم احفظ التحضير.
+          الحالة الافتراضية «حاضر» في الواجهة فقط — لا يُحفظ شيء في قاعدة البيانات حتى
+          تضغط «اعتماد حفظ التحضير».
         </p>
       </div>
 
@@ -169,7 +174,7 @@ export function StaffAttendancePage() {
             style={tajawal}
           >
             <CheckCircle2 className="w-4 h-4" />
-            {committing ? "جاري الحفظ…" : "حفظ التحضير"}
+            {committing ? "جاري الاعتماد…" : "اعتماد حفظ التحضير 💾"}
             {dirtyCount > 0 ? ` (${dirtyCount})` : ""}
           </Button>
         </div>
@@ -197,8 +202,13 @@ export function StaffAttendancePage() {
             <TableBody>
               {filteredRows.map((r) => (
                 <TableRow key={r.user_id}>
-                  <TableCell className="text-right font-medium" style={tajawal}>
-                    {r.full_name_ar}
+                  <TableCell className="text-right align-top" style={tajawal}>
+                    <p className="font-medium">{r.full_name_ar}</p>
+                    {r.role && (
+                      <Badge variant="secondary" className="mt-1 text-xs font-normal">
+                        {roleLabelAr(r.role)}
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell className="text-right align-middle">
                     <AttendanceStatusButtons

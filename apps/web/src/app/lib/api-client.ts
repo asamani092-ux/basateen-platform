@@ -929,7 +929,7 @@ export const api = {
         token: string;
         circle_id: number | null;
         circle_name: string | null;
-        attendance_date: string | null;
+        evergreen?: boolean;
         is_active: number;
         created_at: string;
         public_path: string;

@@ -96,7 +96,7 @@ export function PublicMagicLinkPage() {
             تحضير الحلقة
           </h1>
           <p className={ds.page.description} style={tajawal}>
-            {circleName || "—"} · {date || "—"}
+            {circleName || "—"} · تحضير يوم {date || "اليوم"}
           </p>
         </div>
 
@@ -125,7 +125,7 @@ export function PublicMagicLinkPage() {
                 <span className="font-medium" style={tajawal}>
                   {r.full_name_ar}
                 </span>
-                <div className="flex gap-2">
+                <div className="grid grid-cols-3 gap-2 w-full sm:flex sm:flex-wrap sm:justify-end">
                   {(["present", "absent", "excused"] as const).map((st) => {
                     const labels = {
                       present: "حاضر",
@@ -139,7 +139,7 @@ export function PublicMagicLinkPage() {
                         type="button"
                         disabled={saving}
                         onClick={() => pickStatus(r.student_id, st)}
-                        className={`h-9 px-3 rounded-full text-xs font-medium ${
+                        className={`w-full sm:w-auto h-11 px-3 rounded-full text-xs font-medium touch-manipulation ${
                           active ? ds.tab.active : ds.tab.idle
                         }`}
                         style={tajawal}

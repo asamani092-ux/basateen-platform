@@ -4,12 +4,11 @@ import {
   isSharedTokenUsable,
   loadSharedToken,
   parseMagicContext,
+  resolveMagicGroupId,
   touchSharedTokenUse,
 } from "../lib/magic-link";
-import {
-  upsertStudentAttendance,
-  type AttendanceStatus,
-} from "../lib/student-attendance-db";
+import { batchSaveStudentAttendance } from "../lib/attendance-batch";
+import type { AttendanceStatus } from "../lib/student-attendance-db";
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
@@ -40,12 +39,14 @@ async function resolveAttendanceToken(env: Env, token: string) {
   }
 
   const ctx = parseMagicContext(row.context_data);
-  const circleId = Number(ctx.circle_id);
-  if (!Number.isFinite(circleId)) {
+  const { groupType, groupId } = resolveMagicGroupId(ctx);
+  if (groupType !== "circle" || groupId == null) {
     return { error: json({ error: "invalid_link_context" }, 500) as Response };
   }
+  const circleId = groupId;
 
-  const attendanceDate = ctx.attendance_date?.trim() || todayIso();
+  /** تاريخ اليوم الفعلي — الرابط لا يُقفل على يوم واحد */
+  const attendanceDate = todayIso();
 
   const circle = await env.DB.prepare(
     `SELECT id, name_ar, stage, complex_id FROM circles
@@ -119,44 +120,38 @@ export async function handlePublicLinksRouter(
       return json({ error: "records_required" }, 400);
     }
 
-    let saved = 0;
-    for (const rec of records) {
-      const studentId = Number(rec.student_id);
-      const status = parseStatus(rec.status);
-      if (!Number.isFinite(studentId) || !status) continue;
+    const allowedRows = await env.DB.prepare(
+      `SELECT id FROM students
+       WHERE complex_id = ? AND COALESCE(is_active, 1) = 1 AND current_circle_id = ?`,
+    )
+      .bind(row.complex_id, circleId)
+      .all<{ id: number }>();
+    const allowedIds = new Set((allowedRows.results ?? []).map((r) => r.id));
 
-      const allowed = await env.DB.prepare(
-        `SELECT id FROM students
-         WHERE id = ? AND complex_id = ? AND is_active = 1 AND current_circle_id = ?`,
-      )
-        .bind(studentId, row.complex_id, circleId)
-        .first();
+    const batchRecords = records
+      .map((rec) => {
+        const studentId = Number(rec.student_id);
+        const status = parseStatus(rec.status);
+        if (!Number.isFinite(studentId) || !status || !allowedIds.has(studentId)) {
+          return null;
+        }
+        return {
+          student_id: studentId,
+          status,
+          notes: rec.notes?.trim() ?? null,
+        };
+      })
+      .filter((r): r is NonNullable<typeof r> => r != null);
 
-      if (!allowed) continue;
-
-      if (status === "present") {
-        await env.DB.prepare(
-          `DELETE FROM student_attendance WHERE student_id = ? AND attendance_date = ?`,
-        )
-          .bind(studentId, attendanceDate)
-          .run();
-        saved++;
-        continue;
-      }
-
-      await upsertStudentAttendance(env, {
-        complexId: row.complex_id,
-        studentId,
-        attendanceDate,
-        status,
-        source: "magic_link",
-        circleId,
-        sharedTokenId: row.id,
-        recordedByUserId: null,
-        notes: rec.notes?.trim() ?? null,
-      });
-      saved++;
-    }
+    const saved = await batchSaveStudentAttendance(env, {
+      complexId: row.complex_id,
+      attendanceDate,
+      circleId,
+      source: "magic_link",
+      recordedByUserId: null,
+      sharedTokenId: row.id,
+      records: batchRecords,
+    });
 
     await touchSharedTokenUse(env, row.id);
 

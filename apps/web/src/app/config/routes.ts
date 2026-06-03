@@ -141,12 +141,6 @@ export const ADMIN_DEPT_NAV: NavItem[] = [
     path: "/admin-dept/reports",
     roles: ADMIN_DEPT_ROLES,
   },
-  {
-    id: "magic-links",
-    label: "روابط التحضير",
-    path: "/admin-dept/magic-links",
-    roles: ADMIN_DEPT_ROLES,
-  },
 ];
 
 /** @deprecated — استخدم ADMIN_DEPT_NAV داخل ADMIN_DEPT_GROUP */

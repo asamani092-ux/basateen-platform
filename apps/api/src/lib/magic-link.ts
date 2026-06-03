@@ -2,10 +2,29 @@ import type { Env } from "../types";
 import { hasTable } from "./db-schema";
 
 export type MagicLinkContext = {
+  /** معرّف الحلقة أو المسار — الرابط سحري دائم */
+  group_id?: number;
+  group_type?: "circle" | "track";
   circle_id?: number;
+  /** legacy — يُتجاهل؛ التاريخ يُشتق من يوم الفتح */
   attendance_date?: string;
   scope?: string;
 };
+
+/** يستخرج معرّف المجموعة (حلقة/مسار) من سياق الرابط */
+export function resolveMagicGroupId(ctx: MagicLinkContext): {
+  groupType: "circle" | "track";
+  groupId: number | null;
+} {
+  if (ctx.group_id != null && Number.isFinite(Number(ctx.group_id))) {
+    const t = ctx.group_type === "track" ? "track" : "circle";
+    return { groupType: t, groupId: Number(ctx.group_id) };
+  }
+  if (ctx.circle_id != null && Number.isFinite(Number(ctx.circle_id))) {
+    return { groupType: "circle", groupId: Number(ctx.circle_id) };
+  }
+  return { groupType: "circle", groupId: null };
+}
 
 export function randomMagicToken(): string {
   const bytes = new Uint8Array(24);

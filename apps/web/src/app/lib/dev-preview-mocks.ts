@@ -290,6 +290,27 @@ export function resolveDevPreviewMock<T>(
     } as T;
   }
 
+  if (p === "/api/admin-dept/students/attendance/report" && m === "GET") {
+    const start = url.searchParams.get("start") ?? PREVIEW_TODAY();
+    const end = url.searchParams.get("end") ?? start;
+    const circleId = Number(url.searchParams.get("circle_id") ?? 1);
+    const items = previewStore.getStudents().map((s) => ({
+      student_id: s.id,
+      full_name_ar: s.full_name_ar,
+      present_days: 1,
+      absent_days: 0,
+      excused_days: 0,
+    }));
+    return {
+      start_date: start,
+      end_date: end,
+      circle_id: circleId,
+      circle: { id: circleId, name_ar: `حلقة ${circleId}`, stage: "primary" },
+      complex_name: "معاينة المجمع",
+      items,
+    } as T;
+  }
+
   if (p === "/api/admin-dept/magic-links" && m === "GET") {
     return {
       items: [

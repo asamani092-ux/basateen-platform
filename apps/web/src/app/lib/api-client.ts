@@ -903,6 +903,31 @@ export const api = {
       "/api/admin-dept/students/attendance",
       { method: "POST", body: JSON.stringify(body) },
     ),
+  adminDeptStudentsAttendanceReport: (
+    start: string,
+    end: string,
+    circleId: number,
+  ) => {
+    const qs = new URLSearchParams({
+      start,
+      end,
+      circle_id: String(circleId),
+    });
+    return request<{
+      start_date: string;
+      end_date: string;
+      circle_id: number;
+      circle: { id: number; name_ar: string; stage: string } | null;
+      complex_name: string | null;
+      items: Array<{
+        student_id: number;
+        full_name_ar: string;
+        present_days: number;
+        absent_days: number;
+        excused_days: number;
+      }>;
+    }>(`/api/admin-dept/students/attendance/report?${qs}`);
+  },
   adminDeptAbsentToday: (params?: { date?: string; circle_id?: number }) => {
     const q = new URLSearchParams();
     if (params?.date) q.set("date", params.date);

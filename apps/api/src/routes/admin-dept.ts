@@ -477,6 +477,91 @@ async function handleAdminDeptRouterImpl(
     return json({ ok: true, attendance_date: date, circle_id: circleId, saved });
   }
 
+  // GET /api/admin-dept/students/attendance/report — ملخص تحضير الطلاب بالحلقة والفترة
+  if (
+    request.method === "GET" &&
+    path === "/api/admin-dept/students/attendance/report"
+  ) {
+    const start =
+      url.searchParams.get("start")?.trim() ||
+      url.searchParams.get("start_date")?.trim() ||
+      todayIso();
+    const end =
+      url.searchParams.get("end")?.trim() ||
+      url.searchParams.get("end_date")?.trim() ||
+      start;
+    const circleId = Number(url.searchParams.get("circle_id"));
+    if (start > end) {
+      return json({ error: "invalid_date_range", start, end }, 400);
+    }
+    if (!Number.isFinite(circleId)) {
+      return json({ error: "circle_id_required" }, 400);
+    }
+    if (!(await assertCircleInComplex(env, admin.complexId, circleId))) {
+      return json({ error: "circle_not_found" }, 404);
+    }
+    if (!(await tableHasColumn(env, "students", "current_circle_id"))) {
+      return json(
+        {
+          error: "migration_required",
+          hint: "students.current_circle_id — run D1 migrate 025",
+        },
+        503,
+      );
+    }
+
+    const attTable = await resolveAttendanceTableName(env);
+    if (!attTable) {
+      return json({ error: "migration_required", table: "student_attendance" }, 503);
+    }
+
+    const rows = await env.DB.prepare(
+      `SELECT s.id AS student_id, s.full_name_ar,
+              SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) AS present_days,
+              SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) AS absent_days,
+              SUM(CASE WHEN sa.status = 'excused' THEN 1 ELSE 0 END) AS excused_days
+       FROM students s
+       LEFT JOIN ${attTable} sa
+         ON sa.student_id = s.id
+        AND sa.attendance_date >= ?
+        AND sa.attendance_date <= ?
+       WHERE s.complex_id = ? AND COALESCE(s.is_active, 1) = 1
+         AND s.current_circle_id = ?
+       GROUP BY s.id
+       ORDER BY s.full_name_ar`,
+    )
+      .bind(start, end, admin.complexId, circleId)
+      .all<{
+        student_id: number;
+        full_name_ar: string;
+        present_days: number;
+        absent_days: number;
+        excused_days: number;
+      }>();
+
+    const circle = await circleLabelRow(env, circleId);
+    const complex = await env.DB.prepare(
+      `SELECT name_ar FROM complexes WHERE id = ?`,
+    )
+      .bind(admin.complexId)
+      .first<{ name_ar: string }>();
+
+    return json({
+      start_date: start,
+      end_date: end,
+      circle_id: circleId,
+      circle,
+      complex_name: complex?.name_ar ?? null,
+      items: (rows.results ?? []).map((r) => ({
+        student_id: r.student_id,
+        full_name_ar: r.full_name_ar,
+        present_days: Number(r.present_days ?? 0),
+        absent_days: Number(r.absent_days ?? 0),
+        excused_days: Number(r.excused_days ?? 0),
+      })),
+    });
+  }
+
   // GET /api/admin-dept/students/absent-today
   if (request.method === "GET" && path === "/api/admin-dept/students/absent-today") {
     const date = url.searchParams.get("date")?.trim() || todayIso();

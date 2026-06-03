@@ -79,14 +79,7 @@ export async function batchSaveStudentAttendance(
   for (const rec of opts.records) {
     const studentId = Number(rec.student_id);
     if (!Number.isFinite(studentId)) continue;
-    if (rec.status === "present") {
-      stmts.push(
-        env.DB.prepare(
-          `DELETE FROM ${table} WHERE student_id = ? AND attendance_date = ?`,
-        ).bind(studentId, opts.attendanceDate),
-      );
-      continue;
-    }
+    const status = rec.status ?? "present";
 
     if (hasCircle || hasToken) {
       stmts.push(
@@ -107,7 +100,7 @@ export async function batchSaveStudentAttendance(
           opts.complexId,
           studentId,
           opts.attendanceDate,
-          rec.status,
+          status,
           source,
           opts.circleId,
           opts.sharedTokenId ?? null,
@@ -132,7 +125,7 @@ export async function batchSaveStudentAttendance(
           opts.complexId,
           studentId,
           opts.attendanceDate,
-          rec.status,
+          status,
           source,
           opts.recordedByUserId,
           rec.notes ?? null,

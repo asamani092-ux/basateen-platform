@@ -13,6 +13,18 @@ import {
 } from "./schema-v25";
 
 /** Table used for reads (canonical `circles` preferred). */
+/** Scope for API rows — never references missing `supervisor_scope` column. */
+export async function supervisorScopeSelectSql(
+  env: Env,
+  tableAlias = "u",
+): Promise<string> {
+  if (await tableHasColumn(env, "users", "stage_scope")) {
+    const col = tableAlias ? `${tableAlias}.stage_scope` : "stage_scope";
+    return `COALESCE(${col}, 'global') AS supervisor_scope`;
+  }
+  return `'global' AS supervisor_scope`;
+}
+
 export async function primaryCirclesTable(env: Env): Promise<string | null> {
   if (await hasTable(env, "circles")) return "circles";
   if (await hasTable(env, "circles_legacy_035")) return "circles_legacy_035";
@@ -125,7 +137,10 @@ export async function insertStaffUser(
   return Number(ins.meta.last_row_id);
 }
 
-function staffListSqlV25(circlesTable: string | null): string {
+function staffListSqlV25(
+  circlesTable: string | null,
+  scopeExpr: string,
+): string {
   const { circleId, circleName } = circleAssignmentCols(circlesTable);
   return `SELECT u.id, u.full_name_ar, u.mobile, u.is_active,
             CASE
@@ -144,7 +159,7 @@ function staffListSqlV25(circlesTable: string | null): string {
             (SELECT t.name_ar FROM tracks t
              WHERE t.supervisor_id = u.id AND t.complex_id = u.complex_id
                AND COALESCE(t.is_active, 1) = 1 LIMIT 1) AS track_name,
-            COALESCE(u.stage_scope, 'global') AS supervisor_scope
+            ${scopeExpr}
      FROM users u
      WHERE u.complex_id = ?
        AND (
@@ -159,9 +174,10 @@ function staffListSqlV25(circlesTable: string | null): string {
 
 export async function staffListSql(env: Env): Promise<string> {
   const circlesTable = await primaryCirclesTable(env);
+  const scopeExpr = await supervisorScopeSelectSql(env);
 
   if (await usesV25FlatStaffSchema(env)) {
-    return staffListSqlV25(circlesTable);
+    return staffListSqlV25(circlesTable, scopeExpr);
   }
 
   const hasRole = await usersHaveRoleColumn(env);
@@ -182,7 +198,7 @@ export async function staffListSql(env: Env): Promise<string> {
               (SELECT t.name_ar FROM tracks t
                WHERE t.supervisor_id = u.id AND t.complex_id = u.complex_id
                  AND COALESCE(t.is_active, 1) = 1 LIMIT 1) AS track_name,
-              COALESCE(u.supervisor_scope, u.stage_scope, 'global') AS supervisor_scope
+              ${scopeExpr}
        FROM users u
        WHERE u.complex_id = ?
          AND u.role IN (
@@ -192,7 +208,7 @@ export async function staffListSql(env: Env): Promise<string> {
        ORDER BY u.full_name_ar`;
   }
 
-  return staffListSqlV25(circlesTable);
+  return staffListSqlV25(circlesTable, scopeExpr);
 }
 
 async function clearStaffUserRelations(

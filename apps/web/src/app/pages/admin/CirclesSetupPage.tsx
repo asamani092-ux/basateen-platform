@@ -87,9 +87,7 @@ export function CirclesSetupPage() {
       api.adminStaff(),
     ]);
     if (groupsRes.status === "fulfilled") {
-      setItems(
-        (groupsRes.value.items ?? []).filter((g) => g.is_active !== 0),
-      );
+      setItems(groupsRes.value.items ?? []);
     } else {
       console.error("[groups] load:", groupsRes.reason);
       setItems([]);
@@ -193,9 +191,21 @@ export function CirclesSetupPage() {
                   </TableRow>
                 ) : (
                   items.map((row) => (
-                    <TableRow key={`${row.entity_type}-${row.id}`}>
+                    <TableRow
+                      key={`${row.entity_type}-${row.id}`}
+                      className={row.is_active === 0 ? "opacity-60" : undefined}
+                    >
                       <TableCell className={ds.table.cell} style={tajawal}>
                         {row.name_ar}
+                        {row.is_active === 0 ? (
+                          <Badge
+                            variant="secondary"
+                            className="mr-2 bg-amber-100 text-amber-900 hover:bg-amber-100"
+                            style={tajawal}
+                          >
+                            معلّق
+                          </Badge>
+                        ) : null}
                       </TableCell>
                       <TableCell className={ds.table.cell}>
                         <Badge
@@ -265,33 +275,26 @@ export function CirclesSetupPage() {
           entityName={actionRow.name_ar}
           isActive={actionRow.is_active !== 0}
           onToggleActive={async () => {
+            try {
             const next = actionRow.is_active !== 0 ? 0 : 1;
             if (actionRow.entity_type === "circle") {
               await api.adminCirclesPatch(actionRow.id, { is_active: next });
             } else {
               await api.adminTracksPatch(actionRow.id, { is_active: next });
             }
-            if (next === 0) {
-              setItems((prev) =>
-                prev.filter(
-                  (x) =>
-                    !(
-                      x.id === actionRow.id &&
-                      x.entity_type === actionRow.entity_type
-                    ),
-                ),
-              );
-            } else {
-              setItems((prev) =>
-                prev.map((x) =>
-                  x.id === actionRow.id &&
-                  x.entity_type === actionRow.entity_type
-                    ? { ...x, is_active: next }
-                    : x,
-                ),
-              );
-            }
+            setItems((prev) =>
+              prev.map((x) =>
+                x.id === actionRow.id && x.entity_type === actionRow.entity_type
+                  ? { ...x, is_active: next }
+                  : x,
+              ),
+            );
+            setActionRow(null);
             toast.success(next ? "تم التنشيط" : "تم التعليق");
+            } catch (err) {
+              toast.error(apiErrorMessage(err, "فشل تحديث الحالة"));
+              throw err;
+            }
           }}
           onDelete={async () => {
             try {
@@ -308,6 +311,7 @@ export function CirclesSetupPage() {
                     ),
                 ),
               );
+              setActionRow(null);
               toast.success("تم الحذف بنجاح");
             } catch (err) {
               toast.error(apiErrorMessage(err, "فشل الحذف"));

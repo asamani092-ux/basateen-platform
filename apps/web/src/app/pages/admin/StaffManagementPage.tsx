@@ -325,6 +325,7 @@ export function StaffManagementPage() {
                 ),
               );
               toast.success(next ? "تم التنشيط" : "تم التعليق");
+              setActionRow(null);
             } catch (err) {
               toast.error(apiErrorMessage(err, "فشل تحديث الحالة"));
               throw err;
@@ -341,6 +342,7 @@ export function StaffManagementPage() {
                 toast.success("تم الحذف من قاعدة البيانات");
               }
               setItems((prev) => prev.filter((x) => x.id !== actionRow.id));
+              setActionRow(null);
             } catch (err) {
               toast.error(apiErrorMessage(err, "فشل الحذف"));
               throw err;

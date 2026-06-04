@@ -259,20 +259,32 @@ export function StudentsPage() {
           activeLabel="نشط"
           suspendedLabel="معلّق"
           onToggleActive={async () => {
-            const suspended = actionStudent.account_status === "suspended";
-            const next = suspended ? "active" : "suspended";
-            await api.studentsPatch(actionStudent.id, { account_status: next });
-            setItems((prev) =>
-              prev.map((x) =>
-                x.id === actionStudent.id ? { ...x, account_status: next } : x,
-              ),
-            );
-            toast.success(suspended ? "تم تنشيط الطالب" : "تم تعليق الطالب");
+            try {
+              const suspended = actionStudent.account_status === "suspended";
+              const next = suspended ? "active" : "suspended";
+              await api.studentsPatch(actionStudent.id, { account_status: next });
+              setItems((prev) =>
+                prev.map((x) =>
+                  x.id === actionStudent.id ? { ...x, account_status: next } : x,
+                ),
+              );
+              setActionStudent(null);
+              toast.success(suspended ? "تم تنشيط الطالب" : "تم تعليق الطالب");
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : "فشل تحديث الحالة");
+              throw e;
+            }
           }}
           onDelete={async () => {
-            await api.studentsDelete(actionStudent.id);
-            setItems((prev) => prev.filter((x) => x.id !== actionStudent.id));
-            toast.success("تم الحذف");
+            try {
+              await api.studentsDelete(actionStudent.id);
+              setItems((prev) => prev.filter((x) => x.id !== actionStudent.id));
+              setActionStudent(null);
+              toast.success("تم الحذف");
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : "فشل الحذف");
+              throw e;
+            }
           }}
           deleteHint="يُحذف الطالب مع سجلاته المرتبطة ولا يمكن التراجع."
         />

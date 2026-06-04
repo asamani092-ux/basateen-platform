@@ -226,7 +226,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw err;
   }
 
-  return res.json() as Promise<T>;
+  if (res.status === 204) {
+    return {} as T;
+  }
+  const text = await res.text();
+  if (!text.trim()) {
+    return {} as T;
+  }
+  return JSON.parse(text) as T;
 }
 
 export const api = {

@@ -26,6 +26,7 @@ import {
   insertStaffUser,
   safeDeleteStaffUser,
   staffListSql,
+  supervisorScopeSelectSql,
   SOVEREIGN_USER_ID,
 } from "../lib/admin-staff";
 import {
@@ -315,7 +316,10 @@ export async function handleAdminStaffDelete(
     if (!Number.isFinite(userId)) return json({ error: "invalid_id" }, 400);
 
     const result = await safeDeleteStaffUser(env, userId, auth!.complexId);
-    return json({ ok: true, ...result });
+    return new Response(JSON.stringify({ ok: true, ...result }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   } catch (error: unknown) {
     console.error("[admin-gm] staff delete:", error);
     const message =
@@ -644,9 +648,10 @@ export async function handleAdminSupervisorsList(
   if (denied) return denied;
 
   const hasRole = await usersHaveRoleColumn(env);
+  const scopeSel = await supervisorScopeSelectSql(env, "");
   const rows = hasRole
     ? await env.DB.prepare(
-        `SELECT id, full_name_ar, mobile, role, COALESCE(supervisor_scope, 'global') AS supervisor_scope, is_active
+        `SELECT id, full_name_ar, mobile, role, ${scopeSel}, is_active
          FROM users
          WHERE complex_id = ? AND role IN (${SUPERVISOR_DB_ROLE_SQL})
          ORDER BY full_name_ar`,
@@ -662,7 +667,7 @@ export async function handleAdminSupervisorsList(
                   WHEN COALESCE(is_admin, 0) = 1 THEN 'admin_supervisor'
                   ELSE 'admin_supervisor'
                 END AS role,
-                COALESCE(stage_scope, 'global') AS supervisor_scope
+                ${scopeSel}
          FROM users
          WHERE complex_id = ?
            AND (
@@ -802,7 +807,10 @@ export async function handleAdminEducationalGroupsDelete(
       id,
       auth!.complexId,
     );
-    return json({ ok: true, ...result });
+    return new Response(JSON.stringify({ ok: true, ...result }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   } catch (error: unknown) {
     console.error("[admin-gm] educational-groups delete:", error);
     const message =

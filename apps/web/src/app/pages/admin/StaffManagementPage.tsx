@@ -314,10 +314,15 @@ export function StaffManagementPage() {
           }}
           onDelete={async () => {
             const res = await api.adminStaffDelete(actionRow.id);
-            setItems((prev) => prev.filter((x) => x.id !== actionRow.id));
-            toast.success(
-              res.soft_deleted ? "تم تعطيل المنسوب (حذف ناعم)" : "تم الحذف بنجاح",
-            );
+            if (res.soft_deleted) {
+              toast.warning(
+                "تعذّر الحذف النهائي — تم التعليق فقط. أصلح جدول circles ثم أعد المحاولة.",
+              );
+              setItems((prev) => prev.filter((x) => x.id !== actionRow.id));
+            } else {
+              setItems((prev) => prev.filter((x) => x.id !== actionRow.id));
+              toast.success("تم الحذف من قاعدة البيانات");
+            }
           }}
           deleteHint="سيتم فك ارتباط الحلقات والمسارات المرتبطة بهذا المنسوب."
         />

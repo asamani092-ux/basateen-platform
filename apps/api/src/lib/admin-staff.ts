@@ -4,6 +4,14 @@
 import type { Env } from "../types";
 import { hashPassword } from "./password";
 import { hasTable, tableHasColumn } from "./db-schema";
+
+/** All circle tables that may exist after a partial 035/036 migration. */
+export async function staffCircleTableNames(env: Env): Promise<string[]> {
+  const names: string[] = [];
+  if (await hasTable(env, "circles")) names.push("circles");
+  if (await hasTable(env, "circles_legacy_035")) names.push("circles_legacy_035");
+  return names;
+}
 import { usersHaveRoleColumn } from "./db-user";
 import {
   usesV25FlatStaffSchema,
@@ -112,6 +120,7 @@ export function staffListSqlV25(): string {
             COALESCE(u.stage_scope, 'global') AS supervisor_scope
      FROM users u
      WHERE u.complex_id = ?
+       AND COALESCE(u.is_active, 1) = 1
        AND (
          COALESCE(u.is_teacher, 0) = 1
          OR COALESCE(u.is_track_supervisor, 0) = 1
@@ -151,6 +160,7 @@ export async function staffListSql(env: Env): Promise<string> {
               COALESCE(u.supervisor_scope, u.stage_scope, 'global') AS supervisor_scope
        FROM users u
        WHERE u.complex_id = ?
+         AND COALESCE(u.is_active, 1) = 1
          AND u.role IN (
            'teacher', 'track_supervisor', 'edu_supervisor', 'programs_supervisor',
            'prog_supervisor', 'admin_supervisor', 'general_supervisor', 'super_admin'
@@ -192,10 +202,11 @@ async function detachStaffStructureStatements(
 ): Promise<D1PreparedStatement[]> {
   const stmts: D1PreparedStatement[] = [];
 
-  if (await tableHasColumn(env, "circles", "teacher_id")) {
+  for (const table of await staffCircleTableNames(env)) {
+    if (!(await tableHasColumn(env, table, "teacher_id"))) continue;
     stmts.push(
       env.DB.prepare(
-        `UPDATE circles SET teacher_id = NULL WHERE teacher_id = ? AND complex_id = ?`,
+        `UPDATE ${table} SET teacher_id = NULL WHERE teacher_id = ? AND complex_id = ?`,
       ).bind(userId, complexId),
     );
   }
@@ -242,10 +253,23 @@ export async function safeDeleteStaffUser(
     await env.DB.batch(batch);
     return {};
   } catch (err) {
+    console.error("[admin-staff] delete batch failed:", err);
     if (await tableHasColumn(env, "users", "is_active")) {
       await env.DB.prepare(`UPDATE users SET is_active = 0 WHERE id = ?`)
         .bind(userId)
         .run();
+      for (const table of await staffCircleTableNames(env)) {
+        if (!(await tableHasColumn(env, table, "teacher_id"))) continue;
+        try {
+          await env.DB.prepare(
+            `UPDATE ${table} SET teacher_id = NULL WHERE teacher_id = ? AND complex_id = ?`,
+          )
+            .bind(userId, complexId)
+            .run();
+        } catch {
+          /* legacy table may still be NOT NULL until 036 recover */
+        }
+      }
       return { soft_deleted: true };
     }
     throw err;

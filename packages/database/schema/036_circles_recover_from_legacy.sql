@@ -1,9 +1,5 @@
--- 036: One canonical `circles` table (nullable teacher_id) after 035 RENAME split.
--- Run ONLY as a single file batch — never statement-by-statement in D1 UI.
---
---   npm run db:remote:036:circles --prefix apps/api
---
--- If INSERT fails with "no such table: circles", use instead:
+-- 036 RECOVER: use when `circles` is missing but `circles_legacy_035` still exists.
+-- Run as ONE batch via wrangler (not D1 UI statement-by-statement):
 --   npm run db:remote:036:recover --prefix apps/api
 
 PRAGMA foreign_keys = OFF;
@@ -27,7 +23,6 @@ CREATE TABLE circles_fix_036 (
   FOREIGN KEY (complex_id) REFERENCES complexes(id)
 );
 
--- Prefer live `circles` (post-035); fall back to legacy if needed
 INSERT INTO circles_fix_036 (
   id,
   complex_id,
@@ -47,7 +42,7 @@ SELECT
   capacity,
   is_active,
   created_at
-FROM circles;
+FROM circles_legacy_035;
 
 UPDATE circles_fix_036
 SET stage_id = CASE stage

@@ -87,6 +87,8 @@
     "db:remote:036": "npm run db:remote:036:circles && npm run db:remote:036:tracks",
     "db:remote:036:circles": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/036_circles_consolidate_single_table.sql",
     "db:remote:036:recover": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/036_circles_recover_from_legacy.sql",
+    "db:remote:037:reactivate": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/037_reactivate_staff_after_soft_delete.sql",
+    "db:local:037:reactivate": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/037_reactivate_staff_after_soft_delete.sql",
     "db:remote:036:tracks": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/036_tracks_consolidate_single_table.sql",
     "db:remote:034:wipe": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/034_admin_data_wipe.sql",
     "db:remote:034:wipe:ext": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/034_admin_data_wipe_extensions.sql",

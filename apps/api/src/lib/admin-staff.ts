@@ -4,14 +4,6 @@
 import type { Env } from "../types";
 import { hashPassword } from "./password";
 import { hasTable, tableHasColumn } from "./db-schema";
-
-/** All circle tables that may exist after a partial 035/036 migration. */
-export async function staffCircleTableNames(env: Env): Promise<string[]> {
-  const names: string[] = [];
-  if (await hasTable(env, "circles")) names.push("circles");
-  if (await hasTable(env, "circles_legacy_035")) names.push("circles_legacy_035");
-  return names;
-}
 import { usersHaveRoleColumn } from "./db-user";
 import {
   usesV25FlatStaffSchema,
@@ -19,6 +11,44 @@ import {
   v25TrackSupervisorFlags,
   V25_CIRCLE_STAGE_TO_ID_SQL,
 } from "./schema-v25";
+
+/** Table used for reads (canonical `circles` preferred). */
+export async function primaryCirclesTable(env: Env): Promise<string | null> {
+  if (await hasTable(env, "circles")) return "circles";
+  if (await hasTable(env, "circles_legacy_035")) return "circles_legacy_035";
+  if (await hasTable(env, "circles_fix_036")) return "circles_fix_036";
+  return null;
+}
+
+/** All circle tables that may exist after a partial 035/036 migration. */
+export async function staffCircleTableNames(env: Env): Promise<string[]> {
+  const names: string[] = [];
+  if (await hasTable(env, "circles")) names.push("circles");
+  if (await hasTable(env, "circles_legacy_035")) names.push("circles_legacy_035");
+  if (await hasTable(env, "circles_fix_036")) names.push("circles_fix_036");
+  return names;
+}
+
+function circleAssignmentCols(circlesTable: string | null): {
+  circleId: string;
+  circleName: string;
+} {
+  if (!circlesTable) {
+    return {
+      circleId: "NULL AS circle_id",
+      circleName: "NULL AS circle_name",
+    };
+  }
+  const active = `COALESCE(c.is_active, 1) = 1`;
+  return {
+    circleId: `(SELECT c.id FROM ${circlesTable} c
+             WHERE c.teacher_id = u.id AND c.complex_id = u.complex_id
+               AND ${active} LIMIT 1) AS circle_id`,
+    circleName: `(SELECT c.name_ar FROM ${circlesTable} c
+             WHERE c.teacher_id = u.id AND c.complex_id = u.complex_id
+               AND ${active} LIMIT 1) AS circle_name`,
+  };
+}
 
 export type StaffListRow = {
   id: number;
@@ -95,7 +125,8 @@ export async function insertStaffUser(
   return Number(ins.meta.last_row_id);
 }
 
-export function staffListSqlV25(): string {
+function staffListSqlV25(circlesTable: string | null): string {
+  const { circleId, circleName } = circleAssignmentCols(circlesTable);
   return `SELECT u.id, u.full_name_ar, u.mobile, u.is_active,
             CASE
               WHEN COALESCE(u.is_admin, 0) = 1 THEN 'super_admin'
@@ -105,22 +136,17 @@ export function staffListSqlV25(): string {
               WHEN COALESCE(u.is_teacher, 0) = 1 THEN 'teacher'
               ELSE 'teacher'
             END AS role,
-            (SELECT c.id FROM circles c
-             WHERE c.teacher_id = u.id AND c.complex_id = u.complex_id
-               AND c.is_active = 1 LIMIT 1) AS circle_id,
-            (SELECT c.name_ar FROM circles c
-             WHERE c.teacher_id = u.id AND c.complex_id = u.complex_id
-               AND c.is_active = 1 LIMIT 1) AS circle_name,
+            ${circleId},
+            ${circleName},
             (SELECT t.id FROM tracks t
              WHERE t.supervisor_id = u.id AND t.complex_id = u.complex_id
-               AND t.is_active = 1 LIMIT 1) AS track_id,
+               AND COALESCE(t.is_active, 1) = 1 LIMIT 1) AS track_id,
             (SELECT t.name_ar FROM tracks t
              WHERE t.supervisor_id = u.id AND t.complex_id = u.complex_id
-               AND t.is_active = 1 LIMIT 1) AS track_name,
+               AND COALESCE(t.is_active, 1) = 1 LIMIT 1) AS track_name,
             COALESCE(u.stage_scope, 'global') AS supervisor_scope
      FROM users u
      WHERE u.complex_id = ?
-       AND COALESCE(u.is_active, 1) = 1
        AND (
          COALESCE(u.is_teacher, 0) = 1
          OR COALESCE(u.is_track_supervisor, 0) = 1
@@ -132,11 +158,14 @@ export function staffListSqlV25(): string {
 }
 
 export async function staffListSql(env: Env): Promise<string> {
+  const circlesTable = await primaryCirclesTable(env);
+
   if (await usesV25FlatStaffSchema(env)) {
-    return staffListSqlV25();
+    return staffListSqlV25(circlesTable);
   }
 
   const hasRole = await usersHaveRoleColumn(env);
+  const { circleId, circleName } = circleAssignmentCols(circlesTable);
   if (hasRole) {
     return `SELECT u.id, u.full_name_ar, u.mobile, u.is_active,
               CASE u.role
@@ -145,12 +174,8 @@ export async function staffListSql(env: Env): Promise<string> {
                 WHEN 'prog_supervisor' THEN 'programs_supervisor'
                 ELSE u.role
               END AS role,
-              (SELECT c.id FROM circles c
-               WHERE c.teacher_id = u.id AND c.complex_id = u.complex_id
-                 AND COALESCE(c.is_active, 1) = 1 LIMIT 1) AS circle_id,
-              (SELECT c.name_ar FROM circles c
-               WHERE c.teacher_id = u.id AND c.complex_id = u.complex_id
-                 AND COALESCE(c.is_active, 1) = 1 LIMIT 1) AS circle_name,
+              ${circleId},
+              ${circleName},
               (SELECT t.id FROM tracks t
                WHERE t.supervisor_id = u.id AND t.complex_id = u.complex_id
                  AND COALESCE(t.is_active, 1) = 1 LIMIT 1) AS track_id,
@@ -160,7 +185,6 @@ export async function staffListSql(env: Env): Promise<string> {
               COALESCE(u.supervisor_scope, u.stage_scope, 'global') AS supervisor_scope
        FROM users u
        WHERE u.complex_id = ?
-         AND COALESCE(u.is_active, 1) = 1
          AND u.role IN (
            'teacher', 'track_supervisor', 'edu_supervisor', 'programs_supervisor',
            'prog_supervisor', 'admin_supervisor', 'general_supervisor', 'super_admin'
@@ -168,7 +192,7 @@ export async function staffListSql(env: Env): Promise<string> {
        ORDER BY u.full_name_ar`;
   }
 
-  return staffListSqlV25();
+  return staffListSqlV25(circlesTable);
 }
 
 async function clearStaffUserRelations(

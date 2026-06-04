@@ -52,6 +52,8 @@ export function AdminEntityActionModal({
     try {
       await onToggleActive();
       onOpenChange(false);
+    } catch {
+      /* caller shows toast */
     } finally {
       setBusy(false);
     }
@@ -62,6 +64,8 @@ export function AdminEntityActionModal({
     try {
       await onDelete();
       onOpenChange(false);
+    } catch {
+      /* caller shows toast */
     } finally {
       setBusy(false);
     }

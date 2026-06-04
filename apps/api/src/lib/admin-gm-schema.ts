@@ -2,6 +2,7 @@ import type { Env } from "../types";
 import { activePlacementSql, hasTable, tableHasColumn } from "./db-schema";
 import { teachersListSqlV25, usesV25FlatStaffSchema } from "./schema-v25";
 import { usersHaveRoleColumn } from "./db-user";
+import { primaryCirclesTable } from "./admin-staff";
 
 const STAGE_TEXT_TO_ID_SQL = `CASE c.stage
   WHEN 'tlaqeen' THEN 1
@@ -198,7 +199,10 @@ export async function circleTeacherJoinSql(env: Env): Promise<{
   teacherNameCol: string;
 }> {
   const hasAssignments = await hasTable(env, "teacher_assignments");
-  const hasTeacherOnCircle = await tableHasColumn(env, "circles", "teacher_id");
+  const circlesTable = await primaryCirclesTable(env);
+  const hasTeacherOnCircle =
+    circlesTable != null &&
+    (await tableHasColumn(env, circlesTable, "teacher_id"));
   const hasRole = await usersHaveRoleColumn(env);
   const teacherRoleFilter = hasRole
     ? "u.role = 'teacher'"

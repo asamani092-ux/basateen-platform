@@ -15,7 +15,11 @@ import {
   circleTrackSelectSql,
 } from "./admin-gm-schema";
 import { hasTable, tableHasColumn } from "./db-schema";
-import { SOVEREIGN_USER_ID } from "./admin-staff";
+import {
+  primaryCirclesTable,
+  SOVEREIGN_USER_ID,
+  staffCircleTableNames,
+} from "./admin-staff";
 
 export type EducationalEntityType = "circle" | "track";
 
@@ -46,16 +50,19 @@ export async function fetchEducationalGroups(
   const teacher = await circleTeacherJoinSql(env);
   const studentCount = await circleStudentCountSubquery(env);
 
+  const circlesTable = await primaryCirclesTable(env);
+  if (circlesTable) {
   const circles = await env.DB.prepare(
     `SELECT c.id, c.name_ar, ${stageExpr} AS stage_id,
             ${capacityExpr} AS default_capacity,
             ${isActiveExpr},
             ${teacher.teacherIdCol}, ${teacher.teacherNameCol},
             ${studentCount} AS student_count
-     FROM circles c
+     FROM ${circlesTable} c
      ${track.joinSql}
      ${teacher.joinSql}
      WHERE c.complex_id = ?
+       AND COALESCE(c.is_active, 1) = 1
      ORDER BY c.name_ar`,
   )
     .bind(complexId)
@@ -88,6 +95,7 @@ export async function fetchEducationalGroups(
       }),
     });
   }
+  }
 
   const hasSupervisorCol = await tableHasColumn(env, "tracks", "supervisor_id");
   const hasStudentsCurrentTrack = await tableHasColumn(
@@ -104,8 +112,9 @@ export async function fetchEducationalGroups(
               u.full_name_ar AS supervisor_name
        FROM tracks t
        LEFT JOIN users u ON u.id = t.supervisor_id
-       WHERE t.complex_id = ?
-       ORDER BY t.name_ar`,
+     WHERE t.complex_id = ?
+       AND COALESCE(t.is_active, 1) = 1
+     ORDER BY t.name_ar`,
     )
       .bind(complexId)
       .all<{
@@ -194,8 +203,11 @@ export async function safeDeleteEducationalGroup(
   complexId: number,
 ): Promise<{ soft_deleted?: boolean }> {
   if (entityType === "circle") {
+    const circlesTable = await primaryCirclesTable(env);
+    if (!circlesTable) throw new Error("circle_not_found");
+
     const row = await env.DB.prepare(
-      `SELECT id FROM circles WHERE id = ? AND complex_id = ?`,
+      `SELECT id FROM ${circlesTable} WHERE id = ? AND complex_id = ?`,
     )
       .bind(id, complexId)
       .first();
@@ -216,11 +228,14 @@ export async function safeDeleteEducationalGroup(
         env.DB.prepare(`DELETE FROM track_circles WHERE circle_id = ?`).bind(id),
       );
     }
-    batch.push(
-      env.DB.prepare(
-        `UPDATE circles SET is_active = 0 WHERE id = ? AND complex_id = ?`,
-      ).bind(id, complexId),
-    );
+    for (const table of await staffCircleTableNames(env)) {
+      if (!(await tableHasColumn(env, table, "is_active"))) continue;
+      batch.push(
+        env.DB.prepare(
+          `UPDATE ${table} SET is_active = 0 WHERE id = ? AND complex_id = ?`,
+        ).bind(id, complexId),
+      );
+    }
 
     try {
       await env.DB.batch(batch);

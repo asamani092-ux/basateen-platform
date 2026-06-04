@@ -294,7 +294,9 @@ export async function handleAdminStaffList(
     return json({ items: rows.results ?? [] });
   } catch (error: unknown) {
     console.error("[admin-gm] staff list:", error);
-    return json({ items: [] });
+    const message =
+      error instanceof Error ? error.message : "staff_list_failed";
+    return json({ items: [], error: "staff_list_failed", message }, 500);
   }
 }
 

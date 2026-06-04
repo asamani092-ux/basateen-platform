@@ -294,17 +294,25 @@ export function CirclesSetupPage() {
             toast.success(next ? "تم التنشيط" : "تم التعليق");
           }}
           onDelete={async () => {
-            await api.adminEducationalGroupDelete(
-              actionRow.entity_type,
-              actionRow.id,
-            );
-            setItems((prev) =>
-              prev.filter(
-                (x) =>
-                  !(x.id === actionRow.id && x.entity_type === actionRow.entity_type),
-              ),
-            );
-            toast.success("تم الحذف بنجاح");
+            try {
+              await api.adminEducationalGroupDelete(
+                actionRow.entity_type,
+                actionRow.id,
+              );
+              setItems((prev) =>
+                prev.filter(
+                  (x) =>
+                    !(
+                      x.id === actionRow.id &&
+                      x.entity_type === actionRow.entity_type
+                    ),
+                ),
+              );
+              toast.success("تم الحذف بنجاح");
+            } catch (err) {
+              toast.error(apiErrorMessage(err, "فشل الحذف"));
+              throw err;
+            }
           }}
           deleteHint="سيتم فك ارتباط الطلاب المسجّلين في هذا الكيان."
         />

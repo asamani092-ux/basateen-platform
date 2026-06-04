@@ -122,7 +122,17 @@ export function StaffManagementPage() {
       api.adminTracks(),
     ]);
     if (staffRes.status === "fulfilled") {
-      setItems(staffRes.value.items ?? []);
+      const payload = staffRes.value as {
+        items?: StaffMemberRow[];
+        error?: string;
+        message?: string;
+      };
+      if (payload.error) {
+        toast.error(payload.message ?? "تعذر تحميل المنسوبين");
+        setItems([]);
+      } else {
+        setItems(payload.items ?? []);
+      }
     } else {
       console.error("[staff] list:", staffRes.reason);
       setItems([]);
@@ -227,6 +237,9 @@ export function StaffManagementPage() {
                       </TableCell>
                       <TableCell className={ds.table.cell} style={tajawal}>
                         {staffRoleLabel(row.role)}
+                        {row.is_active === 0 ? (
+                          <span className="mr-2 text-xs text-amber-700">(معلق)</span>
+                        ) : null}
                       </TableCell>
                       <TableCell className={ds.table.cell} style={tajawal}>
                         {assignedEntityLabel(row)}
@@ -303,25 +316,34 @@ export function StaffManagementPage() {
           entityName={actionRow.full_name_ar}
           isActive={actionRow.is_active !== 0}
           onToggleActive={async () => {
-            const next = actionRow.is_active !== 0 ? 0 : 1;
-            await api.adminStaffPatch(actionRow.id, { is_active: next });
-            setItems((prev) =>
-              prev.map((x) =>
-                x.id === actionRow.id ? { ...x, is_active: next } : x,
-              ),
-            );
-            toast.success(next ? "تم التنشيط" : "تم التعليق");
+            try {
+              const next = actionRow.is_active !== 0 ? 0 : 1;
+              await api.adminStaffPatch(actionRow.id, { is_active: next });
+              setItems((prev) =>
+                prev.map((x) =>
+                  x.id === actionRow.id ? { ...x, is_active: next } : x,
+                ),
+              );
+              toast.success(next ? "تم التنشيط" : "تم التعليق");
+            } catch (err) {
+              toast.error(apiErrorMessage(err, "فشل تحديث الحالة"));
+              throw err;
+            }
           }}
           onDelete={async () => {
-            const res = await api.adminStaffDelete(actionRow.id);
-            if (res.soft_deleted) {
-              toast.warning(
-                "تعذّر الحذف النهائي — تم التعليق فقط. أصلح جدول circles ثم أعد المحاولة.",
-              );
+            try {
+              const res = await api.adminStaffDelete(actionRow.id);
+              if (res.soft_deleted) {
+                toast.warning(
+                  "تعذّر الحذف النهائي — تم التعليق فقط. نفّذ npm run db:remote:036:recover ثم أعد المحاولة.",
+                );
+              } else {
+                toast.success("تم الحذف من قاعدة البيانات");
+              }
               setItems((prev) => prev.filter((x) => x.id !== actionRow.id));
-            } else {
-              setItems((prev) => prev.filter((x) => x.id !== actionRow.id));
-              toast.success("تم الحذف من قاعدة البيانات");
+            } catch (err) {
+              toast.error(apiErrorMessage(err, "فشل الحذف"));
+              throw err;
             }
           }}
           deleteHint="سيتم فك ارتباط الحلقات والمسارات المرتبطة بهذا المنسوب."

@@ -8,14 +8,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../ui/table";
 import { ds, tajawal } from "../../lib/design-system";
 
 export type IndividualReportData = {
@@ -47,7 +39,10 @@ type Props = {
   report: IndividualReportData | null;
 };
 
-const cellClass = "text-right px-4 py-3 border-b";
+const thClass =
+  "text-right px-4 py-3 border border-border font-medium bg-muted/40 print:border-black print:bg-[#f1f5f9] print:text-black";
+const tdClass =
+  "text-right px-4 py-3 border border-border print:border-black print:text-black print:bg-white";
 
 function printDateAr(): string {
   return new Date().toLocaleDateString("ar-SA", {
@@ -96,7 +91,7 @@ function SummaryStatCard({
 }) {
   return (
     <div
-      className="rounded-xl border border-border bg-card px-4 py-3 print:border print:border-black print:bg-white print:shadow-none"
+      className="rounded-xl border border-border bg-card px-4 py-3 print:rounded-none print:border print:border-black print:bg-white print:shadow-none"
       style={tajawal}
     >
       <p className="text-xs text-muted-foreground print:text-black">{label}</p>
@@ -140,8 +135,10 @@ export function IndividualDisciplineReportModal({
       document.body.classList.remove("printing-individual-discipline-report");
     };
     window.addEventListener("afterprint", cleanup, { once: true });
-    window.print();
-    setTimeout(cleanup, 1000);
+    window.requestAnimationFrame(() => {
+      window.setTimeout(() => window.print(), 150);
+    });
+    setTimeout(cleanup, 3000);
   }
 
   if (!report || !stats) return null;
@@ -151,7 +148,7 @@ export function IndividualDisciplineReportModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto print:w-[210mm] print:absolute print:top-0 print:left-0 print:m-0 print:p-0 print:overflow-visible print:bg-white print:text-black print:max-h-none print:border-0 print:shadow-none">
+      <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto print:w-[210mm] print:max-w-[210mm] print:absolute print:top-0 print:left-0 print:right-0 print:m-0 print:p-0 print:overflow-visible print:bg-white print:text-black print:max-h-none print:border-0 print:shadow-none print:translate-x-0 print:translate-y-0">
         <DialogHeader className="print:hidden">
           <DialogTitle style={tajawal}>تقرير الانضباط التفصيلي</DialogTitle>
           <DialogDescription style={tajawal}>
@@ -208,7 +205,7 @@ export function IndividualDisciplineReportModal({
             <h3 className={ds.page.section} style={tajawal}>
               ملخص الانضباط
             </h3>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="individual-discipline-summary-grid grid grid-cols-2 lg:grid-cols-4 gap-3">
               <SummaryStatCard
                 label="نسبة الانضباط"
                 value={`${stats.disciplinePct}%`}
@@ -219,7 +216,9 @@ export function IndividualDisciplineReportModal({
             </div>
           </section>
 
-          <section className={`${ds.card} overflow-hidden p-0 print:border print:border-black print:shadow-none`}>
+          <section
+            className={`individual-discipline-table-section ${ds.card} overflow-hidden p-0 print:rounded-none print:overflow-visible print:border print:border-black print:shadow-none print:w-full`}
+          >
             <div className="p-4 border-b border-border print:border-black">
               <h3 className={ds.page.section} style={tajawal}>
                 الجدول التفصيلي
@@ -230,39 +229,44 @@ export function IndividualDisciplineReportModal({
                 لا توجد سجلات تحضير في هذه الفترة.
               </p>
             ) : (
-              <Table className="w-full border-collapse" dir="rtl">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className={cellClass} style={tajawal}>
-                      التاريخ
-                    </TableHead>
-                    <TableHead className={cellClass} style={tajawal}>
-                      اليوم
-                    </TableHead>
-                    <TableHead className={cellClass} style={tajawal}>
-                      حالة الحضور
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {detailRows.map((row) => (
-                    <TableRow
-                      key={`${row.date}-${row.status}`}
-                      className="print:break-inside-avoid"
-                    >
-                      <TableCell className={cellClass} style={tajawal} dir="ltr">
-                        {row.date}
-                      </TableCell>
-                      <TableCell className={cellClass} style={tajawal}>
-                        {weekdayAr(row.date)}
-                      </TableCell>
-                      <TableCell className={cellClass} style={tajawal}>
-                        {STATUS_AR[row.status] ?? row.status}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <div className="w-full overflow-x-auto print:overflow-visible">
+                <table
+                  className="individual-discipline-detail-table w-full border-collapse table-fixed"
+                  dir="rtl"
+                >
+                  <thead>
+                    <tr className="print:break-inside-avoid">
+                      <th className={thClass} style={tajawal}>
+                        التاريخ
+                      </th>
+                      <th className={thClass} style={tajawal}>
+                        اليوم
+                      </th>
+                      <th className={thClass} style={tajawal}>
+                        حالة الحضور
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detailRows.map((row) => (
+                      <tr
+                        key={`${row.date}-${row.status}`}
+                        className="print:break-inside-avoid"
+                      >
+                        <td className={tdClass} style={tajawal} dir="ltr">
+                          {row.date}
+                        </td>
+                        <td className={tdClass} style={tajawal}>
+                          {weekdayAr(row.date)}
+                        </td>
+                        <td className={tdClass} style={tajawal}>
+                          {STATUS_AR[row.status] ?? row.status}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </section>
         </div>

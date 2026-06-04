@@ -61,10 +61,7 @@ DROP TABLE IF EXISTS circles_legacy_035;
 ALTER TABLE circles RENAME TO circles_legacy_035;
 ALTER TABLE circles_m035 RENAME TO circles;
 
-ALTER TABLE circles ADD COLUMN stage_id INTEGER NOT NULL DEFAULT 2;
-ALTER TABLE circles ADD COLUMN default_capacity INTEGER;
-ALTER TABLE circles ADD COLUMN track_id INTEGER;
-
+-- stage_id / default_capacity / track_id already on circles_m035
 UPDATE circles
 SET stage_id = CASE stage
   WHEN 'tlaqeen' THEN 1

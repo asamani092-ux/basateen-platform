@@ -1,12 +1,8 @@
--- Recovery: run ONLY if 035 failed after INSERT into circles_m035 (both circles + circles_m035 exist).
--- Completes the RENAME swap without re-copying data.
+-- Recovery: both circles + circles_m035 exist (035 failed before RENAME).
+-- circles_m035 already includes stage_id / default_capacity / track_id — no ALTER ADD.
 
 ALTER TABLE circles RENAME TO circles_legacy_035;
 ALTER TABLE circles_m035 RENAME TO circles;
-
-ALTER TABLE circles ADD COLUMN stage_id INTEGER NOT NULL DEFAULT 2;
-ALTER TABLE circles ADD COLUMN default_capacity INTEGER;
-ALTER TABLE circles ADD COLUMN track_id INTEGER;
 
 UPDATE circles
 SET stage_id = CASE stage

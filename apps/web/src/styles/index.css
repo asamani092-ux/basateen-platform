@@ -168,6 +168,15 @@
   }
 
   /* Individual discipline report modal */
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+
+  body.printing-individual-discipline-report {
+    overflow: visible !important;
+  }
+
   body.printing-individual-discipline-report aside,
   body.printing-individual-discipline-report header,
   body.printing-individual-discipline-report [data-dev-preview-banner],
@@ -179,12 +188,20 @@
     display: none !important;
   }
 
+  body.printing-individual-discipline-report [data-slot="dialog-portal"],
+  body.printing-individual-discipline-report [data-slot="dialog"] {
+    position: static !important;
+    overflow: visible !important;
+  }
+
   body.printing-individual-discipline-report [data-slot="dialog-content"] {
-    position: absolute !important;
+    position: fixed !important;
     top: 0 !important;
+    right: 0 !important;
     left: 0 !important;
-    width: 210mm !important;
-    max-width: 210mm !important;
+    bottom: auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
     max-height: none !important;
     margin: 0 !important;
     padding: 0 !important;
@@ -192,7 +209,14 @@
     border: none !important;
     box-shadow: none !important;
     transform: none !important;
+    translate: none !important;
     background: #fff !important;
+    box-sizing: border-box !important;
+    direction: rtl !important;
+  }
+
+  body.printing-individual-discipline-report [data-slot="dialog-content"] > button {
+    display: none !important;
   }
 
   body.printing-individual-discipline-report [data-slot="table-container"] {
@@ -207,31 +231,41 @@
 
   body.printing-individual-discipline-report .individual-discipline-report-print {
     display: block !important;
-    position: relative !important;
-    top: 0 !important;
-    left: 0 !important;
+    position: static !important;
     width: 100% !important;
-    max-width: 210mm !important;
+    max-width: 100% !important;
     margin: 0 !important;
-    padding: 10mm !important;
+    padding: 0 !important;
     visibility: visible !important;
     overflow: visible !important;
     color: #000 !important;
     background: #fff !important;
+    box-sizing: border-box !important;
+    direction: rtl !important;
   }
 
   body.printing-individual-discipline-report .individual-discipline-summary-grid {
     display: grid !important;
     grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-    gap: 8px !important;
+    gap: 6px !important;
     width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
   }
 
   body.printing-individual-discipline-report .individual-discipline-table-section {
     width: 100% !important;
-    max-width: none !important;
+    max-width: 100% !important;
     border-radius: 0 !important;
     overflow: visible !important;
+    box-sizing: border-box !important;
+    margin: 0 !important;
+  }
+
+  body.printing-individual-discipline-report .individual-discipline-table-section > div {
+    overflow: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
   }
 
   body.printing-individual-discipline-report .individual-discipline-detail-table {
@@ -240,6 +274,24 @@
     table-layout: fixed !important;
     border-collapse: collapse !important;
     font-size: 11pt !important;
+    box-sizing: border-box !important;
+    margin: 0 !important;
+  }
+
+  body.printing-individual-discipline-report .individual-discipline-detail-table colgroup,
+  body.printing-individual-discipline-report .individual-discipline-detail-table th:nth-child(1),
+  body.printing-individual-discipline-report .individual-discipline-detail-table td:nth-child(1) {
+    width: 28% !important;
+  }
+
+  body.printing-individual-discipline-report .individual-discipline-detail-table th:nth-child(2),
+  body.printing-individual-discipline-report .individual-discipline-detail-table td:nth-child(2) {
+    width: 32% !important;
+  }
+
+  body.printing-individual-discipline-report .individual-discipline-detail-table th:nth-child(3),
+  body.printing-individual-discipline-report .individual-discipline-detail-table td:nth-child(3) {
+    width: 40% !important;
   }
 
   body.printing-individual-discipline-report .individual-discipline-detail-table th,
@@ -247,7 +299,7 @@
     text-align: right !important;
     vertical-align: middle !important;
     border: 1px solid #000 !important;
-    padding: 8px 12px !important;
+    padding: 6px 8px !important;
     background: #fff !important;
     color: #000 !important;
     white-space: normal !important;

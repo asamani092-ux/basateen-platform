@@ -148,7 +148,7 @@ export function IndividualDisciplineReportModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto print:w-[210mm] print:max-w-[210mm] print:absolute print:top-0 print:left-0 print:right-0 print:m-0 print:p-0 print:overflow-visible print:bg-white print:text-black print:max-h-none print:border-0 print:shadow-none print:translate-x-0 print:translate-y-0">
+      <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto [&>button]:print:hidden print:fixed print:inset-0 print:z-[9999] print:block print:h-auto print:max-h-none print:w-full print:max-w-none print:m-0 print:p-[12mm] print:overflow-visible print:bg-white print:text-black print:border-0 print:shadow-none print:translate-x-0 print:translate-y-0 print:rounded-none">
         <DialogHeader className="print:hidden">
           <DialogTitle style={tajawal}>تقرير الانضباط التفصيلي</DialogTitle>
           <DialogDescription style={tajawal}>
@@ -158,7 +158,8 @@ export function IndividualDisciplineReportModal({
 
         <div
           id="individual-discipline-report-print"
-          className="individual-discipline-report-print space-y-5 print:w-[210mm] print:absolute print:top-0 print:left-0 print:p-8 print:bg-white print:text-black print:overflow-visible print:block"
+          className="individual-discipline-report-print space-y-5 w-full box-border print:bg-white print:text-black"
+          dir="rtl"
         >
           <div className="hidden print:flex print:justify-between print:items-start print:border-b print:border-black print:pb-2 print:mb-3">
             <p className="text-sm font-semibold" style={tajawal}>

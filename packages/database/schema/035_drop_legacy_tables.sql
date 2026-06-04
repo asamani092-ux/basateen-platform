@@ -1,6 +1,5 @@
--- Drop backup tables after 035 RENAME swap.
--- MUST run as ONE batch (wrangler --file), NOT statement-by-statement in D1 console.
--- PRAGMA only applies within the same connection/transaction.
+-- Deprecated: DROP alone fails when FKs still reference circles_legacy_035.
+-- Use 036_circles_consolidate_single_table.sql instead (rebuild + drop in one batch).
 
 PRAGMA foreign_keys = OFF;
 

@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Printer } from "lucide-react";
 import { Button } from "../ui/button";
 import {
@@ -46,6 +47,8 @@ type Props = {
   report: IndividualReportData | null;
 };
 
+const cellClass = "text-right px-4 py-3 border-b";
+
 function printDateAr(): string {
   return new Date().toLocaleDateString("ar-SA", {
     year: "numeric",
@@ -54,13 +57,82 @@ function printDateAr(): string {
   });
 }
 
+function weekdayAr(dateStr: string): string {
+  const parts = dateStr.split("-").map(Number);
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) {
+    return "—";
+  }
+  const [year, month, day] = parts;
+  const dt = new Date(year, month - 1, day);
+  return dt.toLocaleDateString("ar-SA", { weekday: "long" });
+}
+
+function computeSummaryFromItems(
+  items: IndividualReportData["items"],
+  disciplinePctFromApi: number,
+) {
+  let present = 0;
+  let absent = 0;
+  let excused = 0;
+  for (const row of items) {
+    if (row.status === "present") present++;
+    else if (row.status === "excused") excused++;
+    else absent++;
+  }
+  const total = items.length;
+  const disciplinePct =
+    total > 0
+      ? Math.round((present / total) * 100)
+      : disciplinePctFromApi;
+  return { present, absent, excused, total, disciplinePct };
+}
+
+function SummaryStatCard({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | number;
+}) {
+  return (
+    <div
+      className="rounded-xl border border-border bg-card px-4 py-3 print:border print:border-black print:bg-white print:shadow-none"
+      style={tajawal}
+    >
+      <p className="text-xs text-muted-foreground print:text-black">{label}</p>
+      <p className="text-xl font-bold tabular-nums mt-1 print:text-black">
+        {value}
+      </p>
+    </div>
+  );
+}
+
 export function IndividualDisciplineReportModal({
   open,
   onOpenChange,
   report,
 }: Props) {
-  const cellClass =
-    "text-right px-4 py-3 print:px-2 print:py-1.5 print:text-xs";
+  const stats = useMemo(() => {
+    if (!report) return null;
+    const fromItems = computeSummaryFromItems(
+      report.items,
+      report.discipline_pct,
+    );
+    const useApi =
+      report.summary.total > 0 &&
+      report.summary.total === report.items.length;
+    return {
+      disciplinePct: useApi ? report.discipline_pct : fromItems.disciplinePct,
+      present: useApi ? report.summary.present : fromItems.present,
+      absent: useApi ? report.summary.absent : fromItems.absent,
+      excused: useApi ? report.summary.excused : fromItems.excused,
+    };
+  }, [report]);
+
+  const detailRows = useMemo(() => {
+    if (!report) return [];
+    return [...report.items].sort((a, b) => b.date.localeCompare(a.date));
+  }, [report]);
 
   function handlePrint() {
     document.body.classList.add("printing-individual-discipline-report");
@@ -72,7 +144,7 @@ export function IndividualDisciplineReportModal({
     setTimeout(cleanup, 1000);
   }
 
-  if (!report) return null;
+  if (!report || !stats) return null;
 
   const personLabel = report.type === "staff" ? "المنسوب" : "الطالب";
   const titleName = report.person.full_name_ar;
@@ -89,7 +161,7 @@ export function IndividualDisciplineReportModal({
 
         <div
           id="individual-discipline-report-print"
-          className="individual-discipline-report-print space-y-4 print:w-[210mm] print:absolute print:top-0 print:left-0 print:p-8 print:bg-white print:text-black print:overflow-visible print:block"
+          className="individual-discipline-report-print space-y-5 print:w-[210mm] print:absolute print:top-0 print:left-0 print:p-8 print:bg-white print:text-black print:overflow-visible print:block"
         >
           <div className="hidden print:flex print:justify-between print:items-start print:border-b print:border-black print:pb-2 print:mb-3">
             <p className="text-sm font-semibold" style={tajawal}>
@@ -107,7 +179,10 @@ export function IndividualDisciplineReportModal({
             تقرير الانضباط التفصيلي — {titleName}
           </h2>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm" style={tajawal}>
+          <div
+            className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm print:text-xs"
+            style={tajawal}
+          >
             <p>
               <strong>نوع المستفيد:</strong> {personLabel}
             </p>
@@ -127,54 +202,69 @@ export function IndividualDisciplineReportModal({
                 <strong>ولي الأمر:</strong> {report.person.guardian_phone}
               </p>
             )}
-            <p>
-              <strong>نسبة الانضباط:</strong> {report.discipline_pct}%
-            </p>
-            <p>
-              <strong>ملخص:</strong> حاضر {report.summary.present} · غائب{" "}
-              {report.summary.absent} · مستأذن {report.summary.excused}
-            </p>
           </div>
 
-          <Table className="w-full border-collapse text-sm print:text-xs">
-            <TableHeader>
-              <TableRow className="print:break-inside-avoid">
-                <TableHead className={cellClass} style={tajawal}>
-                  التاريخ
-                </TableHead>
-                <TableHead className={cellClass} style={tajawal}>
-                  الحالة
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {report.items.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={2}
-                    className={`${cellClass} text-muted-foreground`}
-                    style={tajawal}
-                  >
-                    لا توجد سجلات تحضير في هذه الفترة.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                report.items.map((row) => (
-                  <TableRow
-                    key={row.date}
-                    className="print:break-inside-avoid"
-                  >
-                    <TableCell className={cellClass} style={tajawal} dir="ltr">
-                      {row.date}
-                    </TableCell>
-                    <TableCell className={cellClass} style={tajawal}>
-                      {STATUS_AR[row.status] ?? row.status}
-                    </TableCell>
+          <section className="space-y-3">
+            <h3 className={ds.page.section} style={tajawal}>
+              ملخص الانضباط
+            </h3>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <SummaryStatCard
+                label="نسبة الانضباط"
+                value={`${stats.disciplinePct}%`}
+              />
+              <SummaryStatCard label="أيام الحضور" value={stats.present} />
+              <SummaryStatCard label="أيام الغياب" value={stats.absent} />
+              <SummaryStatCard label="أيام الاستئذان" value={stats.excused} />
+            </div>
+          </section>
+
+          <section className={`${ds.card} overflow-hidden p-0 print:border print:border-black print:shadow-none`}>
+            <div className="p-4 border-b border-border print:border-black">
+              <h3 className={ds.page.section} style={tajawal}>
+                الجدول التفصيلي
+              </h3>
+            </div>
+            {detailRows.length === 0 ? (
+              <p className={`m-4 ${ds.alert.info} print:text-black`} style={tajawal}>
+                لا توجد سجلات تحضير في هذه الفترة.
+              </p>
+            ) : (
+              <Table className="w-full border-collapse" dir="rtl">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className={cellClass} style={tajawal}>
+                      التاريخ
+                    </TableHead>
+                    <TableHead className={cellClass} style={tajawal}>
+                      اليوم
+                    </TableHead>
+                    <TableHead className={cellClass} style={tajawal}>
+                      حالة الحضور
+                    </TableHead>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                </TableHeader>
+                <TableBody>
+                  {detailRows.map((row) => (
+                    <TableRow
+                      key={`${row.date}-${row.status}`}
+                      className="print:break-inside-avoid"
+                    >
+                      <TableCell className={cellClass} style={tajawal} dir="ltr">
+                        {row.date}
+                      </TableCell>
+                      <TableCell className={cellClass} style={tajawal}>
+                        {weekdayAr(row.date)}
+                      </TableCell>
+                      <TableCell className={cellClass} style={tajawal}>
+                        {STATUS_AR[row.status] ?? row.status}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </section>
         </div>
 
         <div className="flex print:hidden pt-2">

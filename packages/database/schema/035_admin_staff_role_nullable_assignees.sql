@@ -74,8 +74,6 @@ WHERE stage_id IS NULL OR stage_id = 2;
 
 UPDATE circles SET default_capacity = capacity WHERE default_capacity IS NULL;
 
-DROP TABLE IF EXISTS circles_legacy_035;
-
 -- Tracks: nullable supervisor_id (same RENAME pattern)
 DROP TABLE IF EXISTS tracks_m035;
 
@@ -113,5 +111,3 @@ FROM tracks t;
 DROP TABLE IF EXISTS tracks_legacy_035;
 ALTER TABLE tracks RENAME TO tracks_legacy_035;
 ALTER TABLE tracks_m035 RENAME TO tracks;
-
-DROP TABLE IF EXISTS tracks_legacy_035;

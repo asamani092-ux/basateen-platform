@@ -15,5 +15,3 @@ END
 WHERE stage_id IS NULL OR stage_id = 2;
 
 UPDATE circles SET default_capacity = capacity WHERE default_capacity IS NULL;
-
-DROP TABLE IF EXISTS circles_legacy_035;

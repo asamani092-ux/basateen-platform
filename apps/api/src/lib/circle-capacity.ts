@@ -67,7 +67,8 @@ export function capacityWarningMessage(info: CircleCapacityInfo): string | null 
     return `الحلقة مكتملة (${info.student_count}/${info.default_capacity}). يمكنك رفع السعة الافتراضية أو فتح حلقة جديدة.`;
   }
   if (info.near_capacity) {
-    return `تبقى ${info.seats_remaining} مقاعد فقط (${info.student_count}/${info.default_capacity}). فكّر برفع السعة الافتراضية أو حلقة جديدة.`;
+    const remainingSeats = Math.max(0, info.seats_remaining);
+    return `تبقى (${remainingSeats}) مقاعد فقط`;
   }
   return null;
 }

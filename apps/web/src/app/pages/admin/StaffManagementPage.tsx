@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { UserCog } from "lucide-react";
+import { AdminEntityActionModal } from "../../components/admin/AdminEntityActionModal";
 import {
   TableActionsCell,
   TableIconAction,
@@ -105,6 +106,7 @@ export function StaffManagementPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [editRow, setEditRow] = useState<StaffMemberRow | null>(null);
   const [assignRow, setAssignRow] = useState<StaffMemberRow | null>(null);
+  const [actionRow, setActionRow] = useState<StaffMemberRow | null>(null);
   const hasApi = Boolean(getApiToken());
 
   const load = useCallback(async () => {
@@ -142,26 +144,6 @@ export function StaffManagementPage() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  async function handleDelete(row: StaffMemberRow) {
-    if (row.id === SOVEREIGN_USER_ID) {
-      toast.error("لا يمكن حذف حساب المشرف العام");
-      return;
-    }
-    const ok = window.confirm(
-      `حذف المنسوب «${row.full_name_ar}» نهائياً من النظام؟`,
-    );
-    if (!ok) return;
-    try {
-      const res = await api.adminStaffDelete(row.id);
-      setItems((prev) => prev.filter((x) => x.id !== row.id));
-      toast.success(
-        res.soft_deleted ? "تم تعطيل المنسوب (حذف ناعم)" : "تم الحذف بنجاح",
-      );
-    } catch (err) {
-      toast.error(apiErrorMessage(err, "فشل الحذف"));
-    }
-  }
 
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto" dir="rtl">
@@ -270,8 +252,8 @@ export function StaffManagementPage() {
                         />
                         {row.id !== SOVEREIGN_USER_ID && (
                           <TableIconAction
-                            kind="delete"
-                            onClick={() => void handleDelete(row)}
+                            kind="more"
+                            onClick={() => setActionRow(row)}
                           />
                         )}
                       </TableActionsCell>
@@ -308,6 +290,36 @@ export function StaffManagementPage() {
             void load();
             toast.success("تم حفظ التعديلات");
           }}
+        />
+      )}
+
+      {actionRow && (
+        <AdminEntityActionModal
+          open
+          onOpenChange={(o) => {
+            if (!o) setActionRow(null);
+          }}
+          entityTitle="المنسوب"
+          entityName={actionRow.full_name_ar}
+          isActive={actionRow.is_active !== 0}
+          onToggleActive={async () => {
+            const next = actionRow.is_active !== 0 ? 0 : 1;
+            await api.adminStaffPatch(actionRow.id, { is_active: next });
+            setItems((prev) =>
+              prev.map((x) =>
+                x.id === actionRow.id ? { ...x, is_active: next } : x,
+              ),
+            );
+            toast.success(next ? "تم التنشيط" : "تم التعليق");
+          }}
+          onDelete={async () => {
+            const res = await api.adminStaffDelete(actionRow.id);
+            setItems((prev) => prev.filter((x) => x.id !== actionRow.id));
+            toast.success(
+              res.soft_deleted ? "تم تعطيل المنسوب (حذف ناعم)" : "تم الحذف بنجاح",
+            );
+          }}
+          deleteHint="سيتم فك ارتباط الحلقات والمسارات المرتبطة بهذا المنسوب."
         />
       )}
 
@@ -369,27 +381,19 @@ function AddStaffDialog({
       const trimmedName = name.trim();
       const trimmedMobile = mobile.trim();
       if (role === "teacher") {
-        if (!circleId) {
-          toast.error("اختر حلقة للمعلم");
-          return;
-        }
         await api.adminTeachersCreate({
           full_name_ar: trimmedName,
           mobile: trimmedMobile,
           role: "teacher",
-          circle_id: Number(circleId),
+          ...(circleId ? { circle_id: Number(circleId) } : {}),
         });
       } else if (role === "track_supervisor") {
-        if (!trackId) {
-          toast.error("اختر مساراً لمشرف المسار");
-          return;
-        }
         await api.adminTeachersCreate({
           full_name_ar: trimmedName,
           mobile: trimmedMobile,
           role: "track_supervisor",
-          track_id: Number(trackId),
-          circle_id: circleId ? Number(circleId) : undefined,
+          ...(trackId ? { track_id: Number(trackId) } : {}),
+          ...(circleId ? { circle_id: Number(circleId) } : {}),
         });
       } else {
         await api.adminSupervisorsCreate({
@@ -476,7 +480,9 @@ function AddStaffDialog({
           )}
           {(isTeacher || isTrackSup) && (
             <div className="space-y-1">
-              <Label style={tajawal}>{isTrackSup ? "المسار *" : "الحلقة *"}</Label>
+              <Label style={tajawal}>
+                {isTrackSup ? "المسار (اختياري)" : "الحلقة (اختياري)"}
+              </Label>
               <select
                 value={isTrackSup ? trackId : circleId}
                 onChange={(e) =>
@@ -486,9 +492,8 @@ function AddStaffDialog({
                 }
                 className={ds.select}
                 style={tajawal}
-                required
               >
-                <option value="">— اختر —</option>
+                <option value="">— بدون إسناد —</option>
                 {(isTrackSup ? tracks : circles).map((x) => (
                   <option key={x.id} value={String(x.id)}>
                     {x.name_ar}

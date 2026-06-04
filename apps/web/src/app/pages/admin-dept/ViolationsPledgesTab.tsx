@@ -3,6 +3,14 @@ import {
   TableActionsCell,
   TableIconAction,
 } from "../../components/admin/TableIconAction";
+import { Button } from "../../components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
 import {
   Card,
   CardContent,
@@ -44,6 +52,11 @@ export function ViolationsPledgesTab() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [printId, setPrintId] = useState<number | null>(null);
+  const [pendingAction, setPendingAction] = useState<{
+    studentId: number;
+    act: "archive_pledge" | "suspend" | "dismiss" | "transfer";
+    label: string;
+  } | null>(null);
 
   const load = useCallback(async () => {
     if (!getApiToken()) return;
@@ -71,11 +84,18 @@ export function ViolationsPledgesTab() {
     }
   }
 
-  async function action(
+  function requestAction(
     studentId: number,
     act: "archive_pledge" | "suspend" | "dismiss" | "transfer",
+    label: string,
   ) {
-    if (!window.confirm("تأكيد الإجراء؟")) return;
+    setPendingAction({ studentId, act, label });
+  }
+
+  async function confirmPendingAction() {
+    if (!pendingAction) return;
+    const { studentId, act } = pendingAction;
+    setPendingAction(null);
     setBusyId(studentId);
     try {
       await api.gsDisciplinaryAction(studentId, act);
@@ -161,22 +181,30 @@ export function ViolationsPledgesTab() {
                       <TableIconAction
                         kind="archive"
                         disabled={busyId === row.id}
-                        onClick={() => action(row.id, "archive_pledge")}
+                        onClick={() =>
+                          requestAction(row.id, "archive_pledge", "أرشفة التعهد")
+                        }
                       />
                       <TableIconAction
                         kind="suspend"
                         disabled={busyId === row.id}
-                        onClick={() => action(row.id, "suspend")}
+                        onClick={() =>
+                          requestAction(row.id, "suspend", "تعليق الحساب")
+                        }
                       />
                       <TableIconAction
                         kind="dismiss"
                         disabled={busyId === row.id}
-                        onClick={() => action(row.id, "dismiss")}
+                        onClick={() =>
+                          requestAction(row.id, "dismiss", "فصل الطالب")
+                        }
                       />
                       <TableIconAction
                         kind="transfer"
                         disabled={busyId === row.id}
-                        onClick={() => action(row.id, "transfer")}
+                        onClick={() =>
+                          requestAction(row.id, "transfer", "نقل الطالب")
+                        }
                       />
                       <TableIconAction
                         kind="print"
@@ -191,6 +219,41 @@ export function ViolationsPledgesTab() {
           </div>
         )}
       </CardContent>
+
+      <Dialog
+        open={pendingAction != null}
+        onOpenChange={(o) => {
+          if (!o) setPendingAction(null);
+        }}
+      >
+        <DialogContent className={`${ds.dialog} sm:max-w-sm`} dir="rtl">
+          <DialogHeader className="text-right">
+            <DialogTitle style={tajawal}>تأكيد الإجراء</DialogTitle>
+            <DialogDescription style={tajawal}>
+              {pendingAction?.label} — هل تريد المتابعة؟
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-2 justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              className={ds.btnRound}
+              style={tajawal}
+              onClick={() => setPendingAction(null)}
+            >
+              إلغاء
+            </Button>
+            <Button
+              type="button"
+              className={ds.btnRound}
+              style={tajawal}
+              onClick={() => void confirmPendingAction()}
+            >
+              تأكيد
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

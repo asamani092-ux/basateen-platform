@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Layers } from "lucide-react";
+import { AdminEntityActionModal } from "../../components/admin/AdminEntityActionModal";
 import {
   TableActionsCell,
   TableIconAction,
@@ -62,6 +63,7 @@ export function CirclesSetupPage() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editRow, setEditRow] = useState<EducationalGroupRow | null>(null);
+  const [actionRow, setActionRow] = useState<EducationalGroupRow | null>(null);
   const hasApi = Boolean(getApiToken());
 
   const teachers = useMemo(
@@ -104,28 +106,6 @@ export function CirclesSetupPage() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  async function handleDelete(row: EducationalGroupRow) {
-    const label = ENTITY_BADGE[row.entity_type];
-    if (
-      !window.confirm(
-        `حذف ${label} «${row.name_ar}»؟ سيتم فك ارتباط الطلاب المسجّلين فيها.`,
-      )
-    ) {
-      return;
-    }
-    try {
-      await api.adminEducationalGroupDelete(row.entity_type, row.id);
-      setItems((prev) =>
-        prev.filter(
-          (x) => !(x.id === row.id && x.entity_type === row.entity_type),
-        ),
-      );
-      toast.success("تم الحذف بنجاح");
-    } catch (err) {
-      toast.error(apiErrorMessage(err, "فشل الحذف"));
-    }
-  }
 
   function openCreate() {
     setEditRow(null);
@@ -233,7 +213,13 @@ export function CirclesSetupPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className={ds.table.cell} style={tajawal}>
-                        {row.assignee_name ?? "—"}
+                        {row.assignee_id ? (
+                          row.assignee_name ?? "—"
+                        ) : (
+                          <span className="text-destructive font-medium">
+                            غير معين
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className={ds.table.cell} style={tajawal}>
                         {row.student_count}
@@ -256,8 +242,8 @@ export function CirclesSetupPage() {
                           onClick={() => openEdit(row)}
                         />
                         <TableIconAction
-                          kind="delete"
-                          onClick={() => void handleDelete(row)}
+                          kind="more"
+                          onClick={() => setActionRow(row)}
                         />
                       </TableActionsCell>
                     </TableRow>
@@ -268,6 +254,61 @@ export function CirclesSetupPage() {
           )}
         </CardContent>
       </Card>
+
+      {actionRow && (
+        <AdminEntityActionModal
+          open
+          onOpenChange={(o) => {
+            if (!o) setActionRow(null);
+          }}
+          entityTitle={ENTITY_BADGE[actionRow.entity_type]}
+          entityName={actionRow.name_ar}
+          isActive={actionRow.is_active !== 0}
+          onToggleActive={async () => {
+            const next = actionRow.is_active !== 0 ? 0 : 1;
+            if (actionRow.entity_type === "circle") {
+              await api.adminCirclesPatch(actionRow.id, { is_active: next });
+            } else {
+              await api.adminTracksPatch(actionRow.id, { is_active: next });
+            }
+            if (next === 0) {
+              setItems((prev) =>
+                prev.filter(
+                  (x) =>
+                    !(
+                      x.id === actionRow.id &&
+                      x.entity_type === actionRow.entity_type
+                    ),
+                ),
+              );
+            } else {
+              setItems((prev) =>
+                prev.map((x) =>
+                  x.id === actionRow.id &&
+                  x.entity_type === actionRow.entity_type
+                    ? { ...x, is_active: next }
+                    : x,
+                ),
+              );
+            }
+            toast.success(next ? "تم التنشيط" : "تم التعليق");
+          }}
+          onDelete={async () => {
+            await api.adminEducationalGroupDelete(
+              actionRow.entity_type,
+              actionRow.id,
+            );
+            setItems((prev) =>
+              prev.filter(
+                (x) =>
+                  !(x.id === actionRow.id && x.entity_type === actionRow.entity_type),
+              ),
+            );
+            toast.success("تم الحذف بنجاح");
+          }}
+          deleteHint="سيتم فك ارتباط الطلاب المسجّلين في هذا الكيان."
+        />
+      )}
 
       <GroupFormDialog
         open={modalOpen}
@@ -348,11 +389,15 @@ function GroupFormDialog({
     try {
       if (isEdit && editRow) {
         if (editRow.entity_type === "circle") {
+          if (!teacherId) {
+            toast.error("اختر معلمًا للحلقة");
+            return;
+          }
           await api.adminCirclesPatch(editRow.id, {
             name_ar: name.trim(),
             stage_id: stageId,
             default_capacity: Number(capacity),
-            ...(teacherId ? { teacher_user_id: Number(teacherId) } : {}),
+            teacher_user_id: Number(teacherId),
           });
         } else {
           await api.adminTracksPatch(editRow.id, {
@@ -483,8 +528,11 @@ function GroupFormDialog({
                   onChange={(e) => setTeacherId(e.target.value)}
                   className={ds.select}
                   style={tajawal}
+                  required={isEdit}
                 >
-                  <option value="">— معلم جديد أدناه —</option>
+                  <option value="">
+                    {isEdit ? "— اختر معلمًا —" : "— معلم جديد أدناه —"}
+                  </option>
                   {teachers.map((t) => (
                     <option key={t.id} value={String(t.id)}>
                       {t.full_name_ar}

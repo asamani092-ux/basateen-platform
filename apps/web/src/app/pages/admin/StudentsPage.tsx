@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Search } from "lucide-react";
+import { AdminEntityActionModal } from "../../components/admin/AdminEntityActionModal";
 import {
   TableActionsCell,
   TableIconAction,
@@ -59,6 +60,7 @@ export function StudentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [editStudent, setEditStudent] = useState<StudentRow | null>(null);
+  const [actionStudent, setActionStudent] = useState<StudentRow | null>(null);
   const [groups, setGroups] = useState<EducationalGroupRow[]>([]);
   const hasApi = Boolean(getApiToken());
 
@@ -104,47 +106,6 @@ export function StudentsPage() {
     const t = setTimeout(() => load(q), 300);
     return () => clearTimeout(t);
   }, [q, load]);
-
-  async function toggleSuspend(student: StudentRow) {
-    const suspended = student.account_status === "suspended";
-    const next = suspended ? "active" : "suspended";
-    const label = suspended ? "تنشيط" : "تعليق";
-    if (
-      !confirm(
-        `${label} الطالب «${student.full_name_ar}»؟`,
-      )
-    ) {
-      return;
-    }
-    try {
-      await api.studentsPatch(student.id, { account_status: next });
-      setItems((prev) =>
-        prev.map((x) =>
-          x.id === student.id ? { ...x, account_status: next } : x,
-        ),
-      );
-      toast.success(suspended ? "تم تنشيط الطالب" : "تم تعليق الطالب");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "فشل تحديث الحالة");
-    }
-  }
-
-  async function removeStudent(student: StudentRow) {
-    if (
-      !confirm(
-        `حذف الطالب «${student.full_name_ar}» نهائياً مع سجلاته المرتبطة؟`,
-      )
-    ) {
-      return;
-    }
-    try {
-      await api.studentsDelete(student.id);
-      setItems((prev) => prev.filter((x) => x.id !== student.id));
-      toast.success("تم الحذف");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "فشل الحذف");
-    }
-  }
 
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto">
@@ -252,13 +213,8 @@ export function StudentsPage() {
                           onClick={() => setEditStudent(s)}
                         />
                         <TableIconAction
-                          kind="suspend"
-                          label={suspended ? "تنشيط ⏸️" : "تعليق ⏸️"}
-                          onClick={() => void toggleSuspend(s)}
-                        />
-                        <TableIconAction
-                          kind="delete"
-                          onClick={() => void removeStudent(s)}
+                          kind="more"
+                          onClick={() => setActionStudent(s)}
                         />
                       </TableActionsCell>
                     </TableRow>
@@ -290,6 +246,37 @@ export function StudentsPage() {
           void load(q);
         }}
       />
+
+      {actionStudent && (
+        <AdminEntityActionModal
+          open
+          onOpenChange={(o) => {
+            if (!o) setActionStudent(null);
+          }}
+          entityTitle="الطالب"
+          entityName={actionStudent.full_name_ar}
+          isActive={actionStudent.account_status !== "suspended"}
+          activeLabel="نشط"
+          suspendedLabel="معلّق"
+          onToggleActive={async () => {
+            const suspended = actionStudent.account_status === "suspended";
+            const next = suspended ? "active" : "suspended";
+            await api.studentsPatch(actionStudent.id, { account_status: next });
+            setItems((prev) =>
+              prev.map((x) =>
+                x.id === actionStudent.id ? { ...x, account_status: next } : x,
+              ),
+            );
+            toast.success(suspended ? "تم تنشيط الطالب" : "تم تعليق الطالب");
+          }}
+          onDelete={async () => {
+            await api.studentsDelete(actionStudent.id);
+            setItems((prev) => prev.filter((x) => x.id !== actionStudent.id));
+            toast.success("تم الحذف");
+          }}
+          deleteHint="يُحذف الطالب مع سجلاته المرتبطة ولا يمكن التراجع."
+        />
+      )}
 
       {editStudent && (
         <StudentEditDialog

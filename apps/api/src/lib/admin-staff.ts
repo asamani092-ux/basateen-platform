@@ -2,9 +2,15 @@
  * Unified staff roster — schema from 023_rebuild_v25.sql (+ legacy role column).
  */
 import type { Env } from "../types";
+import { hashPassword } from "./password";
 import { hasTable, tableHasColumn } from "./db-schema";
 import { usersHaveRoleColumn } from "./db-user";
-import { usesV25FlatStaffSchema, V25_CIRCLE_STAGE_TO_ID_SQL } from "./schema-v25";
+import {
+  usesV25FlatStaffSchema,
+  v25TeacherFlags,
+  v25TrackSupervisorFlags,
+  V25_CIRCLE_STAGE_TO_ID_SQL,
+} from "./schema-v25";
 
 export type StaffListRow = {
   id: number;
@@ -20,6 +26,66 @@ export type StaffListRow = {
 };
 
 const SOVEREIGN_USER_ID = 1;
+const DEFAULT_PASSWORD = "Basateen123!";
+
+function emailForMobile(mobile: string, role: string): string {
+  const clean = mobile.replace(/\D/g, "");
+  return `${role}-${clean}@basateen.local`;
+}
+
+/** إدراج معلم أو مشرف مسار — يدعم عمود role أو أعلام v25 */
+export async function insertStaffUser(
+  env: Env,
+  complexId: number,
+  body: {
+    full_name_ar: string;
+    mobile: string;
+    role: "teacher" | "track_supervisor";
+  },
+): Promise<number> {
+  const passwordHash = await hashPassword(DEFAULT_PASSWORD);
+  const hasRoleCol = await usersHaveRoleColumn(env);
+  const cols = ["complex_id", "email", "mobile", "password_hash", "full_name_ar"];
+  const vals: (string | number)[] = [
+    complexId,
+    emailForMobile(body.mobile, body.role),
+    body.mobile,
+    passwordHash,
+    body.full_name_ar,
+  ];
+
+  if (hasRoleCol) {
+    cols.push("role");
+    vals.push(body.role);
+  } else if (await usesV25FlatStaffSchema(env)) {
+    const flags =
+      body.role === "track_supervisor"
+        ? v25TrackSupervisorFlags()
+        : v25TeacherFlags();
+    for (const [flag, value] of Object.entries(flags)) {
+      if (await tableHasColumn(env, "users", flag)) {
+        cols.push(flag);
+        vals.push(value);
+      }
+    }
+  } else if (await tableHasColumn(env, "users", "is_teacher")) {
+    cols.push("is_teacher");
+    vals.push(body.role === "teacher" ? 1 : 0);
+    if (await tableHasColumn(env, "users", "is_track_supervisor")) {
+      cols.push("is_track_supervisor");
+      vals.push(body.role === "track_supervisor" ? 1 : 0);
+    }
+  }
+
+  const placeholders = cols.map(() => "?").join(", ");
+  const ins = await env.DB.prepare(
+    `INSERT INTO users (${cols.join(", ")}) VALUES (${placeholders})`,
+  )
+    .bind(...vals)
+    .run();
+
+  return Number(ins.meta.last_row_id);
+}
 
 export function staffListSqlV25(): string {
   return `SELECT u.id, u.full_name_ar, u.mobile, u.is_active,
@@ -118,46 +184,28 @@ async function clearStaffUserRelations(
   return stmts;
 }
 
-/** Detach circles/tracks before DELETE (v25: NOT NULL → reassign to sovereign id=1). */
+/** فك ارتباط الحلقات/المسارات قبل الحذف (teacher_id / supervisor_id → NULL). */
 async function detachStaffStructureStatements(
   env: Env,
   userId: number,
   complexId: number,
 ): Promise<D1PreparedStatement[]> {
   const stmts: D1PreparedStatement[] = [];
-  const v25 = await usesV25FlatStaffSchema(env);
-  const fallbackId = SOVEREIGN_USER_ID;
 
   if (await tableHasColumn(env, "circles", "teacher_id")) {
-    if (v25 && userId !== fallbackId) {
-      stmts.push(
-        env.DB.prepare(
-          `UPDATE circles SET teacher_id = ? WHERE teacher_id = ? AND complex_id = ?`,
-        ).bind(fallbackId, userId, complexId),
-      );
-    } else {
-      stmts.push(
-        env.DB.prepare(
-          `UPDATE circles SET teacher_id = NULL WHERE teacher_id = ? AND complex_id = ?`,
-        ).bind(userId, complexId),
-      );
-    }
+    stmts.push(
+      env.DB.prepare(
+        `UPDATE circles SET teacher_id = NULL WHERE teacher_id = ? AND complex_id = ?`,
+      ).bind(userId, complexId),
+    );
   }
 
   if (await tableHasColumn(env, "tracks", "supervisor_id")) {
-    if (v25 && userId !== fallbackId) {
-      stmts.push(
-        env.DB.prepare(
-          `UPDATE tracks SET supervisor_id = ? WHERE supervisor_id = ? AND complex_id = ?`,
-        ).bind(fallbackId, userId, complexId),
-      );
-    } else {
-      stmts.push(
-        env.DB.prepare(
-          `UPDATE tracks SET supervisor_id = NULL WHERE supervisor_id = ? AND complex_id = ?`,
-        ).bind(userId, complexId),
-      );
-    }
+    stmts.push(
+      env.DB.prepare(
+        `UPDATE tracks SET supervisor_id = NULL WHERE supervisor_id = ? AND complex_id = ?`,
+      ).bind(userId, complexId),
+    );
   }
 
   return stmts;

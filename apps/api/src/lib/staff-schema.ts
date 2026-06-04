@@ -1,0 +1,43 @@
+import { z } from "zod";
+import { parsePositiveIntField } from "./students-schema";
+
+const optionalLinkId = z.preprocess(
+  (v) => parsePositiveIntField(v),
+  z.number().int().positive().nullable().optional(),
+);
+
+/** إنشاء معلم / مشرف مسار — الارتباط بالحلقة/المسار اختياري */
+export const staffTeacherCreateSchema = z.object({
+  full_name_ar: z
+    .union([z.string(), z.number()])
+    .transform((v) => String(v).trim())
+    .refine((s) => s.length > 0, { message: "name_required" }),
+  mobile: z
+    .union([z.string(), z.number()])
+    .transform((v) => String(v).trim())
+    .refine((s) => s.length > 0, { message: "mobile_required" }),
+  role: z.enum(["teacher", "track_supervisor"]).optional().default("teacher"),
+  circle_id: optionalLinkId,
+  track_id: optionalLinkId,
+});
+
+/** إنشاء حلقة — المعلم إلزامي */
+export const circleCreateSchema = z.object({
+  name_ar: z
+    .union([z.string(), z.number()])
+    .transform((v) => String(v).trim())
+    .refine((s) => s.length > 0, { message: "name_required" }),
+  stage_id: z.coerce.number().int().min(1).max(4),
+  default_capacity: z.coerce.number().int().min(1),
+  teacher_user_id: optionalLinkId,
+  new_teacher: z
+    .object({
+      full_name_ar: z.string().trim().min(1),
+      mobile: z.string().trim().min(1),
+    })
+    .optional(),
+  track_id: optionalLinkId,
+});
+
+export type StaffTeacherCreateInput = z.infer<typeof staffTeacherCreateSchema>;
+export type CircleCreateInput = z.infer<typeof circleCreateSchema>;

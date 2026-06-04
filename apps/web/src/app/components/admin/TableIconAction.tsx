@@ -16,6 +16,7 @@ import {
   XCircle,
   ArrowLeftRight,
   Link2,
+  MoreHorizontal,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import {
@@ -110,6 +111,11 @@ const ACTION_STYLES: Record<
     Icon: MessageCircle,
     label: "إرسال واتساب",
     className: "text-primary hover:bg-primary/10",
+  },
+  more: {
+    Icon: MoreHorizontal,
+    label: "إجراءات",
+    className: "text-muted-foreground hover:text-foreground hover:bg-muted",
   },
 };
 

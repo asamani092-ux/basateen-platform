@@ -1,7 +1,5 @@
 -- 035: role column on v25 flat users + nullable circle/track assignees
--- Idempotent where possible; safe to re-run role backfill.
-
-PRAGMA foreign_keys = OFF;
+-- Uses RENAME swap (no DROP on circles/tracks) so FKs stay valid in D1 console.
 
 -- Legacy role column (v25 flat matrix had flags only)
 ALTER TABLE users ADD COLUMN role TEXT;
@@ -17,8 +15,10 @@ SET role = CASE
 END
 WHERE role IS NULL;
 
--- Rebuild circles so teacher_id may be NULL (orphan-safe deletes)
-CREATE TABLE IF NOT EXISTS circles_m035 (
+-- Reset staging from a previous partial run (safe: nothing references circles_m035)
+DROP TABLE IF EXISTS circles_m035;
+
+CREATE TABLE circles_m035 (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   complex_id INTEGER NOT NULL DEFAULT 1,
   name_ar TEXT NOT NULL,
@@ -35,7 +35,6 @@ CREATE TABLE IF NOT EXISTS circles_m035 (
   FOREIGN KEY (complex_id) REFERENCES complexes(id)
 );
 
--- v2.5 baseline (023): circles.stage TEXT is present
 INSERT INTO circles_m035 (
   id,
   complex_id,
@@ -57,10 +56,11 @@ SELECT
   c.created_at
 FROM circles c;
 
-DROP TABLE IF EXISTS circles;
+-- Swap: SQLite updates FK references to the new "circles" name (no DROP)
+DROP TABLE IF EXISTS circles_legacy_035;
+ALTER TABLE circles RENAME TO circles_legacy_035;
 ALTER TABLE circles_m035 RENAME TO circles;
 
--- Restore legacy denormalized columns (011 / GM) if missing after rebuild
 ALTER TABLE circles ADD COLUMN stage_id INTEGER NOT NULL DEFAULT 2;
 ALTER TABLE circles ADD COLUMN default_capacity INTEGER;
 ALTER TABLE circles ADD COLUMN track_id INTEGER;
@@ -77,8 +77,12 @@ WHERE stage_id IS NULL OR stage_id = 2;
 
 UPDATE circles SET default_capacity = capacity WHERE default_capacity IS NULL;
 
--- Rebuild tracks so supervisor_id may be NULL
-CREATE TABLE IF NOT EXISTS tracks_m035 (
+DROP TABLE IF EXISTS circles_legacy_035;
+
+-- Tracks: nullable supervisor_id (same RENAME pattern)
+DROP TABLE IF EXISTS tracks_m035;
+
+CREATE TABLE tracks_m035 (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   complex_id INTEGER NOT NULL DEFAULT 1,
   name_ar TEXT NOT NULL,
@@ -109,7 +113,8 @@ SELECT
   t.created_at
 FROM tracks t;
 
-DROP TABLE IF EXISTS tracks;
+DROP TABLE IF EXISTS tracks_legacy_035;
+ALTER TABLE tracks RENAME TO tracks_legacy_035;
 ALTER TABLE tracks_m035 RENAME TO tracks;
 
-PRAGMA foreign_keys = ON;
+DROP TABLE IF EXISTS tracks_legacy_035;

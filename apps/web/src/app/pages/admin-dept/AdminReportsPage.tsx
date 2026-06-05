@@ -213,7 +213,7 @@ export function AdminReportsPage() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [refreshAll]);
 
-  useAdminDataSync(["students", "groups", "staff"], refreshAll);
+  useAdminDataSync(["students", "groups", "staff", "dashboard"], refreshAll);
 
   async function loadIndividualReport() {
     const personId = beneficiaryType === "student" ? studentId : staffId;

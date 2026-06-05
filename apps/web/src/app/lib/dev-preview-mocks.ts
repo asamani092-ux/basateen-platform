@@ -216,12 +216,19 @@ export function resolveDevPreviewMock<T>(
   }
 
   if (p === "/api/admin-dept/staff" && m === "GET") {
-    const items = MOCK_STAFF.map((r) => ({
-      user_id: r.user_id,
-      full_name_ar: r.full_name_ar,
-      role: r.role,
-      status: previewStore.getStaffStatus(r.user_id, date, r.status),
-    }));
+    const items = MOCK_STAFF.map((r) => {
+      const meta = previewStore.getStaffAttendanceMeta(r.user_id, date);
+      return {
+        user_id: r.user_id,
+        full_name_ar: r.full_name_ar,
+        role: r.role,
+        attendance_id: meta.attendance_id,
+        has_record: meta.has_record,
+        status: meta.has_record
+          ? previewStore.getStaffStatus(r.user_id, date, r.status)
+          : "present",
+      };
+    });
     return { date, items, default_status: "present" } as T;
   }
 
@@ -259,16 +266,48 @@ export function resolveDevPreviewMock<T>(
     return { ok: true, attendance_date: d, saved: body.records?.length ?? 0 } as T;
   }
 
+  const trackAtt = p.match(/^\/api\/admin-dept\/students\/attendance\/track\/(\d+)$/);
+  if (trackAtt && m === "GET") {
+    const trackId = Number(trackAtt[1]);
+    const items = previewStore.getStudents().map((s) => {
+      const meta = previewStore.getStudentAttendanceMeta(s.id, date);
+      return {
+        student_id: s.id,
+        full_name_ar: s.full_name_ar,
+        attendance_id: meta.attendance_id,
+        has_record: meta.has_record,
+        status: meta.has_record
+          ? previewStore.getStudentStatus(s.id, date, "present")
+          : "present",
+      };
+    });
+    return {
+      attendance_date: date,
+      entity_type: "track",
+      track: { id: trackId, name_ar: `مسار ${trackId}` },
+      items,
+      default_status: "present",
+    } as T;
+  }
+
   const circleAtt = p.match(/^\/api\/admin-dept\/students\/attendance\/(\d+)$/);
   if (circleAtt && m === "GET") {
     const circleId = Number(circleAtt[1]);
-    const items = previewStore.getStudents().map((s) => ({
-      student_id: s.id,
-      full_name_ar: s.full_name_ar,
-      status: previewStore.getStudentStatus(s.id, date, "present"),
-    }));
+    const items = previewStore.getStudents().map((s) => {
+      const meta = previewStore.getStudentAttendanceMeta(s.id, date);
+      return {
+        student_id: s.id,
+        full_name_ar: s.full_name_ar,
+        attendance_id: meta.attendance_id,
+        has_record: meta.has_record,
+        status: meta.has_record
+          ? previewStore.getStudentStatus(s.id, date, "present")
+          : "present",
+      };
+    });
     return {
       attendance_date: date,
+      entity_type: "circle",
       circle: { id: circleId, name_ar: `حلقة ${circleId}`, stage: "primary" },
       items,
       default_status: "present",
@@ -1684,6 +1723,72 @@ export function resolveDevPreviewMock<T>(
       metrics,
       score,
     ) as T;
+  }
+
+  if (p === "/api/admin/tracks" && m === "GET") {
+    return { items: PREVIEW_TRACKS } as T;
+  }
+
+  if (p === "/api/admin/attendance" && m === "POST") {
+    const body = bodyText ? JSON.parse(bodyText) : {};
+    const d = body.attendance_date ?? date;
+    const personId = Number(body.person_id);
+    const status = String(body.status ?? "present");
+    const beneficiaryType = body.beneficiary_type === "staff" ? "staff" : "student";
+    if (beneficiaryType === "staff") {
+      previewStore.setStaffStatus(personId, d, status);
+      const meta = previewStore.getStaffAttendanceMeta(personId, d);
+      return { ok: true, attendance_id: meta.attendance_id, attendance_date: d } as T;
+    }
+    previewStore.setStudentStatus(personId, d, status);
+    const meta = previewStore.getStudentAttendanceMeta(personId, d);
+    return { ok: true, attendance_id: meta.attendance_id, attendance_date: d } as T;
+  }
+
+  if (p === "/api/admin/attendance/bulk" && m === "DELETE") {
+    const body = bodyText ? JSON.parse(bodyText) : {};
+    const d = body.attendance_date ?? date;
+    const beneficiaryType = body.beneficiary_type === "staff" ? "staff" : "student";
+    const deleted =
+      beneficiaryType === "staff"
+        ? previewStore.clearStaffAttendanceDay(d)
+        : previewStore.clearStudentAttendanceDay(d);
+    return { ok: true, deleted, attendance_date: d } as T;
+  }
+
+  const attById = p.match(/^\/api\/admin\/attendance\/(\d+)$/);
+  if (attById) {
+    const attId = Number(attById[1]);
+    if (m === "PATCH") {
+      const body = bodyText ? JSON.parse(bodyText) : {};
+      const status = String(body.status ?? "present");
+      const beneficiaryType = body.beneficiary_type === "staff" ? "staff" : "student";
+      if (beneficiaryType === "staff") {
+        const ref = previewStore.findStaffAttendanceById(attId);
+        if (ref) previewStore.setStaffStatus(ref.userId, ref.date, status);
+      } else {
+        const ref = previewStore.findStudentAttendanceById(attId);
+        if (ref) previewStore.setStudentStatus(ref.studentId, ref.date, status);
+      }
+      return { ok: true, id: attId, status } as T;
+    }
+    if (m === "DELETE") {
+      const beneficiaryType =
+        url.searchParams.get("beneficiary_type") === "staff" ? "staff" : "student";
+      let deleted = 0;
+      if (beneficiaryType === "staff") {
+        const ref = previewStore.findStaffAttendanceById(attId);
+        if (ref && previewStore.deleteStaffAttendance(ref.userId, ref.date)) {
+          deleted = 1;
+        }
+      } else {
+        const ref = previewStore.findStudentAttendanceById(attId);
+        if (ref && previewStore.deleteStudentAttendance(ref.studentId, ref.date)) {
+          deleted = 1;
+        }
+      }
+      return { ok: true, deleted } as T;
+    }
   }
 
   if (p.startsWith("/api/admin/")) {

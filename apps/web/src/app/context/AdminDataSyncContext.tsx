@@ -10,11 +10,16 @@ import {
 } from "react";
 
 /** نطاقات بيانات القسم الإداري — Time O(1) لكل invalidate؛ Space O(k) حيث k عدد النطاقات */
-export type AdminDataDomain = "students" | "groups" | "staff";
+export type AdminDataDomain = "students" | "groups" | "staff" | "dashboard";
 
 type Versions = Record<AdminDataDomain, number>;
 
-const INITIAL: Versions = { students: 0, groups: 0, staff: 0 };
+const INITIAL: Versions = {
+  students: 0,
+  groups: 0,
+  staff: 0,
+  dashboard: 0,
+};
 
 type AdminDataSyncContextValue = {
   versions: Versions;

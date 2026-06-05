@@ -885,12 +885,52 @@ export const api = {
         user_id: number;
         full_name_ar: string;
         role: string | null;
+        attendance_id: number | null;
+        has_record: boolean;
         status: string;
         recorded_at?: string | null;
       }>;
       default_status: string;
     }>(`/api/admin-dept/staff${qs}`);
   },
+  adminPatchAttendance: (
+    id: number,
+    body: { beneficiary_type: "student" | "staff"; status: string },
+  ) =>
+    request<{ ok: boolean; id: number; status: string }>(
+      `/api/admin/attendance/${id}`,
+      { method: "PATCH", body: JSON.stringify(body) },
+    ),
+  adminUpsertAttendance: (body: {
+    beneficiary_type: "student" | "staff";
+    person_id: number;
+    attendance_date: string;
+    status: string;
+    circle_id?: number;
+    track_id?: number;
+  }) =>
+    request<{ ok: boolean; attendance_id: number; attendance_date: string }>(
+      "/api/admin/attendance",
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  adminDeleteAttendance: (
+    id: number,
+    beneficiaryType: "student" | "staff",
+  ) =>
+    request<{ ok: boolean; deleted: number }>(
+      `/api/admin/attendance/${id}?beneficiary_type=${beneficiaryType}`,
+      { method: "DELETE" },
+    ),
+  adminBulkDeleteAttendance: (body: {
+    beneficiary_type: "student" | "staff";
+    attendance_date: string;
+    circle_id?: number;
+    track_id?: number;
+  }) =>
+    request<{ ok: boolean; deleted: number; attendance_date: string }>(
+      "/api/admin/attendance/bulk",
+      { method: "DELETE", body: JSON.stringify(body) },
+    ),
   adminDeptSaveStaffAttendance: (body: {
     attendance_date?: string;
     records: Array<{ user_id: number; status: string }>;
@@ -925,6 +965,8 @@ export const api = {
         student_id: number;
         full_name_ar: string;
         stage_id?: number | null;
+        attendance_id?: number | null;
+        has_record?: boolean;
         status: string;
         recorded_at?: string | null;
         source?: string | null;
@@ -942,6 +984,8 @@ export const api = {
         student_id: number;
         full_name_ar: string;
         stage_id?: number | null;
+        attendance_id?: number | null;
+        has_record?: boolean;
         status: string;
         recorded_at?: string | null;
         source?: string | null;

@@ -39,6 +39,13 @@ import {
   parseAttendanceEntity,
   studentBelongsToEntity,
 } from "../lib/admin-attendance-entities";
+import {
+  bulkClearAttendanceDay,
+  deleteAttendanceById,
+  parseBeneficiaryType,
+  patchAttendanceById,
+  upsertAttendanceRecord,
+} from "../lib/admin-attendance-mutations";
 import { fetchAdminDashboardStats } from "../lib/admin-dashboard-stats";
 import { assignStudentCircle } from "../lib/placement";
 import {
@@ -97,6 +104,8 @@ async function staffListSql(env: Env): Promise<{ sql: string; flat: boolean }> {
   return {
     flat: !hasRole,
     sql: `SELECT u.id AS user_id, u.full_name_ar, ${roleExpr},
+                 sa.id AS attendance_id,
+                 CASE WHEN sa.id IS NOT NULL THEN 1 ELSE 0 END AS has_record,
                  sa.status AS saved_status, sa.recorded_at
           FROM users u
           LEFT JOIN staff_attendance sa
@@ -198,7 +207,13 @@ export async function handleAdminDeptRouter(
   const isAdminDeptPath = path.startsWith("/api/admin-dept/");
   const isStaffReportAlias = path === "/api/admin/staff/attendance";
   const isDashboardStatsAlias = path === "/api/admin/dashboard-stats";
-  if (!isAdminDeptPath && !isStaffReportAlias && !isDashboardStatsAlias) {
+  const isAttendanceAlias = path.startsWith("/api/admin/attendance");
+  if (
+    !isAdminDeptPath &&
+    !isStaffReportAlias &&
+    !isDashboardStatsAlias &&
+    !isAttendanceAlias
+  ) {
     return null;
   }
 
@@ -240,6 +255,8 @@ async function handleAdminDeptRouterImpl(
         user_id: number;
         full_name_ar: string;
         role?: string;
+        attendance_id: number | null;
+        has_record: number;
         saved_status: string | null;
         recorded_at: string | null;
       }>();
@@ -251,6 +268,8 @@ async function handleAdminDeptRouterImpl(
         typeof r.role === "string" && r.role.trim().length > 0
           ? r.role.trim()
           : null,
+      attendance_id: r.attendance_id ?? null,
+      has_record: Number(r.has_record ?? 0) === 1,
       status: r.saved_status ?? "present",
       recorded_at: r.recorded_at,
     }));
@@ -918,6 +937,138 @@ async function handleAdminDeptRouterImpl(
       threshold_reached: pledgeCount >= maxPledges,
       stage_labels: STAGE_LABELS,
     });
+  }
+
+  // POST /api/admin/attendance — upsert سجل واحد (إنشاء أو تحديث بدون معرّف)
+  if (
+    request.method === "POST" &&
+    (path === "/api/admin/attendance" || path === "/api/admin-dept/attendance")
+  ) {
+    let body: {
+      beneficiary_type?: string;
+      person_id?: number;
+      attendance_date?: string;
+      status?: string;
+      circle_id?: number;
+      track_id?: number;
+    };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+    const beneficiaryType = parseBeneficiaryType(body.beneficiary_type);
+    const status = parseStatus(body.status);
+    if (!beneficiaryType) {
+      return json({ error: "invalid_beneficiary_type" }, 400);
+    }
+    if (!status) return json({ error: "invalid_status" }, 400);
+    const date = body.attendance_date?.trim() || todayIso();
+    const result = await upsertAttendanceRecord(env, admin.complexId, admin.userId, {
+      beneficiary_type: beneficiaryType,
+      person_id: Number(body.person_id),
+      attendance_date: date,
+      status,
+      circle_id: body.circle_id,
+      track_id: body.track_id,
+    });
+    if ("error" in result) {
+      const code = result.error === "not_found" ? 404 : 400;
+      return json(result, code);
+    }
+    return json({ ok: true, attendance_id: result.attendance_id, attendance_date: date });
+  }
+
+  // PATCH /api/admin/attendance/:id
+  const attPatch = path.match(/^\/api\/admin(?:-dept)?\/attendance\/(\d+)$/);
+  if (request.method === "PATCH" && attPatch) {
+    let body: { beneficiary_type?: string; status?: string };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+    const beneficiaryType = parseBeneficiaryType(body.beneficiary_type);
+    const status = parseStatus(body.status);
+    const attendanceId = Number(attPatch[1]);
+    if (!beneficiaryType) {
+      return json({ error: "invalid_beneficiary_type" }, 400);
+    }
+    if (!status) return json({ error: "invalid_status" }, 400);
+    if (!Number.isFinite(attendanceId)) {
+      return json({ error: "invalid_id" }, 400);
+    }
+    const result = await patchAttendanceById(
+      env,
+      admin.complexId,
+      attendanceId,
+      beneficiaryType,
+      status,
+      admin.userId,
+    );
+    if ("error" in result) {
+      return json(result, result.error === "not_found" ? 404 : 400);
+    }
+    return json({ ok: true, id: result.id, status });
+  }
+
+  // DELETE /api/admin/attendance/:id
+  const attDelete = path.match(/^\/api\/admin(?:-dept)?\/attendance\/(\d+)$/);
+  if (request.method === "DELETE" && attDelete) {
+    const beneficiaryType = parseBeneficiaryType(
+      url.searchParams.get("beneficiary_type"),
+    );
+    const attendanceId = Number(attDelete[1]);
+    if (!beneficiaryType) {
+      return json({ error: "beneficiary_type_required" }, 400);
+    }
+    if (!Number.isFinite(attendanceId)) {
+      return json({ error: "invalid_id" }, 400);
+    }
+    const result = await deleteAttendanceById(
+      env,
+      admin.complexId,
+      attendanceId,
+      beneficiaryType,
+    );
+    if ("error" in result) {
+      return json(result, 400);
+    }
+    return json({ ok: true, deleted: result.deleted });
+  }
+
+  // DELETE /api/admin/attendance/bulk — إلغاء تحضير يوم كامل
+  if (
+    request.method === "DELETE" &&
+    (path === "/api/admin/attendance/bulk" ||
+      path === "/api/admin-dept/attendance/bulk")
+  ) {
+    let body: {
+      beneficiary_type?: string;
+      attendance_date?: string;
+      circle_id?: number;
+      track_id?: number;
+    };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+    const beneficiaryType = parseBeneficiaryType(body.beneficiary_type);
+    if (!beneficiaryType) {
+      return json({ error: "invalid_beneficiary_type" }, 400);
+    }
+    const date = body.attendance_date?.trim() || todayIso();
+    const result = await bulkClearAttendanceDay(env, admin.complexId, {
+      beneficiary_type: beneficiaryType,
+      attendance_date: date,
+      circle_id: body.circle_id,
+      track_id: body.track_id,
+    });
+    if ("error" in result) {
+      return json(result, 400);
+    }
+    return json({ ok: true, deleted: result.deleted, attendance_date: date });
   }
 
   // GET /api/admin-dept/dashboard-stats | GET /api/admin/dashboard-stats

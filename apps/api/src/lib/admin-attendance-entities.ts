@@ -49,6 +49,8 @@ export async function loadStudentsForEntityAttendance(
   const rows = await env.DB.prepare(
     `SELECT s.id AS student_id, s.full_name_ar,
             COALESCE(s.stage_id, 0) AS stage_id,
+            sa.id AS attendance_id,
+            CASE WHEN sa.id IS NOT NULL THEN 1 ELSE 0 END AS has_record,
             COALESCE(sa.status, 'present') AS status,
             sa.recorded_at${attSourceCol}
      FROM students s

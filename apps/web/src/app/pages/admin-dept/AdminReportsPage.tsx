@@ -59,10 +59,11 @@ type DashboardStats = {
     students_with_pledges: number;
   } | null;
   attendance: {
-    student_records_this_month: number;
-    staff_records_this_month: number;
-    month_start: string;
-    month_end: string;
+    date: string;
+    students_marked_today: number;
+    students_present_today: number;
+    staff_marked_today: number;
+    staff_present_today: number;
   };
 };
 
@@ -87,10 +88,11 @@ const emptyDashboard: DashboardStats = {
   staff: { total: 0, by_role: {} },
   pledges: null,
   attendance: {
-    student_records_this_month: 0,
-    staff_records_this_month: 0,
-    month_start: "",
-    month_end: "",
+    date: "",
+    students_marked_today: 0,
+    students_present_today: 0,
+    staff_marked_today: 0,
+    staff_present_today: 0,
   },
 };
 
@@ -332,9 +334,9 @@ export function AdminReportsPage() {
                 )}
                 <KpiCard
                   icon={<BarChart3 className="w-5 h-5 text-primary" />}
-                  label="سجلات الحضور (الشهر)"
-                  value={dashboard.attendance.student_records_this_month}
-                  sub={`طلاب — ${dashboard.attendance.staff_records_this_month} منسوبين`}
+                  label="تحضير اليوم (طلاب)"
+                  value={dashboard.attendance.students_present_today}
+                  sub={`${dashboard.attendance.students_marked_today} مسجّل — ${dashboard.attendance.staff_present_today} منسوب حاضر (${dashboard.attendance.staff_marked_today} مُحضَّر)`}
                 />
               </>
             )}

@@ -919,6 +919,7 @@ export const api = {
     const qs = date ? `?date=${encodeURIComponent(date)}` : "";
     return request<{
       attendance_date: string;
+      entity_type?: "circle";
       circle: { id: number; name_ar: string; stage: string } | null;
       items: Array<{
         student_id: number;
@@ -931,15 +932,40 @@ export const api = {
       default_status: string;
     }>(`/api/admin-dept/students/attendance/${circleId}${qs}`);
   },
+  adminDeptTrackAttendance: (trackId: number, date?: string) => {
+    const qs = date ? `?date=${encodeURIComponent(date)}` : "";
+    return request<{
+      attendance_date: string;
+      entity_type: "track";
+      track: { id: number; name_ar: string } | null;
+      items: Array<{
+        student_id: number;
+        full_name_ar: string;
+        stage_id?: number | null;
+        status: string;
+        recorded_at?: string | null;
+        source?: string | null;
+      }>;
+      default_status: string;
+    }>(`/api/admin-dept/students/attendance/track/${trackId}${qs}`);
+  },
   adminDeptSaveStudentAttendance: (body: {
-    circle_id: number;
+    circle_id?: number;
+    track_id?: number;
     attendance_date?: string;
     records: Array<{ student_id: number; status: string; notes?: string }>;
   }) =>
-    request<{ ok: boolean; attendance_date: string; circle_id: number; saved: number }>(
-      "/api/admin-dept/students/attendance",
-      { method: "POST", body: JSON.stringify(body) },
-    ),
+    request<{
+      ok: boolean;
+      attendance_date: string;
+      entity_type: "circle" | "track";
+      circle_id: number | null;
+      track_id: number | null;
+      saved: number;
+    }>("/api/admin-dept/students/attendance", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   adminDeptStudentsAttendanceReport: (
     start: string,
     end: string,
@@ -977,7 +1003,9 @@ export const api = {
     }>(`/api/admin-dept/students/absent-today${qs ? `?${qs}` : ""}`);
   },
   adminDeptCreateMagicLink: (body: {
-    circle_id: number;
+    circle_id?: number;
+    track_id?: number;
+    group_type?: "circle" | "track";
     attendance_date?: string;
     feature_name?: string;
   }) =>
@@ -1005,8 +1033,12 @@ export const api = {
       items: Array<{
         id: number;
         token: string;
+        group_type?: "circle" | "track";
+        group_id?: number | null;
         circle_id: number | null;
         circle_name: string | null;
+        track_id?: number | null;
+        track_name?: string | null;
         evergreen?: boolean;
         is_active: number;
         created_at: string;
@@ -1152,10 +1184,11 @@ export const api = {
         students_with_pledges: number;
       } | null;
       attendance: {
-        student_records_this_month: number;
-        staff_records_this_month: number;
-        month_start: string;
-        month_end: string;
+        date: string;
+        students_marked_today: number;
+        students_present_today: number;
+        staff_marked_today: number;
+        staff_present_today: number;
       };
     }>("/api/admin-dept/dashboard-stats"),
   adminDeptReports: (params?: {
@@ -1800,8 +1833,10 @@ export const api = {
   publicAttendanceGet: (token: string) =>
     request<{
       token: string;
+      entity_type: "circle" | "track";
       attendance_date: string;
-      circle: { id: number; name_ar: string; stage: string };
+      circle: { id: number; name_ar: string; stage?: string } | null;
+      track: { id: number; name_ar: string } | null;
       items: Array<{
         student_id: number;
         full_name_ar: string;

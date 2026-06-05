@@ -31,12 +31,17 @@ export type AdminDashboardStats = {
     students_with_pledges: number;
   } | null;
   attendance: {
-    student_records_this_month: number;
-    staff_records_this_month: number;
-    month_start: string;
-    month_end: string;
+    date: string;
+    students_marked_today: number;
+    students_present_today: number;
+    staff_marked_today: number;
+    staff_present_today: number;
   };
 };
+
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
 
 function currentMonthRange(): { start: string; end: string } {
   const now = new Date();
@@ -111,35 +116,61 @@ export async function fetchAdminDashboardStats(
   })();
 
   const attendanceP = (async () => {
+    const today = todayIso();
     const attTable = await resolveAttendanceTableName(env);
-    const studentRecordsP = attTable
+
+    const studentMarkedP = attTable
       ? env.DB.prepare(
-          `SELECT COUNT(*) AS c FROM ${attTable}
-           WHERE complex_id = ? AND attendance_date >= ? AND attendance_date <= ?`,
+          `SELECT COUNT(DISTINCT student_id) AS c FROM ${attTable}
+           WHERE complex_id = ? AND attendance_date = ?`,
         )
-          .bind(complexId, month.start, month.end)
+          .bind(complexId, today)
           .first<{ c: number }>()
       : Promise.resolve({ c: 0 } as { c: number });
 
-    const staffRecordsP =
+    const studentPresentP = attTable
+      ? env.DB.prepare(
+          `SELECT COUNT(DISTINCT student_id) AS c FROM ${attTable}
+           WHERE complex_id = ? AND attendance_date = ? AND status = 'present'`,
+        )
+          .bind(complexId, today)
+          .first<{ c: number }>()
+      : Promise.resolve({ c: 0 } as { c: number });
+
+    const staffMarkedP =
       (await hasTable(env, "staff_attendance"))
         ? env.DB.prepare(
             `SELECT COUNT(*) AS c FROM staff_attendance
-             WHERE complex_id = ? AND attendance_date >= ? AND attendance_date <= ?`,
+             WHERE complex_id = ? AND attendance_date = ?`,
           )
-            .bind(complexId, month.start, month.end)
+            .bind(complexId, today)
             .first<{ c: number }>()
         : Promise.resolve({ c: 0 } as { c: number });
 
-    const [studentRecords, staffRecords] = await Promise.all([
-      studentRecordsP,
-      staffRecordsP,
-    ]);
+    const staffPresentP =
+      (await hasTable(env, "staff_attendance"))
+        ? env.DB.prepare(
+            `SELECT COUNT(*) AS c FROM staff_attendance
+             WHERE complex_id = ? AND attendance_date = ? AND status = 'present'`,
+          )
+            .bind(complexId, today)
+            .first<{ c: number }>()
+        : Promise.resolve({ c: 0 } as { c: number });
+
+    const [studentMarked, studentPresent, staffMarked, staffPresent] =
+      await Promise.all([
+        studentMarkedP,
+        studentPresentP,
+        staffMarkedP,
+        staffPresentP,
+      ]);
+
     return {
-      student_records_this_month: Number(studentRecords?.c ?? 0),
-      staff_records_this_month: Number(staffRecords?.c ?? 0),
-      month_start: month.start,
-      month_end: month.end,
+      date: today,
+      students_marked_today: Number(studentMarked?.c ?? 0),
+      students_present_today: Number(studentPresent?.c ?? 0),
+      staff_marked_today: Number(staffMarked?.c ?? 0),
+      staff_present_today: Number(staffPresent?.c ?? 0),
     };
   })();
 

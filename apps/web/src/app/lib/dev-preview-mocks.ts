@@ -448,10 +448,11 @@ export function resolveDevPreviewMock<T>(
       staff: { total: 0, by_role: {} },
       pledges: { total: 0, this_month: 0, students_with_pledges: 0 },
       attendance: {
-        student_records_this_month: 0,
-        staff_records_this_month: 0,
-        month_start: monthStart.toISOString().slice(0, 10),
-        month_end: date,
+        date,
+        students_marked_today: 0,
+        students_present_today: 0,
+        staff_marked_today: 0,
+        staff_present_today: 0,
       },
     } as T;
   }

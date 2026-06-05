@@ -21,7 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "../../components/ui/table";
-import { api, type CircleOption } from "../../lib/api-client";
+import { api, type AdminTrackRow, type CircleOption } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { normalizeAttendanceStatus } from "../../lib/attendance-status";
 import { matchesArabicName } from "../../lib/attendance-search";
@@ -33,18 +33,22 @@ type StudentRow = {
   status: string;
 };
 
+type EntityType = "circle" | "track";
+
 /**
- * تحضير الطلاب اليومي — سلوك موحّد مع تحضير المنسوبين (اعتماد يدوي + تقرير طباعة).
+ * تحضير الطلاب اليومي — دعم مزدوج للحلقات والمسارات.
  */
 export function StudentDailyAttendancePage() {
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [entityType, setEntityType] = useState<EntityType>("circle");
   const [circles, setCircles] = useState<CircleOption[]>([]);
-  const [circleId, setCircleId] = useState<string>("");
-  const [circleName, setCircleName] = useState<string>("");
+  const [tracks, setTracks] = useState<AdminTrackRow[]>([]);
+  const [entityId, setEntityId] = useState<string>("");
+  const [entityName, setEntityName] = useState<string>("");
   const [attendanceData, setAttendanceData] = useState<StudentRow[]>([]);
   const [baseline, setBaseline] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(false);
-  const [loadingCircles, setLoadingCircles] = useState(true);
+  const [loadingGroups, setLoadingGroups] = useState(true);
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nameQuery, setNameQuery] = useState("");
@@ -56,26 +60,34 @@ export function StudentDailyAttendancePage() {
 
   useEffect(() => {
     if (!canUseApi()) {
-      setLoadingCircles(false);
+      setLoadingGroups(false);
       return;
     }
-    api
-      .circles()
-      .then((res) => setCircles(res.items ?? []))
-      .catch(() => setCircles([]))
-      .finally(() => setLoadingCircles(false));
+    Promise.all([api.circles(), api.adminTracks()])
+      .then(([cRes, tRes]) => {
+        setCircles(cRes.items ?? []);
+        setTracks(tRes.items ?? []);
+      })
+      .catch(() => {
+        setCircles([]);
+        setTracks([]);
+      })
+      .finally(() => setLoadingGroups(false));
   }, []);
 
   const loadStudents = useCallback(async () => {
-    const cid = Number(circleId);
-    if (!canUseApi() || !Number.isFinite(cid)) {
+    const id = Number(entityId);
+    if (!canUseApi() || !Number.isFinite(id)) {
       setAttendanceData([]);
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const res = await api.adminDeptStudentAttendance(cid, date);
+      const res =
+        entityType === "circle"
+          ? await api.adminDeptStudentAttendance(id, date)
+          : await api.adminDeptTrackAttendance(id, date);
       const items: StudentRow[] = (res.items ?? []).map((r) => ({
         student_id: r.student_id,
         full_name_ar: r.full_name_ar,
@@ -85,25 +97,37 @@ export function StudentDailyAttendancePage() {
       const base: Record<number, string> = {};
       for (const r of items) base[r.student_id] = r.status;
       setBaseline(base);
-      setCircleName(res.circle?.name_ar ?? "");
+      if (entityType === "circle" && "circle" in res) {
+        setEntityName(res.circle?.name_ar ?? "");
+      } else if ("track" in res) {
+        setEntityName(res.track?.name_ar ?? "");
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل تحميل الطلاب");
       setAttendanceData([]);
     } finally {
       setLoading(false);
     }
-  }, [circleId, date]);
+  }, [entityId, entityType, date]);
 
   useEffect(() => {
-    if (!circleId) {
+    if (!entityId) {
       setAttendanceData([]);
       setBaseline({});
-      setCircleName("");
+      setEntityName("");
       setError(null);
       return;
     }
     loadStudents();
-  }, [circleId, loadStudents]);
+  }, [entityId, loadStudents]);
+
+  function switchEntityType(next: EntityType) {
+    setEntityType(next);
+    setEntityId("");
+    setEntityName("");
+    setAttendanceData([]);
+    setBaseline({});
+  }
 
   function setStatus(studentId: number, status: string) {
     setAttendanceData((prev) =>
@@ -130,14 +154,16 @@ export function StudentDailyAttendancePage() {
   );
 
   async function commit() {
-    const cid = Number(circleId);
-    if (!Number.isFinite(cid) || attendanceData.length === 0) return;
+    const id = Number(entityId);
+    if (!Number.isFinite(id) || attendanceData.length === 0) return;
 
     setCommitting(true);
     setError(null);
     try {
       await api.adminDeptSaveStudentAttendance({
-        circle_id: cid,
+        ...(entityType === "circle"
+          ? { circle_id: id }
+          : { track_id: id }),
         attendance_date: date,
         records: attendanceData.map((r) => ({
           student_id: r.student_id,
@@ -154,7 +180,14 @@ export function StudentDailyAttendancePage() {
     }
   }
 
-  const selectedCircle = circles.find((c) => String(c.id) === circleId);
+  const selectedCircle =
+    entityType === "circle"
+      ? circles.find((c) => String(c.id) === entityId)
+      : undefined;
+  const selectedTrack =
+    entityType === "track"
+      ? tracks.find((t) => String(t.id) === entityId)
+      : undefined;
 
   return (
     <div className="space-y-4 max-w-[1600px] print:hidden">
@@ -164,8 +197,8 @@ export function StudentDailyAttendancePage() {
             تحضير الطلاب
           </h2>
           <p className={ds.page.description} style={tajawal}>
-            اختر الحلقة وسجّل الحضور — الحالة الافتراضية «حاضر» في الواجهة فقط حتى
-            تضغط «اعتماد حفظ التحضير». الروابط السحرية تعرض يوم اليوم تلقائياً.
+            اختر حلقة أو مساراً وسجّل الحضور — الحالة الافتراضية «حاضر» في الواجهة
+            فقط حتى تضغط «اعتماد حفظ التحضير».
           </p>
         </div>
         <Button
@@ -182,8 +215,17 @@ export function StudentDailyAttendancePage() {
       <AttendanceMagicLinksModal
         open={linksModalOpen}
         onOpenChange={setLinksModalOpen}
-        defaultCircleId={Number(circleId) || undefined}
-        defaultCircleName={selectedCircle?.name_ar ?? circleName}
+        defaultEntityType={entityType}
+        defaultCircleId={
+          entityType === "circle" ? Number(entityId) || undefined : undefined
+        }
+        defaultCircleName={selectedCircle?.name_ar ?? entityName}
+        defaultTrackId={
+          entityType === "track" ? Number(entityId) || undefined : undefined
+        }
+        defaultTrackName={selectedTrack?.name_ar ?? entityName}
+        circles={circles}
+        tracks={tracks}
       />
 
       {error && (
@@ -193,34 +235,71 @@ export function StudentDailyAttendancePage() {
       )}
 
       <div className={`${ds.card} p-4 space-y-4`}>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant={entityType === "circle" ? "default" : "outline"}
+            className={ds.btnRound}
+            onClick={() => switchEntityType("circle")}
+            style={tajawal}
+          >
+            تحضير الحلقات
+          </Button>
+          <Button
+            type="button"
+            variant={entityType === "track" ? "default" : "outline"}
+            className={ds.btnRound}
+            onClick={() => switchEntityType("track")}
+            style={tajawal}
+          >
+            تحضير المسارات
+          </Button>
+        </div>
+
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="space-y-2 sm:col-span-2">
-            <Label style={tajawal}>الحلقة</Label>
+            <Label style={tajawal}>
+              {entityType === "circle" ? "الحلقة" : "المسار"}
+            </Label>
             <Select
-              value={circleId}
-              onValueChange={setCircleId}
-              disabled={loadingCircles}
+              value={entityId}
+              onValueChange={setEntityId}
+              disabled={loadingGroups}
             >
               <SelectTrigger className={ds.btnRound}>
                 <SelectValue
-                  placeholder={loadingCircles ? "جاري التحميل…" : "اختر الحلقة"}
+                  placeholder={
+                    loadingGroups
+                      ? "جاري التحميل…"
+                      : entityType === "circle"
+                        ? "اختر الحلقة"
+                        : "اختر المسار"
+                  }
                 />
               </SelectTrigger>
               <SelectContent>
-                {circles.map((c) => (
-                  <SelectItem key={c.id} value={String(c.id)}>
-                    {c.name_ar}
-                  </SelectItem>
-                ))}
+                {entityType === "circle"
+                  ? circles.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        {c.name_ar}
+                      </SelectItem>
+                    ))
+                  : tracks.map((t) => (
+                      <SelectItem key={t.id} value={String(t.id)}>
+                        {t.name_ar}
+                      </SelectItem>
+                    ))}
               </SelectContent>
             </Select>
           </div>
         </div>
       </div>
 
-      {!circleId ? (
+      {!entityId ? (
         <p className={ds.alert.info} style={tajawal}>
-          اختر حلقة لعرض قائمة الطلاب.
+          {entityType === "circle"
+            ? "اختر حلقة لعرض قائمة الطلاب."
+            : "اختر مساراً لعرض قائمة الطلاب."}
         </p>
       ) : (
         <>
@@ -251,16 +330,18 @@ export function StudentDailyAttendancePage() {
                 />
               </div>
               <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={`${ds.btnRound} w-full sm:w-auto min-h-11`}
-                  onClick={() => setReportOpen(true)}
-                  style={tajawal}
-                >
-                  <Printer className="w-4 h-4" />
-                  طباعة تقرير التحضير 🖨️
-                </Button>
+                {entityType === "circle" && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={`${ds.btnRound} w-full sm:w-auto min-h-11`}
+                    onClick={() => setReportOpen(true)}
+                    style={tajawal}
+                  >
+                    <Printer className="w-4 h-4" />
+                    طباعة تقرير التحضير 🖨️
+                  </Button>
+                )}
                 <Button
                   type="button"
                   className={`${ds.btnRound} w-full sm:w-auto min-h-11`}
@@ -275,13 +356,15 @@ export function StudentDailyAttendancePage() {
               </div>
             </div>
 
-            <StudentAttendanceReportModal
-              open={reportOpen}
-              onOpenChange={setReportOpen}
-              defaultCircleId={Number(circleId) || undefined}
-              circles={circles}
-              loadingCircles={loadingCircles}
-            />
+            {entityType === "circle" && (
+              <StudentAttendanceReportModal
+                open={reportOpen}
+                onOpenChange={setReportOpen}
+                defaultCircleId={Number(entityId) || undefined}
+                circles={circles}
+                loadingCircles={loadingGroups}
+              />
+            )}
 
             {loading ? (
               <p className="text-muted-foreground text-sm" style={tajawal}>

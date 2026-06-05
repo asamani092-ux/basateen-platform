@@ -198,6 +198,43 @@ export function buildStudentCreatePayload(values: StudentUnifiedFormValues) {
   });
 }
 
+export function parsePlacementKey(placementKey: string): {
+  circle_id: number | null;
+  track_id: number | null;
+} {
+  const key = placementKey.trim();
+  if (!key.includes(":")) return { circle_id: null, track_id: null };
+  const [kind, idStr] = key.split(":");
+  const id = parsePositiveIntField(idStr);
+  if (!id) return { circle_id: null, track_id: null };
+  if (kind === "circle") return { circle_id: id, track_id: null };
+  if (kind === "track") return { circle_id: null, track_id: id };
+  return { circle_id: null, track_id: null };
+}
+
+/** حمولة PATCH للطالب — بيانات كاملة + إسناد اختياري */
+export function buildStudentPatchPayload(values: StudentUnifiedFormValues) {
+  const created = buildStudentCreatePayload(values);
+  const { circle_id, track_id } = parsePlacementKey(values.placement);
+  return {
+    full_name_ar: created.full_name_ar,
+    national_id: created.national_id,
+    nationality: created.nationality,
+    phone: created.phone,
+    guardian_phone: created.guardian_phone,
+    school_name: created.school_name,
+    school_grade: created.school_grade,
+    memorization_amount: created.memorization_amount,
+    guardian_national_id: created.guardian_national_id,
+    guardian_work: created.guardian_work,
+    health_notes: created.health_notes,
+    stage_id: created.stage_id != null ? Number(created.stage_id) : null,
+    age: created.age != null ? Number(created.age) : null,
+    ...(circle_id != null ? { circle_id } : {}),
+    ...(track_id != null && circle_id == null ? { track_id } : {}),
+  };
+}
+
 export function validateStudentCreateForm(values: StudentUnifiedFormValues) {
   return studentCreateBodySchema.safeParse(buildStudentCreatePayload(values));
 }

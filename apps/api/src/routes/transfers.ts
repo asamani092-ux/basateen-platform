@@ -5,7 +5,13 @@ import {
   capacityWarningMessage,
 } from "../lib/circle-capacity";
 import { canManageCircle } from "../lib/dept-scope";
-import { activePlacementSql, hasTable, tableHasColumn } from "../lib/db-schema";
+import {
+  activePlacementSql,
+  hasTable,
+  studentIsActiveSql,
+  tableHasColumn,
+} from "../lib/db-schema";
+import { applyStudentPlacement } from "../lib/students-admin";
 import { transferStudentCircle } from "../lib/edu-transfer";
 import { safeDeleteStudent } from "../lib/students-admin";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
@@ -56,9 +62,7 @@ export async function handleStudentDetail(
   const studentId = parseStudentId(url);
   if (!studentId) return json({ error: "invalid_student_id" }, 400);
 
-  const isActiveExpr = (await tableHasColumn(env, "students", "is_active"))
-    ? "COALESCE(is_active, 1) = 1"
-    : "1=1";
+  const isActiveExpr = await studentIsActiveSql(env, "");
   const phoneSelect = (await tableHasColumn(env, "students", "phone"))
     ? "phone"
     : "NULL AS phone";
@@ -158,8 +162,9 @@ export async function handleStudentTransfer(
     return json({ error: "circle_id_required" }, 400);
   }
 
+  const transferActiveExpr = await studentIsActiveSql(env, "");
   const student = await env.DB.prepare(
-    `SELECT id FROM students WHERE id = ? AND complex_id = ? AND is_active = 1`,
+    `SELECT id FROM students WHERE id = ? AND complex_id = ? AND ${transferActiveExpr}`,
   )
     .bind(studentId, auth.complexId)
     .first<{ id: number }>();
@@ -308,9 +313,7 @@ export async function handleStudentPatch(
       return json({ error: "invalid_json" }, 400);
     }
 
-    const isActiveExpr = (await tableHasColumn(env, "students", "is_active"))
-      ? "COALESCE(is_active, 1) = 1"
-      : "1=1";
+    const isActiveExpr = await studentIsActiveSql(env, "");
     const exists = await env.DB.prepare(
       `SELECT id FROM students WHERE id = ? AND complex_id = ? AND ${isActiveExpr}`,
     )
@@ -324,11 +327,14 @@ export async function handleStudentPatch(
       "phone",
       "guardian_phone",
       "guardian_national_id",
+      "guardian_work",
       "school_name",
       "school_grade",
       "nationality",
       "health_notes",
       "memorization_amount",
+      "stage_id",
+      "age",
       "account_status",
     ] as const;
     const sets: string[] = [];
@@ -348,18 +354,69 @@ export async function handleStudentPatch(
         binds.push(status);
         continue;
       }
+      if (col === "stage_id" || col === "age") {
+        const n = Number(body[col]);
+        if (Number.isFinite(n)) {
+          sets.push(`${col} = ?`);
+          binds.push(n);
+        }
+        continue;
+      }
       sets.push(`${col} = ?`);
       binds.push(
         typeof body[col] === "string" ? body[col].trim().slice(0, 500) : null,
       );
     }
-    if (sets.length === 0) return json({ error: "no_fields" }, 400);
-    binds.push(studentId);
-    await env.DB.prepare(
-      `UPDATE students SET ${sets.join(", ")} WHERE id = ?`,
-    )
-      .bind(...binds)
-      .run();
+    if (sets.length > 0) {
+      binds.push(studentId);
+      await env.DB.prepare(
+        `UPDATE students SET ${sets.join(", ")} WHERE id = ?`,
+      )
+        .bind(...binds)
+        .run();
+    }
+
+    const circleId =
+      body.circle_id != null ? Number(body.circle_id) : null;
+    const trackOnlyId =
+      body.track_id != null && (circleId == null || !Number.isFinite(circleId))
+        ? Number(body.track_id)
+        : null;
+
+    if (circleId != null && Number.isFinite(circleId) && circleId > 0) {
+      const targetCircle = await env.DB.prepare(
+        `SELECT id, track_id FROM circles WHERE id = ? AND complex_id = ?`,
+      )
+        .bind(circleId, auth.complexId)
+        .first<{ id: number; track_id: number | null }>();
+      if (!targetCircle) return json({ error: "circle_not_found" }, 404);
+      const trackId =
+        body.track_id != null ? Number(body.track_id) : targetCircle.track_id;
+      await transferStudentCircle(env, {
+        studentId,
+        newCircleId: circleId,
+        newTrackId: Number.isFinite(trackId) ? trackId : targetCircle.track_id,
+        movedByUserId: auth.userId,
+        reason: "تعديل إسناد من بيانات الطلاب",
+      });
+    } else if (trackOnlyId != null && Number.isFinite(trackOnlyId) && trackOnlyId > 0) {
+      const track = await env.DB.prepare(
+        `SELECT id FROM tracks WHERE id = ? AND complex_id = ?`,
+      )
+        .bind(trackOnlyId, auth.complexId)
+        .first<{ id: number }>();
+      if (!track) return json({ error: "track_not_found" }, 404);
+      await applyStudentPlacement(
+        env,
+        studentId,
+        { kind: "track", id: trackOnlyId },
+        "تعديل إسناد مسار من بيانات الطلاب",
+      );
+    }
+
+    if (sets.length === 0 && circleId == null && trackOnlyId == null) {
+      return json({ error: "no_fields" }, 400);
+    }
 
     return json({ ok: true });
   } catch (err) {

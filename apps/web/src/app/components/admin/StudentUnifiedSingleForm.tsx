@@ -44,11 +44,28 @@ type Props = {
   groups: EducationalGroupRow[];
   onSubmit: (values: StudentUnifiedFormValues) => Promise<void>;
   submitting?: boolean;
+  /** وضع التعديل — يملأ الحقول من الطالب الحالي */
+  initialValues?: Partial<StudentUnifiedFormValues>;
+  submitLabel?: string;
+  /** إلزامية الإسناد (افتراضي: نعم للإضافة) */
+  requirePlacement?: boolean;
+  resetOnSubmit?: boolean;
 };
 
-export function StudentUnifiedSingleForm({ groups, onSubmit, submitting }: Props) {
-  const [values, setValues] = useState<StudentUnifiedFormValues>(EMPTY);
-  const [stageFilter, setStageFilter] = useState("");
+export function StudentUnifiedSingleForm({
+  groups,
+  onSubmit,
+  submitting,
+  initialValues,
+  submitLabel,
+  requirePlacement = true,
+  resetOnSubmit = true,
+}: Props) {
+  const [values, setValues] = useState<StudentUnifiedFormValues>({
+    ...EMPTY,
+    ...initialValues,
+  });
+  const [stageFilter, setStageFilter] = useState(initialValues?.stage_id ?? "");
 
   const groupOptions = useMemo(() => {
     let list = groups;
@@ -73,10 +90,10 @@ export function StudentUnifiedSingleForm({ groups, onSubmit, submitting }: Props
       "nationality",
       "phone",
       "guardian_phone",
-      "placement",
     ];
+    if (requirePlacement) req.push("placement");
     return req.filter((k) => !String(values[k]).trim());
-  }, [values]);
+  }, [values, requirePlacement]);
 
   const canSubmit = missingRequired.length === 0 && !submitting;
 
@@ -88,8 +105,10 @@ export function StudentUnifiedSingleForm({ groups, onSubmit, submitting }: Props
     e.preventDefault();
     if (!canSubmit) return;
     await onSubmit(values);
-    setValues(EMPTY);
-    setStageFilter("");
+    if (resetOnSubmit) {
+      setValues(EMPTY);
+      setStageFilter("");
+    }
   }
 
   return (
@@ -160,15 +179,21 @@ export function StudentUnifiedSingleForm({ groups, onSubmit, submitting }: Props
             ))}
           </select>
         </Field>
-        <Field label="الحلقة / المسار *" required className="sm:col-span-2">
+        <Field
+          label={requirePlacement ? "الحلقة / المسار *" : "الحلقة / المسار (للإسناد)"}
+          required={requirePlacement}
+          className="sm:col-span-2"
+        >
           <select
             value={values.placement}
             onChange={(e) => set("placement", e.target.value)}
             className={ds.select}
             style={tajawal}
-            required
+            required={requirePlacement}
           >
-            <option value="">— اختر الحلقة أو المسار —</option>
+            <option value="">
+              {requirePlacement ? "— اختر الحلقة أو المسار —" : "— بدون تغيير —"}
+            </option>
             {groupOptions.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
@@ -242,7 +267,7 @@ export function StudentUnifiedSingleForm({ groups, onSubmit, submitting }: Props
         className={ds.btnRound}
         style={tajawal}
       >
-        {submitting ? "جاري الحفظ…" : "حفظ الطالب ➕"}
+        {submitting ? "جاري الحفظ…" : (submitLabel ?? "حفظ الطالب ➕")}
       </Button>
     </form>
   );

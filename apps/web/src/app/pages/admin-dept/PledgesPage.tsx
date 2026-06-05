@@ -178,7 +178,12 @@ export function PledgesPage() {
       setReportStudentId(modalStudentId);
       await loadReport(modalStudentId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "فشل إضافة التعهد");
+      const msg = err instanceof Error ? err.message : "فشل إضافة التعهد";
+      setError(
+        msg === "student_not_found"
+          ? "الطالب غير موجود أو غير نشط — أعد تحميل الصفحة وحاول مجدداً"
+          : msg,
+      );
     } finally {
       setSubmitting(false);
     }
@@ -414,10 +419,13 @@ export function PledgesPage() {
                           <Printer className="w-4 h-4" />
                           طباعة
                         </Button>
-                        {row.latest_pledge_id != null && (
+                        {row.latest_pledge_id != null ? (
                           <>
-                            <TableIconAction
-                              kind="edit"
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className={ds.btnRound}
                               onClick={() =>
                                 setEditPledge({
                                   id: row.latest_pledge_id!,
@@ -427,18 +435,27 @@ export function PledgesPage() {
                                     new Date().toISOString().slice(0, 10),
                                 })
                               }
-                            />
-                            <TableIconAction
-                              kind="delete"
+                              style={tajawal}
+                            >
+                              تعديل
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="sm"
+                              className={ds.btnRound}
                               onClick={() =>
                                 setDeletePledge({
                                   id: row.latest_pledge_id!,
                                   reason_ar: row.latest_reason ?? "آخر تعهد",
                                 })
                               }
-                            />
+                              style={tajawal}
+                            >
+                              حذف
+                            </Button>
                           </>
-                        )}
+                        ) : null}
                       </TableActionsCell>
                     </TableRow>
                   ))}

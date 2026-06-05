@@ -697,8 +697,9 @@ async function handleAdminDeptRouterImpl(
       return json({ error: "student_id_and_reason_required" }, 400);
     }
 
+    const isActiveExpr = await studentIsActiveSql(env, "");
     const student = await env.DB.prepare(
-      `SELECT id, full_name_ar FROM students WHERE id = ? AND complex_id = ? AND is_active = 1`,
+      `SELECT id, full_name_ar FROM students WHERE id = ? AND complex_id = ? AND ${isActiveExpr}`,
     )
       .bind(studentId, admin.complexId)
       .first<{ id: number; full_name_ar: string }>();
@@ -840,7 +841,7 @@ async function handleAdminDeptRouterImpl(
          ORDER BY p2.pledge_date DESC, p2.id DESC
          LIMIT 1
        )
-       WHERE s.complex_id = ? AND COALESCE(s.is_active, 1) = 1
+       WHERE s.complex_id = ? AND ${await studentIsActiveSql(env, "s")}
        ORDER BY pledge_count DESC, s.full_name_ar`,
     )
       .bind(admin.complexId)

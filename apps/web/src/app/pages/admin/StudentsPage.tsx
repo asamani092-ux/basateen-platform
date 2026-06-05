@@ -54,6 +54,7 @@ import { EDUCATIONAL_STAGES } from "../../lib/stages";
 import { ds, tajawal } from "../../lib/design-system";
 import { cn } from "../../components/ui/utils";
 import {
+  buildStudentPatchPayload,
   downloadStudentTemplateCsv,
   downloadStudentTemplateXlsx,
   formatStudentApiError,
@@ -437,6 +438,7 @@ export function StudentsPage() {
             );
             setEditStudent(null);
             toast.success("تم حفظ التعديلات");
+            void load();
           }}
         />
       )}
@@ -643,54 +645,67 @@ function StudentEditDialog({
   onOpenChange: (open: boolean) => void;
   onSaved: (student: StudentRow) => void;
 }) {
-  const [name, setName] = useState(student.full_name_ar);
-  const [nationalId, setNationalId] = useState(student.national_id ?? "");
-  const [nationality, setNationality] = useState(student.nationality ?? "سعودي");
-  const [phone, setPhone] = useState(student.phone ?? "");
-  const [guardianPhone, setGuardianPhone] = useState(student.guardian_phone ?? "");
-  const [school, setSchool] = useState(student.school_name ?? "");
-  const [grade, setGrade] = useState(student.school_grade ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const unassigned = !student.circle_name && !student.track_name;
 
-  useEffect(() => {
-    if (!open) return;
-    setName(student.full_name_ar);
-    setNationalId(student.national_id ?? "");
-    setNationality(student.nationality ?? "سعودي");
-    setPhone(student.phone ?? "");
-    setGuardianPhone(student.guardian_phone ?? "");
-    setSchool(student.school_name ?? "");
-    setGrade(student.school_grade ?? "");
-    setError(null);
-  }, [open, student]);
+  const initialValues = useMemo<Partial<StudentUnifiedFormValues>>(
+    () => ({
+      full_name_ar: student.full_name_ar,
+      national_id: student.national_id ?? "",
+      nationality: student.nationality ?? "سعودي",
+      phone: student.phone ?? "",
+      guardian_phone: student.guardian_phone ?? "",
+      school_name: student.school_name ?? "",
+      school_grade: student.school_grade ?? "",
+      memorization_amount: student.memorization_amount ?? "",
+      health_notes: student.health_notes ?? "",
+      stage_id: student.stage_id != null ? String(student.stage_id) : "",
+      age: student.age != null ? String(student.age) : "",
+      placement: "",
+    }),
+    [student],
+  );
 
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
+  async function save(values: StudentUnifiedFormValues) {
+    if (unassigned && !values.placement.trim()) {
+      setError("الطالب غير مسند — اختر حلقة أو مسار للإسناد");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      await api.studentsPatch(student.id, {
-        full_name_ar: name.trim(),
-        national_id: nationalId.trim() || null,
-        nationality: nationality.trim() || null,
-        phone: phone.trim() || null,
-        guardian_phone: guardianPhone.trim() || null,
-        school_name: school.trim() || null,
-        school_grade: grade.trim() || null,
-      });
+      const payload = buildStudentPatchPayload(values);
+      await api.studentsPatch(student.id, payload);
+      const placementLabel = values.placement.includes(":")
+        ? groups.find(
+            (g) =>
+              values.placement === `${g.entity_type}:${g.id}`,
+          )?.name_ar ?? null
+        : null;
+      const isTrack = values.placement.startsWith("track:");
       onSaved({
         ...student,
-        full_name_ar: name.trim(),
-        national_id: nationalId.trim() || null,
-        nationality: nationality.trim() || null,
-        phone: phone.trim() || null,
-        guardian_phone: guardianPhone.trim() || null,
-        school_name: school.trim() || null,
-        school_grade: grade.trim() || null,
+        full_name_ar: payload.full_name_ar as string,
+        national_id: payload.national_id as string | null,
+        nationality: payload.nationality as string | null,
+        phone: payload.phone as string | null,
+        guardian_phone: payload.guardian_phone as string | null,
+        school_name: payload.school_name as string | null,
+        school_grade: payload.school_grade as string | null,
+        memorization_amount: payload.memorization_amount as string | null,
+        health_notes: payload.health_notes as string | null,
+        stage_id: payload.stage_id as number | null,
+        age: payload.age as number | null,
+        circle_name: isTrack
+          ? student.circle_name
+          : placementLabel ?? student.circle_name,
+        track_name: isTrack
+          ? placementLabel ?? student.track_name
+          : student.track_name,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "فشل الحفظ");
+      setError(formatStudentApiError(err));
     } finally {
       setSaving(false);
     }
@@ -698,14 +713,17 @@ function StudentEditDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={`${ds.card} max-w-md`} dir="rtl">
+      <DialogContent
+        className={`${ds.card} max-w-2xl max-h-[90vh] overflow-y-auto`}
+        dir="rtl"
+      >
         <DialogHeader>
-          <DialogTitle style={tajawal}>تعديل طالب ✏️</DialogTitle>
+          <DialogTitle style={tajawal}>تعديل بيانات الطالب ✏️</DialogTitle>
           <DialogDescription style={tajawal}>{student.full_name_ar}</DialogDescription>
         </DialogHeader>
-        {groups.length > 0 && (
-          <p className="text-xs text-muted-foreground" style={tajawal}>
-            لتغيير الحلقة استخدم أدوات النقل من قسم التعليم عند الحاجة.
+        {unassigned && (
+          <p className={`${ds.alert.info} text-sm`} style={tajawal}>
+            هذا الطالب غير مسند — يجب اختيار حلقة أو مسار عند الحفظ.
           </p>
         )}
         {error && (
@@ -713,42 +731,16 @@ function StudentEditDialog({
             {error}
           </p>
         )}
-        <form onSubmit={save} className="grid gap-3">
-          <div>
-            <Label style={tajawal}>الاسم</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} required />
-          </div>
-          <div>
-            <Label style={tajawal}>الهوية</Label>
-            <Input value={nationalId} onChange={(e) => setNationalId(e.target.value)} />
-          </div>
-          <div>
-            <Label style={tajawal}>الجنسية</Label>
-            <Input value={nationality} onChange={(e) => setNationality(e.target.value)} />
-          </div>
-          <div>
-            <Label style={tajawal}>جوال الطالب</Label>
-            <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
-          </div>
-          <div>
-            <Label style={tajawal}>جوال ولي الأمر</Label>
-            <Input
-              value={guardianPhone}
-              onChange={(e) => setGuardianPhone(e.target.value)}
-            />
-          </div>
-          <div>
-            <Label style={tajawal}>المدرسة</Label>
-            <Input value={school} onChange={(e) => setSchool(e.target.value)} />
-          </div>
-          <div>
-            <Label style={tajawal}>الصف</Label>
-            <Input value={grade} onChange={(e) => setGrade(e.target.value)} />
-          </div>
-          <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
-            {saving ? "جاري الحفظ…" : "حفظ"}
-          </Button>
-        </form>
+        <StudentUnifiedSingleForm
+          key={student.id}
+          groups={groups}
+          initialValues={initialValues}
+          requirePlacement={unassigned}
+          resetOnSubmit={false}
+          submitLabel="حفظ التعديلات"
+          submitting={saving}
+          onSubmit={save}
+        />
       </DialogContent>
     </Dialog>
   );

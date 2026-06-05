@@ -91,7 +91,8 @@ export async function studentIsActiveSql(
   if (!(await tableHasColumn(env, "students", "is_active"))) {
     return "1=1";
   }
-  return sqliteActiveEq1(`${alias}.is_active`);
+  const col = alias ? `${alias}.is_active` : "is_active";
+  return sqliteActiveEq1(col);
 }
 
 /** Join history only when it represents current placement (legacy schema). */

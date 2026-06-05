@@ -330,11 +330,17 @@ export const api = {
       national_id?: string | null;
       phone?: string | null;
       guardian_phone?: string | null;
+      guardian_national_id?: string | null;
+      guardian_work?: string | null;
       school_name?: string | null;
       school_grade?: string | null;
       nationality?: string | null;
       health_notes?: string | null;
       memorization_amount?: string | null;
+      stage_id?: number | null;
+      age?: number | null;
+      circle_id?: number | null;
+      track_id?: number | null;
       account_status?: "active" | "suspended";
     },
   ) =>

@@ -1,32 +1,36 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Printer, Trash2 } from "lucide-react";
+import { Printer, Save, Trash2 } from "lucide-react";
+import { AttendanceDateFilter } from "../../components/attendance/AttendanceDateFilter";
+import { AttendanceLedgerTable } from "../../components/attendance/AttendanceLedgerTable";
 import { StaffAttendanceReportModal } from "../../components/attendance/StaffAttendanceReportModal";
 import { AttendanceFilterBar } from "../../components/attendance/AttendanceFilterBar";
-import { TableIconAction } from "../../components/admin/TableIconAction";
 import { DoubleConfirmDialog } from "../../components/shared/DoubleConfirmDialog";
 import { Button } from "../../components/ui/button";
-import { Label } from "../../components/ui/label";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../../components/ui/table";
 import { useAdminDataSyncContext } from "../../context/AdminDataSyncContext";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
-import { normalizeAttendanceStatus } from "../../lib/attendance-status";
 import { matchesArabicName } from "../../lib/attendance-search";
-import { AttendanceStatusButtons } from "../../components/attendance/AttendanceStatusButtons";
 import {
-  clearAttendanceDay,
-  mutateAttendanceStatus,
+  buildBulkSaveRecords,
+  countDirty,
+  isRangeMode,
+  mapLedgerItem,
+  mapRosterItem,
+  markEntriesSaved,
+  patchEntryStatus,
+  removeEntry,
+  resetEntryAfterDelete,
+  todayIso,
+  type DateFilterMode,
+  type LedgerEntry,
+} from "../../lib/attendance-ledger";
+import {
+  bulkSaveAttendance,
+  clearDisplayedAttendance,
   removeAttendanceRecord,
+  toastAttendanceBulkSaved,
   toastAttendanceCleared,
   toastAttendanceDeleted,
-  toastAttendanceSaved,
   type AttendanceStatusValue,
 } from "../../lib/attendance-mutations";
 import { ds, tajawal } from "../../lib/design-system";
@@ -47,34 +51,24 @@ function formatRole(role: string | null | undefined): string {
   );
 }
 
-type Row = {
-  user_id: number;
-  full_name_ar: string;
-  role: string | null;
-  status: string;
-  attendance_id: number | null;
-  has_record: boolean;
-};
-
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 export function StaffAttendancePage() {
-  const [date, setDate] = useState(todayIso);
-  const [attendanceData, setAttendanceData] = useState<Row[]>([]);
+  const [dateMode, setDateMode] = useState<DateFilterMode>("day");
+  const [startDate, setStartDate] = useState(todayIso);
+  const [endDate, setEndDate] = useState(todayIso);
+  const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [rowBusy, setRowBusy] = useState<number | null>(null);
+  const [rowBusyKey, setRowBusyKey] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [saveBusy, setSaveBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nameQuery, setNameQuery] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
   const { invalidate } = useAdminDataSyncContext();
 
-  const cellClass = "text-right px-4 py-3";
-  const isRetroDate = date !== todayIso();
-  const recordedCount = attendanceData.filter((r) => r.has_record).length;
+  const ledgerView = isRangeMode(dateMode, startDate, endDate);
+  const dirtyCount = countDirty(entries);
+  const recordedCount = entries.filter((r) => r.has_record).length;
 
   const load = useCallback(async () => {
     if (!canUseApi()) {
@@ -85,23 +79,41 @@ export function StaffAttendancePage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.adminDeptStaff(date);
-      const items: Row[] = res.items.map((r) => ({
-        user_id: r.user_id,
-        full_name_ar: r.full_name_ar,
-        role: r.role ?? null,
-        status: normalizeAttendanceStatus(r.status ?? "present"),
-        attendance_id: r.attendance_id ?? null,
-        has_record: Boolean(r.has_record),
-      }));
-      setAttendanceData(items);
+      if (ledgerView) {
+        const res = await api.adminAttendanceLedger({
+          beneficiary_type: "staff",
+          start_date: startDate,
+          end_date: endDate,
+        });
+        setEntries(
+          (res.items ?? []).map((r) => ({
+            ...mapLedgerItem(r),
+            role: formatRole(r.role),
+          })),
+        );
+      } else {
+        const res = await api.adminDeptStaff(startDate);
+        setEntries(
+          res.items.map((r) => ({
+            ...mapRosterItem({
+              user_id: r.user_id,
+              full_name_ar: r.full_name_ar,
+              status: r.status,
+              attendance_id: r.attendance_id,
+              has_record: r.has_record,
+              role: formatRole(r.role),
+            }),
+            attendance_date: startDate,
+          })),
+        );
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل التحميل");
-      setAttendanceData([]);
+      setEntries([]);
     } finally {
       setLoading(false);
     }
-  }, [date]);
+  }, [startDate, endDate, ledgerView]);
 
   useEffect(() => {
     void load();
@@ -111,81 +123,79 @@ export function StaffAttendancePage() {
     invalidate("dashboard");
   }
 
-  async function applyStatus(row: Row, status: AttendanceStatusValue) {
-    setRowBusy(row.user_id);
-    setError(null);
-    setAttendanceData((prev) =>
-      prev.map((r) => (r.user_id === row.user_id ? { ...r, status } : r)),
-    );
-    try {
-      const result = await mutateAttendanceStatus({
-        beneficiaryType: "staff",
-        personId: row.user_id,
-        attendanceId: row.attendance_id,
-        hasRecord: row.has_record,
-        date,
-        status,
-      });
-      setAttendanceData((prev) =>
-        prev.map((r) =>
-          r.user_id === row.user_id
-            ? {
-                ...r,
-                status,
-                attendance_id: result.attendanceId,
-                has_record: result.hasRecord,
-              }
-            : r,
-        ),
-      );
-      toastAttendanceSaved();
-      bumpDashboard();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل تحديث التحضير");
-      void load();
-    } finally {
-      setRowBusy(null);
+  function handleModeChange(mode: DateFilterMode) {
+    setDateMode(mode);
+    if (mode === "day") {
+      setEndDate(startDate);
     }
   }
 
-  async function deleteRow(row: Row) {
-    if (row.attendance_id == null) return;
-    setRowBusy(row.user_id);
+  function handleStatusChange(entry: LedgerEntry, status: AttendanceStatusValue) {
+    setEntries((prev) => patchEntryStatus(prev, entry.rowKey, status));
+  }
+
+  async function saveDirtyRows() {
+    if (dirtyCount === 0) return;
+    setSaveBusy(true);
+    setError(null);
+    try {
+      const records = buildBulkSaveRecords(entries, startDate);
+      const saved = await bulkSaveAttendance({
+        beneficiaryType: "staff",
+        records,
+      });
+      setEntries((prev) => markEntriesSaved(prev));
+      toastAttendanceBulkSaved(saved);
+      bumpDashboard();
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "فشل حفظ التعديلات");
+    } finally {
+      setSaveBusy(false);
+    }
+  }
+
+  async function deleteRow(entry: LedgerEntry) {
+    if (entry.attendance_id == null) return;
+    setRowBusyKey(entry.rowKey);
     setError(null);
     try {
       await removeAttendanceRecord({
         beneficiaryType: "staff",
-        attendanceId: row.attendance_id,
+        attendanceId: entry.attendance_id,
       });
-      setAttendanceData((prev) =>
-        prev.map((r) =>
-          r.user_id === row.user_id
-            ? { ...r, status: "present", attendance_id: null, has_record: false }
-            : r,
-        ),
+      setEntries((prev) =>
+        ledgerView
+          ? removeEntry(prev, entry.rowKey)
+          : resetEntryAfterDelete(prev, entry.rowKey),
       );
       toastAttendanceDeleted();
       bumpDashboard();
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل حذف السجل");
     } finally {
-      setRowBusy(null);
+      setRowBusyKey(null);
     }
   }
 
-  async function confirmBulkClear() {
+  async function confirmBulkDelete() {
     setBulkBusy(true);
     setError(null);
     try {
-      const deleted = await clearAttendanceDay({
+      const ids = filteredRows
+        .filter((r) => r.has_record && r.attendance_id != null)
+        .map((r) => r.attendance_id as number);
+      const deleted = await clearDisplayedAttendance({
         beneficiaryType: "staff",
-        date,
+        startDate,
+        endDate,
+        attendanceIds: ids.length > 0 ? ids : undefined,
       });
       toastAttendanceCleared(deleted);
       bumpDashboard();
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل إلغاء التحضير");
+      setError(e instanceof Error ? e.message : "فشل حذف السجلات");
     } finally {
       setBulkBusy(false);
       setBulkConfirmOpen(false);
@@ -194,11 +204,13 @@ export function StaffAttendancePage() {
 
   const filteredRows = useMemo(
     () =>
-      attendanceData.filter((r) =>
-        matchesArabicName(nameQuery, r.full_name_ar),
-      ),
-    [attendanceData, nameQuery],
+      entries.filter((r) => matchesArabicName(nameQuery, r.full_name_ar)),
+    [entries, nameQuery],
   );
+
+  const deleteDesc = ledgerView
+    ? `من ${startDate} إلى ${endDate}`
+    : `ليوم ${startDate}`;
 
   return (
     <div className="space-y-4 max-w-[1600px]">
@@ -207,8 +219,7 @@ export function StaffAttendancePage() {
           تحضير المنسوبين
         </h2>
         <p className={ds.page.description} style={tajawal}>
-          اختر التاريخ وعدّل الحضور فوراً — يدعم التعديل بأثر رجعي لأي يوم
-          سابق.
+          سجل تحضير مرن — استعراض وتعديل وحذف فردي أو جماعي لأي نطاق زمني.
         </p>
       </div>
 
@@ -219,20 +230,17 @@ export function StaffAttendancePage() {
       )}
 
       <div className={`${ds.card} p-4 space-y-3`}>
-        <div>
-          <Label className="text-xs text-muted-foreground" style={tajawal}>
-            تاريخ التحضير
-          </Label>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className={`block w-full max-w-xs mt-1 border border-border px-3 py-2 ${ds.btnRound}`}
-          />
-        </div>
-        {isRetroDate && (
+        <AttendanceDateFilter
+          mode={dateMode}
+          onModeChange={handleModeChange}
+          startDate={startDate}
+          endDate={endDate}
+          onStartDateChange={setStartDate}
+          onEndDateChange={setEndDate}
+        />
+        {ledgerView && (
           <p className={ds.alert.info} style={tajawal}>
-            وضع التعديل بأثر رجعي — تعرض سجلات يوم {date} فقط.
+            وضع السجل التاريخي — يعرض السجلات المحفوظة من {startDate} إلى {endDate}.
           </p>
         )}
       </div>
@@ -246,16 +254,28 @@ export function StaffAttendancePage() {
         groupOptions={[]}
         hideGroupFilter
         shownCount={filteredRows.length}
-        totalCount={attendanceData.length}
-        hiddenDirty={0}
+        totalCount={entries.length}
+        hiddenDirty={dirtyCount}
       />
 
       <div className={`${ds.card} p-4 space-y-4`}>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <p className="text-sm text-muted-foreground" style={tajawal}>
-            {recordedCount} سجل محفوظ من {attendanceData.length} منسوب
+            {recordedCount} سجل محفوظ
+            {dirtyCount > 0 ? ` — ${dirtyCount} تغيير بانتظار الحفظ` : ""}
           </p>
           <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="default"
+              className={`${ds.btnRound} min-h-11`}
+              disabled={saveBusy || dirtyCount === 0}
+              onClick={() => void saveDirtyRows()}
+              style={tajawal}
+            >
+              <Save className="w-4 h-4" />
+              تحديث السجلات المحددة
+            </Button>
             <Button
               type="button"
               variant="outline"
@@ -270,12 +290,16 @@ export function StaffAttendancePage() {
               type="button"
               variant="destructive"
               className={`${ds.btnRound} min-h-11`}
-              disabled={bulkBusy || loading || recordedCount === 0}
+              disabled={
+                bulkBusy ||
+                loading ||
+                filteredRows.filter((r) => r.has_record).length === 0
+              }
               onClick={() => setBulkConfirmOpen(true)}
               style={tajawal}
             >
               <Trash2 className="w-4 h-4" />
-              إلغاء تحضير اليوم بالكامل
+              حذف السجلات المعروضة
             </Button>
           </div>
         </div>
@@ -291,71 +315,30 @@ export function StaffAttendancePage() {
           </p>
         ) : filteredRows.length === 0 ? (
           <p className={ds.alert.info} style={tajawal}>
-            لا يوجد منسوبون يطابقون البحث.
+            {ledgerView
+              ? "لا توجد سجلات محفوظة في هذا النطاق."
+              : "لا يوجد منسوبون يطابقون البحث."}
           </p>
         ) : (
-          <Table className="border-collapse w-full">
-            <TableHeader>
-              <TableRow>
-                <TableHead className={cellClass} style={tajawal}>
-                  الاسم
-                </TableHead>
-                <TableHead className={cellClass} style={tajawal}>
-                  الحالة
-                </TableHead>
-                <TableHead className={cellClass} style={tajawal}>
-                  إجراء
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredRows.map((r) => (
-                <TableRow key={r.user_id}>
-                  <TableCell className={`${cellClass} max-w-0`} style={tajawal}>
-                    <p className="font-medium truncate" title={r.full_name_ar}>
-                      {r.full_name_ar}
-                    </p>
-                    <span className="text-sm text-gray-500 block mt-1">
-                      {formatRole(r.role)}
-                    </span>
-                    {r.has_record && (
-                      <span className="text-xs text-muted-foreground block">
-                        مسجّل في قاعدة البيانات
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell className={cellClass}>
-                    <AttendanceStatusButtons
-                      value={r.status}
-                      disabled={rowBusy === r.user_id}
-                      onChange={(st) =>
-                        void applyStatus(r, st as AttendanceStatusValue)
-                      }
-                    />
-                  </TableCell>
-                  <TableCell className={cellClass}>
-                    <TableIconAction
-                      kind="delete"
-                      label="حذف سجل اليوم"
-                      disabled={rowBusy === r.user_id || !r.has_record}
-                      onClick={() => void deleteRow(r)}
-                    />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <AttendanceLedgerTable
+            entries={filteredRows}
+            showDateColumn={ledgerView}
+            showRole
+            rowBusyKey={rowBusyKey}
+            onStatusChange={handleStatusChange}
+            onDelete={(entry) => void deleteRow(entry)}
+          />
         )}
       </div>
 
       <DoubleConfirmDialog
         open={bulkConfirmOpen}
         onOpenChange={setBulkConfirmOpen}
-        title="إلغاء تحضير اليوم بالكامل"
-        description={`سيتم حذف جميع سجلات تحضير المنسوبين المحفوظة في تاريخ ${date}. لا يمكن التراجع.`}
-        confirmLabel="حذف كل السجلات"
+        title="حذف السجلات المعروضة"
+        description={`سيتم حذف جميع سجلات التحضير المعروضة حالياً (${deleteDesc}). لا يمكن التراجع.`}
+        confirmLabel="حذف السجلات"
         destructive
-        onConfirm={confirmBulkClear}
+        onConfirm={confirmBulkDelete}
       />
     </div>
   );

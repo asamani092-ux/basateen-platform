@@ -923,14 +923,68 @@ export const api = {
     ),
   adminBulkDeleteAttendance: (body: {
     beneficiary_type: "student" | "staff";
-    attendance_date: string;
+    attendance_date?: string;
+    start_date?: string;
+    end_date?: string;
     circle_id?: number;
     track_id?: number;
+    attendance_ids?: number[];
   }) =>
-    request<{ ok: boolean; deleted: number; attendance_date: string }>(
-      "/api/admin/attendance/bulk",
-      { method: "DELETE", body: JSON.stringify(body) },
-    ),
+    request<{
+      ok: boolean;
+      deleted: number;
+      attendance_date?: string;
+      start_date?: string;
+      end_date?: string;
+    }>("/api/admin/attendance/bulk", {
+      method: "DELETE",
+      body: JSON.stringify(body),
+    }),
+  adminBulkPatchAttendance: (body: {
+    beneficiary_type: "student" | "staff";
+    records: Array<{
+      attendance_id?: number;
+      person_id?: number;
+      attendance_date?: string;
+      status: string;
+      circle_id?: number;
+      track_id?: number;
+    }>;
+  }) =>
+    request<{ ok: boolean; saved: number }>("/api/admin/attendance/bulk", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  adminAttendanceLedger: (params: {
+    beneficiary_type: "student" | "staff";
+    start_date?: string;
+    end_date?: string;
+    date?: string;
+    circle_id?: number;
+    track_id?: number;
+  }) => {
+    const qs = new URLSearchParams({ beneficiary_type: params.beneficiary_type });
+    if (params.start_date) qs.set("start_date", params.start_date);
+    if (params.end_date) qs.set("end_date", params.end_date);
+    if (params.date) qs.set("date", params.date);
+    if (params.circle_id != null) qs.set("circle_id", String(params.circle_id));
+    if (params.track_id != null) qs.set("track_id", String(params.track_id));
+    return request<{
+      start_date: string;
+      end_date: string;
+      beneficiary_type: string;
+      count: number;
+      items: Array<{
+        attendance_id: number;
+        person_id: number;
+        full_name_ar: string;
+        attendance_date: string;
+        status: string;
+        role?: string | null;
+        recorded_at?: string | null;
+      }>;
+    }>(`/api/admin/attendance/ledger?${qs}`);
+  },
   adminDeptSaveStaffAttendance: (body: {
     attendance_date?: string;
     records: Array<{ user_id: number; status: string }>;

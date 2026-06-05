@@ -54,6 +54,45 @@ export async function clearAttendanceDay(opts: {
   return res.deleted;
 }
 
+export async function clearDisplayedAttendance(opts: {
+  beneficiaryType: BeneficiaryType;
+  startDate: string;
+  endDate: string;
+  circleId?: number;
+  trackId?: number;
+  attendanceIds?: number[];
+}): Promise<number> {
+  const res = await api.adminBulkDeleteAttendance({
+    beneficiary_type: opts.beneficiaryType,
+    start_date: opts.startDate,
+    end_date: opts.endDate,
+    attendance_date:
+      opts.startDate === opts.endDate ? opts.startDate : undefined,
+    circle_id: opts.circleId,
+    track_id: opts.trackId,
+    attendance_ids: opts.attendanceIds,
+  });
+  return res.deleted;
+}
+
+export async function bulkSaveAttendance(opts: {
+  beneficiaryType: BeneficiaryType;
+  records: Array<{
+    attendance_id?: number;
+    person_id?: number;
+    attendance_date?: string;
+    status: string;
+    circle_id?: number;
+    track_id?: number;
+  }>;
+}): Promise<number> {
+  const res = await api.adminBulkPatchAttendance({
+    beneficiary_type: opts.beneficiaryType,
+    records: opts.records,
+  });
+  return res.saved;
+}
+
 export function toastAttendanceSaved(): void {
   toast.success("تم تحديث التحضير");
 }
@@ -63,5 +102,9 @@ export function toastAttendanceDeleted(): void {
 }
 
 export function toastAttendanceCleared(count: number): void {
-  toast.success(`تم إلغاء تحضير اليوم (${count} سجل)`);
+  toast.success(`تم حذف ${count} سجل تحضير`);
+}
+
+export function toastAttendanceBulkSaved(count: number): void {
+  toast.success(`تم تحديث ${count} سجل`);
 }

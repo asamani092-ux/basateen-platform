@@ -309,6 +309,83 @@ export const previewStore = {
     return null;
   },
 
+  listStaffLedger(start: string, end: string) {
+    const staffNames: Record<number, string> = {
+      1: "عبدالله — مدير عام",
+      4: "مشرف عام",
+      2: "مشرف تعليمي",
+      5: "معلم حلقة الصديق",
+    };
+    const items: Array<{
+      attendance_id: number;
+      person_id: number;
+      full_name_ar: string;
+      attendance_date: string;
+      status: string;
+      role: string;
+    }> = [];
+    for (const [k, attId] of staffAttendanceIds) {
+      const [userId, d] = k.split(":");
+      if (d >= start && d <= end) {
+        items.push({
+          attendance_id: attId,
+          person_id: Number(userId),
+          full_name_ar: staffNames[Number(userId)] ?? `منسوب ${userId}`,
+          attendance_date: d,
+          status: staffStatus.get(k) ?? "present",
+          role: "teacher",
+        });
+      }
+    }
+    return items.sort((a, b) =>
+      b.attendance_date.localeCompare(a.attendance_date),
+    );
+  },
+
+  listStudentLedger(start: string, end: string) {
+    const items: Array<{
+      attendance_id: number;
+      person_id: number;
+      full_name_ar: string;
+      attendance_date: string;
+      status: string;
+    }> = [];
+    for (const [k, attId] of studentAttendanceIds) {
+      const [studentId, d] = k.split(":");
+      if (d >= start && d <= end) {
+        const st = students.find((s) => s.id === Number(studentId));
+        items.push({
+          attendance_id: attId,
+          person_id: Number(studentId),
+          full_name_ar: st?.full_name_ar ?? `طالب ${studentId}`,
+          attendance_date: d,
+          status: studentStatus.get(k) ?? "present",
+        });
+      }
+    }
+    return items.sort((a, b) =>
+      b.attendance_date.localeCompare(a.attendance_date),
+    );
+  },
+
+  deleteStaffAttendanceByIds(ids: number[]): number {
+    let n = 0;
+    for (const id of ids) {
+      const ref = this.findStaffAttendanceById(id);
+      if (ref && this.deleteStaffAttendance(ref.userId, ref.date)) n++;
+    }
+    return n;
+  },
+
+  deleteStudentAttendanceByIds(ids: number[]): number {
+    let n = 0;
+    for (const id of ids) {
+      const ref = this.findStudentAttendanceById(id);
+      if (ref && this.deleteStudentAttendance(ref.studentId, ref.date)) n++;
+    }
+    return n;
+  },
+
   getApplications() {
     return mockApplications;
   },

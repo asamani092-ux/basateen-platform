@@ -11,7 +11,11 @@ import {
   syncStudentPlacementColumns,
   validateCircleStage,
 } from "../lib/admin-dept-schema";
-import { teachersListSql } from "../lib/admin-gm-schema";
+import { staffListSql as unifiedStaffListSql } from "../lib/admin-staff";
+import {
+  countComplexStaff,
+  countComplexStudents,
+} from "../lib/admin-roster-counts";
 import {
   activePlacementSql,
   hasTable,
@@ -20,11 +24,29 @@ import {
 } from "../lib/db-schema";
 import { buildStudentPlacementSql } from "../lib/student-list-sql";
 import { STAGE_LABELS } from "../lib/dept-scope";
-import { randomMagicToken, type MagicLinkContext } from "../lib/magic-link";
+import {
+  randomMagicToken,
+  resolveMagicGroupId,
+  type MagicLinkContext,
+} from "../lib/magic-link";
 import {
   batchSaveStaffAttendance,
   batchSaveStudentAttendance,
 } from "../lib/attendance-batch";
+import {
+  assertTrackInComplex,
+  loadStudentsForEntityAttendance,
+  parseAttendanceEntity,
+  studentBelongsToEntity,
+} from "../lib/admin-attendance-entities";
+import {
+  bulkClearAttendanceDay,
+  deleteAttendanceById,
+  parseBeneficiaryType,
+  patchAttendanceById,
+  upsertAttendanceRecord,
+} from "../lib/admin-attendance-mutations";
+import { fetchAdminDashboardStats } from "../lib/admin-dashboard-stats";
 import { assignStudentCircle } from "../lib/placement";
 import {
   resolveAttendanceTableName,
@@ -82,6 +104,8 @@ async function staffListSql(env: Env): Promise<{ sql: string; flat: boolean }> {
   return {
     flat: !hasRole,
     sql: `SELECT u.id AS user_id, u.full_name_ar, ${roleExpr},
+                 sa.id AS attendance_id,
+                 CASE WHEN sa.id IS NOT NULL THEN 1 ELSE 0 END AS has_record,
                  sa.status AS saved_status, sa.recorded_at
           FROM users u
           LEFT JOIN staff_attendance sa
@@ -102,53 +126,6 @@ async function assertCircleInComplex(
     .bind(circleId, complexId)
     .first<{ id: number }>();
   return Boolean(row);
-}
-
-async function loadStudentsForCircleAttendance(
-  env: Env,
-  complexId: number,
-  circleId: number,
-  date: string,
-): Promise<{ items: unknown[]; attTable: string } | { error: Response }> {
-  if (!(await tableHasColumn(env, "students", "current_circle_id"))) {
-    return {
-      error: json(
-        {
-          error: "migration_required",
-          hint: "students.current_circle_id — run D1 migrate 025",
-        },
-        503,
-      ),
-    };
-  }
-
-  const attTable = await resolveAttendanceTableName(env);
-  if (!attTable) {
-    return {
-      error: json({ error: "migration_required", table: "student_attendance" }, 503),
-    };
-  }
-
-  const attSourceCol = (await tableHasColumn(env, attTable, "source"))
-    ? ", sa.source"
-    : "";
-
-  const rows = await env.DB.prepare(
-    `SELECT s.id AS student_id, s.full_name_ar,
-            COALESCE(s.stage_id, 0) AS stage_id,
-            COALESCE(sa.status, 'present') AS status,
-            sa.recorded_at${attSourceCol}
-     FROM students s
-     LEFT JOIN ${attTable} sa
-       ON sa.student_id = s.id AND sa.attendance_date = ?
-     WHERE s.complex_id = ? AND COALESCE(s.is_active, 1) = 1
-       AND s.current_circle_id = ?
-     ORDER BY s.full_name_ar`,
-  )
-    .bind(date, complexId, circleId)
-    .all();
-
-  return { items: rows.results ?? [], attTable };
 }
 
 async function getMaxPledges(env: Env, complexId: number): Promise<number> {
@@ -229,7 +206,16 @@ export async function handleAdminDeptRouter(
   const path = url.pathname;
   const isAdminDeptPath = path.startsWith("/api/admin-dept/");
   const isStaffReportAlias = path === "/api/admin/staff/attendance";
-  if (!isAdminDeptPath && !isStaffReportAlias) return null;
+  const isDashboardStatsAlias = path === "/api/admin/dashboard-stats";
+  const isAttendanceAlias = path.startsWith("/api/admin/attendance");
+  if (
+    !isAdminDeptPath &&
+    !isStaffReportAlias &&
+    !isDashboardStatsAlias &&
+    !isAttendanceAlias
+  ) {
+    return null;
+  }
 
   try {
     return await handleAdminDeptRouterImpl(request, env, url, path);
@@ -269,6 +255,8 @@ async function handleAdminDeptRouterImpl(
         user_id: number;
         full_name_ar: string;
         role?: string;
+        attendance_id: number | null;
+        has_record: number;
         saved_status: string | null;
         recorded_at: string | null;
       }>();
@@ -280,6 +268,8 @@ async function handleAdminDeptRouterImpl(
         typeof r.role === "string" && r.role.trim().length > 0
           ? r.role.trim()
           : null,
+      attendance_id: r.attendance_id ?? null,
+      has_record: Number(r.has_record ?? 0) === 1,
       status: r.saved_status ?? "present",
       recorded_at: r.recorded_at,
     }));
@@ -403,6 +393,45 @@ async function handleAdminDeptRouterImpl(
     return json({ ok: true, attendance_date: date, saved });
   }
 
+  // GET /api/admin-dept/students/attendance/track/:trackId
+  const trackAttGet = path.match(
+    /^\/api\/admin-dept\/students\/attendance\/track\/(\d+)$/,
+  );
+  if (request.method === "GET" && trackAttGet) {
+    const trackId = Number(trackAttGet[1]);
+    if (!Number.isFinite(trackId)) {
+      return json({ error: "invalid_track_id" }, 400);
+    }
+    if (!(await assertTrackInComplex(env, admin.complexId, trackId))) {
+      return json({ error: "track_not_found" }, 404);
+    }
+
+    const date = url.searchParams.get("date")?.trim() || todayIso();
+    const loaded = await loadStudentsForEntityAttendance(
+      env,
+      admin.complexId,
+      { type: "track", id: trackId },
+      date,
+    );
+    if ("error" in loaded) {
+      return json(loaded, loaded.error === "migration_required" ? 503 : 500);
+    }
+
+    const track = await env.DB.prepare(
+      `SELECT id, name_ar FROM tracks WHERE id = ? AND complex_id = ?`,
+    )
+      .bind(trackId, admin.complexId)
+      .first<{ id: number; name_ar: string }>();
+
+    return json({
+      attendance_date: date,
+      entity_type: "track",
+      track,
+      items: loaded.items,
+      default_status: "present",
+    });
+  }
+
   // GET /api/admin-dept/students/attendance/:circleId
   const circleAttGet = path.match(/^\/api\/admin-dept\/students\/attendance\/(\d+)$/);
   if (request.method === "GET" && circleAttGet) {
@@ -415,18 +444,21 @@ async function handleAdminDeptRouterImpl(
     }
 
     const date = url.searchParams.get("date")?.trim() || todayIso();
-    const loaded = await loadStudentsForCircleAttendance(
+    const loaded = await loadStudentsForEntityAttendance(
       env,
       admin.complexId,
-      circleId,
+      { type: "circle", id: circleId },
       date,
     );
-    if ("error" in loaded) return loaded.error;
+    if ("error" in loaded) {
+      return json(loaded, loaded.error === "migration_required" ? 503 : 500);
+    }
 
     const circle = await circleLabelRow(env, circleId);
 
     return json({
       attendance_date: date,
+      entity_type: "circle",
       circle,
       items: loaded.items,
       default_status: "present",
@@ -437,6 +469,7 @@ async function handleAdminDeptRouterImpl(
   if (request.method === "POST" && path === "/api/admin-dept/students/attendance") {
     let body: {
       circle_id?: number;
+      track_id?: number;
       attendance_date?: string;
       records?: Array<{ student_id?: number; status?: string; notes?: string }>;
     };
@@ -446,10 +479,20 @@ async function handleAdminDeptRouterImpl(
       return json({ error: "invalid_json" }, 400);
     }
 
-    const circleId = Number(body.circle_id);
-    if (!Number.isFinite(circleId)) return json({ error: "circle_id_required" }, 400);
-    if (!(await assertCircleInComplex(env, admin.complexId, circleId))) {
-      return json({ error: "circle_not_found" }, 404);
+    const entity = parseAttendanceEntity(body);
+    if (!entity) {
+      return json(
+        { error: "entity_required", hint: "circle_id XOR track_id" },
+        400,
+      );
+    }
+
+    if (entity.type === "circle") {
+      if (!(await assertCircleInComplex(env, admin.complexId, entity.id))) {
+        return json({ error: "circle_not_found" }, 404);
+      }
+    } else if (!(await assertTrackInComplex(env, admin.complexId, entity.id))) {
+      return json({ error: "track_not_found" }, 404);
     }
 
     const date = body.attendance_date?.trim() || todayIso();
@@ -469,30 +512,12 @@ async function handleAdminDeptRouterImpl(
       const status = parseStatus(rec.status);
       if (!Number.isFinite(studentId) || !status) continue;
 
-      let allowed: { id: number } | null = null;
-      if (await tableHasColumn(env, "students", "current_circle_id")) {
-        allowed = await env.DB.prepare(
-          `SELECT id FROM students
-           WHERE id = ? AND complex_id = ? AND COALESCE(is_active, 1) = 1
-             AND current_circle_id = ?`,
-        )
-          .bind(studentId, admin.complexId, circleId)
-          .first<{ id: number }>();
-      } else {
-        const scope = await studentCircleScopeSql(env);
-        allowed = await env.DB.prepare(
-          `SELECT s.id FROM students s
-           ${scope.joinSql}
-           WHERE s.id = ? AND s.complex_id = ? AND s.is_active = 1 AND ${scope.circlePredicate}`,
-        )
-          .bind(
-            ...(scope.usesFlatColumn
-              ? [studentId, admin.complexId, circleId]
-              : [circleId, studentId, admin.complexId]),
-          )
-          .first<{ id: number }>();
-      }
-
+      const allowed = await studentBelongsToEntity(
+        env,
+        admin.complexId,
+        studentId,
+        entity,
+      );
       if (!allowed) continue;
       batchRecords.push({
         student_id: studentId,
@@ -504,13 +529,21 @@ async function handleAdminDeptRouterImpl(
     const saved = await batchSaveStudentAttendance(env, {
       complexId: admin.complexId,
       attendanceDate: date,
-      circleId,
+      circleId: entity.type === "circle" ? entity.id : null,
+      trackId: entity.type === "track" ? entity.id : null,
       source: "admin_supervisor",
       recordedByUserId: admin.userId,
       records: batchRecords,
     });
 
-    return json({ ok: true, attendance_date: date, circle_id: circleId, saved });
+    return json({
+      ok: true,
+      attendance_date: date,
+      entity_type: entity.type,
+      circle_id: entity.type === "circle" ? entity.id : null,
+      track_id: entity.type === "track" ? entity.id : null,
+      saved,
+    });
   }
 
   // GET /api/admin-dept/students/attendance/report — ملخص تحضير الطلاب بالحلقة والفترة
@@ -906,6 +939,148 @@ async function handleAdminDeptRouterImpl(
     });
   }
 
+  // POST /api/admin/attendance — upsert سجل واحد (إنشاء أو تحديث بدون معرّف)
+  if (
+    request.method === "POST" &&
+    (path === "/api/admin/attendance" || path === "/api/admin-dept/attendance")
+  ) {
+    let body: {
+      beneficiary_type?: string;
+      person_id?: number;
+      attendance_date?: string;
+      status?: string;
+      circle_id?: number;
+      track_id?: number;
+    };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+    const beneficiaryType = parseBeneficiaryType(body.beneficiary_type);
+    const status = parseStatus(body.status);
+    if (!beneficiaryType) {
+      return json({ error: "invalid_beneficiary_type" }, 400);
+    }
+    if (!status) return json({ error: "invalid_status" }, 400);
+    const date = body.attendance_date?.trim() || todayIso();
+    const result = await upsertAttendanceRecord(env, admin.complexId, admin.userId, {
+      beneficiary_type: beneficiaryType,
+      person_id: Number(body.person_id),
+      attendance_date: date,
+      status,
+      circle_id: body.circle_id,
+      track_id: body.track_id,
+    });
+    if ("error" in result) {
+      const code = result.error === "not_found" ? 404 : 400;
+      return json(result, code);
+    }
+    return json({ ok: true, attendance_id: result.attendance_id, attendance_date: date });
+  }
+
+  // PATCH /api/admin/attendance/:id
+  const attPatch = path.match(/^\/api\/admin(?:-dept)?\/attendance\/(\d+)$/);
+  if (request.method === "PATCH" && attPatch) {
+    let body: { beneficiary_type?: string; status?: string };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+    const beneficiaryType = parseBeneficiaryType(body.beneficiary_type);
+    const status = parseStatus(body.status);
+    const attendanceId = Number(attPatch[1]);
+    if (!beneficiaryType) {
+      return json({ error: "invalid_beneficiary_type" }, 400);
+    }
+    if (!status) return json({ error: "invalid_status" }, 400);
+    if (!Number.isFinite(attendanceId)) {
+      return json({ error: "invalid_id" }, 400);
+    }
+    const result = await patchAttendanceById(
+      env,
+      admin.complexId,
+      attendanceId,
+      beneficiaryType,
+      status,
+      admin.userId,
+    );
+    if ("error" in result) {
+      return json(result, result.error === "not_found" ? 404 : 400);
+    }
+    return json({ ok: true, id: result.id, status });
+  }
+
+  // DELETE /api/admin/attendance/:id
+  const attDelete = path.match(/^\/api\/admin(?:-dept)?\/attendance\/(\d+)$/);
+  if (request.method === "DELETE" && attDelete) {
+    const beneficiaryType = parseBeneficiaryType(
+      url.searchParams.get("beneficiary_type"),
+    );
+    const attendanceId = Number(attDelete[1]);
+    if (!beneficiaryType) {
+      return json({ error: "beneficiary_type_required" }, 400);
+    }
+    if (!Number.isFinite(attendanceId)) {
+      return json({ error: "invalid_id" }, 400);
+    }
+    const result = await deleteAttendanceById(
+      env,
+      admin.complexId,
+      attendanceId,
+      beneficiaryType,
+    );
+    if ("error" in result) {
+      return json(result, 400);
+    }
+    return json({ ok: true, deleted: result.deleted });
+  }
+
+  // DELETE /api/admin/attendance/bulk — إلغاء تحضير يوم كامل
+  if (
+    request.method === "DELETE" &&
+    (path === "/api/admin/attendance/bulk" ||
+      path === "/api/admin-dept/attendance/bulk")
+  ) {
+    let body: {
+      beneficiary_type?: string;
+      attendance_date?: string;
+      circle_id?: number;
+      track_id?: number;
+    };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+    const beneficiaryType = parseBeneficiaryType(body.beneficiary_type);
+    if (!beneficiaryType) {
+      return json({ error: "invalid_beneficiary_type" }, 400);
+    }
+    const date = body.attendance_date?.trim() || todayIso();
+    const result = await bulkClearAttendanceDay(env, admin.complexId, {
+      beneficiary_type: beneficiaryType,
+      attendance_date: date,
+      circle_id: body.circle_id,
+      track_id: body.track_id,
+    });
+    if ("error" in result) {
+      return json(result, 400);
+    }
+    return json({ ok: true, deleted: result.deleted, attendance_date: date });
+  }
+
+  // GET /api/admin-dept/dashboard-stats | GET /api/admin/dashboard-stats
+  if (
+    request.method === "GET" &&
+    (path === "/api/admin-dept/dashboard-stats" ||
+      path === "/api/admin/dashboard-stats")
+  ) {
+    const stats = await fetchAdminDashboardStats(env, admin.complexId);
+    return json(stats);
+  }
+
   // GET /api/admin-dept/reports
   if (request.method === "GET" && path === "/api/admin-dept/reports") {
     const startDate =
@@ -927,6 +1102,7 @@ async function handleAdminDeptRouterImpl(
     const includeStaff = typeFilter === "all" || typeFilter === "staff";
     const includeStudents = typeFilter === "all" || typeFilter === "student";
     const includeItems = url.searchParams.get("include_items") !== "false";
+    const isActiveExpr = await studentIsActiveSql(env, "s");
 
     type ReportRow = {
       name: string;
@@ -971,7 +1147,7 @@ async function handleAdminDeptRouterImpl(
         JOIN students s ON s.id = sa.student_id
         ${placement.historyJoin}
         WHERE sa.complex_id = ? AND sa.attendance_date BETWEEN ? AND ?
-          AND COALESCE(s.is_active, 1) = 1`;
+          AND ${isActiveExpr}`;
       const stuBinds: (string | number)[] = [
         admin.complexId,
         startDate,
@@ -1008,11 +1184,12 @@ async function handleAdminDeptRouterImpl(
       }
     }
 
-    const staffRosterSql = await teachersListSql(env);
+    const staffRosterSql = await unifiedStaffListSql(env);
     const staffAll = await env.DB.prepare(staffRosterSql)
       .bind(admin.complexId)
       .all<{ id: number }>();
-    const staffTotal = staffAll.results?.length ?? 0;
+    const staffCounts = await countComplexStaff(env, admin.complexId);
+    const staffTotal = staffCounts.total;
 
     const staffOnEnd = await env.DB.prepare(
       `SELECT user_id, status FROM staff_attendance
@@ -1024,38 +1201,43 @@ async function handleAdminDeptRouterImpl(
       (staffOnEnd.results ?? []).map((r) => [r.user_id, r.status]),
     );
     let staffPresent = 0;
+    let staffMarked = 0;
     for (const u of staffAll.results ?? []) {
-      const st = staffStatusMap.get(u.id) ?? "present";
+      const st = staffStatusMap.get(u.id);
+      if (st == null) continue;
+      staffMarked++;
       if (st === "present") staffPresent++;
     }
 
-    const studentsTotalRow = await env.DB.prepare(
-      `SELECT COUNT(*) AS c FROM students WHERE complex_id = ? AND COALESCE(is_active, 1) = 1`,
-    )
-      .bind(admin.complexId)
-      .first<{ c: number }>();
-    const studentsTotal = Number(studentsTotalRow?.c ?? 0);
+    const studentCounts = await countComplexStudents(env, admin.complexId);
+    const studentsTotal = studentCounts.total;
 
-    let studentsPresent = studentsTotal;
+    let studentsPresent = 0;
+    let studentsMarked = 0;
     if (attTable) {
-      const absentOnEnd = await env.DB.prepare(
-        `SELECT COUNT(DISTINCT student_id) AS c FROM ${attTable}
-         WHERE complex_id = ? AND attendance_date = ?
-           AND status IN ('absent', 'excused')`,
-      )
-        .bind(admin.complexId, endDate)
-        .first<{ c: number }>();
-      studentsPresent = Math.max(
-        0,
-        studentsTotal - Number(absentOnEnd?.c ?? 0),
-      );
+      const [presentOnEnd, markedOnEnd] = await Promise.all([
+        env.DB.prepare(
+          `SELECT COUNT(DISTINCT student_id) AS c FROM ${attTable}
+           WHERE complex_id = ? AND attendance_date = ? AND status = 'present'`,
+        )
+          .bind(admin.complexId, endDate)
+          .first<{ c: number }>(),
+        env.DB.prepare(
+          `SELECT COUNT(DISTINCT student_id) AS c FROM ${attTable}
+           WHERE complex_id = ? AND attendance_date = ?`,
+        )
+          .bind(admin.complexId, endDate)
+          .first<{ c: number }>(),
+      ]);
+      studentsPresent = Number(presentOnEnd?.c ?? 0);
+      studentsMarked = Number(markedOnEnd?.c ?? 0);
     }
 
     const pct = (n: number, total: number) =>
       total > 0 ? Math.round((n / total) * 100) : 0;
 
-    const staffAbsent = Math.max(0, staffTotal - staffPresent);
-    const studentsAbsent = Math.max(0, studentsTotal - studentsPresent);
+    const staffAbsent = Math.max(0, staffMarked - staffPresent);
+    const studentsAbsent = Math.max(0, studentsMarked - studentsPresent);
 
     let staffDisciplinePct = 0;
     let studentsDisciplinePct = 0;
@@ -1516,27 +1698,43 @@ async function handleAdminDeptRouterImpl(
 
     const items = [];
     for (const row of rows.results ?? []) {
-      let circleId: number | null = null;
+      let groupType: "circle" | "track" = "circle";
+      let groupId: number | null = null;
       try {
         const ctx = JSON.parse(row.context_data) as MagicLinkContext;
-        const group = ctx.group_id ?? ctx.circle_id;
-        circleId = group != null ? Number(group) : null;
+        const resolved = resolveMagicGroupId(ctx);
+        groupType = resolved.groupType;
+        groupId = resolved.groupId;
       } catch {
         /* ignore malformed context */
       }
 
       let circleName: string | null = null;
-      if (circleId != null && Number.isFinite(circleId)) {
-        const circle = await circleLabelRow(env, circleId);
-        circleName = circle?.name_ar ?? null;
+      let trackName: string | null = null;
+      if (groupId != null && Number.isFinite(groupId)) {
+        if (groupType === "track") {
+          const track = await env.DB.prepare(
+            `SELECT name_ar FROM tracks WHERE id = ? AND complex_id = ?`,
+          )
+            .bind(groupId, admin.complexId)
+            .first<{ name_ar: string }>();
+          trackName = track?.name_ar ?? null;
+        } else {
+          const circle = await circleLabelRow(env, groupId);
+          circleName = circle?.name_ar ?? null;
+        }
       }
 
       const publicPath = `/public/attendance/${row.token}`;
       items.push({
         id: row.id,
         token: row.token,
-        circle_id: circleId,
+        group_type: groupType,
+        group_id: groupId,
+        circle_id: groupType === "circle" ? groupId : null,
         circle_name: circleName,
+        track_id: groupType === "track" ? groupId : null,
+        track_name: trackName,
         evergreen: true,
         is_active: row.is_active,
         created_at: row.created_at,
@@ -1577,6 +1775,8 @@ async function handleAdminDeptRouterImpl(
 
     let body: {
       circle_id?: number;
+      track_id?: number;
+      group_type?: string;
       attendance_date?: string;
       feature_name?: string;
     };
@@ -1586,22 +1786,45 @@ async function handleAdminDeptRouterImpl(
       return json({ error: "invalid_json" }, 400);
     }
 
-    const circleId = Number(body.circle_id);
     const featureName = body.feature_name?.trim() || "student_attendance";
     if (featureName !== "student_attendance") {
       return json({ error: "unsupported_feature", allowed: ["student_attendance"] }, 400);
     }
-    if (!Number.isFinite(circleId)) return json({ error: "circle_id_required" }, 400);
-    if (!(await assertCircleInComplex(env, admin.complexId, circleId))) {
-      return json({ error: "circle_not_found" }, 404);
+
+    const explicitType =
+      body.group_type === "track"
+        ? "track"
+        : body.group_type === "circle"
+          ? "circle"
+          : null;
+    const entity =
+      explicitType === "track" && body.track_id != null
+        ? { type: "track" as const, id: Number(body.track_id) }
+        : explicitType === "circle" && body.circle_id != null
+          ? { type: "circle" as const, id: Number(body.circle_id) }
+          : parseAttendanceEntity(body);
+
+    if (!entity || !Number.isFinite(entity.id)) {
+      return json(
+        { error: "entity_required", hint: "circle_id XOR track_id with group_type" },
+        400,
+      );
+    }
+
+    if (entity.type === "circle") {
+      if (!(await assertCircleInComplex(env, admin.complexId, entity.id))) {
+        return json({ error: "circle_not_found" }, 404);
+      }
+    } else if (!(await assertTrackInComplex(env, admin.complexId, entity.id))) {
+      return json({ error: "track_not_found" }, 404);
     }
 
     const token = randomMagicToken();
     const contextObj: MagicLinkContext = {
-      group_type: "circle",
-      group_id: circleId,
-      circle_id: circleId,
-      scope: "circle",
+      group_type: entity.type,
+      group_id: entity.id,
+      circle_id: entity.type === "circle" ? entity.id : undefined,
+      scope: entity.type,
     };
     const context = JSON.stringify(contextObj);
 

@@ -8,11 +8,12 @@ import { ds, tajawal } from "../../lib/design-system";
 
 type Row = { student_id: number; full_name_ar: string; status: string };
 
-/** تحضير عام بدون تسجيل دخول — رابط سحري */
+/** تحضير عام بدون تسجيل دخول — رابط سحري (حلقة أو مسار) */
 export function PublicMagicLinkPage() {
   const { token = "" } = useParams<{ token: string }>();
   const [date, setDate] = useState("");
-  const [circleName, setCircleName] = useState("");
+  const [entityType, setEntityType] = useState<"circle" | "track">("circle");
+  const [entityName, setEntityName] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [baseline, setBaseline] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(true);
@@ -27,7 +28,12 @@ export function PublicMagicLinkPage() {
     try {
       const res = await api.publicAttendanceGet(token);
       setDate(res.attendance_date);
-      setCircleName(res.circle?.name_ar ?? "");
+      setEntityType(res.entity_type ?? (res.track ? "track" : "circle"));
+      setEntityName(
+        res.entity_type === "track"
+          ? (res.track?.name_ar ?? "")
+          : (res.circle?.name_ar ?? ""),
+      );
       const items = (res.items ?? []).map((r) => ({
         student_id: r.student_id,
         full_name_ar: r.full_name_ar,
@@ -83,6 +89,13 @@ export function PublicMagicLinkPage() {
     }
   }
 
+  const title =
+    entityType === "track" ? "تحضير المسار" : "تحضير الحلقة";
+  const emptyMsg =
+    entityType === "track"
+      ? "لا يوجد طلاب في هذا المسار."
+      : "لا يوجد طلاب في هذه الحلقة.";
+
   return (
     <div className="min-h-screen bg-background p-4 sm:p-8" dir="rtl">
       <div className="max-w-lg mx-auto space-y-4">
@@ -93,10 +106,10 @@ export function PublicMagicLinkPage() {
             className="h-20 mx-auto mb-3 dark:hidden"
           />
           <h1 className={ds.page.title} style={tajawal}>
-            تحضير الحلقة
+            {title}
           </h1>
           <p className={ds.page.description} style={tajawal}>
-            {circleName || "—"} · تحضير يوم {date || "اليوم"}
+            {entityName || "—"} · تحضير يوم {date || "اليوم"}
           </p>
         </div>
 
@@ -153,7 +166,7 @@ export function PublicMagicLinkPage() {
             ))}
             {rows.length === 0 && !error && (
               <p className={ds.alert.info} style={tajawal}>
-                لا يوجد طلاب في هذه الحلقة.
+                {emptyMsg}
               </p>
             )}
           </div>

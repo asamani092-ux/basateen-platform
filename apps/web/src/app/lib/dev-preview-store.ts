@@ -17,6 +17,13 @@ const students: StudentRow[] = cloneStudents();
 const eduPlans = { ...PREVIEW_EDU_PLANS };
 const staffStatus = new Map<string, string>();
 const studentStatus = new Map<string, string>();
+const staffAttendanceIds = new Map<string, number>();
+const studentAttendanceIds = new Map<string, number>();
+let attendanceIdSeq = 5000;
+
+function nextAttendanceId(): number {
+  return ++attendanceIdSeq;
+}
 let competitions = [...PREVIEW_COMPETITIONS];
 let himmaSession = { ...PREVIEW_HIMMA_SESSION };
 let himmaLiveToken = PREVIEW_HIMMA_SESSION.live_log_token as string;
@@ -199,7 +206,43 @@ export const previewStore = {
   },
 
   setStaffStatus(userId: number, date: string, status: string) {
-    staffStatus.set(keyStaff(userId, date), status);
+    const k = keyStaff(userId, date);
+    staffStatus.set(k, status);
+    if (!staffAttendanceIds.has(k)) {
+      staffAttendanceIds.set(k, nextAttendanceId());
+    }
+  },
+
+  getStaffAttendanceMeta(
+    userId: number,
+    date: string,
+  ): { attendance_id: number | null; has_record: boolean } {
+    const k = keyStaff(userId, date);
+    const id = staffAttendanceIds.get(k);
+    return {
+      attendance_id: id ?? null,
+      has_record: id != null && staffStatus.has(k),
+    };
+  },
+
+  deleteStaffAttendance(userId: number, date: string): boolean {
+    const k = keyStaff(userId, date);
+    const had = staffAttendanceIds.has(k);
+    staffStatus.delete(k);
+    staffAttendanceIds.delete(k);
+    return had;
+  },
+
+  clearStaffAttendanceDay(date: string): number {
+    let n = 0;
+    for (const k of [...staffAttendanceIds.keys()]) {
+      if (k.endsWith(`:${date}`)) {
+        staffStatus.delete(k);
+        staffAttendanceIds.delete(k);
+        n++;
+      }
+    }
+    return n;
   },
 
   getStudentStatus(studentId: number, date: string, fallback: string) {
@@ -207,7 +250,63 @@ export const previewStore = {
   },
 
   setStudentStatus(studentId: number, date: string, status: string) {
-    studentStatus.set(keyStudent(studentId, date), status);
+    const k = keyStudent(studentId, date);
+    studentStatus.set(k, status);
+    if (!studentAttendanceIds.has(k)) {
+      studentAttendanceIds.set(k, nextAttendanceId());
+    }
+  },
+
+  getStudentAttendanceMeta(
+    studentId: number,
+    date: string,
+  ): { attendance_id: number | null; has_record: boolean } {
+    const k = keyStudent(studentId, date);
+    const id = studentAttendanceIds.get(k);
+    return {
+      attendance_id: id ?? null,
+      has_record: id != null && studentStatus.has(k),
+    };
+  },
+
+  deleteStudentAttendance(studentId: number, date: string): boolean {
+    const k = keyStudent(studentId, date);
+    const had = studentAttendanceIds.has(k);
+    studentStatus.delete(k);
+    studentAttendanceIds.delete(k);
+    return had;
+  },
+
+  clearStudentAttendanceDay(date: string): number {
+    let n = 0;
+    for (const k of [...studentAttendanceIds.keys()]) {
+      if (k.endsWith(`:${date}`)) {
+        studentStatus.delete(k);
+        studentAttendanceIds.delete(k);
+        n++;
+      }
+    }
+    return n;
+  },
+
+  findStaffAttendanceById(id: number): { userId: number; date: string } | null {
+    for (const [k, attId] of staffAttendanceIds) {
+      if (attId === id) {
+        const [userId, date] = k.split(":");
+        return { userId: Number(userId), date };
+      }
+    }
+    return null;
+  },
+
+  findStudentAttendanceById(id: number): { studentId: number; date: string } | null {
+    for (const [k, attId] of studentAttendanceIds) {
+      if (attId === id) {
+        const [studentId, date] = k.split(":");
+        return { studentId: Number(studentId), date };
+      }
+    }
+    return null;
   },
 
   getApplications() {

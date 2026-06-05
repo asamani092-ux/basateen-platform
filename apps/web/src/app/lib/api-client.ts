@@ -885,12 +885,52 @@ export const api = {
         user_id: number;
         full_name_ar: string;
         role: string | null;
+        attendance_id: number | null;
+        has_record: boolean;
         status: string;
         recorded_at?: string | null;
       }>;
       default_status: string;
     }>(`/api/admin-dept/staff${qs}`);
   },
+  adminPatchAttendance: (
+    id: number,
+    body: { beneficiary_type: "student" | "staff"; status: string },
+  ) =>
+    request<{ ok: boolean; id: number; status: string }>(
+      `/api/admin/attendance/${id}`,
+      { method: "PATCH", body: JSON.stringify(body) },
+    ),
+  adminUpsertAttendance: (body: {
+    beneficiary_type: "student" | "staff";
+    person_id: number;
+    attendance_date: string;
+    status: string;
+    circle_id?: number;
+    track_id?: number;
+  }) =>
+    request<{ ok: boolean; attendance_id: number; attendance_date: string }>(
+      "/api/admin/attendance",
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  adminDeleteAttendance: (
+    id: number,
+    beneficiaryType: "student" | "staff",
+  ) =>
+    request<{ ok: boolean; deleted: number }>(
+      `/api/admin/attendance/${id}?beneficiary_type=${beneficiaryType}`,
+      { method: "DELETE" },
+    ),
+  adminBulkDeleteAttendance: (body: {
+    beneficiary_type: "student" | "staff";
+    attendance_date: string;
+    circle_id?: number;
+    track_id?: number;
+  }) =>
+    request<{ ok: boolean; deleted: number; attendance_date: string }>(
+      "/api/admin/attendance/bulk",
+      { method: "DELETE", body: JSON.stringify(body) },
+    ),
   adminDeptSaveStaffAttendance: (body: {
     attendance_date?: string;
     records: Array<{ user_id: number; status: string }>;
@@ -919,11 +959,14 @@ export const api = {
     const qs = date ? `?date=${encodeURIComponent(date)}` : "";
     return request<{
       attendance_date: string;
+      entity_type?: "circle";
       circle: { id: number; name_ar: string; stage: string } | null;
       items: Array<{
         student_id: number;
         full_name_ar: string;
         stage_id?: number | null;
+        attendance_id?: number | null;
+        has_record?: boolean;
         status: string;
         recorded_at?: string | null;
         source?: string | null;
@@ -931,15 +974,42 @@ export const api = {
       default_status: string;
     }>(`/api/admin-dept/students/attendance/${circleId}${qs}`);
   },
+  adminDeptTrackAttendance: (trackId: number, date?: string) => {
+    const qs = date ? `?date=${encodeURIComponent(date)}` : "";
+    return request<{
+      attendance_date: string;
+      entity_type: "track";
+      track: { id: number; name_ar: string } | null;
+      items: Array<{
+        student_id: number;
+        full_name_ar: string;
+        stage_id?: number | null;
+        attendance_id?: number | null;
+        has_record?: boolean;
+        status: string;
+        recorded_at?: string | null;
+        source?: string | null;
+      }>;
+      default_status: string;
+    }>(`/api/admin-dept/students/attendance/track/${trackId}${qs}`);
+  },
   adminDeptSaveStudentAttendance: (body: {
-    circle_id: number;
+    circle_id?: number;
+    track_id?: number;
     attendance_date?: string;
     records: Array<{ student_id: number; status: string; notes?: string }>;
   }) =>
-    request<{ ok: boolean; attendance_date: string; circle_id: number; saved: number }>(
-      "/api/admin-dept/students/attendance",
-      { method: "POST", body: JSON.stringify(body) },
-    ),
+    request<{
+      ok: boolean;
+      attendance_date: string;
+      entity_type: "circle" | "track";
+      circle_id: number | null;
+      track_id: number | null;
+      saved: number;
+    }>("/api/admin-dept/students/attendance", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   adminDeptStudentsAttendanceReport: (
     start: string,
     end: string,
@@ -977,7 +1047,9 @@ export const api = {
     }>(`/api/admin-dept/students/absent-today${qs ? `?${qs}` : ""}`);
   },
   adminDeptCreateMagicLink: (body: {
-    circle_id: number;
+    circle_id?: number;
+    track_id?: number;
+    group_type?: "circle" | "track";
     attendance_date?: string;
     feature_name?: string;
   }) =>
@@ -1005,8 +1077,12 @@ export const api = {
       items: Array<{
         id: number;
         token: string;
+        group_type?: "circle" | "track";
+        group_id?: number | null;
         circle_id: number | null;
         circle_name: string | null;
+        track_id?: number | null;
+        track_name?: string | null;
         evergreen?: boolean;
         is_active: number;
         created_at: string;
@@ -1127,6 +1203,38 @@ export const api = {
     }>(`/api/admin-dept/pledges/entry/${pledgeId}`, {
       method: "DELETE",
     }),
+  adminDashboardStats: () =>
+    request<{
+      complex_name: string | null;
+      generated_at: string;
+      students: {
+        total: number;
+        with_circle: number;
+        without_circle: number;
+        with_track: number;
+        without_track: number;
+      };
+      groups: {
+        circles_active: number;
+        tracks_active: number;
+      };
+      staff: {
+        total: number;
+        by_role: Record<string, number>;
+      };
+      pledges: {
+        total: number;
+        this_month: number;
+        students_with_pledges: number;
+      } | null;
+      attendance: {
+        date: string;
+        students_marked_today: number;
+        students_present_today: number;
+        staff_marked_today: number;
+        staff_present_today: number;
+      };
+    }>("/api/admin-dept/dashboard-stats"),
   adminDeptReports: (params?: {
     startDate?: string;
     endDate?: string;
@@ -1769,8 +1877,10 @@ export const api = {
   publicAttendanceGet: (token: string) =>
     request<{
       token: string;
+      entity_type: "circle" | "track";
       attendance_date: string;
-      circle: { id: number; name_ar: string; stage: string };
+      circle: { id: number; name_ar: string; stage?: string } | null;
+      track: { id: number; name_ar: string } | null;
       items: Array<{
         student_id: number;
         full_name_ar: string;

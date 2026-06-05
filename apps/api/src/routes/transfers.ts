@@ -11,6 +11,7 @@ import {
   studentIsActiveSql,
   tableHasColumn,
 } from "../lib/db-schema";
+import { buildStudentPlacementSql } from "../lib/student-list-sql";
 import { applyStudentPlacement } from "../lib/students-admin";
 import { transferStudentCircle } from "../lib/edu-transfer";
 import { safeDeleteStudent } from "../lib/students-admin";
@@ -418,7 +419,28 @@ export async function handleStudentPatch(
       return json({ error: "no_fields" }, 400);
     }
 
-    return json({ ok: true });
+    const placement = await buildStudentPlacementSql(env);
+    const row = await env.DB.prepare(
+      `SELECT s.id, s.full_name_ar,
+              c.name_ar AS circle_name,
+              t.name_ar AS track_name
+       FROM students s
+       ${placement.circleJoin}
+       ${placement.trackJoin}
+       WHERE s.id = ? AND s.complex_id = ?`,
+    )
+      .bind(studentId, auth.complexId)
+      .first<{
+        id: number;
+        full_name_ar: string;
+        circle_name: string | null;
+        track_name: string | null;
+      }>();
+
+    return json({
+      ok: true,
+      student: row ?? { id: studentId, full_name_ar: "", circle_name: null, track_name: null },
+    });
   } catch (err) {
     console.error("student_patch_failed", err);
     return json(

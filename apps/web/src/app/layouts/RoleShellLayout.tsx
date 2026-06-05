@@ -12,6 +12,7 @@ import {
   type NavItem,
 } from "../config/routes";
 import { useAuth } from "../context/AuthContext";
+import { AdminDataSyncProvider } from "../context/AdminDataSyncContext";
 import type { UserRole } from "../lib/auth-store";
 import { DevPreviewBanner } from "../components/DevPreviewBanner";
 import { ThemeToggle } from "../components/ThemeToggle";
@@ -192,6 +193,7 @@ export function RoleShellLayout() {
   );
 
   return (
+    <AdminDataSyncProvider>
     <div className="min-h-screen bg-background text-foreground" dir="rtl">
       <div className="min-h-screen flex">
         <aside className="w-64 shrink-0 bg-card border-l border-border hidden lg:flex flex-col print:hidden">
@@ -261,5 +263,6 @@ export function RoleShellLayout() {
         </div>
       </div>
     </div>
+    </AdminDataSyncProvider>
   );
 }

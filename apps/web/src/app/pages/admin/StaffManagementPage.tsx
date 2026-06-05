@@ -45,6 +45,11 @@ import {
 } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
 import { ds, tajawal } from "../../lib/design-system";
+import {
+  adminInvalidateFor,
+  useAdminDataSync,
+  useAdminDataSyncContext,
+} from "../../context/AdminDataSyncContext";
 
 const SOVEREIGN_USER_ID = 1;
 
@@ -108,6 +113,7 @@ export function StaffManagementPage() {
   const [assignRow, setAssignRow] = useState<StaffMemberRow | null>(null);
   const [actionRow, setActionRow] = useState<StaffMemberRow | null>(null);
   const hasApi = Boolean(getApiToken());
+  const { invalidate } = useAdminDataSyncContext();
 
   const load = useCallback(async () => {
     if (!hasApi) {
@@ -154,6 +160,13 @@ export function StaffManagementPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useAdminDataSync(["staff", "groups"], load);
+
+  function afterStaffMutation() {
+    invalidate(adminInvalidateFor("staff"));
+    void load();
+  }
 
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto" dir="rtl">
@@ -286,7 +299,7 @@ export function StaffManagementPage() {
         onOpenChange={setAddOpen}
         onSaved={() => {
           setAddOpen(false);
-          void load();
+          afterStaffMutation();
           toast.success("تمت الإضافة بنجاح");
         }}
       />
@@ -300,7 +313,7 @@ export function StaffManagementPage() {
           }}
           onSaved={() => {
             setEditRow(null);
-            void load();
+            afterStaffMutation();
             toast.success("تم حفظ التعديلات");
           }}
         />
@@ -324,6 +337,7 @@ export function StaffManagementPage() {
                   x.id === actionRow.id ? { ...x, is_active: next } : x,
                 ),
               );
+              afterStaffMutation();
               toast.success(next ? "تم التنشيط" : "تم التعليق");
               setActionRow(null);
             } catch (err) {
@@ -334,6 +348,7 @@ export function StaffManagementPage() {
           onDelete={async () => {
             try {
               await api.adminStaffDelete(actionRow.id);
+              afterStaffMutation();
               toast.success("تم الحذف من قاعدة البيانات");
               setItems((prev) => prev.filter((x) => x.id !== actionRow.id));
               setActionRow(null);
@@ -357,7 +372,7 @@ export function StaffManagementPage() {
           }}
           onSaved={() => {
             setAssignRow(null);
-            void load();
+            afterStaffMutation();
             toast.success("تم الإسناد بنجاح");
           }}
         />

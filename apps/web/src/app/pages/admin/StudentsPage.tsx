@@ -54,6 +54,11 @@ import { EDUCATIONAL_STAGES } from "../../lib/stages";
 import { ds, tajawal } from "../../lib/design-system";
 import { cn } from "../../components/ui/utils";
 import {
+  adminInvalidateFor,
+  useAdminDataSync,
+  useAdminDataSyncContext,
+} from "../../context/AdminDataSyncContext";
+import {
   buildStudentPatchPayload,
   downloadStudentTemplateCsv,
   downloadStudentTemplateXlsx,
@@ -87,13 +92,16 @@ export function StudentsPage() {
   const [actionStudent, setActionStudent] = useState<StudentRow | null>(null);
   const [groups, setGroups] = useState<EducationalGroupRow[]>([]);
   const hasApi = Boolean(getApiToken());
+  const { invalidate } = useAdminDataSyncContext();
 
-  useEffect(() => {
+  const loadGroups = useCallback(async () => {
     if (!hasApi) return;
-    void api
-      .adminEducationalGroups()
-      .then((res) => setGroups(res.items))
-      .catch(() => setGroups([]));
+    try {
+      const res = await api.adminEducationalGroups();
+      setGroups(res.items ?? []);
+    } catch {
+      setGroups([]);
+    }
   }, [hasApi]);
 
   const circles = useMemo(
@@ -142,10 +150,26 @@ export function StudentsPage() {
     }
   }, [hasApi, q, stageFilter, circleFilter, trackFilter, statusFilter]);
 
+  const syncAdminData = useCallback(async () => {
+    await Promise.all([load(), loadGroups()]);
+  }, [load, loadGroups]);
+
+  useAdminDataSync(["students", "groups"], syncAdminData);
+
+  useEffect(() => {
+    void loadGroups();
+  }, [loadGroups]);
+
   useEffect(() => {
     const t = setTimeout(() => void load(), 300);
     return () => clearTimeout(t);
   }, [load]);
+
+  function afterStudentMutation() {
+    invalidate(adminInvalidateFor("student"));
+    void load();
+    void loadGroups();
+  }
 
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto">
@@ -325,7 +349,14 @@ export function StudentsPage() {
                       <TableCell style={tajawal}>{s.phone ?? "—"}</TableCell>
                       <TableCell style={tajawal}>
                         {s.circle_name ? (
-                          s.circle_name
+                          <span>
+                            {s.circle_name}
+                            {s.track_name ? (
+                              <span className="text-muted-foreground text-xs block">
+                                {s.track_name}
+                              </span>
+                            ) : null}
+                          </span>
                         ) : s.track_name ? (
                           <span className="text-amber-700 dark:text-amber-400">
                             بدون حلقة — {s.track_name}
@@ -377,7 +408,7 @@ export function StudentsPage() {
         onOpenChange={setAddOpen}
         onCreated={() => {
           setAddOpen(false);
-          void load();
+          afterStudentMutation();
         }}
       />
 
@@ -403,6 +434,7 @@ export function StudentsPage() {
                 ),
               );
               setActionStudent(null);
+              afterStudentMutation();
               toast.success(suspended ? "تم تنشيط الطالب" : "تم تعليق الطالب");
             } catch (e) {
               toast.error(e instanceof Error ? e.message : "فشل تحديث الحالة");
@@ -414,6 +446,7 @@ export function StudentsPage() {
               await api.studentsDelete(actionStudent.id);
               setItems((prev) => prev.filter((x) => x.id !== actionStudent.id));
               setActionStudent(null);
+              afterStudentMutation();
               toast.success("تم الحذف");
             } catch (e) {
               toast.error(e instanceof Error ? e.message : "فشل الحذف");
@@ -438,7 +471,7 @@ export function StudentsPage() {
             );
             setEditStudent(null);
             toast.success("تم حفظ التعديلات");
-            void load();
+            afterStudentMutation();
           }}
         />
       )}
@@ -676,17 +709,11 @@ function StudentEditDialog({
     setError(null);
     try {
       const payload = buildStudentPatchPayload(values);
-      await api.studentsPatch(student.id, payload);
-      const placementLabel = values.placement.includes(":")
-        ? groups.find(
-            (g) =>
-              values.placement === `${g.entity_type}:${g.id}`,
-          )?.name_ar ?? null
-        : null;
-      const isTrack = values.placement.startsWith("track:");
+      const res = await api.studentsPatch(student.id, payload);
+      const updated = res.student;
       onSaved({
         ...student,
-        full_name_ar: payload.full_name_ar as string,
+        full_name_ar: (updated?.full_name_ar ?? payload.full_name_ar) as string,
         national_id: payload.national_id as string | null,
         nationality: payload.nationality as string | null,
         phone: payload.phone as string | null,
@@ -697,12 +724,8 @@ function StudentEditDialog({
         health_notes: payload.health_notes as string | null,
         stage_id: payload.stage_id as number | null,
         age: payload.age as number | null,
-        circle_name: isTrack
-          ? student.circle_name
-          : placementLabel ?? student.circle_name,
-        track_name: isTrack
-          ? placementLabel ?? student.track_name
-          : student.track_name,
+        circle_name: updated?.circle_name ?? student.circle_name,
+        track_name: updated?.track_name ?? student.track_name,
       });
     } catch (err) {
       setError(formatStudentApiError(err));

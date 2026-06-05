@@ -40,6 +40,11 @@ import {
 import { getApiToken } from "../../lib/api-token";
 import { EDUCATIONAL_STAGES, type StageId } from "../../lib/stages";
 import { ds, tajawal } from "../../lib/design-system";
+import {
+  adminInvalidateFor,
+  useAdminDataSync,
+  useAdminDataSyncContext,
+} from "../../context/AdminDataSyncContext";
 
 type EntityKind = "circle" | "track";
 
@@ -65,6 +70,7 @@ export function CirclesSetupPage() {
   const [editRow, setEditRow] = useState<EducationalGroupRow | null>(null);
   const [actionRow, setActionRow] = useState<EducationalGroupRow | null>(null);
   const hasApi = Boolean(getApiToken());
+  const { invalidate } = useAdminDataSyncContext();
 
   const teachers = useMemo(
     () => staff.filter((s) => s.role === "teacher"),
@@ -104,6 +110,13 @@ export function CirclesSetupPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useAdminDataSync(["groups", "staff"], load);
+
+  function afterGroupMutation() {
+    invalidate(adminInvalidateFor("group"));
+    void load();
+  }
 
   function openCreate() {
     setEditRow(null);
@@ -290,6 +303,7 @@ export function CirclesSetupPage() {
               ),
             );
             setActionRow(null);
+            afterGroupMutation();
             toast.success(next ? "تم التنشيط" : "تم التعليق");
             } catch (err) {
               toast.error(apiErrorMessage(err, "فشل تحديث الحالة"));
@@ -314,6 +328,7 @@ export function CirclesSetupPage() {
                 ),
               );
               setActionRow(null);
+              afterGroupMutation();
               toast.success("تم الحذف بنجاح");
             } catch (err) {
               toast.error(apiErrorMessage(err, "فشل الحذف"));
@@ -333,7 +348,7 @@ export function CirclesSetupPage() {
         onSaved={() => {
           setModalOpen(false);
           setEditRow(null);
-          void load();
+          afterGroupMutation();
           toast.success(editRow ? "تم حفظ التعديلات" : "تمت الإضافة بنجاح");
         }}
       />

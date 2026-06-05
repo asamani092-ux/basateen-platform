@@ -344,7 +344,15 @@ export const api = {
       account_status?: "active" | "suspended";
     },
   ) =>
-    request<{ ok: boolean }>(`/api/students/${id}`, {
+    request<{
+      ok: boolean;
+      student?: {
+        id: number;
+        full_name_ar: string;
+        circle_name: string | null;
+        track_name: string | null;
+      };
+    }>(`/api/students/${id}`, {
       method: "PATCH",
       body: JSON.stringify(body),
     }),

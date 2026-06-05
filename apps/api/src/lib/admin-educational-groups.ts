@@ -14,7 +14,7 @@ import {
   circleTeacherJoinSql,
   circleTrackSelectSql,
 } from "./admin-gm-schema";
-import { hasTable, tableHasColumn } from "./db-schema";
+import { hasTable, studentIsActiveSql, tableHasColumn } from "./db-schema";
 import { runHardDeleteBatch } from "./db-batch";
 
 export type EducationalEntityType = "circle" | "track";
@@ -124,10 +124,11 @@ export async function fetchEducationalGroups(
     for (const t of tracks.results ?? []) {
       let studentCountN = 0;
       if (hasStudentsCurrentTrack) {
+        const isActiveExpr = await studentIsActiveSql(env, "s");
         const sc = await env.DB.prepare(
-          `SELECT COUNT(*) AS c FROM students
-           WHERE current_track_id = ? AND complex_id = ?
-             AND COALESCE(is_active, 1) = 1`,
+          `SELECT COUNT(*) AS c FROM students s
+           WHERE s.current_track_id = ? AND s.complex_id = ?
+             AND ${isActiveExpr}`,
         )
           .bind(t.id, complexId)
           .first<{ c: number }>();

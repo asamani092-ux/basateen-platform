@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { MoreHorizontal } from "lucide-react";
-import { Button } from "../ui/button";
 import { cn } from "../ui/utils";
 import { ds, tajawal } from "../../lib/design-system";
 
@@ -19,11 +18,11 @@ type Props = {
 };
 
 /**
- * قائمة إجراءات صف — بدون Radix Dropdown لتجنب تعطّل النقر داخل الجداول القابلة للتمرير.
+ * قائمة إجراءات صف — portal + fixed (بدون Radix).
  * Time O(1) per click; Space O(1).
  */
 export function TableRowActionsMenu({ items, ariaLabel = "إجراءات" }: Props) {
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -33,13 +32,8 @@ export function TableRowActionsMenu({ items, ariaLabel = "إجراءات" }: Pro
     setPos(null);
   }
 
-  function toggle() {
-    if (open) {
-      close();
-      return;
-    }
-    const rect = triggerRef.current?.getBoundingClientRect();
-    if (!rect) return;
+  function openAt(trigger: HTMLElement) {
+    const rect = trigger.getBoundingClientRect();
     const menuWidth = 224;
     const left = Math.max(8, Math.min(rect.left, window.innerWidth - menuWidth - 8));
     setPos({ top: rect.bottom + 4, left });
@@ -50,7 +44,7 @@ export function TableRowActionsMenu({ items, ariaLabel = "إجراءات" }: Pro
     if (!open) return;
     function onPointerDown(e: PointerEvent) {
       const target = e.target as Node;
-      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      if (rootRef.current?.contains(target) || menuRef.current?.contains(target)) return;
       close();
     }
     function onKeyDown(e: KeyboardEvent) {
@@ -65,24 +59,29 @@ export function TableRowActionsMenu({ items, ariaLabel = "إجراءات" }: Pro
   }, [open]);
 
   return (
-    <>
-      <Button
-        ref={triggerRef}
+    <div ref={rootRef} className="relative inline-flex">
+      <button
         type="button"
-        variant="ghost"
-        size="icon"
-        className={cn(ds.btnRound, "h-8 w-8")}
+        className={cn(
+          ds.btnRound,
+          "inline-flex h-8 w-8 items-center justify-center rounded-xl text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors",
+        )}
         aria-label={ariaLabel}
         aria-expanded={open}
         aria-haspopup="menu"
+        onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          toggle();
+          if (open) {
+            close();
+            return;
+          }
+          openAt(e.currentTarget);
         }}
       >
-        <MoreHorizontal className="w-4 h-4" />
-      </Button>
+        <MoreHorizontal className="w-4 h-4 pointer-events-none" />
+      </button>
       {open && pos
         ? createPortal(
             <div
@@ -124,6 +123,6 @@ export function TableRowActionsMenu({ items, ariaLabel = "إجراءات" }: Pro
             document.body,
           )
         : null}
-    </>
+    </div>
   );
 }

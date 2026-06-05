@@ -15,7 +15,6 @@ import {
   circleTrackSelectSql,
 } from "./admin-gm-schema";
 import { hasTable, tableHasColumn } from "./db-schema";
-import { SOVEREIGN_USER_ID } from "./admin-staff";
 
 export type EducationalEntityType = "circle" | "track";
 
@@ -174,6 +173,68 @@ async function detachStudentsFromCircle(
   return stmts;
 }
 
+/** فك ارتباطات الحلقة قبل الحذف النهائي — O(t) حيث t عدد الجداول الفرعية */
+async function clearCircleChildStatements(
+  env: Env,
+  circleId: number,
+): Promise<D1PreparedStatement[]> {
+  const stmts: D1PreparedStatement[] = [];
+  const childDeletes: Array<[string, string]> = [
+    ["teacher_assignments", "circle_id"],
+    ["track_circles", "circle_id"],
+    ["supervisor_scopes", "circle_id"],
+    ["student_attendance", "circle_id"],
+    ["daily_logs", "circle_id"],
+    ["student_semester_plans", "circle_id"],
+    ["competition_targets", "circle_id"],
+    ["edu_daily_recitation", "circle_id"],
+  ];
+  for (const [table, column] of childDeletes) {
+    if (!(await hasTable(env, table))) continue;
+    if (!(await tableHasColumn(env, table, column))) continue;
+    stmts.push(
+      env.DB.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).bind(circleId),
+    );
+  }
+
+  if (await hasTable(env, "student_circle_history")) {
+    const histCols = ["circle_id", "old_circle_id", "new_circle_id"] as const;
+    for (const col of histCols) {
+      if (!(await tableHasColumn(env, "student_circle_history", col))) continue;
+      stmts.push(
+        env.DB.prepare(
+          `DELETE FROM student_circle_history WHERE ${col} = ?`,
+        ).bind(circleId),
+      );
+    }
+  }
+
+  if (
+    (await hasTable(env, "edu_daily_recitation")) &&
+    (await tableHasColumn(env, "edu_daily_recitation", "target_circle_id"))
+  ) {
+    stmts.push(
+      env.DB.prepare(
+        `DELETE FROM edu_daily_recitation WHERE target_circle_id = ?`,
+      ).bind(circleId),
+    );
+  }
+
+  return stmts;
+}
+
+async function runDeleteBatch(
+  env: Env,
+  batch: D1PreparedStatement[],
+): Promise<void> {
+  await env.DB.prepare(`PRAGMA foreign_keys = OFF`).run();
+  try {
+    await env.DB.batch(batch);
+  } finally {
+    await env.DB.prepare(`PRAGMA foreign_keys = ON`).run();
+  }
+}
+
 async function detachStudentsFromTrack(
   env: Env,
   trackId: number,
@@ -209,35 +270,14 @@ export async function safeDeleteEducationalGroup(
 
     const batch: D1PreparedStatement[] = [
       ...(await detachStudentsFromCircle(env, id, complexId)),
+      ...(await clearCircleChildStatements(env, id)),
+      env.DB.prepare(`DELETE FROM circles WHERE id = ? AND complex_id = ?`).bind(
+        id,
+        complexId,
+      ),
     ];
-    if (await hasTable(env, "teacher_assignments")) {
-      batch.push(
-        env.DB.prepare(`DELETE FROM teacher_assignments WHERE circle_id = ?`).bind(
-          id,
-        ),
-      );
-    }
-    if (await hasTable(env, "track_circles")) {
-      batch.push(
-        env.DB.prepare(`DELETE FROM track_circles WHERE circle_id = ?`).bind(id),
-      );
-    }
-    if (await tableHasColumn(env, "circles", "is_active")) {
-      batch.push(
-        env.DB.prepare(
-          `UPDATE circles SET is_active = 0 WHERE id = ? AND complex_id = ?`,
-        ).bind(id, complexId),
-      );
-    } else {
-      batch.push(
-        env.DB.prepare(`DELETE FROM circles WHERE id = ? AND complex_id = ?`).bind(
-          id,
-          complexId,
-        ),
-      );
-    }
 
-    await env.DB.batch(batch);
+    await runDeleteBatch(env, batch);
     return {};
   }
 
@@ -275,7 +315,7 @@ export async function safeDeleteEducationalGroup(
     ),
   );
 
-  await env.DB.batch(batch);
+  await runDeleteBatch(env, batch);
   return {};
 }
 

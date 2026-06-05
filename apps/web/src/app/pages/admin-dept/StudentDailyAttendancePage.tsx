@@ -1,76 +1,55 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link2, Printer, Save, Trash2 } from "lucide-react";
-import { AttendanceDateFilter } from "../../components/attendance/AttendanceDateFilter";
-import { AttendanceLedgerTable } from "../../components/attendance/AttendanceLedgerTable";
+import { CheckCircle2, Link2, Printer } from "lucide-react";
+import {
+  AttendanceEntityCombobox,
+  type AttendanceEntityOption,
+} from "../../components/attendance/AttendanceEntityCombobox";
+import { AttendanceDailyTable } from "../../components/attendance/AttendanceDailyTable";
+import { AttendanceHistoryModal } from "../../components/attendance/AttendanceHistoryModal";
 import { AttendanceMagicLinksModal } from "../../components/attendance/AttendanceMagicLinksModal";
+import { RetroactiveAttendanceAccordion } from "../../components/attendance/RetroactiveAttendanceAccordion";
 import { StudentAttendanceReportModal } from "../../components/attendance/StudentAttendanceReportModal";
 import { AttendanceFilterBar } from "../../components/attendance/AttendanceFilterBar";
-import { DoubleConfirmDialog } from "../../components/shared/DoubleConfirmDialog";
 import { Button } from "../../components/ui/button";
 import { Label } from "../../components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../../components/ui/select";
 import { useAdminDataSyncContext } from "../../context/AdminDataSyncContext";
 import { api, type AdminTrackRow, type CircleOption } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
+import { normalizeAttendanceStatus } from "../../lib/attendance-status";
 import { matchesArabicName } from "../../lib/attendance-search";
-import {
-  buildBulkSaveRecords,
-  countDirty,
-  isRangeMode,
-  mapLedgerItem,
-  mapRosterItem,
-  markEntriesSaved,
-  patchEntryStatus,
-  removeEntry,
-  resetEntryAfterDelete,
-  todayIso,
-  type DateFilterMode,
-  type LedgerEntry,
-} from "../../lib/attendance-ledger";
-import {
-  bulkSaveAttendance,
-  clearDisplayedAttendance,
-  removeAttendanceRecord,
-  toastAttendanceBulkSaved,
-  toastAttendanceCleared,
-  toastAttendanceDeleted,
-  type AttendanceStatusValue,
-} from "../../lib/attendance-mutations";
+import { todayIso } from "../../lib/attendance-ledger";
+import { toastAttendanceBulkSaved } from "../../lib/attendance-mutations";
 import { ds, tajawal } from "../../lib/design-system";
 
-type EntityType = "circle" | "track";
+type StudentRow = {
+  student_id: number;
+  full_name_ar: string;
+  status: string;
+};
 
 export function StudentDailyAttendancePage() {
-  const [dateMode, setDateMode] = useState<DateFilterMode>("day");
-  const [startDate, setStartDate] = useState(todayIso);
-  const [endDate, setEndDate] = useState(todayIso);
-  const [entityType, setEntityType] = useState<EntityType>("circle");
+  const [date, setDate] = useState(todayIso);
+  const [retroStart, setRetroStart] = useState(todayIso);
+  const [retroEnd, setRetroEnd] = useState(todayIso);
+  const [entity, setEntity] = useState<AttendanceEntityOption | null>(null);
   const [circles, setCircles] = useState<CircleOption[]>([]);
   const [tracks, setTracks] = useState<AdminTrackRow[]>([]);
-  const [entityId, setEntityId] = useState<string>("");
-  const [entityName, setEntityName] = useState<string>("");
-  const [entries, setEntries] = useState<LedgerEntry[]>([]);
+  const [rows, setRows] = useState<StudentRow[]>([]);
+  const [baseline, setBaseline] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(false);
   const [loadingGroups, setLoadingGroups] = useState(true);
-  const [rowBusyKey, setRowBusyKey] = useState<string | null>(null);
-  const [bulkBusy, setBulkBusy] = useState(false);
-  const [saveBusy, setSaveBusy] = useState(false);
+  const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nameQuery, setNameQuery] = useState("");
   const [linksModalOpen, setLinksModalOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
-  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const { invalidate } = useAdminDataSyncContext();
 
-  const ledgerView = isRangeMode(dateMode, startDate, endDate);
-  const dirtyCount = countDirty(entries);
-  const recordedCount = entries.filter((r) => r.has_record).length;
+  const dirtyCount = useMemo(
+    () => rows.filter((r) => (baseline[r.student_id] ?? "present") !== r.status).length,
+    [rows, baseline],
+  );
 
   useEffect(() => {
     if (!canUseApi()) {
@@ -89,185 +68,105 @@ export function StudentDailyAttendancePage() {
       .finally(() => setLoadingGroups(false));
   }, []);
 
-  const loadEntries = useCallback(async () => {
-    const id = Number(entityId);
-    if (!canUseApi() || !Number.isFinite(id)) {
-      setEntries([]);
+  const loadStudents = useCallback(async () => {
+    if (!entity || !canUseApi()) {
+      setRows([]);
+      setBaseline({});
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      if (ledgerView) {
-        const res = await api.adminAttendanceLedger({
-          beneficiary_type: "student",
-          start_date: startDate,
-          end_date: endDate,
-          circle_id: entityType === "circle" ? id : undefined,
-          track_id: entityType === "track" ? id : undefined,
-        });
-        setEntries((res.items ?? []).map(mapLedgerItem));
-      } else {
-        const res =
-          entityType === "circle"
-            ? await api.adminDeptStudentAttendance(id, startDate)
-            : await api.adminDeptTrackAttendance(id, startDate);
-        setEntries(
-          (res.items ?? []).map((r) => ({
-            ...mapRosterItem(r),
-            attendance_date: startDate,
-          })),
-        );
-        if (entityType === "circle" && "circle" in res) {
-          setEntityName(res.circle?.name_ar ?? "");
-        } else if ("track" in res) {
-          setEntityName(res.track?.name_ar ?? "");
-        }
-      }
+      const res =
+        entity.type === "circle"
+          ? await api.adminDeptStudentAttendance(entity.id, date)
+          : await api.adminDeptTrackAttendance(entity.id, date);
+      const items: StudentRow[] = (res.items ?? []).map((r) => ({
+        student_id: r.student_id,
+        full_name_ar: r.full_name_ar,
+        status: normalizeAttendanceStatus(r.status ?? "present"),
+      }));
+      setRows(items);
+      const base: Record<number, string> = {};
+      for (const r of items) base[r.student_id] = r.status;
+      setBaseline(base);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل تحميل السجلات");
-      setEntries([]);
+      setError(e instanceof Error ? e.message : "فشل تحميل الطلاب");
+      setRows([]);
+      setBaseline({});
     } finally {
       setLoading(false);
     }
-  }, [entityId, entityType, startDate, endDate, ledgerView]);
+  }, [entity, date]);
 
   useEffect(() => {
-    if (!entityId) {
-      setEntries([]);
-      setEntityName("");
-      setError(null);
-      return;
-    }
-    void loadEntries();
-  }, [entityId, loadEntries]);
+    void loadStudents();
+  }, [loadStudents]);
 
   function bumpDashboard() {
     invalidate("dashboard");
   }
 
-  function switchEntityType(next: EntityType) {
-    setEntityType(next);
-    setEntityId("");
-    setEntityName("");
-    setEntries([]);
+  function pickStatus(studentId: number, status: string) {
+    setRows((prev) =>
+      prev.map((r) => (r.student_id === studentId ? { ...r, status } : r)),
+    );
   }
 
-  function handleModeChange(mode: DateFilterMode) {
-    setDateMode(mode);
-    if (mode === "day") {
-      setEndDate(startDate);
-    }
-  }
-
-  function handleStatusChange(entry: LedgerEntry, status: AttendanceStatusValue) {
-    setEntries((prev) => patchEntryStatus(prev, entry.rowKey, status));
-  }
-
-  async function saveDirtyRows() {
-    const id = Number(entityId);
-    if (!Number.isFinite(id) || dirtyCount === 0) return;
-    setSaveBusy(true);
+  async function commitAttendance() {
+    if (!entity || dirtyCount === 0) return;
+    setCommitting(true);
     setError(null);
     try {
-      const records = buildBulkSaveRecords(entries, startDate, {
-        circleId: entityType === "circle" ? id : undefined,
-        trackId: entityType === "track" ? id : undefined,
-      });
-      const saved = await bulkSaveAttendance({
-        beneficiaryType: "student",
-        records,
-      });
-      setEntries((prev) => markEntriesSaved(prev));
-      toastAttendanceBulkSaved(saved);
-      bumpDashboard();
-      await loadEntries();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل حفظ التعديلات");
-    } finally {
-      setSaveBusy(false);
-    }
-  }
-
-  async function deleteRow(entry: LedgerEntry) {
-    if (entry.attendance_id == null) return;
-    setRowBusyKey(entry.rowKey);
-    setError(null);
-    try {
-      await removeAttendanceRecord({
-        beneficiaryType: "student",
-        attendanceId: entry.attendance_id,
-      });
-      setEntries((prev) =>
-        ledgerView
-          ? removeEntry(prev, entry.rowKey)
-          : resetEntryAfterDelete(prev, entry.rowKey),
+      const changed = rows.filter(
+        (r) => (baseline[r.student_id] ?? "present") !== r.status,
       );
-      toastAttendanceDeleted();
-      bumpDashboard();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل حذف السجل");
-    } finally {
-      setRowBusyKey(null);
-    }
-  }
-
-  async function confirmBulkDelete() {
-    const id = Number(entityId);
-    if (!Number.isFinite(id)) return;
-    setBulkBusy(true);
-    setError(null);
-    try {
-      const ids = filteredRows
-        .filter((r) => r.has_record && r.attendance_id != null)
-        .map((r) => r.attendance_id as number);
-      const deleted = await clearDisplayedAttendance({
-        beneficiaryType: "student",
-        startDate,
-        endDate,
-        circleId: entityType === "circle" ? id : undefined,
-        trackId: entityType === "track" ? id : undefined,
-        attendanceIds: ids.length > 0 ? ids : undefined,
+      const res = await api.adminDeptSaveStudentAttendance({
+        attendance_date: date,
+        circle_id: entity.type === "circle" ? entity.id : undefined,
+        track_id: entity.type === "track" ? entity.id : undefined,
+        records: changed.map((r) => ({
+          student_id: r.student_id,
+          status: r.status,
+        })),
       });
-      toastAttendanceCleared(deleted);
+      const base: Record<number, string> = {};
+      for (const r of rows) base[r.student_id] = r.status;
+      setBaseline(base);
+      toastAttendanceBulkSaved(res.saved);
       bumpDashboard();
-      await loadEntries();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل حذف السجلات");
+      setError(e instanceof Error ? e.message : "فشل اعتماد التحضير");
     } finally {
-      setBulkBusy(false);
-      setBulkConfirmOpen(false);
+      setCommitting(false);
     }
   }
 
   const filteredRows = useMemo(
-    () =>
-      entries.filter((r) => matchesArabicName(nameQuery, r.full_name_ar)),
-    [entries, nameQuery],
+    () => rows.filter((r) => matchesArabicName(nameQuery, r.full_name_ar)),
+    [rows, nameQuery],
   );
 
-  const selectedCircle =
-    entityType === "circle"
-      ? circles.find((c) => String(c.id) === entityId)
-      : undefined;
-  const selectedTrack =
-    entityType === "track"
-      ? tracks.find((t) => String(t.id) === entityId)
-      : undefined;
-
-  const deleteLabel = ledgerView
-    ? `حذف ${filteredRows.filter((r) => r.has_record).length} سجل معروض`
-    : `حذف سجلات يوم ${startDate}`;
+  const dailyTableRows = useMemo(
+    () =>
+      filteredRows.map((r) => ({
+        id: r.student_id,
+        full_name_ar: r.full_name_ar,
+        status: r.status,
+      })),
+    [filteredRows],
+  );
 
   return (
-    <div className="space-y-4 max-w-[1600px] print:hidden">
+    <div className="space-y-4 max-w-[1600px] print:hidden pb-24">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className={ds.page.title} style={tajawal}>
             تحضير الطلاب
           </h2>
           <p className={ds.page.description} style={tajawal}>
-            سجل تحضير مرن — يوم واحد أو نطاق زمني كامل مع تعديل وحذف جماعي.
+            اختر الحلقة أو المسار وسجّل تحضير اليوم — التعديلات التاريخية في
+            السجل المنزلق أعلاه.
           </p>
         </div>
         <Button
@@ -281,18 +180,31 @@ export function StudentDailyAttendancePage() {
         </Button>
       </div>
 
+      <RetroactiveAttendanceAccordion
+        startDate={retroStart}
+        endDate={retroEnd}
+        onStartDateChange={setRetroStart}
+        onEndDateChange={setRetroEnd}
+        onViewLedger={() => setHistoryOpen(true)}
+      />
+
+      <AttendanceHistoryModal
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        beneficiaryType="student"
+        startDate={retroStart}
+        endDate={retroEnd}
+        onSaved={bumpDashboard}
+      />
+
       <AttendanceMagicLinksModal
         open={linksModalOpen}
         onOpenChange={setLinksModalOpen}
-        defaultEntityType={entityType}
-        defaultCircleId={
-          entityType === "circle" ? Number(entityId) || undefined : undefined
-        }
-        defaultCircleName={selectedCircle?.name_ar ?? entityName}
-        defaultTrackId={
-          entityType === "track" ? Number(entityId) || undefined : undefined
-        }
-        defaultTrackName={selectedTrack?.name_ar ?? entityName}
+        defaultEntityType={entity?.type ?? "circle"}
+        defaultCircleId={entity?.type === "circle" ? entity.id : undefined}
+        defaultCircleName={entity?.type === "circle" ? entity.name_ar : undefined}
+        defaultTrackId={entity?.type === "track" ? entity.id : undefined}
+        defaultTrackName={entity?.type === "track" ? entity.name_ar : undefined}
         circles={circles}
         tracks={tracks}
       />
@@ -304,84 +216,58 @@ export function StudentDailyAttendancePage() {
       )}
 
       <div className={`${ds.card} p-4 space-y-4`}>
-        <AttendanceDateFilter
-          mode={dateMode}
-          onModeChange={handleModeChange}
-          startDate={startDate}
-          endDate={endDate}
-          onStartDateChange={setStartDate}
-          onEndDateChange={setEndDate}
-        />
-
-        {ledgerView && (
-          <p className={ds.alert.info} style={tajawal}>
-            وضع السجل التاريخي — يعرض السجلات المحفوظة من {startDate} إلى {endDate}.
-          </p>
-        )}
-
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            variant={entityType === "circle" ? "default" : "outline"}
-            className={ds.btnRound}
-            onClick={() => switchEntityType("circle")}
-            style={tajawal}
-          >
-            تحضير الحلقات
-          </Button>
-          <Button
-            type="button"
-            variant={entityType === "track" ? "default" : "outline"}
-            className={ds.btnRound}
-            onClick={() => switchEntityType("track")}
-            style={tajawal}
-          >
-            تحضير المسارات
-          </Button>
-        </div>
-
-        <div className="space-y-2">
-          <Label style={tajawal}>
-            {entityType === "circle" ? "الحلقة" : "المسار"}
-          </Label>
-          <Select
-            value={entityId}
-            onValueChange={setEntityId}
-            disabled={loadingGroups}
-          >
-            <SelectTrigger className={ds.btnRound}>
-              <SelectValue
-                placeholder={
-                  loadingGroups
-                    ? "جاري التحميل…"
-                    : entityType === "circle"
-                      ? "اختر الحلقة"
-                      : "اختر المسار"
-                }
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <Label className="text-xs text-muted-foreground" style={tajawal}>
+              تاريخ التحضير
+            </Label>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className={`block w-full mt-1 border border-border px-3 py-2 ${ds.btnRound}`}
+            />
+          </div>
+          <div>
+            <Label style={tajawal}>الحلقة / المسار</Label>
+            <div className="mt-1">
+              <AttendanceEntityCombobox
+                value={entity}
+                onChange={setEntity}
+                circles={circles}
+                tracks={tracks}
+                disabled={loadingGroups}
               />
-            </SelectTrigger>
-            <SelectContent>
-              {entityType === "circle"
-                ? circles.map((c) => (
-                    <SelectItem key={c.id} value={String(c.id)}>
-                      {c.name_ar}
-                    </SelectItem>
-                  ))
-                : tracks.map((t) => (
-                    <SelectItem key={t.id} value={String(t.id)}>
-                      {t.name_ar}
-                    </SelectItem>
-                  ))}
-            </SelectContent>
-          </Select>
+            </div>
+          </div>
         </div>
+
+        {entity?.type === "circle" && (
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              className={ds.btnRound}
+              onClick={() => setReportOpen(true)}
+              style={tajawal}
+            >
+              <Printer className="w-4 h-4" />
+              طباعة تقرير التحضير 🖨️
+            </Button>
+            <StudentAttendanceReportModal
+              open={reportOpen}
+              onOpenChange={setReportOpen}
+              defaultCircleId={entity.id}
+              circles={circles}
+              loadingCircles={loadingGroups}
+            />
+          </div>
+        )}
       </div>
 
-      {!entityId ? (
+      {!entity ? (
         <p className={ds.alert.info} style={tajawal}>
-          {entityType === "circle"
-            ? "اختر حلقة لعرض سجلات التحضير."
-            : "اختر مساراً لعرض سجلات التحضير."}
+          اختر حلقة أو مساراً لعرض قائمة الطلاب.
         </p>
       ) : (
         <>
@@ -393,101 +279,47 @@ export function StudentDailyAttendancePage() {
             onGroupChange={() => {}}
             groupOptions={[]}
             shownCount={filteredRows.length}
-            totalCount={entries.length}
-            hiddenDirty={dirtyCount}
+            totalCount={rows.length}
+            hiddenDirty={0}
             hideGroupFilter
           />
 
-          <div className={`${ds.card} p-4 space-y-4`}>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <p className="text-sm text-muted-foreground" style={tajawal}>
-                {recordedCount} سجل محفوظ
-                {dirtyCount > 0 ? ` — ${dirtyCount} تغيير بانتظار الحفظ` : ""}
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="default"
-                  className={`${ds.btnRound} min-h-11`}
-                  disabled={saveBusy || dirtyCount === 0}
-                  onClick={() => void saveDirtyRows()}
-                  style={tajawal}
-                >
-                  <Save className="w-4 h-4" />
-                  تحديث السجلات المحددة
-                </Button>
-                {entityType === "circle" && !ledgerView && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={`${ds.btnRound} min-h-11`}
-                    onClick={() => setReportOpen(true)}
-                    style={tajawal}
-                  >
-                    <Printer className="w-4 h-4" />
-                    طباعة تقرير التحضير 🖨️
-                  </Button>
-                )}
-                <Button
-                  type="button"
-                  variant="destructive"
-                  className={`${ds.btnRound} min-h-11`}
-                  disabled={
-                    bulkBusy ||
-                    loading ||
-                    filteredRows.filter((r) => r.has_record).length === 0
-                  }
-                  onClick={() => setBulkConfirmOpen(true)}
-                  style={tajawal}
-                >
-                  <Trash2 className="w-4 h-4" />
-                  حذف السجلات المعروضة
-                </Button>
-              </div>
-            </div>
-
-            {entityType === "circle" && (
-              <StudentAttendanceReportModal
-                open={reportOpen}
-                onOpenChange={setReportOpen}
-                defaultCircleId={Number(entityId) || undefined}
-                circles={circles}
-                loadingCircles={loadingGroups}
-              />
-            )}
-
+          <div className={`${ds.card} p-4`}>
             {loading ? (
               <p className="text-muted-foreground text-sm" style={tajawal}>
                 جاري التحميل…
               </p>
             ) : filteredRows.length === 0 ? (
               <p className={ds.alert.info} style={tajawal}>
-                {ledgerView
-                  ? "لا توجد سجلات محفوظة في هذا النطاق."
-                  : "لا يوجد طلاب يطابقون البحث."}
+                لا يوجد طلاب يطابقون البحث.
               </p>
             ) : (
-              <AttendanceLedgerTable
-                entries={filteredRows}
-                showDateColumn={ledgerView}
-                rowBusyKey={rowBusyKey}
-                onStatusChange={handleStatusChange}
-                onDelete={(entry) => void deleteRow(entry)}
+              <AttendanceDailyTable
+                rows={dailyTableRows}
+                disabled={committing}
+                onStatusChange={pickStatus}
               />
             )}
           </div>
         </>
       )}
 
-      <DoubleConfirmDialog
-        open={bulkConfirmOpen}
-        onOpenChange={setBulkConfirmOpen}
-        title="حذف السجلات المعروضة"
-        description={`سيتم حذف جميع سجلات التحضير المعروضة حالياً لـ ${entityName || "هذا الكيان"} (${deleteLabel}). لا يمكن التراجع.`}
-        confirmLabel="حذف السجلات"
-        destructive
-        onConfirm={confirmBulkDelete}
-      />
+      <div className="fixed bottom-0 inset-x-0 z-20 border-t border-border bg-background/95 backdrop-blur px-4 py-3">
+        <div className="max-w-[1600px] mx-auto flex justify-end">
+          <Button
+            type="button"
+            size="lg"
+            className={`${ds.btnRound} w-full sm:w-auto min-h-12 px-8`}
+            disabled={committing || dirtyCount === 0 || !entity || loading}
+            onClick={() => void commitAttendance()}
+            style={tajawal}
+          >
+            <CheckCircle2 className="w-5 h-5" />
+            {committing ? "جاري الاعتماد…" : "اعتماد التحضير"}
+            {dirtyCount > 0 ? ` (${dirtyCount})` : ""}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

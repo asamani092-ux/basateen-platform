@@ -17,6 +17,8 @@
     "setup:local": "npm run db:local:all && npm run seed:local",
     "db:remote:upgrade": "npm run db:remote:upgrade --prefix apps/api",
     "db:remote:all": "npm run db:remote:all --prefix apps/api",
+    "db:remote:036:recover": "npm run db:remote:036:recover --prefix apps/api",
+    "db:remote:038": "npm run db:remote:038 --prefix apps/api",
     "deploy:api:prod": "npm run deploy:prod --prefix apps/api",
     "build:web:prod": "npm run build --prefix apps/web",
     "seed:remote": "npm run seed:remote --prefix apps/api",

@@ -1,6 +1,9 @@
--- 036 RECOVER: use when `circles` is missing but `circles_legacy_035` still exists.
+-- 036 RECOVER: use ONLY when `circles` is missing but `circles_legacy_035` still exists.
+-- If you get "no such table: circles_legacy_035", skip this file — legacy is already gone.
+-- Use instead: npm run db:remote:036:circles  OR  npm run db:remote:038
 -- Run as ONE batch via wrangler (not D1 UI statement-by-statement):
---   npm run db:remote:036:recover --prefix apps/api
+--   From repo root:  npm run db:remote:036:recover
+--   From apps/api:   npm run db:remote:036:recover   (no --prefix)
 
 PRAGMA foreign_keys = OFF;
 

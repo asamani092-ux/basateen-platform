@@ -1,7 +1,8 @@
 -- 038: Drop phantom triggers on `circles` left from partial 035 migrations.
 -- Safe to re-run. API also calls dropCircleTriggers() before circle hard-delete.
 --
---   npm run db:remote:038 --prefix apps/api
+--   From repo root:  npm run db:remote:038
+--   From apps/api:   npm run db:remote:038   (no --prefix)
 
 DROP TRIGGER IF EXISTS circles_after_update;
 DROP TRIGGER IF EXISTS circles_after_delete;

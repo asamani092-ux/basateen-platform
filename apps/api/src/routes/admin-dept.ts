@@ -11,7 +11,11 @@ import {
   syncStudentPlacementColumns,
   validateCircleStage,
 } from "../lib/admin-dept-schema";
-import { teachersListSql } from "../lib/admin-gm-schema";
+import { staffListSql as unifiedStaffListSql } from "../lib/admin-staff";
+import {
+  countComplexStaff,
+  countComplexStudents,
+} from "../lib/admin-roster-counts";
 import {
   activePlacementSql,
   hasTable,
@@ -943,7 +947,6 @@ async function handleAdminDeptRouterImpl(
     const includeStudents = typeFilter === "all" || typeFilter === "student";
     const includeItems = url.searchParams.get("include_items") !== "false";
     const isActiveExpr = await studentIsActiveSql(env, "s");
-    const isActiveBareExpr = await studentIsActiveSql(env, "");
 
     type ReportRow = {
       name: string;
@@ -1025,11 +1028,12 @@ async function handleAdminDeptRouterImpl(
       }
     }
 
-    const staffRosterSql = await teachersListSql(env);
+    const staffRosterSql = await unifiedStaffListSql(env);
     const staffAll = await env.DB.prepare(staffRosterSql)
       .bind(admin.complexId)
       .all<{ id: number }>();
-    const staffTotal = staffAll.results?.length ?? 0;
+    const staffCounts = await countComplexStaff(env, admin.complexId);
+    const staffTotal = staffCounts.total;
 
     const staffOnEnd = await env.DB.prepare(
       `SELECT user_id, status FROM staff_attendance
@@ -1046,12 +1050,8 @@ async function handleAdminDeptRouterImpl(
       if (st === "present") staffPresent++;
     }
 
-    const studentsTotalRow = await env.DB.prepare(
-      `SELECT COUNT(*) AS c FROM students WHERE complex_id = ? AND ${isActiveBareExpr}`,
-    )
-      .bind(admin.complexId)
-      .first<{ c: number }>();
-    const studentsTotal = Number(studentsTotalRow?.c ?? 0);
+    const studentCounts = await countComplexStudents(env, admin.complexId);
+    const studentsTotal = studentCounts.total;
 
     let studentsPresent = studentsTotal;
     if (attTable) {

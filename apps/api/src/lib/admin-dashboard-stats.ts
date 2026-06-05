@@ -1,21 +1,11 @@
 import type { Env } from "../types";
-import { buildStudentPlacementSql } from "./student-list-sql";
 import {
   hasTable,
   sqliteActiveEq1,
-  studentIsActiveSql,
   tableHasColumn,
 } from "./db-schema";
+import { countComplexStaff, countComplexStudents } from "./admin-roster-counts";
 import { resolveAttendanceTableName } from "./student-attendance-db";
-
-const STAFF_ROLE_CASE_SQL = `CASE
-  WHEN COALESCE(u.is_admin, 0) = 1 THEN 'super_admin'
-  WHEN COALESCE(u.is_educational, 0) = 1 THEN 'edu_supervisor'
-  WHEN COALESCE(u.is_programs, 0) = 1 THEN 'programs_supervisor'
-  WHEN COALESCE(u.is_track_supervisor, 0) = 1 THEN 'track_supervisor'
-  WHEN COALESCE(u.is_teacher, 0) = 1 THEN 'teacher'
-  ELSE 'teacher'
-END`;
 
 export type AdminDashboardStats = {
   complex_name: string | null;
@@ -57,37 +47,13 @@ function currentMonthRange(): { start: string; end: string } {
 
 /**
  * Live aggregation engine for admin dashboard KPIs.
- * Time O(q) parallel queries where q = number of COUNT statements; Space O(1) beyond DB buffers.
+ * Time O(q) parallel queries; Space O(1) beyond DB buffers.
  */
 export async function fetchAdminDashboardStats(
   env: Env,
   complexId: number,
 ): Promise<AdminDashboardStats> {
-  const placement = await buildStudentPlacementSql(env);
-  const { historyJoin, circleRef, trackRef } = placement;
-  const isActiveExpr = await studentIsActiveSql(env, "s");
   const month = currentMonthRange();
-  const studentBase = `FROM students s ${historyJoin} WHERE s.complex_id = ? AND ${isActiveExpr}`;
-
-  const studentTotalP = env.DB.prepare(`SELECT COUNT(*) AS c ${studentBase}`)
-    .bind(complexId)
-    .first<{ c: number }>();
-
-  const circleCountExprs =
-    circleRef !== "NULL"
-      ? {
-          with: `SELECT COUNT(*) AS c ${studentBase} AND ${circleRef} IS NOT NULL`,
-          without: `SELECT COUNT(*) AS c ${studentBase} AND ${circleRef} IS NULL`,
-        }
-      : null;
-
-  const trackCountExprs =
-    trackRef !== "NULL"
-      ? {
-          with: `SELECT COUNT(*) AS c ${studentBase} AND ${trackRef} IS NOT NULL`,
-          without: `SELECT COUNT(*) AS c ${studentBase} AND ${trackRef} IS NULL`,
-        }
-      : null;
 
   const circlesActiveP = (async () => {
     if (!(await hasTable(env, "circles"))) return 0;
@@ -115,39 +81,6 @@ export async function fetchAdminDashboardStats(
       .bind(complexId)
       .first<{ c: number }>();
     return Number(row?.c ?? 0);
-  })();
-
-  const staffByRoleP = (async () => {
-    const hasRole = await tableHasColumn(env, "users", "role");
-    const roleExpr = hasRole ? "u.role" : STAFF_ROLE_CASE_SQL;
-    const staffFilter = hasRole
-      ? `u.role IN ('super_admin','admin_supervisor','edu_supervisor','programs_supervisor','prog_supervisor','track_supervisor','teacher')`
-      : `(COALESCE(u.is_admin, 0) = 1 OR COALESCE(u.is_educational, 0) = 1 OR
-          COALESCE(u.is_programs, 0) = 1 OR COALESCE(u.is_teacher, 0) = 1 OR
-          COALESCE(u.is_track_supervisor, 0) = 1)`;
-    const userActive = await tableHasColumn(env, "users", "is_active");
-    const activeClause = userActive
-      ? ` AND ${sqliteActiveEq1("u.is_active")}`
-      : "";
-
-    const rows = await env.DB.prepare(
-      `SELECT ${roleExpr} AS role, COUNT(*) AS c
-       FROM users u
-       WHERE u.complex_id = ?${activeClause} AND ${staffFilter}
-       GROUP BY ${roleExpr}`,
-    )
-      .bind(complexId)
-      .all<{ role: string; c: number }>();
-
-    const by_role: Record<string, number> = {};
-    let total = 0;
-    for (const r of rows.results ?? []) {
-      const role = String(r.role ?? "teacher").trim() || "teacher";
-      const count = Number(r.c ?? 0);
-      by_role[role] = count;
-      total += count;
-    }
-    return { total, by_role };
   })();
 
   const pledgesP = (async () => {
@@ -214,57 +147,21 @@ export async function fetchAdminDashboardStats(
     .bind(complexId)
     .first<{ name_ar: string }>();
 
-  const studentWithCircleP = circleCountExprs
-    ? env.DB.prepare(circleCountExprs.with).bind(complexId).first<{ c: number }>()
-    : Promise.resolve({ c: 0 } as { c: number });
-  const studentWithoutCircleP = circleCountExprs
-    ? env.DB.prepare(circleCountExprs.without).bind(complexId).first<{ c: number }>()
-    : Promise.resolve({ c: 0 } as { c: number });
-  const studentWithTrackP = trackCountExprs
-    ? env.DB.prepare(trackCountExprs.with).bind(complexId).first<{ c: number }>()
-    : Promise.resolve({ c: 0 } as { c: number });
-  const studentWithoutTrackP = trackCountExprs
-    ? env.DB.prepare(trackCountExprs.without).bind(complexId).first<{ c: number }>()
-    : Promise.resolve({ c: 0 } as { c: number });
-
-  const [
-    studentTotalRow,
-    withCircleRow,
-    withoutCircleRow,
-    withTrackRow,
-    withoutTrackRow,
-    circlesActive,
-    tracksActive,
-    staff,
-    pledges,
-    attendance,
-    complex,
-  ] = await Promise.all([
-    studentTotalP,
-    studentWithCircleP,
-    studentWithoutCircleP,
-    studentWithTrackP,
-    studentWithoutTrackP,
-    circlesActiveP,
-    tracksActiveP,
-    staffByRoleP,
-    pledgesP,
-    attendanceP,
-    complexP,
-  ]);
-
-  const studentsTotal = Number(studentTotalRow?.c ?? 0);
+  const [students, staff, circlesActive, tracksActive, pledges, attendance, complex] =
+    await Promise.all([
+      countComplexStudents(env, complexId),
+      countComplexStaff(env, complexId),
+      circlesActiveP,
+      tracksActiveP,
+      pledgesP,
+      attendanceP,
+      complexP,
+    ]);
 
   return {
     complex_name: complex?.name_ar ?? null,
     generated_at: new Date().toISOString(),
-    students: {
-      total: studentsTotal,
-      with_circle: Number(withCircleRow?.c ?? 0),
-      without_circle: Number(withoutCircleRow?.c ?? 0),
-      with_track: Number(withTrackRow?.c ?? 0),
-      without_track: Number(withoutTrackRow?.c ?? 0),
-    },
+    students,
     groups: {
       circles_active: circlesActive,
       tracks_active: tracksActive,

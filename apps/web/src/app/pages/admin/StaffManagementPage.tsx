@@ -554,7 +554,7 @@ function EditStaffDialog({
   const [name, setName] = useState(row.full_name_ar);
   const [mobile, setMobile] = useState(row.mobile ?? "");
   const [role, setRole] = useState(() => normalizeRoleForForm(row.role));
-  const [scope, setScope] = useState(row.supervisor_scope ?? SCOPE_GLOBAL);
+  const [scope, setScope] = useState(SCOPE_GLOBAL);
   const [saving, setSaving] = useState(false);
   const readOnly = row.id === SOVEREIGN_USER_ID;
 
@@ -563,7 +563,7 @@ function EditStaffDialog({
     setName(row.full_name_ar);
     setMobile(row.mobile ?? "");
     setRole(normalizeRoleForForm(row.role));
-    setScope(row.supervisor_scope ?? SCOPE_GLOBAL);
+    setScope(SCOPE_GLOBAL);
   }, [open, row]);
 
   async function submit(e: React.FormEvent) {

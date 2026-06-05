@@ -157,7 +157,6 @@ export type StaffMemberRow = {
   circle_name: string | null;
   track_id: number | null;
   track_name: string | null;
-  supervisor_scope: string | null;
 };
 
 export type StudentPlacement = {
@@ -675,6 +674,7 @@ export const api = {
     name_ar: string;
     default_capacity: number;
     supervisor_id?: number;
+    new_supervisor?: { full_name_ar: string; mobile: string };
     stage_ids?: number[];
     circle_ids?: number[];
   }) =>

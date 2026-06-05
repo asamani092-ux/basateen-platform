@@ -114,7 +114,7 @@ export function staffScopeWhere(scope: ScopeMode): string {
   const phStr = scope.stageIds.map(() => "?").join(",");
   return `u.complex_id = ? AND u.is_active = 1 AND (
     u.role IN ('admin_supervisor','edu_supervisor','general_supervisor')
-    AND (u.supervisor_scope IN (${phStr}) OR u.stage_scope IN (${phStr}))
+    AND u.stage_scope IN (${phStr})
   ) OR u.id IN (
     SELECT ta.user_id FROM teacher_assignments ta
     JOIN circles c ON c.id = ta.circle_id
@@ -128,7 +128,7 @@ export function staffScopeBinds(
 ): (number | string)[] {
   if (scope.type === "global") return [complexId];
   const ids = scope.stageIds;
-  return [complexId, ...ids, ...ids.map(String)];
+  return [complexId, ...ids.map(String)];
 }
 
 export async function teacherCanAccessStudent(

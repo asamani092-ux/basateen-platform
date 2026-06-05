@@ -1,5 +1,5 @@
 /**
- * Unified staff roster — schema from 023_rebuild_v25.sql (+ legacy role column).
+ * Unified staff roster — standard CRUD against users + circles (023/v25).
  */
 import type { Env } from "../types";
 import { hashPassword } from "./password";
@@ -12,53 +12,23 @@ import {
   V25_CIRCLE_STAGE_TO_ID_SQL,
 } from "./schema-v25";
 
-/** Table used for reads (canonical `circles` preferred). */
-/** Scope for API rows — never references missing `supervisor_scope` column. */
-export async function supervisorScopeSelectSql(
-  env: Env,
-  tableAlias = "u",
-): Promise<string> {
-  if (await tableHasColumn(env, "users", "stage_scope")) {
-    const col = tableAlias ? `${tableAlias}.stage_scope` : "stage_scope";
-    return `COALESCE(${col}, 'global') AS supervisor_scope`;
-  }
-  return `'global' AS supervisor_scope`;
-}
-
-export async function primaryCirclesTable(env: Env): Promise<string | null> {
-  if (await hasTable(env, "circles")) return "circles";
-  if (await hasTable(env, "circles_legacy_035")) return "circles_legacy_035";
-  if (await hasTable(env, "circles_fix_036")) return "circles_fix_036";
-  return null;
-}
-
-/** All circle tables that may exist after a partial 035/036 migration. */
-export async function staffCircleTableNames(env: Env): Promise<string[]> {
-  const names: string[] = [];
-  if (await hasTable(env, "circles")) names.push("circles");
-  if (await hasTable(env, "circles_legacy_035")) names.push("circles_legacy_035");
-  if (await hasTable(env, "circles_fix_036")) names.push("circles_fix_036");
-  return names;
-}
-
-function circleAssignmentCols(circlesTable: string | null): {
+function circleAssignmentCols(hasCircles: boolean): {
   circleId: string;
   circleName: string;
 } {
-  if (!circlesTable) {
+  if (!hasCircles) {
     return {
       circleId: "NULL AS circle_id",
       circleName: "NULL AS circle_name",
     };
   }
-  const active = `COALESCE(c.is_active, 1) = 1`;
   return {
-    circleId: `(SELECT c.id FROM ${circlesTable} c
+    circleId: `(SELECT c.id FROM circles c
              WHERE c.teacher_id = u.id AND c.complex_id = u.complex_id
-               AND ${active} LIMIT 1) AS circle_id`,
-    circleName: `(SELECT c.name_ar FROM ${circlesTable} c
+               AND COALESCE(c.is_active, 1) = 1 LIMIT 1) AS circle_id`,
+    circleName: `(SELECT c.name_ar FROM circles c
              WHERE c.teacher_id = u.id AND c.complex_id = u.complex_id
-               AND ${active} LIMIT 1) AS circle_name`,
+               AND COALESCE(c.is_active, 1) = 1 LIMIT 1) AS circle_name`,
   };
 }
 
@@ -72,7 +42,6 @@ export type StaffListRow = {
   circle_name: string | null;
   track_id: number | null;
   track_name: string | null;
-  supervisor_scope: string | null;
 };
 
 const SOVEREIGN_USER_ID = 1;
@@ -83,7 +52,7 @@ function emailForMobile(mobile: string, role: string): string {
   return `${role}-${clean}@basateen.local`;
 }
 
-/** إدراج معلم أو مشرف مسار — يدعم عمود role أو أعلام v25 */
+/** إدراج معلم أو مشرف مسار */
 export async function insertStaffUser(
   env: Env,
   complexId: number,
@@ -137,11 +106,8 @@ export async function insertStaffUser(
   return Number(ins.meta.last_row_id);
 }
 
-function staffListSqlV25(
-  circlesTable: string | null,
-  scopeExpr: string,
-): string {
-  const { circleId, circleName } = circleAssignmentCols(circlesTable);
+function staffListSqlV25(hasCircles: boolean): string {
+  const { circleId, circleName } = circleAssignmentCols(hasCircles);
   return `SELECT u.id, u.full_name_ar, u.mobile, u.is_active,
             CASE
               WHEN COALESCE(u.is_admin, 0) = 1 THEN 'super_admin'
@@ -158,8 +124,7 @@ function staffListSqlV25(
                AND COALESCE(t.is_active, 1) = 1 LIMIT 1) AS track_id,
             (SELECT t.name_ar FROM tracks t
              WHERE t.supervisor_id = u.id AND t.complex_id = u.complex_id
-               AND COALESCE(t.is_active, 1) = 1 LIMIT 1) AS track_name,
-            ${scopeExpr}
+               AND COALESCE(t.is_active, 1) = 1 LIMIT 1) AS track_name
      FROM users u
      WHERE u.complex_id = ?
        AND (
@@ -173,15 +138,14 @@ function staffListSqlV25(
 }
 
 export async function staffListSql(env: Env): Promise<string> {
-  const circlesTable = await primaryCirclesTable(env);
-  const scopeExpr = await supervisorScopeSelectSql(env);
+  const hasCircles = await hasTable(env, "circles");
 
   if (await usesV25FlatStaffSchema(env)) {
-    return staffListSqlV25(circlesTable, scopeExpr);
+    return staffListSqlV25(hasCircles);
   }
 
   const hasRole = await usersHaveRoleColumn(env);
-  const { circleId, circleName } = circleAssignmentCols(circlesTable);
+  const { circleId, circleName } = circleAssignmentCols(hasCircles);
   if (hasRole) {
     return `SELECT u.id, u.full_name_ar, u.mobile, u.is_active,
               CASE u.role
@@ -197,8 +161,7 @@ export async function staffListSql(env: Env): Promise<string> {
                  AND COALESCE(t.is_active, 1) = 1 LIMIT 1) AS track_id,
               (SELECT t.name_ar FROM tracks t
                WHERE t.supervisor_id = u.id AND t.complex_id = u.complex_id
-                 AND COALESCE(t.is_active, 1) = 1 LIMIT 1) AS track_name,
-              ${scopeExpr}
+                 AND COALESCE(t.is_active, 1) = 1 LIMIT 1) AS track_name
        FROM users u
        WHERE u.complex_id = ?
          AND u.role IN (
@@ -208,13 +171,12 @@ export async function staffListSql(env: Env): Promise<string> {
        ORDER BY u.full_name_ar`;
   }
 
-  return staffListSqlV25(circlesTable, scopeExpr);
+  return staffListSqlV25(hasCircles);
 }
 
 async function clearStaffUserRelations(
   env: Env,
   userId: number,
-  complexId: number,
 ): Promise<D1PreparedStatement[]> {
   const stmts: D1PreparedStatement[] = [];
   const childDeletes: Array<[string, string]> = [
@@ -234,31 +196,32 @@ async function clearStaffUserRelations(
   return stmts;
 }
 
-/** فك ارتباط الحلقات/المسارات قبل الحذف (teacher_id / supervisor_id → NULL). */
 async function detachStaffStructureStatements(
   env: Env,
   userId: number,
   complexId: number,
 ): Promise<D1PreparedStatement[]> {
   const stmts: D1PreparedStatement[] = [];
-
-  for (const table of await staffCircleTableNames(env)) {
-    if (!(await tableHasColumn(env, table, "teacher_id"))) continue;
+  if (
+    (await hasTable(env, "circles")) &&
+    (await tableHasColumn(env, "circles", "teacher_id"))
+  ) {
     stmts.push(
       env.DB.prepare(
-        `UPDATE ${table} SET teacher_id = NULL WHERE teacher_id = ? AND complex_id = ?`,
+        `UPDATE circles SET teacher_id = NULL WHERE teacher_id = ? AND complex_id = ?`,
       ).bind(userId, complexId),
     );
   }
-
-  if (await tableHasColumn(env, "tracks", "supervisor_id")) {
+  if (
+    (await hasTable(env, "tracks")) &&
+    (await tableHasColumn(env, "tracks", "supervisor_id"))
+  ) {
     stmts.push(
       env.DB.prepare(
         `UPDATE tracks SET supervisor_id = NULL WHERE supervisor_id = ? AND complex_id = ?`,
       ).bind(userId, complexId),
     );
   }
-
   return stmts;
 }
 
@@ -282,7 +245,7 @@ export async function safeDeleteStaffUser(
 
   const batch: D1PreparedStatement[] = [
     ...(await detachStaffStructureStatements(env, userId, complexId)),
-    ...(await clearStaffUserRelations(env, userId, complexId)),
+    ...(await clearStaffUserRelations(env, userId)),
     env.DB.prepare(`DELETE FROM users WHERE id = ? AND complex_id = ?`).bind(
       userId,
       complexId,
@@ -298,18 +261,6 @@ export async function safeDeleteStaffUser(
       await env.DB.prepare(`UPDATE users SET is_active = 0 WHERE id = ?`)
         .bind(userId)
         .run();
-      for (const table of await staffCircleTableNames(env)) {
-        if (!(await tableHasColumn(env, table, "teacher_id"))) continue;
-        try {
-          await env.DB.prepare(
-            `UPDATE ${table} SET teacher_id = NULL WHERE teacher_id = ? AND complex_id = ?`,
-          )
-            .bind(userId, complexId)
-            .run();
-        } catch {
-          /* legacy table may still be NOT NULL until 036 recover */
-        }
-      }
       return { soft_deleted: true };
     }
     throw err;

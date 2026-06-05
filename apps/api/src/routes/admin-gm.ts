@@ -26,7 +26,6 @@ import {
   insertStaffUser,
   safeDeleteStaffUser,
   staffListSql,
-  supervisorScopeSelectSql,
   SOVEREIGN_USER_ID,
 } from "../lib/admin-staff";
 import {
@@ -289,7 +288,6 @@ export async function handleAdminStaffList(
         circle_name: string | null;
         track_id: number | null;
         track_name: string | null;
-        supervisor_scope: string | null;
       }>();
 
     return json({ items: rows.results ?? [] });
@@ -648,10 +646,9 @@ export async function handleAdminSupervisorsList(
   if (denied) return denied;
 
   const hasRole = await usersHaveRoleColumn(env);
-  const scopeSel = await supervisorScopeSelectSql(env, "");
   const rows = hasRole
     ? await env.DB.prepare(
-        `SELECT id, full_name_ar, mobile, role, ${scopeSel}, is_active
+        `SELECT id, full_name_ar, mobile, role, is_active
          FROM users
          WHERE complex_id = ? AND role IN (${SUPERVISOR_DB_ROLE_SQL})
          ORDER BY full_name_ar`,
@@ -666,8 +663,7 @@ export async function handleAdminSupervisorsList(
                   WHEN COALESCE(is_programs, 0) = 1 THEN 'programs_supervisor'
                   WHEN COALESCE(is_admin, 0) = 1 THEN 'admin_supervisor'
                   ELSE 'admin_supervisor'
-                END AS role,
-                ${scopeSel}
+                END AS role
          FROM users
          WHERE complex_id = ?
            AND (
@@ -1258,6 +1254,53 @@ export async function handleAdminTracksList(
   return json({ items });
 }
 
+async function resolveTrackSupervisorId(
+  env: Env,
+  complexId: number,
+  body: {
+    supervisor_id?: number;
+    new_supervisor?: { full_name_ar?: string; mobile?: string };
+  },
+): Promise<{ id: number } | { error: string; status: number }> {
+  let supervisorId = Number(body.supervisor_id);
+  if (Number.isFinite(supervisorId) && supervisorId > 0) {
+    const sup = await env.DB.prepare(
+      `SELECT id FROM users WHERE id = ? AND complex_id = ? AND COALESCE(is_active, 1) = 1`,
+    )
+      .bind(supervisorId, complexId)
+      .first<{ id: number }>();
+    if (!sup) return { error: "supervisor_not_found", status: 404 };
+    return { id: supervisorId };
+  }
+
+  if (
+    body.new_supervisor?.full_name_ar?.trim() &&
+    body.new_supervisor?.mobile?.trim()
+  ) {
+    const mobile = body.new_supervisor.mobile.trim();
+    const existing = await env.DB.prepare(`SELECT id FROM users WHERE mobile = ?`)
+      .bind(mobile)
+      .first();
+    if (existing) return { error: "mobile_already_used", status: 409 };
+
+    const userId = await insertStaffUser(env, complexId, {
+      full_name_ar: body.new_supervisor.full_name_ar.trim(),
+      mobile,
+      role: "track_supervisor",
+    });
+    if (await hasTable(env, "user_sections")) {
+      await env.DB.prepare(
+        `INSERT INTO user_sections (user_id, section) VALUES (?, 'education')`,
+      )
+        .bind(userId)
+        .run();
+    }
+    return { id: userId };
+  }
+
+  return { error: "supervisor_required", status: 400 };
+}
+
 export async function handleAdminTracksCreate(
   request: Request,
   env: Env,
@@ -1270,6 +1313,7 @@ export async function handleAdminTracksCreate(
     name_ar?: string;
     default_capacity?: number;
     supervisor_id?: number;
+    new_supervisor?: { full_name_ar?: string; mobile?: string };
     stage_ids?: number[];
     circle_ids?: number[];
   };
@@ -1289,22 +1333,16 @@ export async function handleAdminTracksCreate(
   const hasTrackStages = await hasTable(env, "track_stages");
 
   if (hasSupervisorCol && !hasTrackStages) {
-    const supervisorId = Number(body.supervisor_id);
-    if (!Number.isFinite(supervisorId)) {
-      return json({ error: "supervisor_required" }, 400);
+    const resolved = await resolveTrackSupervisorId(env, auth!.complexId, body);
+    if ("error" in resolved) {
+      return json({ error: resolved.error }, resolved.status);
     }
-    const sup = await env.DB.prepare(
-      `SELECT id FROM users WHERE id = ? AND complex_id = ? AND is_active = 1`,
-    )
-      .bind(supervisorId, auth!.complexId)
-      .first<{ id: number }>();
-    if (!sup) return json({ error: "supervisor_not_found" }, 404);
 
     const ins = await env.DB.prepare(
       `INSERT INTO tracks (complex_id, name_ar, supervisor_id, default_capacity)
        VALUES (?, ?, ?, ?)`,
     )
-      .bind(auth!.complexId, body.name_ar.trim(), supervisorId, defaultCapacity)
+      .bind(auth!.complexId, body.name_ar.trim(), resolved.id, defaultCapacity)
       .run();
 
     return json({ ok: true, id: ins.meta.last_row_id as number });
@@ -1322,18 +1360,12 @@ export async function handleAdminTracksCreate(
     defaultCapacity,
   ];
   if (hasSupervisorCol) {
-    const supervisorId = Number(body.supervisor_id);
-    if (!Number.isFinite(supervisorId)) {
-      return json({ error: "supervisor_required" }, 400);
+    const resolved = await resolveTrackSupervisorId(env, auth!.complexId, body);
+    if ("error" in resolved) {
+      return json({ error: resolved.error }, resolved.status);
     }
-    const sup = await env.DB.prepare(
-      `SELECT id FROM users WHERE id = ? AND complex_id = ? AND is_active = 1`,
-    )
-      .bind(supervisorId, auth!.complexId)
-      .first<{ id: number }>();
-    if (!sup) return json({ error: "supervisor_not_found" }, 404);
     cols.push("supervisor_id");
-    vals.push(supervisorId);
+    vals.push(resolved.id);
   }
 
   const ins = await env.DB.prepare(

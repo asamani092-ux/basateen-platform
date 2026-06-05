@@ -963,6 +963,39 @@ async function handleAdminDeptRouterImpl(
     });
   }
 
+  // DELETE /api/admin-dept/pledges/student/:studentId — حذف كل تعهدات الطالب
+  const pledgeStudentDelete = path.match(
+    /^\/api\/admin-dept\/pledges\/student\/(\d+)$/,
+  );
+  if (request.method === "DELETE" && pledgeStudentDelete) {
+    if (!(await hasTable(env, "student_pledges"))) {
+      return json({ error: "migration_required", migration: "024_admin_department" }, 503);
+    }
+
+    const studentId = Number(pledgeStudentDelete[1]);
+    const student = await env.DB.prepare(
+      `SELECT id, full_name_ar FROM students WHERE id = ? AND complex_id = ?`,
+    )
+      .bind(studentId, admin.complexId)
+      .first<{ id: number; full_name_ar: string }>();
+    if (!student) return json({ error: "student_not_found" }, 404);
+
+    const del = await env.DB.prepare(
+      `DELETE FROM student_pledges WHERE student_id = ? AND complex_id = ?`,
+    )
+      .bind(studentId, admin.complexId)
+      .run();
+
+    await syncPledgeSummary(env, studentId);
+
+    return json({
+      ok: true,
+      student_id: studentId,
+      deleted: Number(del.meta.changes ?? 0),
+      pledge_count: 0,
+    });
+  }
+
   // GET /api/admin-dept/pledges — جدول ملخص التعهدات (ذكي + بحث)
   if (request.method === "GET" && path === "/api/admin-dept/pledges") {
     if (!(await hasTable(env, "student_pledges"))) {

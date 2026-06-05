@@ -21,6 +21,7 @@ import {
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { cn } from "../../components/ui/utils";
+import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import { ds, tajawal } from "../../lib/design-system";
 
 const STAGE_OPTIONS = [
@@ -302,9 +303,7 @@ export function QuranicDayStudentsModal({ dayId, dayName, open, onOpenChange }: 
               ) : (
                 enrolled.map((r) => (
                   <TableRow key={r.student_id}>
-                    <TableCell className={ds.table.cell} style={tajawal}>
-                      {r.full_name_ar}
-                    </TableCell>
+                    <TableTruncatedCell style={tajawal}>{r.full_name_ar}</TableTruncatedCell>
                     <TableCell className={`${ds.table.cell} text-xs`} style={tajawal}>
                       {r.target_hizbs.length > 0
                         ? `${r.target_hizbs[0]}–${r.target_hizbs[r.target_hizbs.length - 1]} (${r.target_hizbs.length})`

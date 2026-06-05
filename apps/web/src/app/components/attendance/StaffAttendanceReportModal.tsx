@@ -219,7 +219,9 @@ export function StaffAttendanceReportModal({ open, onOpenChange }: Props) {
                 {rows.map((r) => (
                   <TableRow key={r.user_id} className="print:break-inside-avoid">
                     <TableCell className={`${cellClass} print:w-[40%]`} style={tajawal}>
-                      <p className="font-medium print:text-xs">{r.full_name_ar}</p>
+                      <p className="font-medium print:text-xs truncate" title={r.full_name_ar}>
+                        {r.full_name_ar}
+                      </p>
                       <span className="text-sm text-gray-500 block mt-1 print:text-xs">
                         {formatRole(r.role)}
                       </span>

@@ -27,6 +27,7 @@ import { SemesterSettingsCard } from "../../components/admin/SemesterSettingsCar
 import { StaffAttendancePanel } from "../../components/admin/StaffAttendancePanel";
 import { api } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
+import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import { ds, tajawal } from "../../lib/design-system";
 
 type PeriodFilter =
@@ -239,8 +240,8 @@ export function StatisticsPage() {
               <TableBody>
                 {stats.auto_attendance_today.map((r, i) => (
                   <TableRow key={i}>
-                    <TableCell style={tajawal}>{r.full_name_ar}</TableCell>
-                    <TableCell style={tajawal}>{r.circle_name ?? "—"}</TableCell>
+                    <TableTruncatedCell style={tajawal}>{r.full_name_ar}</TableTruncatedCell>
+                    <TableTruncatedCell style={tajawal}>{r.circle_name ?? "—"}</TableTruncatedCell>
                     <TableCell style={tajawal}>{r.logged_at}</TableCell>
                   </TableRow>
                 ))}

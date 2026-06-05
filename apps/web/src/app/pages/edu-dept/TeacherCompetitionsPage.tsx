@@ -23,6 +23,7 @@ import {
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { cn } from "../../components/ui/utils";
+import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import { ds, tajawal } from "../../lib/design-system";
 
 type Comp = { id: number; name_ar: string; start_date: string | null; end_date: string | null };
@@ -532,9 +533,7 @@ export function TeacherCompetitionsPage() {
                                 ? "🥉"
                                 : row.rank}
                         </TableCell>
-                        <TableCell className={ds.table.cell} style={tajawal}>
-                          {row.full_name_ar}
-                        </TableCell>
+                        <TableTruncatedCell style={tajawal}>{row.full_name_ar}</TableTruncatedCell>
                         <TableCell
                           className={`${ds.table.cell} text-center font-semibold tabular-nums`}
                           style={tajawal}

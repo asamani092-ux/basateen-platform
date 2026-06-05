@@ -22,6 +22,7 @@ import {
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { cn } from "../../components/ui/utils";
+import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import { ds, tajawal } from "../../lib/design-system";
 
 type DatePreset = "last3" | "last7" | "month" | "custom";
@@ -245,12 +246,8 @@ export function EduReportsPage() {
                 <TableBody>
                   {data.items.map((row) => (
                     <TableRow key={row.student_id}>
-                      <TableCell className={ds.table.cell} style={tajawal}>
-                        {row.full_name_ar}
-                      </TableCell>
-                      <TableCell className={ds.table.cell} style={tajawal}>
-                        {row.circle_name}
-                      </TableCell>
+                      <TableTruncatedCell style={tajawal}>{row.full_name_ar}</TableTruncatedCell>
+                      <TableTruncatedCell style={tajawal}>{row.circle_name}</TableTruncatedCell>
                       <TableCell className={ds.table.cell}>
                         <div className="flex items-center gap-3 min-w-[180px]">
                           <Progress

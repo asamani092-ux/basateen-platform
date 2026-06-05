@@ -311,8 +311,10 @@ export function StaffAttendancePage() {
             <TableBody>
               {filteredRows.map((r) => (
                 <TableRow key={r.user_id}>
-                  <TableCell className={cellClass} style={tajawal}>
-                    <p className="font-medium">{r.full_name_ar}</p>
+                  <TableCell className={`${cellClass} max-w-0`} style={tajawal}>
+                    <p className="font-medium truncate" title={r.full_name_ar}>
+                      {r.full_name_ar}
+                    </p>
                     <span className="text-sm text-gray-500 block mt-1">
                       {formatRole(r.role)}
                     </span>

@@ -26,6 +26,7 @@ import {
   TableRow,
 } from "../../components/ui/table";
 import { DoubleConfirmDialog } from "../../components/shared/DoubleConfirmDialog";
+import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { ds, tajawal } from "../../lib/design-system";
@@ -368,9 +369,9 @@ export function PledgesPage() {
                 <TableBody>
                   {summaryRows.map((row) => (
                     <TableRow key={row.student_id}>
-                      <TableCell className="text-right px-4 py-3" style={tajawal}>
+                      <TableTruncatedCell className="text-right px-4 py-3" style={tajawal}>
                         {row.full_name_ar}
-                      </TableCell>
+                      </TableTruncatedCell>
                       <TableCell className="text-right px-4 py-3" dir="ltr" style={tajawal}>
                         {row.guardian_phone ?? "—"}
                       </TableCell>

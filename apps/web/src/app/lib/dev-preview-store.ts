@@ -360,6 +360,8 @@ export const previewStore = {
           full_name_ar: st?.full_name_ar ?? `طالب ${studentId}`,
           attendance_date: d,
           status: studentStatus.get(k) ?? "present",
+          circle_name: st?.circle_name ?? null,
+          track_name: st?.track_name ?? null,
         });
       }
     }

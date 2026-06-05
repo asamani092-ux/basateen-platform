@@ -981,6 +981,8 @@ export const api = {
         attendance_date: string;
         status: string;
         role?: string | null;
+        circle_name?: string | null;
+        track_name?: string | null;
         recorded_at?: string | null;
       }>;
     }>(`/api/admin/attendance/ledger?${qs}`);

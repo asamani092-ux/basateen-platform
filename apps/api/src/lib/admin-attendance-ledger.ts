@@ -22,6 +22,8 @@ export type LedgerRow = {
   attendance_date: string;
   status: string;
   role?: string | null;
+  circle_name?: string | null;
+  track_name?: string | null;
   recorded_at?: string | null;
 };
 
@@ -87,33 +89,53 @@ export async function fetchAttendanceLedger(
     };
   }
 
-  const entity = parseAttendanceEntity(params);
-  if (!entity) return { error: "entity_required" };
-
   const table = await resolveAttendanceTableName(env);
   if (!table) return { error: "migration_required" };
 
-  const column =
-    entity.type === "circle" ? "current_circle_id" : "current_track_id";
-  if (!(await tableHasColumn(env, "students", column))) {
-    return { error: "migration_required" };
-  }
+  const entity = parseAttendanceEntity(params);
   const isActiveExpr = await studentIsActiveSql(env, "s");
+  const hasCircleCol = await tableHasColumn(env, "students", "current_circle_id");
+  const hasTrackCol = await tableHasColumn(env, "students", "current_track_id");
 
-  const rows = await env.DB.prepare(
-    `SELECT sa.id AS attendance_id, sa.student_id AS person_id, s.full_name_ar,
-            sa.attendance_date, sa.status, sa.recorded_at
+  const circleJoin = hasCircleCol
+    ? "LEFT JOIN circles c ON c.id = s.current_circle_id"
+    : "";
+  const trackJoin = hasTrackCol
+    ? "LEFT JOIN tracks t ON t.id = s.current_track_id"
+    : "";
+  const circleSel = hasCircleCol ? "c.name_ar AS circle_name," : "NULL AS circle_name,";
+  const trackSel = hasTrackCol ? "t.name_ar AS track_name," : "NULL AS track_name,";
+
+  let sql = `
+    SELECT sa.id AS attendance_id, sa.student_id AS person_id, s.full_name_ar,
+           sa.attendance_date, sa.status, sa.recorded_at,
+           ${circleSel}
+           ${trackSel}
+           NULL AS role
      FROM ${table} sa
      JOIN students s ON s.id = sa.student_id
+     ${circleJoin}
+     ${trackJoin}
      WHERE sa.complex_id = ?
        AND sa.attendance_date >= ?
        AND sa.attendance_date <= ?
-       AND ${isActiveExpr}
-       AND s.${column} = ?
-     ORDER BY sa.attendance_date DESC, s.full_name_ar`,
-  )
-    .bind(complexId, range.start, range.end, entity.id)
-    .all<LedgerRow>();
+       AND ${isActiveExpr}`;
+
+  const binds: (string | number)[] = [complexId, range.start, range.end];
+
+  if (entity) {
+    const column =
+      entity.type === "circle" ? "current_circle_id" : "current_track_id";
+    if (!(await tableHasColumn(env, "students", column))) {
+      return { error: "migration_required" };
+    }
+    sql += ` AND s.${column} = ?`;
+    binds.push(entity.id);
+  }
+
+  sql += ` ORDER BY sa.attendance_date DESC, s.full_name_ar`;
+
+  const rows = await env.DB.prepare(sql).bind(...binds).all<LedgerRow>();
 
   return {
     ok: true,

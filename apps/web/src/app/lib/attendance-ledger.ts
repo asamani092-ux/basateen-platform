@@ -1,4 +1,5 @@
 import type { AttendanceStatusValue } from "./attendance-mutations";
+import { matchesArabicName } from "./attendance-search";
 import { normalizeAttendanceStatus } from "./attendance-status";
 
 export type DateFilterMode = "day" | "range";
@@ -13,6 +14,8 @@ export type LedgerEntry = {
   savedStatus: AttendanceStatusValue;
   has_record: boolean;
   role?: string | null;
+  circle_name?: string | null;
+  track_name?: string | null;
 };
 
 export function todayIso(): string {
@@ -66,6 +69,8 @@ export function mapLedgerItem(item: {
   attendance_date: string;
   status: string;
   role?: string | null;
+  circle_name?: string | null;
+  track_name?: string | null;
 }): LedgerEntry {
   const status = normalizeAttendanceStatus(item.status) as AttendanceStatusValue;
   return {
@@ -78,7 +83,24 @@ export function mapLedgerItem(item: {
     savedStatus: status,
     has_record: true,
     role: item.role ?? null,
+    circle_name: item.circle_name ?? null,
+    track_name: item.track_name ?? null,
   };
+}
+
+export function matchesLedgerSearch(
+  entry: LedgerEntry,
+  query: string,
+): boolean {
+  const q = query.trim();
+  if (!q) return true;
+  const haystack = [
+    entry.full_name_ar,
+    entry.circle_name ?? "",
+    entry.track_name ?? "",
+    entry.role ?? "",
+  ].join(" ");
+  return matchesArabicName(q, haystack) || haystack.includes(q);
 }
 
 export function isEntryDirty(entry: LedgerEntry): boolean {

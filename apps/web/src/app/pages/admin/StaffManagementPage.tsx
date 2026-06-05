@@ -209,6 +209,7 @@ export function StaffManagementPage() {
               جاري التحميل…
             </p>
           ) : (
+            <div className={ds.tableWrap}>
             <Table className={ds.tableMin}>
               <TableHeader>
                 <TableRow>
@@ -292,6 +293,7 @@ export function StaffManagementPage() {
                 )}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>

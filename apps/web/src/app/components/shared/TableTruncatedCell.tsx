@@ -30,7 +30,7 @@ export function TableTruncatedCell({
       style={style}
       title={title ?? fallbackTitle}
     >
-      {children}
+      <span className="block truncate">{children}</span>
     </TableCell>
   );
 }

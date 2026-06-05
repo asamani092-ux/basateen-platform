@@ -1,5 +1,4 @@
 import { AttendanceStatusButtons } from "./AttendanceStatusButtons";
-import { TableTruncatedCell } from "../shared/TableTruncatedCell";
 import {
   Table,
   TableBody,
@@ -30,43 +29,45 @@ export function AttendanceDailyTable({
   onStatusChange,
 }: Props) {
   return (
-    <Table className={`${ds.tableMin} border-collapse`}>
-      <TableHeader>
-        <TableRow>
-          <TableHead
-            className={`${ds.table.head} ${ds.table.colName}`}
-            style={tajawal}
-          >
-            الاسم
-          </TableHead>
-          <TableHead
-            className={`${ds.table.head} ${ds.table.colStatusCompact}`}
-            style={tajawal}
-          >
-            الحالة
-          </TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {rows.map((row) => (
-          <TableRow key={row.id}>
-            <TableTruncatedCell className="font-medium" style={tajawal}>
-              {row.subtitle
-                ? `${row.full_name_ar} — ${row.subtitle}`
-                : row.full_name_ar}
-            </TableTruncatedCell>
-            <TableCell
-              className={`${ds.table.cell} ${ds.table.colStatusCompact} align-middle`}
+    <div className={ds.tableWrap}>
+      <Table className={ds.tableMin}>
+        <TableHeader>
+          <TableRow>
+            <TableHead className={ds.table.head} style={tajawal}>
+              الاسم
+            </TableHead>
+            <TableHead
+              className={`${ds.table.head} ${ds.table.colStatusBtns}`}
+              style={tajawal}
             >
-              <AttendanceStatusButtons
-                value={row.status}
-                disabled={disabled}
-                onChange={(st) => onStatusChange(row.id, st)}
-              />
-            </TableCell>
+              الحالة
+            </TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => (
+            <TableRow key={row.id}>
+              <TableCell className={`${ds.table.cell} min-w-0`} style={tajawal}>
+                <p className="font-medium truncate">{row.full_name_ar}</p>
+                {row.subtitle ? (
+                  <p className="text-xs text-muted-foreground truncate">
+                    {row.subtitle}
+                  </p>
+                ) : null}
+              </TableCell>
+              <TableCell
+                className={`${ds.table.cell} ${ds.table.colStatusBtns} align-middle`}
+              >
+                <AttendanceStatusButtons
+                  value={row.status}
+                  disabled={disabled}
+                  onChange={(st) => onStatusChange(row.id, st)}
+                />
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
   );
 }

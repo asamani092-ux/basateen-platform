@@ -313,6 +313,7 @@ export function StudentsPage() {
               جاري التحميل...
             </p>
           ) : (
+            <div className={ds.tableWrap}>
             <Table className={ds.tableMin}>
               <TableHeader>
                 <TableRow>
@@ -368,7 +369,7 @@ export function StudentsPage() {
                           <Badge variant="outline">نشط</Badge>
                         )}
                       </TableCell>
-                      <TableActionsCell wide>
+                      <TableActionsCell>
                         <TableIconAction
                           kind="edit"
                           onClick={() => setEditStudent(s)}
@@ -394,6 +395,7 @@ export function StudentsPage() {
                 )}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>

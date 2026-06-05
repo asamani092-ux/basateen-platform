@@ -1341,6 +1341,15 @@ export const api = {
     }>(`/api/admin-dept/pledges/entry/${pledgeId}`, {
       method: "DELETE",
     }),
+  adminDeptDeleteAllStudentPledges: (studentId: number) =>
+    request<{
+      ok: boolean;
+      student_id: number;
+      deleted: number;
+      pledge_count: number;
+    }>(`/api/admin-dept/pledges/student/${studentId}`, {
+      method: "DELETE",
+    }),
   adminDashboardStats: () =>
     request<{
       complex_name: string | null;

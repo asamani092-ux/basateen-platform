@@ -479,6 +479,16 @@ export function resolveDevPreviewMock<T>(
     } as T;
   }
 
+  const pledgeStudentDel = p.match(/^\/api\/admin-dept\/pledges\/student\/(\d+)$/);
+  if (pledgeStudentDel && m === "DELETE") {
+    return {
+      ok: true,
+      student_id: Number(pledgeStudentDel[1]),
+      deleted: 2,
+      pledge_count: 0,
+    } as T;
+  }
+
   if (p === "/api/admin-dept/dashboard-stats" && m === "GET") {
     const monthStart = new Date();
     monthStart.setDate(1);

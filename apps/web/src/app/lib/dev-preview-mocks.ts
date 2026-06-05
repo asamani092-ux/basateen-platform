@@ -457,16 +457,25 @@ export function resolveDevPreviewMock<T>(
   }
 
   if (p === "/api/admin-dept/pledges" && m === "GET") {
+    const q = new URL(url).searchParams.get("q")?.trim() ?? "";
+    const items = [
+      {
+        student_id: 1,
+        full_name_ar: "طالب تجريبي",
+        guardian_phone: "0500000000",
+        pledge_count: 4,
+        latest_reason: "تأخر متكرر",
+        latest_pledge_id: 1,
+        latest_pledge_date: "2026-01-10",
+      },
+    ];
+    const filtered = q
+      ? items.filter((r) => r.full_name_ar.includes(q) || String(r.student_id) === q)
+      : items;
     return {
-      items: [
-        {
-          student_id: 1,
-          full_name_ar: "طالب تجريبي",
-          guardian_phone: "0500000000",
-          pledge_count: 2,
-          latest_reason: "تأخر متكرر",
-        },
-      ],
+      items: filtered,
+      mode: q ? "search" : "smart",
+      limit: q ? null : 20,
     } as T;
   }
 

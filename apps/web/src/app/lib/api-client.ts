@@ -1298,8 +1298,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  adminDeptPledgesList: () =>
-    request<{
+  adminDeptPledgesList: (params?: { q?: string }) => {
+    const search = new URLSearchParams();
+    if (params?.q?.trim()) search.set("q", params.q.trim());
+    const qs = search.toString();
+    return request<{
       items: Array<{
         student_id: number;
         full_name_ar: string;
@@ -1309,7 +1312,10 @@ export const api = {
         latest_pledge_id: number | null;
         latest_pledge_date: string | null;
       }>;
-    }>("/api/admin-dept/pledges"),
+      mode?: "smart" | "search";
+      limit?: number | null;
+    }>(`/api/admin-dept/pledges${qs ? `?${qs}` : ""}`);
+  },
   adminDeptPatchPledge: (
     pledgeId: number,
     body: { reason_ar?: string; pledge_date?: string },

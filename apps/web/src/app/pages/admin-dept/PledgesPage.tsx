@@ -1,19 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { Bell, MoreHorizontal, Plus, Printer, Search, Trash2 } from "lucide-react";
+import { Bell, Plus, Printer, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   TableActionsCell,
   TableIconAction,
 } from "../../components/admin/TableIconAction";
 import { AdminStudentSearchCombobox } from "../../components/admin/AdminStudentSearchCombobox";
+import { TableRowActionsMenu } from "../../components/shared/TableRowActionsMenu";
 import { Button } from "../../components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "../../components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -450,61 +444,29 @@ export function PledgesPage() {
                     >
                       {row.latest_reason ?? "—"}
                     </TableTruncatedCell>
-                    <TableCell className={`${ds.table.cell} w-[56px] text-right`}>
-                      <DropdownMenu modal={false}>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className={`${ds.btnRound} h-8 w-8`}
-                            aria-label="إجراءات"
-                          >
-                            <MoreHorizontal className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                          align="start"
-                          side="bottom"
-                          className="z-[200] min-w-[14rem] text-right"
-                          dir="rtl"
-                        >
-                          <DropdownMenuItem
-                            className="justify-end gap-2 cursor-pointer"
-                            style={tajawal}
-                            onSelect={(e) => {
-                              e.preventDefault();
-                              void openStudentDetail(row);
-                            }}
-                          >
-                            عرض التفاصيل والتعديل
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="justify-end gap-2 cursor-pointer"
-                            style={tajawal}
-                            onSelect={(e) => {
-                              e.preventDefault();
-                              void printStudentPledges(row);
-                            }}
-                          >
-                            <Printer className="w-4 h-4" />
-                            طباعة
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            variant="destructive"
-                            className="justify-end gap-2 cursor-pointer text-destructive focus:text-destructive"
-                            style={tajawal}
-                            onSelect={(e) => {
-                              e.preventDefault();
-                              setDeleteAllStudent(row);
-                            }}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                            حذف كل تعهدات الطالب
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                    <TableCell className={`${ds.table.cell} w-[56px] text-right relative overflow-visible`}>
+                      <TableRowActionsMenu
+                        items={[
+                          {
+                            id: "detail",
+                            label: "عرض التفاصيل والتعديل",
+                            onClick: () => void openStudentDetail(row),
+                          },
+                          {
+                            id: "print",
+                            label: "طباعة",
+                            icon: <Printer className="w-4 h-4" />,
+                            onClick: () => void printStudentPledges(row),
+                          },
+                          {
+                            id: "delete-all",
+                            label: "حذف كل تعهدات الطالب",
+                            icon: <Trash2 className="w-4 h-4" />,
+                            destructive: true,
+                            onClick: () => setDeleteAllStudent(row),
+                          },
+                        ]}
+                      />
                     </TableCell>
                   </TableRow>
                 ))}

@@ -35,8 +35,11 @@ async function studentColumn(env: Env, column: string, fallback = "NULL"): Promi
 /** Unified display name — full_name_ar with legacy `name` fallback. */
 async function studentNameSelect(env: Env): Promise<string> {
   const hasFull = await tableHasColumn(env, "students", "full_name_ar");
-  if (hasFull) return "s.full_name_ar";
   const hasName = await tableHasColumn(env, "students", "name");
+  if (hasFull && hasName) {
+    return "COALESCE(NULLIF(TRIM(s.full_name_ar), ''), s.name) AS full_name_ar";
+  }
+  if (hasFull) return "s.full_name_ar";
   if (hasName) return "s.name AS full_name_ar";
   return "'' AS full_name_ar";
 }
@@ -64,6 +67,7 @@ export async function handleStudentsList(
     const stageFilter = url.searchParams.get("stage_id")?.trim();
     const circleFilter = url.searchParams.get("circle_id")?.trim();
     const trackFilter = url.searchParams.get("track_id")?.trim();
+    const statusFilter = url.searchParams.get("status_filter")?.trim();
     const defaultLimit = auth.role === "super_admin" ? 500 : 100;
     const limit = Math.min(
       Number(url.searchParams.get("limit") ?? defaultLimit),
@@ -208,6 +212,19 @@ export async function handleStudentsList(
           sql += ` AND ${placement.trackRef} = ?`;
           binds.push(trackId);
         }
+      }
+    }
+
+    if (statusFilter) {
+      const hasAccountStatus = await tableHasColumn(env, "students", "account_status");
+      if (statusFilter === "active" && hasAccountStatus) {
+        sql += ` AND COALESCE(s.account_status, 'active') = 'active'`;
+      } else if (statusFilter === "suspended" && hasAccountStatus) {
+        sql += ` AND s.account_status = 'suspended'`;
+      } else if (statusFilter === "no_circle") {
+        sql += ` AND (${circleRef} IS NULL OR c.id IS NULL)`;
+      } else if (statusFilter === "no_track") {
+        sql += ` AND (${trackRef} IS NULL OR t.id IS NULL)`;
       }
     }
 

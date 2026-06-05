@@ -25,6 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from "../../components/ui/table";
+import { DoubleConfirmDialog } from "../../components/shared/DoubleConfirmDialog";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { ds, tajawal } from "../../lib/design-system";
@@ -355,7 +356,7 @@ export function PledgesPage() {
                       سبب التعهد
                     </TableHead>
                     <TableHead className="text-right px-4 py-3 whitespace-nowrap" style={tajawal}>
-                      إجراء
+                      الإجراءات
                     </TableHead>
                   </TableRow>
                 </TableHeader>
@@ -377,70 +378,68 @@ export function PledgesPage() {
                       >
                         {row.latest_reason ?? "—"}
                       </TableCell>
-                      <TableCell className="text-right px-4 py-3 whitespace-nowrap">
-                        <div className={ds.table.actionsWrapWide}>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className={ds.btnRound}
-                            onClick={() => void openStudentDetail(row)}
-                            style={tajawal}
-                          >
-                            <Eye className="w-4 h-4" />
-                            عرض
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className={ds.btnRound}
-                            onClick={async () => {
-                              setReportStudentId(row.student_id);
-                              const res = await api.adminDeptPledgeReport(row.student_id);
-                              const student = res.student as {
-                                full_name_ar?: string;
-                                guardian_phone?: string | null;
-                              };
-                              printPledgeForm(
-                                student.full_name_ar ?? row.full_name_ar,
-                                student.guardian_phone ?? row.guardian_phone,
-                                res.pledges,
-                                res.pledge_count,
-                              );
-                            }}
-                            style={tajawal}
-                          >
-                            <Printer className="w-4 h-4" />
-                            طباعة
-                          </Button>
-                          {row.latest_pledge_id != null && (
-                            <>
-                              <TableIconAction
-                                kind="edit"
-                                onClick={() =>
-                                  setEditPledge({
-                                    id: row.latest_pledge_id!,
-                                    reason_ar: row.latest_reason ?? "",
-                                    pledge_date:
-                                      row.latest_pledge_date ??
-                                      new Date().toISOString().slice(0, 10),
-                                  })
-                                }
-                              />
-                              <TableIconAction
-                                kind="delete"
-                                onClick={() =>
-                                  setDeletePledge({
-                                    id: row.latest_pledge_id!,
-                                    reason_ar: row.latest_reason ?? "آخر تعهد",
-                                  })
-                                }
-                              />
-                            </>
-                          )}
-                        </div>
-                      </TableCell>
+                      <TableActionsCell wide>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className={ds.btnRound}
+                          onClick={() => void openStudentDetail(row)}
+                          style={tajawal}
+                        >
+                          <Eye className="w-4 h-4" />
+                          عرض
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className={ds.btnRound}
+                          onClick={async () => {
+                            setReportStudentId(row.student_id);
+                            const res = await api.adminDeptPledgeReport(row.student_id);
+                            const student = res.student as {
+                              full_name_ar?: string;
+                              guardian_phone?: string | null;
+                            };
+                            printPledgeForm(
+                              student.full_name_ar ?? row.full_name_ar,
+                              student.guardian_phone ?? row.guardian_phone,
+                              res.pledges,
+                              res.pledge_count,
+                            );
+                          }}
+                          style={tajawal}
+                        >
+                          <Printer className="w-4 h-4" />
+                          طباعة
+                        </Button>
+                        {row.latest_pledge_id != null && (
+                          <>
+                            <TableIconAction
+                              kind="edit"
+                              onClick={() =>
+                                setEditPledge({
+                                  id: row.latest_pledge_id!,
+                                  reason_ar: row.latest_reason ?? "",
+                                  pledge_date:
+                                    row.latest_pledge_date ??
+                                    new Date().toISOString().slice(0, 10),
+                                })
+                              }
+                            />
+                            <TableIconAction
+                              kind="delete"
+                              onClick={() =>
+                                setDeletePledge({
+                                  id: row.latest_pledge_id!,
+                                  reason_ar: row.latest_reason ?? "آخر تعهد",
+                                })
+                              }
+                            />
+                          </>
+                        )}
+                      </TableActionsCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -610,38 +609,15 @@ export function PledgesPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={deletePledge != null} onOpenChange={(o) => !o && setDeletePledge(null)}>
-        <DialogContent className={ds.dialog} dir="rtl">
-          <DialogHeader>
-            <DialogTitle style={tajawal}>حذف التعهد</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm" style={tajawal}>
-            هل تريد حذف التعهد: «{deletePledge?.reason_ar}»؟ لا يمكن التراجع.
-          </p>
-          <div className="flex gap-2 justify-end">
-            <Button
-              type="button"
-              variant="outline"
-              className={ds.btnRound}
-              onClick={() => setDeletePledge(null)}
-              disabled={pledgeBusy}
-              style={tajawal}
-            >
-              إلغاء
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              className={ds.btnRound}
-              onClick={() => void confirmDeletePledge()}
-              disabled={pledgeBusy}
-              style={tajawal}
-            >
-              {pledgeBusy ? "جاري الحذف…" : "حذف"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <DoubleConfirmDialog
+        open={deletePledge != null}
+        onOpenChange={(o) => !o && setDeletePledge(null)}
+        title="حذف التعهد"
+        description={`هل تريد حذف التعهد: «${deletePledge?.reason_ar ?? ""}»؟ لا يمكن التراجع.`}
+        confirmLabel="حذف"
+        destructive
+        onConfirm={confirmDeletePledge}
+      />
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent

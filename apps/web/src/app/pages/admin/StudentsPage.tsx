@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Search } from "lucide-react";
+import { Filter, Search } from "lucide-react";
 import { AdminEntityActionModal } from "../../components/admin/AdminEntityActionModal";
 import {
   TableActionsCell,
@@ -63,11 +63,21 @@ import {
 
 const ALL_FILTER = "all";
 
+type StatusFilterValue = "active" | "suspended" | "no_circle" | "no_track";
+
+const STATUS_FILTER_OPTIONS: { value: StatusFilterValue; label: string }[] = [
+  { value: "active", label: "نشط" },
+  { value: "suspended", label: "معلّق" },
+  { value: "no_circle", label: "بدون حلقة" },
+  { value: "no_track", label: "بدون مسار" },
+];
+
 export function StudentsPage() {
   const [q, setQ] = useState("");
   const [stageFilter, setStageFilter] = useState(ALL_FILTER);
   const [circleFilter, setCircleFilter] = useState(ALL_FILTER);
   const [trackFilter, setTrackFilter] = useState(ALL_FILTER);
+  const [statusFilter, setStatusFilter] = useState(ALL_FILTER);
   const [items, setItems] = useState<StudentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -109,6 +119,8 @@ export function StudentsPage() {
         stage_id: stageFilter !== ALL_FILTER ? Number(stageFilter) : undefined,
         circle_id: circleFilter !== ALL_FILTER ? Number(circleFilter) : undefined,
         track_id: trackFilter !== ALL_FILTER ? Number(trackFilter) : undefined,
+        status_filter:
+          statusFilter !== ALL_FILTER ? (statusFilter as StatusFilterValue) : undefined,
       });
       const payload = res as {
         items?: StudentRow[];
@@ -127,7 +139,7 @@ export function StudentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [hasApi, q, stageFilter, circleFilter, trackFilter]);
+  }, [hasApi, q, stageFilter, circleFilter, trackFilter, statusFilter]);
 
   useEffect(() => {
     const t = setTimeout(() => void load(), 300);
@@ -166,71 +178,101 @@ export function StudentsPage() {
               إضافة طالب ➕
             </Button>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="relative sm:col-span-2 lg:col-span-1">
-              <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                placeholder="ابحث باسم الطالب..."
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                className={`pr-10 ${ds.btnRound}`}
-                style={tajawal}
-              />
+          <div className="rounded-xl border border-border/60 bg-muted/25 p-4 space-y-3">
+            <div className="flex items-center gap-2 text-sm font-medium text-foreground/90">
+              <Filter className="w-4 h-4 text-muted-foreground" />
+              <span style={tajawal}>تصفية القائمة</span>
             </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground" style={tajawal}>
-                المرحلة الدراسية
-              </Label>
-              <Select value={stageFilter} onValueChange={setStageFilter}>
-                <SelectTrigger className={ds.btnRound}>
-                  <SelectValue placeholder="كل المراحل" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_FILTER}>كل المراحل</SelectItem>
-                  {EDUCATIONAL_STAGES.map((s) => (
-                    <SelectItem key={s.id} value={String(s.id)}>
-                      {s.name_ar}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              <div className="relative sm:col-span-2 xl:col-span-2">
+                <Label className="text-xs text-muted-foreground mb-1 block" style={tajawal}>
+                  البحث
+                </Label>
+                <Search className="absolute right-3 top-[calc(50%+0.5rem)] -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                <Input
+                  placeholder="ابحث باسم الطالب..."
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  className={`pr-10 h-10 bg-background ${ds.btnRound}`}
+                  style={tajawal}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground" style={tajawal}>
+                  المرحلة الدراسية
+                </Label>
+                <Select value={stageFilter} onValueChange={setStageFilter}>
+                  <SelectTrigger className={`h-10 bg-background ${ds.btnRound}`}>
+                    <SelectValue placeholder="كل المراحل" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_FILTER}>كل المراحل</SelectItem>
+                    {EDUCATIONAL_STAGES.map((s) => (
+                      <SelectItem key={s.id} value={String(s.id)}>
+                        {s.name_ar}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground" style={tajawal}>
+                  الحلقة
+                </Label>
+                <Select value={circleFilter} onValueChange={setCircleFilter}>
+                  <SelectTrigger className={`h-10 bg-background ${ds.btnRound}`}>
+                    <SelectValue placeholder="كل الحلقات" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_FILTER}>كل الحلقات</SelectItem>
+                    {circles.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        {c.name_ar}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground" style={tajawal}>
+                  المسار
+                </Label>
+                <Select value={trackFilter} onValueChange={setTrackFilter}>
+                  <SelectTrigger className={`h-10 bg-background ${ds.btnRound}`}>
+                    <SelectValue placeholder="كل المسارات" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_FILTER}>كل المسارات</SelectItem>
+                    {tracks.map((t) => (
+                      <SelectItem key={t.id} value={String(t.id)}>
+                        {t.name_ar}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground" style={tajawal}>
+                  الحالة
+                </Label>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className={`h-10 bg-background ${ds.btnRound}`}>
+                    <SelectValue placeholder="كل الحالات" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_FILTER}>كل الحالات</SelectItem>
+                    {STATUS_FILTER_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground" style={tajawal}>
-                الحلقة
-              </Label>
-              <Select value={circleFilter} onValueChange={setCircleFilter}>
-                <SelectTrigger className={ds.btnRound}>
-                  <SelectValue placeholder="كل الحلقات" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_FILTER}>كل الحلقات</SelectItem>
-                  {circles.map((c) => (
-                    <SelectItem key={c.id} value={String(c.id)}>
-                      {c.name_ar}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground" style={tajawal}>
-                المسار
-              </Label>
-              <Select value={trackFilter} onValueChange={setTrackFilter}>
-                <SelectTrigger className={ds.btnRound}>
-                  <SelectValue placeholder="كل المسارات" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_FILTER}>كل المسارات</SelectItem>
-                  {tracks.map((t) => (
-                    <SelectItem key={t.id} value={String(t.id)}>
-                      {t.name_ar}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <p className="text-xs text-muted-foreground" style={tajawal}>
+              {loading ? "جاري التحميل…" : `يعرض ${items.length} طالب`}
+            </p>
           </div>
         </CardHeader>
         <CardContent className="overflow-x-auto">

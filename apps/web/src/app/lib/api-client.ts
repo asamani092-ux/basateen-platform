@@ -257,6 +257,7 @@ export const api = {
           stage_id?: number | null;
           circle_id?: number | null;
           track_id?: number | null;
+          status_filter?: "active" | "suspended" | "no_circle" | "no_track" | null;
         },
   ) => {
     const search = new URLSearchParams();
@@ -266,6 +267,7 @@ export const api = {
       if (params.stage_id != null) search.set("stage_id", String(params.stage_id));
       if (params.circle_id != null) search.set("circle_id", String(params.circle_id));
       if (params.track_id != null) search.set("track_id", String(params.track_id));
+      if (params.status_filter) search.set("status_filter", params.status_filter);
     }
     const qs = search.toString();
     return request<{ items: StudentRow[]; count: number }>(

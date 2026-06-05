@@ -100,12 +100,14 @@ export function StaffAttendanceReportModal({ open, onOpenChange }: Props) {
     setTimeout(cleanup, 1000);
   }
 
+  const headClass =
+    "text-right px-2 py-1 print:text-xs print:font-semibold whitespace-normal align-top border border-black/20 print:border-black";
   const cellClass =
-    "text-right px-2 py-1 print:text-sm whitespace-normal align-top";
+    "text-right px-2 py-1 print:text-xs whitespace-normal align-top border border-black/10 print:border-black";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto print:w-[210mm] print:max-w-full print:absolute print:top-0 print:left-0 print:m-0 print:p-0 print:overflow-hidden print:bg-white print:text-black print:max-h-none print:border-0 print:shadow-none print:translate-x-0 print:translate-y-0">
+      <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto print:w-full print:max-w-full print:absolute print:top-0 print:left-0 print:m-0 print:p-0 print:overflow-visible print:bg-white print:text-black print:max-h-none print:border-0 print:shadow-none print:translate-x-0 print:translate-y-0">
         <DialogHeader className="print:hidden">
           <DialogTitle style={tajawal}>تقرير تحضير المنسوبين</DialogTitle>
           <DialogDescription style={tajawal}>
@@ -156,7 +158,7 @@ export function StaffAttendanceReportModal({ open, onOpenChange }: Props) {
 
         <div
           id="staff-attendance-report-print"
-          className="staff-attendance-report-print space-y-3 print:w-[210mm] print:max-w-full print:absolute print:top-0 print:left-0 print:m-0 print:p-4 print:overflow-hidden print:bg-white print:text-black"
+          className="staff-attendance-report-print space-y-3 print:w-full print:max-w-full print:absolute print:top-0 print:left-0 print:m-0 print:p-4 print:overflow-visible print:bg-white print:text-black"
         >
           <div className="hidden print:flex print:justify-between print:items-start print:border-b print:border-black print:pb-2 print:mb-3 print:pt-0">
             <p className="text-sm font-semibold" style={tajawal}>
@@ -183,20 +185,32 @@ export function StaffAttendanceReportModal({ open, onOpenChange }: Props) {
           </p>
 
           {rows.length > 0 ? (
-            <div className="overflow-x-auto print:overflow-hidden">
-            <Table className="border-collapse w-full print:table-fixed">
+            <div className="overflow-x-auto print:overflow-visible">
+            <Table className="border-collapse w-full print:table-fixed print:w-full">
               <TableHeader>
                 <TableRow className="print:break-inside-avoid">
-                  <TableHead className={cellClass} style={tajawal}>
+                  <TableHead
+                    className={`${headClass} print:w-[40%]`}
+                    style={tajawal}
+                  >
                     المنسوب
                   </TableHead>
-                  <TableHead className={cellClass} style={tajawal}>
+                  <TableHead
+                    className={`${headClass} print:w-[20%]`}
+                    style={tajawal}
+                  >
                     أيام الحضور
                   </TableHead>
-                  <TableHead className={cellClass} style={tajawal}>
+                  <TableHead
+                    className={`${headClass} print:w-[20%]`}
+                    style={tajawal}
+                  >
                     أيام الغياب
                   </TableHead>
-                  <TableHead className={cellClass} style={tajawal}>
+                  <TableHead
+                    className={`${headClass} print:w-[20%]`}
+                    style={tajawal}
+                  >
                     أيام الاستئذان
                   </TableHead>
                 </TableRow>
@@ -204,19 +218,19 @@ export function StaffAttendanceReportModal({ open, onOpenChange }: Props) {
               <TableBody>
                 {rows.map((r) => (
                   <TableRow key={r.user_id} className="print:break-inside-avoid">
-                    <TableCell className={cellClass} style={tajawal}>
-                      <p className="font-medium">{r.full_name_ar}</p>
-                      <span className="text-sm text-gray-500 block mt-1">
+                    <TableCell className={`${cellClass} print:w-[40%]`} style={tajawal}>
+                      <p className="font-medium print:text-xs">{r.full_name_ar}</p>
+                      <span className="text-sm text-gray-500 block mt-1 print:text-xs">
                         {formatRole(r.role)}
                       </span>
                     </TableCell>
-                    <TableCell className={cellClass} style={tajawal}>
+                    <TableCell className={`${cellClass} print:w-[20%] print:text-center`} style={tajawal}>
                       {r.present_days}
                     </TableCell>
-                    <TableCell className={cellClass} style={tajawal}>
+                    <TableCell className={`${cellClass} print:w-[20%] print:text-center`} style={tajawal}>
                       {r.absent_days}
                     </TableCell>
-                    <TableCell className={cellClass} style={tajawal}>
+                    <TableCell className={`${cellClass} print:w-[20%] print:text-center`} style={tajawal}>
                       {r.excused_days}
                     </TableCell>
                   </TableRow>

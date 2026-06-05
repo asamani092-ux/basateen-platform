@@ -40,6 +40,11 @@ import {
   studentBelongsToEntity,
 } from "../lib/admin-attendance-entities";
 import {
+  bulkClearAttendanceRange,
+  bulkPatchAttendanceRecords,
+  fetchAttendanceLedger,
+} from "../lib/admin-attendance-ledger";
+import {
   bulkClearAttendanceDay,
   deleteAttendanceById,
   parseBeneficiaryType,
@@ -939,6 +944,38 @@ async function handleAdminDeptRouterImpl(
     });
   }
 
+  // GET /api/admin/attendance/ledger — سجل التحضير التاريخي (نطاق زمني)
+  if (
+    request.method === "GET" &&
+    (path === "/api/admin/attendance/ledger" ||
+      path === "/api/admin-dept/attendance/ledger")
+  ) {
+    const beneficiaryType = parseBeneficiaryType(
+      url.searchParams.get("beneficiary_type"),
+    );
+    if (!beneficiaryType) {
+      return json({ error: "invalid_beneficiary_type" }, 400);
+    }
+    const result = await fetchAttendanceLedger(env, admin.complexId, {
+      beneficiary_type: beneficiaryType,
+      start_date: url.searchParams.get("start_date") ?? undefined,
+      end_date: url.searchParams.get("end_date") ?? undefined,
+      attendance_date: url.searchParams.get("date") ?? undefined,
+      circle_id: Number(url.searchParams.get("circle_id")) || undefined,
+      track_id: Number(url.searchParams.get("track_id")) || undefined,
+    });
+    if ("error" in result) {
+      return json(result, 400);
+    }
+    return json({
+      start_date: result.start_date,
+      end_date: result.end_date,
+      beneficiary_type: beneficiaryType,
+      items: result.items,
+      count: result.items.length,
+    });
+  }
+
   // POST /api/admin/attendance — upsert سجل واحد (إنشاء أو تحديث بدون معرّف)
   if (
     request.method === "POST" &&
@@ -1037,17 +1074,22 @@ async function handleAdminDeptRouterImpl(
     return json({ ok: true, deleted: result.deleted });
   }
 
-  // DELETE /api/admin/attendance/bulk — إلغاء تحضير يوم كامل
+  // PATCH /api/admin/attendance/bulk — تحديث جماعي للسجلات
   if (
-    request.method === "DELETE" &&
+    request.method === "PATCH" &&
     (path === "/api/admin/attendance/bulk" ||
       path === "/api/admin-dept/attendance/bulk")
   ) {
     let body: {
       beneficiary_type?: string;
-      attendance_date?: string;
-      circle_id?: number;
-      track_id?: number;
+      records?: Array<{
+        attendance_id?: number;
+        person_id?: number;
+        attendance_date?: string;
+        status?: string;
+        circle_id?: number;
+        track_id?: number;
+      }>;
     };
     try {
       body = await request.json();
@@ -1058,17 +1100,82 @@ async function handleAdminDeptRouterImpl(
     if (!beneficiaryType) {
       return json({ error: "invalid_beneficiary_type" }, 400);
     }
-    const date = body.attendance_date?.trim() || todayIso();
-    const result = await bulkClearAttendanceDay(env, admin.complexId, {
-      beneficiary_type: beneficiaryType,
-      attendance_date: date,
-      circle_id: body.circle_id,
-      track_id: body.track_id,
-    });
+    const result = await bulkPatchAttendanceRecords(
+      env,
+      admin.complexId,
+      admin.userId,
+      beneficiaryType,
+      body.records ?? [],
+    );
     if ("error" in result) {
       return json(result, 400);
     }
-    return json({ ok: true, deleted: result.deleted, attendance_date: date });
+    return json({ ok: true, saved: result.saved });
+  }
+
+  // DELETE /api/admin/attendance/bulk — حذف جماعي (يوم / نطاق / معرّفات)
+  if (
+    request.method === "DELETE" &&
+    (path === "/api/admin/attendance/bulk" ||
+      path === "/api/admin-dept/attendance/bulk")
+  ) {
+    let body: {
+      beneficiary_type?: string;
+      attendance_date?: string;
+      start_date?: string;
+      end_date?: string;
+      circle_id?: number;
+      track_id?: number;
+      attendance_ids?: number[];
+    };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+    const beneficiaryType = parseBeneficiaryType(body.beneficiary_type);
+    if (!beneficiaryType) {
+      return json({ error: "invalid_beneficiary_type" }, 400);
+    }
+
+    const hasRange =
+      Boolean(body.start_date?.trim()) ||
+      Boolean(body.end_date?.trim()) ||
+      (body.attendance_ids?.length ?? 0) > 0;
+
+    const result = hasRange
+      ? await bulkClearAttendanceRange(env, admin.complexId, {
+          beneficiary_type: beneficiaryType,
+          attendance_date: body.attendance_date,
+          start_date: body.start_date,
+          end_date: body.end_date,
+          circle_id: body.circle_id,
+          track_id: body.track_id,
+          attendance_ids: body.attendance_ids,
+        })
+      : await bulkClearAttendanceDay(env, admin.complexId, {
+          beneficiary_type: beneficiaryType,
+          attendance_date: body.attendance_date?.trim() || todayIso(),
+          circle_id: body.circle_id,
+          track_id: body.track_id,
+        });
+
+    if ("error" in result) {
+      return json(result, 400);
+    }
+    if ("start_date" in result) {
+      return json({
+        ok: true,
+        deleted: result.deleted,
+        start_date: result.start_date,
+        end_date: result.end_date,
+      });
+    }
+    return json({
+      ok: true,
+      deleted: result.deleted,
+      attendance_date: body.attendance_date?.trim() || todayIso(),
+    });
   }
 
   // GET /api/admin-dept/dashboard-stats | GET /api/admin/dashboard-stats

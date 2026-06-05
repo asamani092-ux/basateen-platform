@@ -1745,15 +1745,92 @@ export function resolveDevPreviewMock<T>(
     return { ok: true, attendance_id: meta.attendance_id, attendance_date: d } as T;
   }
 
+  if (p === "/api/admin/attendance/ledger" && m === "GET") {
+    const start = url.searchParams.get("start_date") ?? url.searchParams.get("date") ?? date;
+    const end = url.searchParams.get("end_date") ?? start;
+    const beneficiaryType =
+      url.searchParams.get("beneficiary_type") === "staff" ? "staff" : "student";
+    const items =
+      beneficiaryType === "staff"
+        ? previewStore.listStaffLedger(start, end)
+        : previewStore.listStudentLedger(start, end);
+    return {
+      start_date: start,
+      end_date: end,
+      beneficiary_type: beneficiaryType,
+      count: items.length,
+      items,
+    } as T;
+  }
+
+  if (p === "/api/admin/attendance/bulk" && m === "PATCH") {
+    const body = bodyText ? JSON.parse(bodyText) : {};
+    const beneficiaryType = body.beneficiary_type === "staff" ? "staff" : "student";
+    let saved = 0;
+    for (const rec of body.records ?? []) {
+      const status = String(rec.status ?? "present");
+      const attId = Number(rec.attendance_id);
+      if (Number.isFinite(attId) && attId > 0) {
+        if (beneficiaryType === "staff") {
+          const ref = previewStore.findStaffAttendanceById(attId);
+          if (ref) previewStore.setStaffStatus(ref.userId, ref.date, status);
+        } else {
+          const ref = previewStore.findStudentAttendanceById(attId);
+          if (ref) previewStore.setStudentStatus(ref.studentId, ref.date, status);
+        }
+        saved += 1;
+        continue;
+      }
+      const personId = Number(rec.person_id);
+      const d = rec.attendance_date ?? date;
+      if (beneficiaryType === "staff") {
+        previewStore.setStaffStatus(personId, d, status);
+      } else {
+        previewStore.setStudentStatus(personId, d, status);
+      }
+      saved += 1;
+    }
+    return { ok: true, saved } as T;
+  }
+
   if (p === "/api/admin/attendance/bulk" && m === "DELETE") {
     const body = bodyText ? JSON.parse(bodyText) : {};
-    const d = body.attendance_date ?? date;
+    const start = body.start_date ?? body.attendance_date ?? date;
+    const end = body.end_date ?? start;
     const beneficiaryType = body.beneficiary_type === "staff" ? "staff" : "student";
-    const deleted =
-      beneficiaryType === "staff"
-        ? previewStore.clearStaffAttendanceDay(d)
-        : previewStore.clearStudentAttendanceDay(d);
-    return { ok: true, deleted, attendance_date: d } as T;
+    const ids = (body.attendance_ids ?? [])
+      .map((id: unknown) => Number(id))
+      .filter((id: number) => Number.isFinite(id));
+    let deleted = 0;
+    if (ids.length > 0) {
+      deleted =
+        beneficiaryType === "staff"
+          ? previewStore.deleteStaffAttendanceByIds(ids)
+          : previewStore.deleteStudentAttendanceByIds(ids);
+    } else if (start !== end) {
+      for (let d = start; d <= end; ) {
+        deleted +=
+          beneficiaryType === "staff"
+            ? previewStore.clearStaffAttendanceDay(d)
+            : previewStore.clearStudentAttendanceDay(d);
+        const next = new Date(`${d}T12:00:00`);
+        next.setDate(next.getDate() + 1);
+        d = next.toISOString().slice(0, 10);
+        if (d < start) break;
+      }
+    } else {
+      deleted =
+        beneficiaryType === "staff"
+          ? previewStore.clearStaffAttendanceDay(start)
+          : previewStore.clearStudentAttendanceDay(start);
+    }
+    return {
+      ok: true,
+      deleted,
+      attendance_date: start === end ? start : undefined,
+      start_date: start,
+      end_date: end,
+    } as T;
   }
 
   const attById = p.match(/^\/api\/admin\/attendance\/(\d+)$/);

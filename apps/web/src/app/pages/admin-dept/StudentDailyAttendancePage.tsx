@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link2, Printer, Trash2 } from "lucide-react";
+import { Link2, Printer, Save, Trash2 } from "lucide-react";
+import { AttendanceDateFilter } from "../../components/attendance/AttendanceDateFilter";
+import { AttendanceLedgerTable } from "../../components/attendance/AttendanceLedgerTable";
 import { AttendanceMagicLinksModal } from "../../components/attendance/AttendanceMagicLinksModal";
 import { StudentAttendanceReportModal } from "../../components/attendance/StudentAttendanceReportModal";
 import { AttendanceFilterBar } from "../../components/attendance/AttendanceFilterBar";
-import { AttendanceStatusButtons } from "../../components/attendance/AttendanceStatusButtons";
-import { TableIconAction } from "../../components/admin/TableIconAction";
 import { DoubleConfirmDialog } from "../../components/shared/DoubleConfirmDialog";
 import { Button } from "../../components/ui/button";
 import { Label } from "../../components/ui/label";
@@ -15,56 +15,52 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../../components/ui/table";
 import { useAdminDataSyncContext } from "../../context/AdminDataSyncContext";
 import { api, type AdminTrackRow, type CircleOption } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
-import { normalizeAttendanceStatus } from "../../lib/attendance-status";
 import { matchesArabicName } from "../../lib/attendance-search";
 import {
-  clearAttendanceDay,
-  mutateAttendanceStatus,
+  buildBulkSaveRecords,
+  countDirty,
+  isRangeMode,
+  mapLedgerItem,
+  mapRosterItem,
+  markEntriesSaved,
+  patchEntryStatus,
+  removeEntry,
+  resetEntryAfterDelete,
+  todayIso,
+  type DateFilterMode,
+  type LedgerEntry,
+} from "../../lib/attendance-ledger";
+import {
+  bulkSaveAttendance,
+  clearDisplayedAttendance,
   removeAttendanceRecord,
+  toastAttendanceBulkSaved,
   toastAttendanceCleared,
   toastAttendanceDeleted,
-  toastAttendanceSaved,
   type AttendanceStatusValue,
 } from "../../lib/attendance-mutations";
 import { ds, tajawal } from "../../lib/design-system";
 
-type StudentRow = {
-  student_id: number;
-  full_name_ar: string;
-  status: string;
-  attendance_id: number | null;
-  has_record: boolean;
-};
-
 type EntityType = "circle" | "track";
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 export function StudentDailyAttendancePage() {
-  const [date, setDate] = useState(todayIso);
+  const [dateMode, setDateMode] = useState<DateFilterMode>("day");
+  const [startDate, setStartDate] = useState(todayIso);
+  const [endDate, setEndDate] = useState(todayIso);
   const [entityType, setEntityType] = useState<EntityType>("circle");
   const [circles, setCircles] = useState<CircleOption[]>([]);
   const [tracks, setTracks] = useState<AdminTrackRow[]>([]);
   const [entityId, setEntityId] = useState<string>("");
   const [entityName, setEntityName] = useState<string>("");
-  const [attendanceData, setAttendanceData] = useState<StudentRow[]>([]);
+  const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingGroups, setLoadingGroups] = useState(true);
-  const [rowBusy, setRowBusy] = useState<number | null>(null);
+  const [rowBusyKey, setRowBusyKey] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [saveBusy, setSaveBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nameQuery, setNameQuery] = useState("");
   const [linksModalOpen, setLinksModalOpen] = useState(false);
@@ -72,10 +68,9 @@ export function StudentDailyAttendancePage() {
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
   const { invalidate } = useAdminDataSyncContext();
 
-  const cellClass = "text-right px-4 py-3";
-  const actionCellClass = `${cellClass} whitespace-nowrap`;
-  const isRetroDate = date !== todayIso();
-  const recordedCount = attendanceData.filter((r) => r.has_record).length;
+  const ledgerView = isRangeMode(dateMode, startDate, endDate);
+  const dirtyCount = countDirty(entries);
+  const recordedCount = entries.filter((r) => r.has_record).length;
 
   useEffect(() => {
     if (!canUseApi()) {
@@ -94,49 +89,58 @@ export function StudentDailyAttendancePage() {
       .finally(() => setLoadingGroups(false));
   }, []);
 
-  const loadStudents = useCallback(async () => {
+  const loadEntries = useCallback(async () => {
     const id = Number(entityId);
     if (!canUseApi() || !Number.isFinite(id)) {
-      setAttendanceData([]);
+      setEntries([]);
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const res =
-        entityType === "circle"
-          ? await api.adminDeptStudentAttendance(id, date)
-          : await api.adminDeptTrackAttendance(id, date);
-      const items: StudentRow[] = (res.items ?? []).map((r) => ({
-        student_id: r.student_id,
-        full_name_ar: r.full_name_ar,
-        status: normalizeAttendanceStatus(r.status ?? "present"),
-        attendance_id: r.attendance_id ?? null,
-        has_record: Boolean(r.has_record),
-      }));
-      setAttendanceData(items);
-      if (entityType === "circle" && "circle" in res) {
-        setEntityName(res.circle?.name_ar ?? "");
-      } else if ("track" in res) {
-        setEntityName(res.track?.name_ar ?? "");
+      if (ledgerView) {
+        const res = await api.adminAttendanceLedger({
+          beneficiary_type: "student",
+          start_date: startDate,
+          end_date: endDate,
+          circle_id: entityType === "circle" ? id : undefined,
+          track_id: entityType === "track" ? id : undefined,
+        });
+        setEntries((res.items ?? []).map(mapLedgerItem));
+      } else {
+        const res =
+          entityType === "circle"
+            ? await api.adminDeptStudentAttendance(id, startDate)
+            : await api.adminDeptTrackAttendance(id, startDate);
+        setEntries(
+          (res.items ?? []).map((r) => ({
+            ...mapRosterItem(r),
+            attendance_date: startDate,
+          })),
+        );
+        if (entityType === "circle" && "circle" in res) {
+          setEntityName(res.circle?.name_ar ?? "");
+        } else if ("track" in res) {
+          setEntityName(res.track?.name_ar ?? "");
+        }
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل تحميل الطلاب");
-      setAttendanceData([]);
+      setError(e instanceof Error ? e.message : "فشل تحميل السجلات");
+      setEntries([]);
     } finally {
       setLoading(false);
     }
-  }, [entityId, entityType, date]);
+  }, [entityId, entityType, startDate, endDate, ledgerView]);
 
   useEffect(() => {
     if (!entityId) {
-      setAttendanceData([]);
+      setEntries([]);
       setEntityName("");
       setError(null);
       return;
     }
-    void loadStudents();
-  }, [entityId, loadStudents]);
+    void loadEntries();
+  }, [entityId, loadEntries]);
 
   function bumpDashboard() {
     invalidate("dashboard");
@@ -146,94 +150,90 @@ export function StudentDailyAttendancePage() {
     setEntityType(next);
     setEntityId("");
     setEntityName("");
-    setAttendanceData([]);
+    setEntries([]);
   }
 
-  async function applyStatus(row: StudentRow, status: AttendanceStatusValue) {
-    const id = Number(entityId);
-    if (!Number.isFinite(id)) return;
-    setRowBusy(row.student_id);
-    setError(null);
-    setAttendanceData((prev) =>
-      prev.map((r) =>
-        r.student_id === row.student_id ? { ...r, status } : r,
-      ),
-    );
-    try {
-      const result = await mutateAttendanceStatus({
-        beneficiaryType: "student",
-        personId: row.student_id,
-        attendanceId: row.attendance_id,
-        hasRecord: row.has_record,
-        date,
-        status,
-        circleId: entityType === "circle" ? id : undefined,
-        trackId: entityType === "track" ? id : undefined,
-      });
-      setAttendanceData((prev) =>
-        prev.map((r) =>
-          r.student_id === row.student_id
-            ? {
-                ...r,
-                status,
-                attendance_id: result.attendanceId,
-                has_record: result.hasRecord,
-              }
-            : r,
-        ),
-      );
-      toastAttendanceSaved();
-      bumpDashboard();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل تحديث التحضير");
-      void loadStudents();
-    } finally {
-      setRowBusy(null);
+  function handleModeChange(mode: DateFilterMode) {
+    setDateMode(mode);
+    if (mode === "day") {
+      setEndDate(startDate);
     }
   }
 
-  async function deleteRow(row: StudentRow) {
-    if (row.attendance_id == null) return;
-    setRowBusy(row.student_id);
+  function handleStatusChange(entry: LedgerEntry, status: AttendanceStatusValue) {
+    setEntries((prev) => patchEntryStatus(prev, entry.rowKey, status));
+  }
+
+  async function saveDirtyRows() {
+    const id = Number(entityId);
+    if (!Number.isFinite(id) || dirtyCount === 0) return;
+    setSaveBusy(true);
+    setError(null);
+    try {
+      const records = buildBulkSaveRecords(entries, startDate, {
+        circleId: entityType === "circle" ? id : undefined,
+        trackId: entityType === "track" ? id : undefined,
+      });
+      const saved = await bulkSaveAttendance({
+        beneficiaryType: "student",
+        records,
+      });
+      setEntries((prev) => markEntriesSaved(prev));
+      toastAttendanceBulkSaved(saved);
+      bumpDashboard();
+      await loadEntries();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "فشل حفظ التعديلات");
+    } finally {
+      setSaveBusy(false);
+    }
+  }
+
+  async function deleteRow(entry: LedgerEntry) {
+    if (entry.attendance_id == null) return;
+    setRowBusyKey(entry.rowKey);
     setError(null);
     try {
       await removeAttendanceRecord({
         beneficiaryType: "student",
-        attendanceId: row.attendance_id,
+        attendanceId: entry.attendance_id,
       });
-      setAttendanceData((prev) =>
-        prev.map((r) =>
-          r.student_id === row.student_id
-            ? { ...r, status: "present", attendance_id: null, has_record: false }
-            : r,
-        ),
+      setEntries((prev) =>
+        ledgerView
+          ? removeEntry(prev, entry.rowKey)
+          : resetEntryAfterDelete(prev, entry.rowKey),
       );
       toastAttendanceDeleted();
       bumpDashboard();
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل حذف السجل");
     } finally {
-      setRowBusy(null);
+      setRowBusyKey(null);
     }
   }
 
-  async function confirmBulkClear() {
+  async function confirmBulkDelete() {
     const id = Number(entityId);
     if (!Number.isFinite(id)) return;
     setBulkBusy(true);
     setError(null);
     try {
-      const deleted = await clearAttendanceDay({
+      const ids = filteredRows
+        .filter((r) => r.has_record && r.attendance_id != null)
+        .map((r) => r.attendance_id as number);
+      const deleted = await clearDisplayedAttendance({
         beneficiaryType: "student",
-        date,
+        startDate,
+        endDate,
         circleId: entityType === "circle" ? id : undefined,
         trackId: entityType === "track" ? id : undefined,
+        attendanceIds: ids.length > 0 ? ids : undefined,
       });
       toastAttendanceCleared(deleted);
       bumpDashboard();
-      await loadStudents();
+      await loadEntries();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل إلغاء التحضير");
+      setError(e instanceof Error ? e.message : "فشل حذف السجلات");
     } finally {
       setBulkBusy(false);
       setBulkConfirmOpen(false);
@@ -242,10 +242,8 @@ export function StudentDailyAttendancePage() {
 
   const filteredRows = useMemo(
     () =>
-      attendanceData.filter((r) =>
-        matchesArabicName(nameQuery, r.full_name_ar),
-      ),
-    [attendanceData, nameQuery],
+      entries.filter((r) => matchesArabicName(nameQuery, r.full_name_ar)),
+    [entries, nameQuery],
   );
 
   const selectedCircle =
@@ -257,6 +255,10 @@ export function StudentDailyAttendancePage() {
       ? tracks.find((t) => String(t.id) === entityId)
       : undefined;
 
+  const deleteLabel = ledgerView
+    ? `حذف ${filteredRows.filter((r) => r.has_record).length} سجل معروض`
+    : `حذف سجلات يوم ${startDate}`;
+
   return (
     <div className="space-y-4 max-w-[1600px] print:hidden">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -265,8 +267,7 @@ export function StudentDailyAttendancePage() {
             تحضير الطلاب
           </h2>
           <p className={ds.page.description} style={tajawal}>
-            اختر التاريخ والحلقة أو المسار — كل تغيير يُحفظ فوراً في قاعدة
-            البيانات (تعديل بأثر رجعي).
+            سجل تحضير مرن — يوم واحد أو نطاق زمني كامل مع تعديل وحذف جماعي.
           </p>
         </div>
         <Button
@@ -303,23 +304,18 @@ export function StudentDailyAttendancePage() {
       )}
 
       <div className={`${ds.card} p-4 space-y-4`}>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div>
-            <Label className="text-xs text-muted-foreground" style={tajawal}>
-              تاريخ التحضير
-            </Label>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className={`block w-full mt-1 border border-border px-3 py-2 ${ds.btnRound}`}
-            />
-          </div>
-        </div>
+        <AttendanceDateFilter
+          mode={dateMode}
+          onModeChange={handleModeChange}
+          startDate={startDate}
+          endDate={endDate}
+          onStartDateChange={setStartDate}
+          onEndDateChange={setEndDate}
+        />
 
-        {isRetroDate && (
+        {ledgerView && (
           <p className={ds.alert.info} style={tajawal}>
-            وضع التعديل بأثر رجعي — تعرض السجلات المحفوظة ليوم {date} فقط.
+            وضع السجل التاريخي — يعرض السجلات المحفوظة من {startDate} إلى {endDate}.
           </p>
         )}
 
@@ -384,8 +380,8 @@ export function StudentDailyAttendancePage() {
       {!entityId ? (
         <p className={ds.alert.info} style={tajawal}>
           {entityType === "circle"
-            ? "اختر حلقة لعرض قائمة الطلاب."
-            : "اختر مساراً لعرض قائمة الطلاب."}
+            ? "اختر حلقة لعرض سجلات التحضير."
+            : "اختر مساراً لعرض سجلات التحضير."}
         </p>
       ) : (
         <>
@@ -397,18 +393,30 @@ export function StudentDailyAttendancePage() {
             onGroupChange={() => {}}
             groupOptions={[]}
             shownCount={filteredRows.length}
-            totalCount={attendanceData.length}
-            hiddenDirty={0}
+            totalCount={entries.length}
+            hiddenDirty={dirtyCount}
             hideGroupFilter
           />
 
           <div className={`${ds.card} p-4 space-y-4`}>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <p className="text-sm text-muted-foreground" style={tajawal}>
-                {recordedCount} سجل محفوظ من {attendanceData.length} طالب
+                {recordedCount} سجل محفوظ
+                {dirtyCount > 0 ? ` — ${dirtyCount} تغيير بانتظار الحفظ` : ""}
               </p>
               <div className="flex flex-wrap gap-2">
-                {entityType === "circle" && (
+                <Button
+                  type="button"
+                  variant="default"
+                  className={`${ds.btnRound} min-h-11`}
+                  disabled={saveBusy || dirtyCount === 0}
+                  onClick={() => void saveDirtyRows()}
+                  style={tajawal}
+                >
+                  <Save className="w-4 h-4" />
+                  تحديث السجلات المحددة
+                </Button>
+                {entityType === "circle" && !ledgerView && (
                   <Button
                     type="button"
                     variant="outline"
@@ -424,12 +432,16 @@ export function StudentDailyAttendancePage() {
                   type="button"
                   variant="destructive"
                   className={`${ds.btnRound} min-h-11`}
-                  disabled={bulkBusy || loading || recordedCount === 0}
+                  disabled={
+                    bulkBusy ||
+                    loading ||
+                    filteredRows.filter((r) => r.has_record).length === 0
+                  }
                   onClick={() => setBulkConfirmOpen(true)}
                   style={tajawal}
                 >
                   <Trash2 className="w-4 h-4" />
-                  إلغاء تحضير اليوم بالكامل
+                  حذف السجلات المعروضة
                 </Button>
               </div>
             </div>
@@ -450,59 +462,18 @@ export function StudentDailyAttendancePage() {
               </p>
             ) : filteredRows.length === 0 ? (
               <p className={ds.alert.info} style={tajawal}>
-                لا يوجد طلاب يطابقون البحث.
+                {ledgerView
+                  ? "لا توجد سجلات محفوظة في هذا النطاق."
+                  : "لا يوجد طلاب يطابقون البحث."}
               </p>
             ) : (
-              <Table className="w-full border-collapse">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className={cellClass} style={tajawal}>
-                      الاسم
-                    </TableHead>
-                    <TableHead className={actionCellClass} style={tajawal}>
-                      الحالة
-                    </TableHead>
-                    <TableHead className={actionCellClass} style={tajawal}>
-                      إجراء
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredRows.map((r) => (
-                    <TableRow key={r.student_id}>
-                      <TableCell className={`${cellClass} max-w-0`} style={tajawal}>
-                        <p className="font-medium truncate" title={r.full_name_ar}>
-                          {r.full_name_ar}
-                        </p>
-                        {r.has_record && (
-                          <span className="text-xs text-muted-foreground">
-                            مسجّل في قاعدة البيانات
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell className={actionCellClass}>
-                        <AttendanceStatusButtons
-                          value={r.status}
-                          disabled={rowBusy === r.student_id}
-                          onChange={(st) =>
-                            void applyStatus(r, st as AttendanceStatusValue)
-                          }
-                        />
-                      </TableCell>
-                      <TableCell className={actionCellClass}>
-                        <TableIconAction
-                          kind="delete"
-                          label="حذف سجل اليوم"
-                          disabled={
-                            rowBusy === r.student_id || !r.has_record
-                          }
-                          onClick={() => void deleteRow(r)}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <AttendanceLedgerTable
+                entries={filteredRows}
+                showDateColumn={ledgerView}
+                rowBusyKey={rowBusyKey}
+                onStatusChange={handleStatusChange}
+                onDelete={(entry) => void deleteRow(entry)}
+              />
             )}
           </div>
         </>
@@ -511,11 +482,11 @@ export function StudentDailyAttendancePage() {
       <DoubleConfirmDialog
         open={bulkConfirmOpen}
         onOpenChange={setBulkConfirmOpen}
-        title="إلغاء تحضير اليوم بالكامل"
-        description={`سيتم حذف جميع سجلات التحضير المحفوظة لـ ${entityName || "هذا الكيان"} في تاريخ ${date}. لا يمكن التراجع.`}
-        confirmLabel="حذف كل السجلات"
+        title="حذف السجلات المعروضة"
+        description={`سيتم حذف جميع سجلات التحضير المعروضة حالياً لـ ${entityName || "هذا الكيان"} (${deleteLabel}). لا يمكن التراجع.`}
+        confirmLabel="حذف السجلات"
         destructive
-        onConfirm={confirmBulkClear}
+        onConfirm={confirmBulkDelete}
       />
     </div>
   );

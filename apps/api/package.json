@@ -91,6 +91,8 @@
     "db:local:037:reactivate": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/037_reactivate_staff_after_soft_delete.sql",
     "db:remote:038": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/038_drop_circle_triggers.sql",
     "db:local:038": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/038_drop_circle_triggers.sql",
+    "db:remote:039": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/039_fix_legacy_fk_and_tracks.sql",
+    "db:local:039": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/039_fix_legacy_fk_and_tracks.sql",
     "db:remote:036:tracks": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/036_tracks_consolidate_single_table.sql",
     "db:remote:034:wipe": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/034_admin_data_wipe.sql",
     "db:remote:034:wipe:ext": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/034_admin_data_wipe_extensions.sql",

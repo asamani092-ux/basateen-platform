@@ -15,7 +15,7 @@ import {
   circleTrackSelectSql,
 } from "./admin-gm-schema";
 import { hasTable, tableHasColumn } from "./db-schema";
-import { dropCircleTriggers, runHardDeleteBatch } from "./db-batch";
+import { prepareCircleHardDelete, runHardDeleteBatch } from "./db-batch";
 
 export type EducationalEntityType = "circle" | "track";
 
@@ -157,6 +157,55 @@ export async function fetchEducationalGroups(
   return items;
 }
 
+export async function collectHardDeleteCircleBatch(
+  env: Env,
+  circleId: number,
+  complexId: number,
+): Promise<D1PreparedStatement[]> {
+  return [
+    ...(await detachStudentsFromCircle(env, circleId, complexId)),
+    ...(await clearCircleChildStatements(env, circleId)),
+    env.DB.prepare(`DELETE FROM circles WHERE id = ? AND complex_id = ?`).bind(
+      circleId,
+      complexId,
+    ),
+  ];
+}
+
+export async function collectHardDeleteTrackBatch(
+  env: Env,
+  trackId: number,
+  complexId: number,
+): Promise<D1PreparedStatement[]> {
+  const batch: D1PreparedStatement[] = [
+    ...(await detachStudentsFromTrack(env, trackId, complexId)),
+  ];
+  if (await hasTable(env, "track_circles")) {
+    batch.push(
+      env.DB.prepare(`DELETE FROM track_circles WHERE track_id = ?`).bind(trackId),
+    );
+  }
+  if (await tableHasColumn(env, "circles", "track_id")) {
+    batch.push(
+      env.DB.prepare(
+        `UPDATE circles SET track_id = NULL WHERE track_id = ? AND complex_id = ?`,
+      ).bind(trackId, complexId),
+    );
+  }
+  if (await hasTable(env, "track_stages")) {
+    batch.push(
+      env.DB.prepare(`DELETE FROM track_stages WHERE track_id = ?`).bind(trackId),
+    );
+  }
+  batch.push(
+    env.DB.prepare(`DELETE FROM tracks WHERE id = ? AND complex_id = ?`).bind(
+      trackId,
+      complexId,
+    ),
+  );
+  return batch;
+}
+
 async function detachStudentsFromCircle(
   env: Env,
   circleId: number,
@@ -250,7 +299,7 @@ export async function safeDeleteEducationalGroup(
   if (entityType === "circle") {
     if (!(await hasTable(env, "circles"))) throw new Error("circle_not_found");
 
-    await dropCircleTriggers(env);
+    await prepareCircleHardDelete(env);
 
     const row = await env.DB.prepare(
       `SELECT id FROM circles WHERE id = ? AND complex_id = ?`,
@@ -259,16 +308,10 @@ export async function safeDeleteEducationalGroup(
       .first();
     if (!row) throw new Error("circle_not_found");
 
-    const batch: D1PreparedStatement[] = [
-      ...(await detachStudentsFromCircle(env, id, complexId)),
-      ...(await clearCircleChildStatements(env, id)),
-      env.DB.prepare(`DELETE FROM circles WHERE id = ? AND complex_id = ?`).bind(
-        id,
-        complexId,
-      ),
-    ];
-
-    await runHardDeleteBatch(env, batch);
+    await runHardDeleteBatch(
+      env,
+      await collectHardDeleteCircleBatch(env, id, complexId),
+    );
     return;
   }
 
@@ -279,34 +322,10 @@ export async function safeDeleteEducationalGroup(
     .first();
   if (!row) throw new Error("track_not_found");
 
-  const batch: D1PreparedStatement[] = [
-    ...(await detachStudentsFromTrack(env, id, complexId)),
-  ];
-  if (await hasTable(env, "track_circles")) {
-    batch.push(
-      env.DB.prepare(`DELETE FROM track_circles WHERE track_id = ?`).bind(id),
-    );
-  }
-  if (await tableHasColumn(env, "circles", "track_id")) {
-    batch.push(
-      env.DB.prepare(
-        `UPDATE circles SET track_id = NULL WHERE track_id = ? AND complex_id = ?`,
-      ).bind(id, complexId),
-    );
-  }
-  if (await hasTable(env, "track_stages")) {
-    batch.push(
-      env.DB.prepare(`DELETE FROM track_stages WHERE track_id = ?`).bind(id),
-    );
-  }
-  batch.push(
-    env.DB.prepare(`DELETE FROM tracks WHERE id = ? AND complex_id = ?`).bind(
-      id,
-      complexId,
-    ),
+  await runHardDeleteBatch(
+    env,
+    await collectHardDeleteTrackBatch(env, id, complexId),
   );
-
-  await runHardDeleteBatch(env, batch);
 }
 
 export function parseEducationalEntityType(

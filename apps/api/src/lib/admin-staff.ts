@@ -4,7 +4,11 @@
 import type { Env } from "../types";
 import { hashPassword } from "./password";
 import { hasTable, tableHasColumn } from "./db-schema";
-import { runHardDeleteBatch } from "./db-batch";
+import { prepareCircleHardDelete, runHardDeleteBatch } from "./db-batch";
+import {
+  collectHardDeleteCircleBatch,
+  collectHardDeleteTrackBatch,
+} from "./admin-educational-groups";
 import { usersHaveRoleColumn } from "./db-user";
 import {
   usesV25FlatStaffSchema,
@@ -197,32 +201,46 @@ async function clearStaffUserRelations(
   return stmts;
 }
 
-async function detachStaffStructureStatements(
+/** حذف نهائي للحلقات/المسارات المرتبطة بالمنسوب — O(c+t) */
+async function collectStaffOwnedStructureDeletes(
   env: Env,
   userId: number,
   complexId: number,
 ): Promise<D1PreparedStatement[]> {
   const stmts: D1PreparedStatement[] = [];
+
   if (
     (await hasTable(env, "circles")) &&
     (await tableHasColumn(env, "circles", "teacher_id"))
   ) {
-    stmts.push(
-      env.DB.prepare(
-        `UPDATE circles SET teacher_id = NULL WHERE teacher_id = ? AND complex_id = ?`,
-      ).bind(userId, complexId),
-    );
+    const circles = await env.DB.prepare(
+      `SELECT id FROM circles WHERE teacher_id = ? AND complex_id = ?`,
+    )
+      .bind(userId, complexId)
+      .all<{ id: number }>();
+    for (const c of circles.results ?? []) {
+      stmts.push(
+        ...(await collectHardDeleteCircleBatch(env, c.id, complexId)),
+      );
+    }
   }
+
   if (
     (await hasTable(env, "tracks")) &&
     (await tableHasColumn(env, "tracks", "supervisor_id"))
   ) {
-    stmts.push(
-      env.DB.prepare(
-        `UPDATE tracks SET supervisor_id = NULL WHERE supervisor_id = ? AND complex_id = ?`,
-      ).bind(userId, complexId),
-    );
+    const tracks = await env.DB.prepare(
+      `SELECT id FROM tracks WHERE supervisor_id = ? AND complex_id = ?`,
+    )
+      .bind(userId, complexId)
+      .all<{ id: number }>();
+    for (const t of tracks.results ?? []) {
+      stmts.push(
+        ...(await collectHardDeleteTrackBatch(env, t.id, complexId)),
+      );
+    }
   }
+
   return stmts;
 }
 
@@ -244,8 +262,10 @@ export async function safeDeleteStaffUser(
     throw new Error("staff_not_found");
   }
 
+  await prepareCircleHardDelete(env);
+
   const batch: D1PreparedStatement[] = [
-    ...(await detachStaffStructureStatements(env, userId, complexId)),
+    ...(await collectStaffOwnedStructureDeletes(env, userId, complexId)),
     ...(await clearStaffUserRelations(env, userId)),
     env.DB.prepare(`DELETE FROM users WHERE id = ? AND complex_id = ?`).bind(
       userId,

@@ -821,7 +821,9 @@ async function handleAdminDeptRouterImpl(
     const rows = await env.DB.prepare(
       `SELECT s.id AS student_id, s.full_name_ar, ${guardianCol},
               COALESCE(d.pledge_count, pc.cnt, 0) AS pledge_count,
-              lp.reason_ar AS latest_reason
+              lp.id AS latest_pledge_id,
+              lp.reason_ar AS latest_reason,
+              lp.pledge_date AS latest_pledge_date
        FROM students s
        INNER JOIN (
          SELECT student_id, COUNT(*) AS cnt
@@ -844,7 +846,9 @@ async function handleAdminDeptRouterImpl(
         full_name_ar: string;
         guardian_phone: string | null;
         pledge_count: number;
+        latest_pledge_id: number | null;
         latest_reason: string | null;
+        latest_pledge_date: string | null;
       }>();
     return json({ items: rows.results ?? [] });
   }

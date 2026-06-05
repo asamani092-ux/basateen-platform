@@ -281,7 +281,15 @@ export function StudentsPage() {
                       <TableCell style={tajawal}>{s.national_id ?? "—"}</TableCell>
                       <TableCell style={tajawal}>{s.phone ?? "—"}</TableCell>
                       <TableCell style={tajawal}>
-                        {s.circle_name ?? s.track_name ?? "—"}
+                        {s.circle_name ? (
+                          s.circle_name
+                        ) : s.track_name ? (
+                          <span className="text-amber-700 dark:text-amber-400">
+                            بدون حلقة — {s.track_name}
+                          </span>
+                        ) : (
+                          <Badge variant="secondary">غير مسند</Badge>
+                        )}
                       </TableCell>
                       <TableCell style={tajawal}>
                         {suspended ? (

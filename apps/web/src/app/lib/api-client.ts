@@ -249,12 +249,16 @@ export const api = {
       body: JSON.stringify({ mobile }),
     }),
   me: () => request<{ user: AuthUser }>("/api/auth/me"),
-  students: (params?: {
-    q?: string;
-    stage_id?: number | null;
-    circle_id?: number | null;
-    track_id?: number | null;
-  }) => {
+  students: (
+    params?:
+      | string
+      | {
+          q?: string;
+          stage_id?: number | null;
+          circle_id?: number | null;
+          track_id?: number | null;
+        },
+  ) => {
     const search = new URLSearchParams();
     const q = typeof params === "string" ? params : params?.q;
     if (q?.trim()) search.set("q", q.trim());
@@ -1078,6 +1082,8 @@ export const api = {
         guardian_phone: string | null;
         pledge_count: number;
         latest_reason: string | null;
+        latest_pledge_id: number | null;
+        latest_pledge_date: string | null;
       }>;
     }>("/api/admin-dept/pledges"),
   adminDeptPatchPledge: (

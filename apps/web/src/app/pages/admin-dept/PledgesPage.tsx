@@ -36,6 +36,8 @@ type SummaryRow = {
   guardian_phone: string | null;
   pledge_count: number;
   latest_reason: string | null;
+  latest_pledge_id: number | null;
+  latest_pledge_date: string | null;
 };
 
 type PledgeReport = Awaited<ReturnType<typeof api.adminDeptPledgeReport>>;
@@ -412,6 +414,31 @@ export function PledgesPage() {
                             <Printer className="w-4 h-4" />
                             طباعة
                           </Button>
+                          {row.latest_pledge_id != null && (
+                            <>
+                              <TableIconAction
+                                kind="edit"
+                                onClick={() =>
+                                  setEditPledge({
+                                    id: row.latest_pledge_id!,
+                                    reason_ar: row.latest_reason ?? "",
+                                    pledge_date:
+                                      row.latest_pledge_date ??
+                                      new Date().toISOString().slice(0, 10),
+                                  })
+                                }
+                              />
+                              <TableIconAction
+                                kind="delete"
+                                onClick={() =>
+                                  setDeletePledge({
+                                    id: row.latest_pledge_id!,
+                                    reason_ar: row.latest_reason ?? "آخر تعهد",
+                                  })
+                                }
+                              />
+                            </>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

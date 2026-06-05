@@ -297,17 +297,19 @@ export function CirclesSetupPage() {
             }
           }}
           onDelete={async () => {
+            const deleted = actionRow;
+            if (!deleted) return;
             try {
               await api.adminEducationalGroupDelete(
-                actionRow.entity_type,
-                actionRow.id,
+                deleted.entity_type,
+                deleted.id,
               );
               setItems((prev) =>
                 prev.filter(
                   (x) =>
                     !(
-                      x.id === actionRow.id &&
-                      x.entity_type === actionRow.entity_type
+                      x.id === deleted.id &&
+                      x.entity_type === deleted.entity_type
                     ),
                 ),
               );

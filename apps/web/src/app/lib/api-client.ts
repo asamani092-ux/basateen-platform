@@ -636,10 +636,9 @@ export const api = {
   adminEducationalGroups: () =>
     request<{ items: EducationalGroupRow[] }>("/api/admin/educational-groups"),
   adminEducationalGroupDelete: (entityType: "circle" | "track", id: number) =>
-    request<{ ok: boolean }>(
-      `/api/admin/educational-groups/${entityType}/${id}`,
-      { method: "DELETE" },
-    ),
+    request<void>(`/api/admin/educational-groups/${entityType}/${id}`, {
+      method: "DELETE",
+    }),
   adminCirclesSummary: () =>
     request<{ items: AdminCircleRow[] }>("/api/admin/circles/summary"),
   adminCirclesCreate: (body: {

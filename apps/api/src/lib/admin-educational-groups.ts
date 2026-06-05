@@ -15,7 +15,7 @@ import {
   circleTrackSelectSql,
 } from "./admin-gm-schema";
 import { hasTable, tableHasColumn } from "./db-schema";
-import { prepareCircleHardDelete, runHardDeleteBatch } from "./db-batch";
+import { runHardDeleteBatch } from "./db-batch";
 
 export type EducationalEntityType = "circle" | "track";
 
@@ -162,10 +162,7 @@ export async function collectHardDeleteCircleBatch(
   circleId: number,
   complexId: number,
 ): Promise<D1PreparedStatement[]> {
-  // Standard CRUD: purge child rows → DELETE circle.
-  // No UPDATE students (FK metadata may still reference circles_legacy_035 after 035 RENAME).
   return [
-    ...(await clearCircleChildStatements(env, circleId)),
     env.DB.prepare(`DELETE FROM circles WHERE id = ? AND complex_id = ?`).bind(
       circleId,
       complexId,
@@ -207,57 +204,6 @@ export async function collectHardDeleteTrackBatch(
   return batch;
 }
 
-/** فك ارتباطات الحلقة قبل الحذف النهائي — O(t) حيث t عدد الجداول الفرعية */
-async function clearCircleChildStatements(
-  env: Env,
-  circleId: number,
-): Promise<D1PreparedStatement[]> {
-  const stmts: D1PreparedStatement[] = [];
-  if (await hasTable(env, "student_circle_history")) {
-    const histCols = ["old_circle_id", "new_circle_id", "circle_id"] as const;
-    for (const col of histCols) {
-      if (!(await tableHasColumn(env, "student_circle_history", col))) continue;
-      stmts.push(
-        env.DB.prepare(
-          `DELETE FROM student_circle_history WHERE ${col} = ?`,
-        ).bind(circleId),
-      );
-    }
-  }
-
-  const childDeletes: Array<[string, string]> = [
-    ["teacher_assignments", "circle_id"],
-    ["track_circles", "circle_id"],
-    ["supervisor_scopes", "circle_id"],
-    ["student_attendance", "circle_id"],
-    ["student_attendance_v2", "circle_id"],
-    ["daily_logs", "circle_id"],
-    ["student_semester_plans", "circle_id"],
-    ["competition_targets", "circle_id"],
-    ["edu_daily_recitation", "circle_id"],
-  ];
-  for (const [table, column] of childDeletes) {
-    if (!(await hasTable(env, table))) continue;
-    if (!(await tableHasColumn(env, table, column))) continue;
-    stmts.push(
-      env.DB.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).bind(circleId),
-    );
-  }
-
-  if (
-    (await hasTable(env, "edu_daily_recitation")) &&
-    (await tableHasColumn(env, "edu_daily_recitation", "target_circle_id"))
-  ) {
-    stmts.push(
-      env.DB.prepare(
-        `DELETE FROM edu_daily_recitation WHERE target_circle_id = ?`,
-      ).bind(circleId),
-    );
-  }
-
-  return stmts;
-}
-
 async function detachStudentsFromTrack(
   env: Env,
   trackId: number,
@@ -283,8 +229,6 @@ export async function safeDeleteEducationalGroup(
 ): Promise<void> {
   if (entityType === "circle") {
     if (!(await hasTable(env, "circles"))) throw new Error("circle_not_found");
-
-    await prepareCircleHardDelete(env);
 
     const row = await env.DB.prepare(
       `SELECT id FROM circles WHERE id = ? AND complex_id = ?`,

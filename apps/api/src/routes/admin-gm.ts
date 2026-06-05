@@ -796,7 +796,7 @@ export async function handleAdminEducationalGroupsDelete(
     }
 
     await safeDeleteEducationalGroup(env, entityType, id, auth!.complexId);
-    return json({ ok: true });
+    return new Response(null, { status: 200 });
   } catch (error: unknown) {
     console.error("[admin-gm] educational-groups delete:", error);
     const message =

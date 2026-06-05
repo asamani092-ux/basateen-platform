@@ -1,16 +1,19 @@
 import type { Env } from "../types";
 
-/** تشغيل دفعة حذف مع تعطيل FK داخل نفس الجلسة — O(n) */
+/** تشغيل دفعة حذف مع تعطيل FK — تنفيذ متسلسل (D1 لا يضمن PRAGMA داخل batch) — O(n) */
 export async function runHardDeleteBatch(
   env: Env,
   batch: D1PreparedStatement[],
 ): Promise<void> {
   if (batch.length === 0) return;
-  await env.DB.batch([
-    env.DB.prepare(`PRAGMA foreign_keys = OFF`),
-    ...batch,
-    env.DB.prepare(`PRAGMA foreign_keys = ON`),
-  ]);
+  await env.DB.prepare(`PRAGMA foreign_keys = OFF`).run();
+  try {
+    for (const stmt of batch) {
+      await stmt.run();
+    }
+  } finally {
+    await env.DB.prepare(`PRAGMA foreign_keys = ON`).run();
+  }
 }
 
 async function dropTriggersByNames(
@@ -61,8 +64,20 @@ export async function dropCircleTriggers(env: Env): Promise<string[]> {
   return dropTriggersByNames(env, names);
 }
 
+/** إسقاط كل المُشغّلات — O(t) */
+export async function dropAllTriggers(env: Env): Promise<string[]> {
+  const rows = await env.DB.prepare(
+    `SELECT name FROM sqlite_master WHERE type = 'trigger'`,
+  ).all<{ name: string }>();
+  return dropTriggersByNames(
+    env,
+    (rows.results ?? []).map((r) => r.name),
+  );
+}
+
 /** تجهيز قاعدة البيانات قبل حذف حلقة — O(t) */
 export async function prepareCircleHardDelete(env: Env): Promise<void> {
+  await dropAllTriggers(env);
   await dropPhantomLegacyTriggers(env);
   await dropCircleTriggers(env);
 }

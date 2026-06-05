@@ -163,8 +163,8 @@ export async function collectHardDeleteCircleBatch(
   complexId: number,
 ): Promise<D1PreparedStatement[]> {
   return [
-    ...(await detachStudentsFromCircle(env, circleId, complexId)),
     ...(await clearCircleChildStatements(env, circleId)),
+    ...(await detachStudentsFromCircle(env, circleId, complexId)),
     env.DB.prepare(`DELETE FROM circles WHERE id = ? AND complex_id = ?`).bind(
       circleId,
       complexId,
@@ -229,11 +229,24 @@ async function clearCircleChildStatements(
   circleId: number,
 ): Promise<D1PreparedStatement[]> {
   const stmts: D1PreparedStatement[] = [];
+  if (await hasTable(env, "student_circle_history")) {
+    const histCols = ["old_circle_id", "new_circle_id", "circle_id"] as const;
+    for (const col of histCols) {
+      if (!(await tableHasColumn(env, "student_circle_history", col))) continue;
+      stmts.push(
+        env.DB.prepare(
+          `DELETE FROM student_circle_history WHERE ${col} = ?`,
+        ).bind(circleId),
+      );
+    }
+  }
+
   const childDeletes: Array<[string, string]> = [
     ["teacher_assignments", "circle_id"],
     ["track_circles", "circle_id"],
     ["supervisor_scopes", "circle_id"],
     ["student_attendance", "circle_id"],
+    ["student_attendance_v2", "circle_id"],
     ["daily_logs", "circle_id"],
     ["student_semester_plans", "circle_id"],
     ["competition_targets", "circle_id"],
@@ -245,18 +258,6 @@ async function clearCircleChildStatements(
     stmts.push(
       env.DB.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).bind(circleId),
     );
-  }
-
-  if (await hasTable(env, "student_circle_history")) {
-    const histCols = ["circle_id", "old_circle_id", "new_circle_id"] as const;
-    for (const col of histCols) {
-      if (!(await tableHasColumn(env, "student_circle_history", col))) continue;
-      stmts.push(
-        env.DB.prepare(
-          `DELETE FROM student_circle_history WHERE ${col} = ?`,
-        ).bind(circleId),
-      );
-    }
   }
 
   if (

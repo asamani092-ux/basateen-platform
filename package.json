@@ -20,6 +20,7 @@
     "db:remote:036:recover": "npm run db:remote:036:recover --prefix apps/api",
     "db:remote:038": "npm run db:remote:038 --prefix apps/api",
     "db:remote:039": "npm run db:remote:039 --prefix apps/api",
+    "db:remote:040": "npm run db:remote:040 --prefix apps/api",
     "deploy:api:prod": "npm run deploy:prod --prefix apps/api",
     "build:web:prod": "npm run build --prefix apps/web",
     "seed:remote": "npm run seed:remote --prefix apps/api",

@@ -93,6 +93,8 @@
     "db:local:038": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/038_drop_circle_triggers.sql",
     "db:remote:039": "node scripts/migrate-039-remote.mjs",
     "db:local:039": "node scripts/migrate-039-local.mjs",
+    "db:remote:040": "node scripts/migrate-040-remote.mjs",
+    "db:local:040": "node scripts/migrate-040-local.mjs",
     "db:remote:036:tracks": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/036_tracks_consolidate_single_table.sql",
     "db:remote:034:wipe": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/034_admin_data_wipe.sql",
     "db:remote:034:wipe:ext": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/034_admin_data_wipe_extensions.sql",

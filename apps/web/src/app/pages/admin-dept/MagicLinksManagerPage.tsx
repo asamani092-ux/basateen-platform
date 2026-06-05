@@ -6,6 +6,7 @@ import {
 } from "../../components/admin/TableIconAction";
 import { Badge } from "../../components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
+import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import {
   Table,
   TableBody,
@@ -140,7 +141,7 @@ export function MagicLinksManagerPage() {
                     <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
                       الحالة
                     </TableHead>
-                    <TableHead className={`${ds.table.headActions} w-[120px]`} style={tajawal}>
+                    <TableHead className={ds.table.headActions} style={tajawal}>
                       إجراءات
                     </TableHead>
                   </TableRow>
@@ -150,28 +151,22 @@ export function MagicLinksManagerPage() {
                     const url = fullUrl(row.public_path);
                     return (
                       <TableRow key={row.id}>
-                        <TableCell
-                          className={`${ds.table.cell} font-medium truncate`}
-                          style={tajawal}
-                          title={row.circle_name ?? undefined}
-                        >
+                        <TableTruncatedCell className="font-medium" style={tajawal}>
                           {row.circle_name ?? "—"}
-                        </TableCell>
+                        </TableTruncatedCell>
                         <TableCell
                           className={`${ds.table.cell} whitespace-nowrap`}
                           style={tajawal}
                         >
                           {row.attendance_date ?? "—"}
                         </TableCell>
-                        <TableCell className={ds.table.cell}>
-                          <span
-                            className="text-xs text-muted-foreground font-mono block truncate"
-                            dir="ltr"
-                            title={url}
-                          >
-                            {shortenPath(row.public_path, 32)}
-                          </span>
-                        </TableCell>
+                        <TableTruncatedCell
+                          className="font-mono text-muted-foreground max-w-[320px]"
+                          style={{ direction: "ltr" }}
+                          title={url}
+                        >
+                          {shortenPath(row.public_path, 32)}
+                        </TableTruncatedCell>
                         <TableCell className={ds.table.cell}>
                           <Badge
                             variant={row.is_active ? "secondary" : "destructive"}

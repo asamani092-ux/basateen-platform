@@ -1,4 +1,5 @@
 import { AttendanceStatusButtons } from "./AttendanceStatusButtons";
+import { TableTruncatedCell } from "../shared/TableTruncatedCell";
 import {
   Table,
   TableBody,
@@ -33,12 +34,15 @@ export function AttendanceDailyTable({
       <TableHeader>
         <TableRow>
           <TableHead
-            className={`${ds.table.head} w-[min(42%,280px)]`}
+            className={`${ds.table.head} ${ds.table.colName}`}
             style={tajawal}
           >
             الاسم
           </TableHead>
-          <TableHead className={`${ds.table.head}`} style={tajawal}>
+          <TableHead
+            className={`${ds.table.head} ${ds.table.colStatusCompact}`}
+            style={tajawal}
+          >
             الحالة
           </TableHead>
         </TableRow>
@@ -46,20 +50,14 @@ export function AttendanceDailyTable({
       <TableBody>
         {rows.map((row) => (
           <TableRow key={row.id}>
+            <TableTruncatedCell className="font-medium" style={tajawal}>
+              {row.subtitle
+                ? `${row.full_name_ar} — ${row.subtitle}`
+                : row.full_name_ar}
+            </TableTruncatedCell>
             <TableCell
-              className={`${ds.table.cell} align-top whitespace-normal py-3`}
-              style={tajawal}
+              className={`${ds.table.cell} ${ds.table.colStatusCompact} align-middle`}
             >
-              <p className="font-medium leading-snug break-words">
-                {row.full_name_ar}
-              </p>
-              {row.subtitle && (
-                <p className="text-xs text-muted-foreground mt-0.5 break-words">
-                  {row.subtitle}
-                </p>
-              )}
-            </TableCell>
-            <TableCell className={`${ds.table.cell} align-middle py-3`}>
               <AttendanceStatusButtons
                 value={row.status}
                 disabled={disabled}

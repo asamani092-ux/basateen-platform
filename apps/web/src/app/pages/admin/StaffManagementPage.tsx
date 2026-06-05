@@ -212,16 +212,16 @@ export function StaffManagementPage() {
             <Table className={ds.tableMin}>
               <TableHeader>
                 <TableRow>
-                  <TableHead className={`${ds.table.head} w-[22%]`} style={tajawal}>
+                  <TableHead className={`${ds.table.head} ${ds.table.colName}`} style={tajawal}>
                     الاسم
                   </TableHead>
-                  <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
+                  <TableHead className={`${ds.table.head} ${ds.table.colPhone}`} style={tajawal}>
                     الجوال
                   </TableHead>
-                  <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
+                  <TableHead className={`${ds.table.head} ${ds.table.colPlacement}`} style={tajawal}>
                     الدور / المسمى
                   </TableHead>
-                  <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
+                  <TableHead className={`${ds.table.head} ${ds.table.colPlacement}`} style={tajawal}>
                     الكيان المسند إليه
                   </TableHead>
                   <TableHead className={ds.table.headActions} style={tajawal}>
@@ -243,8 +243,13 @@ export function StaffManagementPage() {
                 ) : (
                   items.map((row) => (
                     <TableRow key={row.id}>
-                      <TableTruncatedCell style={tajawal}>{row.full_name_ar}</TableTruncatedCell>
-                      <TableTruncatedCell className={ds.table.cell} dir="ltr">
+                      <TableTruncatedCell className={ds.table.colName} style={tajawal}>
+                        {row.full_name_ar}
+                      </TableTruncatedCell>
+                      <TableTruncatedCell
+                        className={ds.table.colPhone}
+                        style={{ direction: "ltr" }}
+                      >
                         {row.mobile ?? "—"}
                       </TableTruncatedCell>
                       <TableTruncatedCell style={tajawal}>

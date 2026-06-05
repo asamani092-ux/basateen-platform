@@ -369,11 +369,21 @@ export function TransfersPage() {
             <Table className={ds.tableMin}>
               <TableHeader>
                 <TableRow>
-                  <TableHead style={tajawal}>الحلقة</TableHead>
-                  <TableHead style={tajawal}>المسار</TableHead>
-                  <TableHead style={tajawal}>من</TableHead>
-                  <TableHead style={tajawal}>إلى</TableHead>
-                  <TableHead style={tajawal}>ملاحظة</TableHead>
+                  <TableHead className={`${ds.table.head} ${ds.table.colPlacement}`} style={tajawal}>
+                    الحلقة
+                  </TableHead>
+                  <TableHead className={`${ds.table.head} ${ds.table.colPlacement}`} style={tajawal}>
+                    المسار
+                  </TableHead>
+                  <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
+                    من
+                  </TableHead>
+                  <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
+                    إلى
+                  </TableHead>
+                  <TableHead className={`${ds.table.head} w-[24%] max-w-[280px]`} style={tajawal}>
+                    ملاحظة
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -382,14 +392,19 @@ export function TransfersPage() {
                     <TableTruncatedCell style={tajawal}>{h.circle_name}</TableTruncatedCell>
                     <TableTruncatedCell style={tajawal}>{h.track_name ?? "—"}</TableTruncatedCell>
                     <TableTruncatedCell style={tajawal}>{h.from_at}</TableTruncatedCell>
-                    <TableCell style={tajawal}>
+                    <TableCell className={ds.table.cell} style={tajawal}>
                       {h.to_at ?? (
                         <Badge variant="default" className="rounded-lg">
                           نشط
                         </Badge>
                       )}
                     </TableCell>
-                    <TableCell style={tajawal}>{h.note ?? "—"}</TableCell>
+                    <TableTruncatedCell
+                      className="max-w-[280px]"
+                      style={tajawal}
+                    >
+                      {h.note ?? "—"}
+                    </TableTruncatedCell>
                   </TableRow>
                 ))}
               </TableBody>

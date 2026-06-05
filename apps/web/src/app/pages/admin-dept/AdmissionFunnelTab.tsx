@@ -155,13 +155,18 @@ export function AdmissionFunnelTab() {
                 <TableBody>
                   {items.map((row) => (
                     <TableRow key={row.id}>
-                      <TableTruncatedCell style={tajawal}>{row.full_name_ar}</TableTruncatedCell>
+                      <TableTruncatedCell className={ds.table.colName} style={tajawal}>
+                        {row.full_name_ar}
+                      </TableTruncatedCell>
                       <TableCell className={ds.table.cell} style={tajawal}>
                         {row.age ?? "—"}
                       </TableCell>
-                      <TableCell className={`${ds.table.cell} font-mono`} dir="ltr">
+                      <TableTruncatedCell
+                        className={`${ds.table.colPhone} font-mono`}
+                        style={{ direction: "ltr" }}
+                      >
                         {row.phone}
-                      </TableCell>
+                      </TableTruncatedCell>
                       <TableCell className={ds.table.cell} style={tajawal}>
                         {stageLabel(row.stage_id)}
                       </TableCell>

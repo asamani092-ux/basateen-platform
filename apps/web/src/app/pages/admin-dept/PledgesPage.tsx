@@ -346,22 +346,22 @@ export function PledgesPage() {
                 لا توجد تعهدات مسجّلة بعد.
               </p>
             ) : (
-              <Table className="w-full border-collapse" dir="rtl">
+              <Table className={ds.tableMin} dir="rtl">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="text-right px-4 py-3" style={tajawal}>
+                    <TableHead className={`${ds.table.head} ${ds.table.colName}`} style={tajawal}>
                       الاسم
                     </TableHead>
-                    <TableHead className="text-right px-4 py-3" style={tajawal}>
+                    <TableHead className={`${ds.table.head} ${ds.table.colPhone}`} style={tajawal}>
                       رقم ولي الأمر
                     </TableHead>
-                    <TableHead className="text-right px-4 py-3" style={tajawal}>
+                    <TableHead className={`${ds.table.head} w-[10%]`} style={tajawal}>
                       عدد التعهدات
                     </TableHead>
-                    <TableHead className="text-right px-4 py-3" style={tajawal}>
+                    <TableHead className={`${ds.table.head} w-[24%] max-w-[280px]`} style={tajawal}>
                       سبب التعهد
                     </TableHead>
-                    <TableHead className="text-right px-4 py-3 whitespace-nowrap" style={tajawal}>
+                    <TableHead className={ds.table.headActionsWide} style={tajawal}>
                       الإجراءات
                     </TableHead>
                   </TableRow>
@@ -369,21 +369,24 @@ export function PledgesPage() {
                 <TableBody>
                   {summaryRows.map((row) => (
                     <TableRow key={row.student_id}>
-                      <TableTruncatedCell className="text-right px-4 py-3" style={tajawal}>
+                      <TableTruncatedCell className={ds.table.colName} style={tajawal}>
                         {row.full_name_ar}
                       </TableTruncatedCell>
-                      <TableCell className="text-right px-4 py-3" dir="ltr" style={tajawal}>
+                      <TableTruncatedCell
+                        className={ds.table.colPhone}
+                        style={{ ...tajawal, direction: "ltr" }}
+                      >
                         {row.guardian_phone ?? "—"}
-                      </TableCell>
-                      <TableCell className="text-right px-4 py-3 tabular-nums" style={tajawal}>
+                      </TableTruncatedCell>
+                      <TableCell className={`${ds.table.cell} tabular-nums`} style={tajawal}>
                         {row.pledge_count}
                       </TableCell>
-                      <TableCell
-                        className="text-right px-4 py-3 text-muted-foreground text-sm"
+                      <TableTruncatedCell
+                        className="text-muted-foreground max-w-[280px]"
                         style={tajawal}
                       >
                         {row.latest_reason ?? "—"}
-                      </TableCell>
+                      </TableTruncatedCell>
                       <TableActionsCell wide>
                         <Button
                           type="button"
@@ -507,19 +510,19 @@ export function PledgesPage() {
               <p className="text-sm text-muted-foreground" style={tajawal}>
                 عدد التعهدات: {report.pledge_count} / {report.max_pledges}
               </p>
-              <Table className="w-full border-collapse" dir="rtl">
+              <Table className={ds.tableMin} dir="rtl">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="text-right px-2 py-1" style={tajawal}>
+                    <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
                       التاريخ
                     </TableHead>
-                    <TableHead className="text-right px-2 py-1" style={tajawal}>
+                    <TableHead className={`${ds.table.head} w-[36%] max-w-[320px]`} style={tajawal}>
                       السبب
                     </TableHead>
-                    <TableHead className="text-right px-2 py-1" style={tajawal}>
+                    <TableHead className={`${ds.table.head} ${ds.table.colName}`} style={tajawal}>
                       المسجّل
                     </TableHead>
-                    <TableHead className="text-right px-2 py-1" style={tajawal}>
+                    <TableHead className={ds.table.headActions} style={tajawal}>
                       إجراءات
                     </TableHead>
                   </TableRow>
@@ -527,15 +530,24 @@ export function PledgesPage() {
                 <TableBody>
                   {report.pledges.map((p) => (
                     <TableRow key={p.id}>
-                      <TableCell className="text-right px-2 py-1" style={tajawal}>
+                      <TableCell
+                        className={`${ds.table.cell} whitespace-nowrap`}
+                        style={tajawal}
+                      >
                         {p.pledge_date}
                       </TableCell>
-                      <TableCell className="text-right px-2 py-1" style={tajawal}>
+                      <TableTruncatedCell
+                        className="max-w-[320px]"
+                        style={tajawal}
+                      >
                         {p.reason_ar}
-                      </TableCell>
-                      <TableCell className="text-right px-2 py-1 text-muted-foreground" style={tajawal}>
+                      </TableTruncatedCell>
+                      <TableTruncatedCell
+                        className="text-muted-foreground"
+                        style={tajawal}
+                      >
                         {p.created_by_name ?? "—"}
-                      </TableCell>
+                      </TableTruncatedCell>
                       <TableActionsCell>
                         <TableIconAction
                           kind="edit"

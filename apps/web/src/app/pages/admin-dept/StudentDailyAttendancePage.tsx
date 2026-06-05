@@ -114,18 +114,15 @@ export function StudentDailyAttendancePage() {
   }
 
   async function commitAttendance() {
-    if (!entity || dirtyCount === 0) return;
+    if (!entity || rows.length === 0) return;
     setCommitting(true);
     setError(null);
     try {
-      const changed = rows.filter(
-        (r) => (baseline[r.student_id] ?? "present") !== r.status,
-      );
       const res = await api.adminDeptSaveStudentAttendance({
         attendance_date: date,
         circle_id: entity.type === "circle" ? entity.id : undefined,
         track_id: entity.type === "track" ? entity.id : undefined,
-        records: changed.map((r) => ({
+        records: rows.map((r) => ({
           student_id: r.student_id,
           status: r.status,
         })),
@@ -236,7 +233,6 @@ export function StudentDailyAttendancePage() {
                 onChange={setEntity}
                 circles={circles}
                 tracks={tracks}
-                disabled={loadingGroups}
               />
             </div>
           </div>
@@ -304,22 +300,24 @@ export function StudentDailyAttendancePage() {
         </>
       )}
 
-      <div className="fixed bottom-0 inset-x-0 z-20 border-t border-border bg-background/95 backdrop-blur px-4 py-3">
-        <div className="max-w-[1600px] mx-auto flex justify-end">
-          <Button
-            type="button"
-            size="lg"
-            className={`${ds.btnRound} w-full sm:w-auto min-h-12 px-8`}
-            disabled={committing || dirtyCount === 0 || !entity || loading}
-            onClick={() => void commitAttendance()}
-            style={tajawal}
-          >
-            <CheckCircle2 className="w-5 h-5" />
-            {committing ? "جاري الاعتماد…" : "اعتماد التحضير"}
-            {dirtyCount > 0 ? ` (${dirtyCount})` : ""}
-          </Button>
+      {entity && !loading && filteredRows.length > 0 && (
+        <div className="fixed bottom-0 inset-x-0 z-20 border-t border-border bg-background/95 backdrop-blur px-4 py-3">
+          <div className="max-w-[1600px] mx-auto flex justify-end">
+            <Button
+              type="button"
+              size="lg"
+              className={`${ds.btnRound} w-full sm:w-auto min-h-12 px-8`}
+              disabled={committing}
+              onClick={() => void commitAttendance()}
+              style={tajawal}
+            >
+              <CheckCircle2 className="w-5 h-5" />
+              {committing ? "جاري الاعتماد…" : "اعتماد التحضير"}
+              {dirtyCount > 0 ? ` (${dirtyCount})` : ""}
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

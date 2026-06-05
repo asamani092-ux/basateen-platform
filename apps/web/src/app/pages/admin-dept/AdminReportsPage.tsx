@@ -1,7 +1,10 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
+  AlertCircle,
   BarChart3,
+  BookOpen,
   GraduationCap,
+  Layers,
   Printer,
   UserCheck,
   Users,
@@ -21,9 +24,12 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Label } from "../../components/ui/label";
+import { Skeleton } from "../../components/ui/skeleton";
+import { useAdminDataSync } from "../../context/AdminDataSyncContext";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { ds, tajawal } from "../../lib/design-system";
+import { roleLabelAr } from "../../lib/role-labels";
 import { toast } from "sonner";
 
 type KpiSummary = {
@@ -37,6 +43,29 @@ type KpiSummary = {
   students_present_pct?: number;
 };
 
+type DashboardStats = {
+  students: {
+    total: number;
+    with_circle: number;
+    without_circle: number;
+    with_track: number;
+    without_track: number;
+  };
+  groups: { circles_active: number; tracks_active: number };
+  staff: { total: number; by_role: Record<string, number> };
+  pledges: {
+    total: number;
+    this_month: number;
+    students_with_pledges: number;
+  } | null;
+  attendance: {
+    student_records_this_month: number;
+    staff_records_this_month: number;
+    month_start: string;
+    month_end: string;
+  };
+};
+
 const emptyKpi: KpiSummary = {
   staff_total: 0,
   students_total: 0,
@@ -44,6 +73,25 @@ const emptyKpi: KpiSummary = {
   students_present: 0,
   staff_discipline_pct: 0,
   students_discipline_pct: 0,
+};
+
+const emptyDashboard: DashboardStats = {
+  students: {
+    total: 0,
+    with_circle: 0,
+    without_circle: 0,
+    with_track: 0,
+    without_track: 0,
+  },
+  groups: { circles_active: 0, tracks_active: 0 },
+  staff: { total: 0, by_role: {} },
+  pledges: null,
+  attendance: {
+    student_records_this_month: 0,
+    staff_records_this_month: 0,
+    month_start: "",
+    month_end: "",
+  },
 };
 
 type BeneficiaryType = "student" | "staff";
@@ -64,9 +112,12 @@ export function AdminReportsPage() {
   const [kpiStart, setKpiStart] = useState(initial.start);
   const [kpiEnd, setKpiEnd] = useState(initial.end);
   const [kpi, setKpi] = useState<KpiSummary>(emptyKpi);
+  const [dashboard, setDashboard] = useState<DashboardStats>(emptyDashboard);
   const [complexName, setComplexName] = useState<string | null>(null);
-  const [kpiLoading, setKpiLoading] = useState(false);
+  const [kpiLoading, setKpiLoading] = useState(true);
+  const [dashboardLoading, setDashboardLoading] = useState(true);
   const [kpiError, setKpiError] = useState<string | null>(null);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
 
   const [beneficiaryType, setBeneficiaryType] = useState<BeneficiaryType>("student");
   const [studentId, setStudentId] = useState<number | null>(null);
@@ -77,6 +128,34 @@ export function AdminReportsPage() {
   const [individualReport, setIndividualReport] =
     useState<IndividualReportData | null>(null);
   const [reportModalOpen, setReportModalOpen] = useState(false);
+
+  const loadDashboard = useCallback(async () => {
+    if (!canUseApi()) {
+      setDashboardError("أعد تسجيل الدخول");
+      setDashboard(emptyDashboard);
+      return;
+    }
+    setDashboardLoading(true);
+    setDashboardError(null);
+    try {
+      const res = await api.adminDashboardStats();
+      if (res.complex_name) setComplexName(res.complex_name);
+      setDashboard({
+        students: res.students,
+        groups: res.groups,
+        staff: res.staff,
+        pledges: res.pledges,
+        attendance: res.attendance,
+      });
+    } catch (e) {
+      setDashboardError(
+        e instanceof Error ? e.message : "فشل تحميل إحصائيات النظام",
+      );
+      setDashboard(emptyDashboard);
+    } finally {
+      setDashboardLoading(false);
+    }
+  }, []);
 
   const loadKpis = useCallback(async () => {
     if (!canUseApi()) {
@@ -114,6 +193,26 @@ export function AdminReportsPage() {
     }
   }, [kpiStart, kpiEnd]);
 
+  const refreshAll = useCallback(async () => {
+    await Promise.all([loadDashboard(), loadKpis()]);
+  }, [loadDashboard, loadKpis]);
+
+  useEffect(() => {
+    void refreshAll();
+  }, [refreshAll]);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        void refreshAll();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [refreshAll]);
+
+  useAdminDataSync(["students", "groups", "staff"], refreshAll);
+
   async function loadIndividualReport() {
     const personId = beneficiaryType === "student" ? studentId : staffId;
     if (!canUseApi()) {
@@ -149,6 +248,11 @@ export function AdminReportsPage() {
     }
   }
 
+  const staffRoles = Object.entries(dashboard.staff.by_role).sort(
+    (a, b) => b[1] - a[1],
+  );
+  const isLoading = kpiLoading || dashboardLoading;
+
   return (
     <div className="space-y-6 max-w-[1200px]" dir="rtl">
       <div>
@@ -157,8 +261,127 @@ export function AdminReportsPage() {
         </h2>
         <p className={ds.page.description} style={tajawal}>
           لوحة قيادة تنفيذية للمجمع مع تقارير انضباط تفصيلية للأفراد.
+          {complexName ? ` — ${complexName}` : ""}
         </p>
       </div>
+
+      <Card className={ds.card}>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2" style={tajawal}>
+            <Layers className="w-5 h-5 text-primary" />
+            ملخص النظام الحي
+          </CardTitle>
+          <CardDescription style={tajawal}>
+            أرقام مجمّعة مباشرة من قاعدة البيانات — تُحدَّث عند فتح التبويب.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {dashboardError && (
+            <p className={ds.alert.error} style={tajawal}>
+              {dashboardError}
+            </p>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            {dashboardLoading ? (
+              Array.from({ length: 8 }).map((_, i) => (
+                <KpiSkeleton key={i} />
+              ))
+            ) : (
+              <>
+                <KpiCard
+                  icon={<GraduationCap className="w-5 h-5 text-primary" />}
+                  label="إجمالي الطلاب"
+                  value={dashboard.students.total}
+                />
+                <KpiCard
+                  icon={<UserCheck className="w-5 h-5 text-emerald-600" />}
+                  label="طلاب مسندون لحلقة"
+                  value={dashboard.students.with_circle}
+                  sub={`${dashboard.students.without_circle} بدون حلقة`}
+                  highlight={dashboard.students.without_circle > 0}
+                />
+                <KpiCard
+                  icon={<UserCheck className="w-5 h-5 text-emerald-600" />}
+                  label="طلاب مسندون لمسار"
+                  value={dashboard.students.with_track}
+                  sub={`${dashboard.students.without_track} بدون مسار`}
+                  highlight={dashboard.students.without_track > 0}
+                />
+                <KpiCard
+                  icon={<Layers className="w-5 h-5 text-primary" />}
+                  label="الحلقات النشطة"
+                  value={dashboard.groups.circles_active}
+                />
+                <KpiCard
+                  icon={<Layers className="w-5 h-5 text-primary" />}
+                  label="المسارات النشطة"
+                  value={dashboard.groups.tracks_active}
+                />
+                <KpiCard
+                  icon={<Users className="w-5 h-5 text-primary" />}
+                  label="إجمالي المنسوبين"
+                  value={dashboard.staff.total}
+                />
+                {dashboard.pledges && (
+                  <KpiCard
+                    icon={<BookOpen className="w-5 h-5 text-primary" />}
+                    label="التعهدات (هذا الشهر)"
+                    value={dashboard.pledges.this_month}
+                    sub={`${dashboard.pledges.total} إجمالي — ${dashboard.pledges.students_with_pledges} طالب`}
+                  />
+                )}
+                <KpiCard
+                  icon={<BarChart3 className="w-5 h-5 text-primary" />}
+                  label="سجلات الحضور (الشهر)"
+                  value={dashboard.attendance.student_records_this_month}
+                  sub={`طلاب — ${dashboard.attendance.staff_records_this_month} منسوبين`}
+                />
+              </>
+            )}
+          </div>
+
+          {!dashboardLoading && staffRoles.length > 0 && (
+            <div className="rounded-xl border border-border p-4 space-y-2">
+              <p className="text-sm font-medium" style={tajawal}>
+                المنسوبون حسب الدور
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {staffRoles.map(([role, count]) => (
+                  <span
+                    key={role}
+                    className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-sm"
+                    style={tajawal}
+                  >
+                    <span className="font-medium">{roleLabelAr(role)}</span>
+                    <span className="tabular-nums text-muted-foreground">
+                      {count}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!dashboardLoading &&
+            (dashboard.students.without_circle > 0 ||
+              dashboard.students.without_track > 0) && (
+              <div className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <p style={tajawal}>
+                  يوجد{" "}
+                  <strong className="tabular-nums">
+                    {dashboard.students.without_circle}
+                  </strong>{" "}
+                  طالب بدون حلقة و{" "}
+                  <strong className="tabular-nums">
+                    {dashboard.students.without_track}
+                  </strong>{" "}
+                  طالب بدون مسار — راجع تبويب الطلاب لإسنادهم.
+                </p>
+              </div>
+            )}
+        </CardContent>
+      </Card>
 
       <Card className={ds.card}>
         <CardHeader className="pb-3">
@@ -167,8 +390,7 @@ export function AdminReportsPage() {
             مؤشرات الأداء
           </CardTitle>
           <CardDescription style={tajawal}>
-            حدّد الفترة ثم حدّث المؤشرات المجمّعة للمجمع
-            {complexName ? ` — ${complexName}` : ""}.
+            حدّد الفترة ثم حدّث مؤشرات الحضور والانضباط للمجمع.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -199,11 +421,11 @@ export function AdminReportsPage() {
           <Button
             type="button"
             className={ds.btnRound}
-            disabled={kpiLoading}
-            onClick={() => void loadKpis()}
+            disabled={isLoading}
+            onClick={() => void refreshAll()}
             style={tajawal}
           >
-            {kpiLoading ? "جاري التحديث…" : "تحديث المؤشرات"}
+            {isLoading ? "جاري التحديث…" : "تحديث المؤشرات"}
           </Button>
           {kpiError && (
             <p className={ds.alert.error} style={tajawal}>
@@ -214,48 +436,54 @@ export function AdminReportsPage() {
       </Card>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-        <KpiCard
-          icon={<Users className="w-5 h-5 text-primary" />}
-          label="إجمالي المنسوبين"
-          value={kpi.staff_total}
-        />
-        <KpiCard
-          icon={<GraduationCap className="w-5 h-5 text-primary" />}
-          label="إجمالي الطلاب"
-          value={kpi.students_total}
-        />
-        <KpiCard
-          icon={<UserCheck className="w-5 h-5 text-primary" />}
-          label="حضور المنسوبين"
-          value={kpi.staff_present}
-          sub={
-            kpi.staff_present_pct != null
-              ? `${kpi.staff_present_pct}% من المنسوبين (آخر يوم في الفترة)`
-              : undefined
-          }
-        />
-        <KpiCard
-          icon={<UserCheck className="w-5 h-5 text-primary" />}
-          label="حضور الطلاب"
-          value={kpi.students_present}
-          sub={
-            kpi.students_present_pct != null
-              ? `${kpi.students_present_pct}% من الطلاب (آخر يوم في الفترة)`
-              : undefined
-          }
-        />
-        <KpiCard
-          icon={<BarChart3 className="w-5 h-5 text-primary" />}
-          label="نسبة انضباط المنسوبين"
-          value={`${kpi.staff_discipline_pct}%`}
-          isText
-        />
-        <KpiCard
-          icon={<BarChart3 className="w-5 h-5 text-primary" />}
-          label="نسبة انضباط الطلاب"
-          value={`${kpi.students_discipline_pct}%`}
-          isText
-        />
+        {kpiLoading ? (
+          Array.from({ length: 6 }).map((_, i) => <KpiSkeleton key={i} />)
+        ) : (
+          <>
+            <KpiCard
+              icon={<Users className="w-5 h-5 text-primary" />}
+              label="إجمالي المنسوبين"
+              value={kpi.staff_total}
+            />
+            <KpiCard
+              icon={<GraduationCap className="w-5 h-5 text-primary" />}
+              label="إجمالي الطلاب"
+              value={kpi.students_total}
+            />
+            <KpiCard
+              icon={<UserCheck className="w-5 h-5 text-primary" />}
+              label="حضور المنسوبين"
+              value={kpi.staff_present}
+              sub={
+                kpi.staff_present_pct != null
+                  ? `${kpi.staff_present_pct}% من المنسوبين (آخر يوم في الفترة)`
+                  : undefined
+              }
+            />
+            <KpiCard
+              icon={<UserCheck className="w-5 h-5 text-primary" />}
+              label="حضور الطلاب"
+              value={kpi.students_present}
+              sub={
+                kpi.students_present_pct != null
+                  ? `${kpi.students_present_pct}% من الطلاب (آخر يوم في الفترة)`
+                  : undefined
+              }
+            />
+            <KpiCard
+              icon={<BarChart3 className="w-5 h-5 text-primary" />}
+              label="نسبة انضباط المنسوبين"
+              value={`${kpi.staff_discipline_pct}%`}
+              isText
+            />
+            <KpiCard
+              icon={<BarChart3 className="w-5 h-5 text-primary" />}
+              label="نسبة انضباط الطلاب"
+              value={`${kpi.students_discipline_pct}%`}
+              isText
+            />
+          </>
+        )}
       </div>
 
       <Card className={`${ds.card} border-primary/20 shadow-sm`}>
@@ -367,21 +595,39 @@ export function AdminReportsPage() {
   );
 }
 
+function KpiSkeleton() {
+  return (
+    <Card className={ds.card}>
+      <CardHeader className="pb-2">
+        <Skeleton className="h-4 w-32" />
+      </CardHeader>
+      <CardContent>
+        <Skeleton className="h-9 w-20" />
+        <Skeleton className="h-3 w-24 mt-2" />
+      </CardContent>
+    </Card>
+  );
+}
+
 function KpiCard({
   icon,
   label,
   value,
   sub,
   isText,
+  highlight,
 }: {
   icon?: React.ReactNode;
   label: string;
   value: number | string;
   sub?: string;
   isText?: boolean;
+  highlight?: boolean;
 }) {
   return (
-    <Card className={ds.card}>
+    <Card
+      className={`${ds.card}${highlight ? " border-amber-500/50 bg-amber-500/5" : ""}`}
+    >
       <CardHeader className="pb-2">
         <CardTitle
           className="text-sm font-medium flex items-center gap-2"
@@ -393,14 +639,18 @@ function KpiCard({
       </CardHeader>
       <CardContent>
         <p
-          className={isText ? "text-3xl font-bold" : "text-3xl font-bold tabular-nums"}
+          className={
+            isText ? "text-3xl font-bold" : "text-3xl font-bold tabular-nums"
+          }
           style={tajawal}
         >
           {value}
         </p>
         {sub && (
           <p
-            className="text-xs text-muted-foreground mt-1 leading-relaxed"
+            className={`text-xs mt-1 leading-relaxed ${
+              highlight ? "text-amber-700 font-medium" : "text-muted-foreground"
+            }`}
             style={tajawal}
           >
             {sub}

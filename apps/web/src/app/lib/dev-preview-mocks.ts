@@ -431,6 +431,31 @@ export function resolveDevPreviewMock<T>(
     } as T;
   }
 
+  if (p === "/api/admin-dept/dashboard-stats" && m === "GET") {
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    return {
+      complex_name: "معاينة المجمع",
+      generated_at: new Date().toISOString(),
+      students: {
+        total: 0,
+        with_circle: 0,
+        without_circle: 0,
+        with_track: 0,
+        without_track: 0,
+      },
+      groups: { circles_active: 0, tracks_active: 0 },
+      staff: { total: 0, by_role: {} },
+      pledges: { total: 0, this_month: 0, students_with_pledges: 0 },
+      attendance: {
+        student_records_this_month: 0,
+        staff_records_this_month: 0,
+        month_start: monthStart.toISOString().slice(0, 10),
+        month_end: date,
+      },
+    } as T;
+  }
+
   if (p === "/api/admin-dept/reports" && m === "GET") {
     return {
       start_date: url.searchParams.get("startDate") ?? date,

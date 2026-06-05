@@ -25,6 +25,7 @@ import {
   batchSaveStaffAttendance,
   batchSaveStudentAttendance,
 } from "../lib/attendance-batch";
+import { fetchAdminDashboardStats } from "../lib/admin-dashboard-stats";
 import { assignStudentCircle } from "../lib/placement";
 import {
   resolveAttendanceTableName,
@@ -133,6 +134,7 @@ async function loadStudentsForCircleAttendance(
     ? ", sa.source"
     : "";
 
+  const isActiveExpr = await studentIsActiveSql(env, "s");
   const rows = await env.DB.prepare(
     `SELECT s.id AS student_id, s.full_name_ar,
             COALESCE(s.stage_id, 0) AS stage_id,
@@ -141,7 +143,7 @@ async function loadStudentsForCircleAttendance(
      FROM students s
      LEFT JOIN ${attTable} sa
        ON sa.student_id = s.id AND sa.attendance_date = ?
-     WHERE s.complex_id = ? AND COALESCE(s.is_active, 1) = 1
+     WHERE s.complex_id = ? AND ${isActiveExpr}
        AND s.current_circle_id = ?
      ORDER BY s.full_name_ar`,
   )
@@ -229,7 +231,10 @@ export async function handleAdminDeptRouter(
   const path = url.pathname;
   const isAdminDeptPath = path.startsWith("/api/admin-dept/");
   const isStaffReportAlias = path === "/api/admin/staff/attendance";
-  if (!isAdminDeptPath && !isStaffReportAlias) return null;
+  const isDashboardStatsAlias = path === "/api/admin/dashboard-stats";
+  if (!isAdminDeptPath && !isStaffReportAlias && !isDashboardStatsAlias) {
+    return null;
+  }
 
   try {
     return await handleAdminDeptRouterImpl(request, env, url, path);
@@ -906,6 +911,16 @@ async function handleAdminDeptRouterImpl(
     });
   }
 
+  // GET /api/admin-dept/dashboard-stats | GET /api/admin/dashboard-stats
+  if (
+    request.method === "GET" &&
+    (path === "/api/admin-dept/dashboard-stats" ||
+      path === "/api/admin/dashboard-stats")
+  ) {
+    const stats = await fetchAdminDashboardStats(env, admin.complexId);
+    return json(stats);
+  }
+
   // GET /api/admin-dept/reports
   if (request.method === "GET" && path === "/api/admin-dept/reports") {
     const startDate =
@@ -927,6 +942,8 @@ async function handleAdminDeptRouterImpl(
     const includeStaff = typeFilter === "all" || typeFilter === "staff";
     const includeStudents = typeFilter === "all" || typeFilter === "student";
     const includeItems = url.searchParams.get("include_items") !== "false";
+    const isActiveExpr = await studentIsActiveSql(env, "s");
+    const isActiveBareExpr = await studentIsActiveSql(env, "");
 
     type ReportRow = {
       name: string;
@@ -971,7 +988,7 @@ async function handleAdminDeptRouterImpl(
         JOIN students s ON s.id = sa.student_id
         ${placement.historyJoin}
         WHERE sa.complex_id = ? AND sa.attendance_date BETWEEN ? AND ?
-          AND COALESCE(s.is_active, 1) = 1`;
+          AND ${isActiveExpr}`;
       const stuBinds: (string | number)[] = [
         admin.complexId,
         startDate,
@@ -1030,7 +1047,7 @@ async function handleAdminDeptRouterImpl(
     }
 
     const studentsTotalRow = await env.DB.prepare(
-      `SELECT COUNT(*) AS c FROM students WHERE complex_id = ? AND COALESCE(is_active, 1) = 1`,
+      `SELECT COUNT(*) AS c FROM students WHERE complex_id = ? AND ${isActiveBareExpr}`,
     )
       .bind(admin.complexId)
       .first<{ c: number }>();

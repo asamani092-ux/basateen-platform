@@ -1127,6 +1127,37 @@ export const api = {
     }>(`/api/admin-dept/pledges/entry/${pledgeId}`, {
       method: "DELETE",
     }),
+  adminDashboardStats: () =>
+    request<{
+      complex_name: string | null;
+      generated_at: string;
+      students: {
+        total: number;
+        with_circle: number;
+        without_circle: number;
+        with_track: number;
+        without_track: number;
+      };
+      groups: {
+        circles_active: number;
+        tracks_active: number;
+      };
+      staff: {
+        total: number;
+        by_role: Record<string, number>;
+      };
+      pledges: {
+        total: number;
+        this_month: number;
+        students_with_pledges: number;
+      } | null;
+      attendance: {
+        student_records_this_month: number;
+        staff_records_this_month: number;
+        month_start: string;
+        month_end: string;
+      };
+    }>("/api/admin-dept/dashboard-stats"),
   adminDeptReports: (params?: {
     startDate?: string;
     endDate?: string;

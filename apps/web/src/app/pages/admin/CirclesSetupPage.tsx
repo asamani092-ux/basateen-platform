@@ -328,7 +328,6 @@ export function CirclesSetupPage() {
         teachers={teachers}
         trackSupervisors={trackSupervisors}
         onOpenChange={setModalOpen}
-        onStaffUpdated={setStaff}
         onSaved={() => {
           setModalOpen(false);
           setEditRow(null);
@@ -346,7 +345,6 @@ function GroupFormDialog({
   teachers,
   trackSupervisors,
   onOpenChange,
-  onStaffUpdated,
   onSaved,
 }: {
   open: boolean;
@@ -354,7 +352,6 @@ function GroupFormDialog({
   teachers: StaffMemberRow[];
   trackSupervisors: StaffMemberRow[];
   onOpenChange: (open: boolean) => void;
-  onStaffUpdated: (staff: StaffMemberRow[]) => void;
   onSaved: () => void;
 }) {
   const isEdit = editRow != null;
@@ -366,10 +363,8 @@ function GroupFormDialog({
   const [newTeacherName, setNewTeacherName] = useState("");
   const [newTeacherMobile, setNewTeacherMobile] = useState("");
   const [supervisorId, setSupervisorId] = useState("");
-  const [showNewSupervisor, setShowNewSupervisor] = useState(false);
   const [newSupervisorName, setNewSupervisorName] = useState("");
   const [newSupervisorMobile, setNewSupervisorMobile] = useState("");
-  const [addingSupervisor, setAddingSupervisor] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -388,7 +383,6 @@ function GroupFormDialog({
       }
       setNewTeacherName("");
       setNewTeacherMobile("");
-      setShowNewSupervisor(false);
       setNewSupervisorName("");
       setNewSupervisorMobile("");
     } else {
@@ -400,40 +394,12 @@ function GroupFormDialog({
       setSupervisorId("");
       setNewTeacherName("");
       setNewTeacherMobile("");
-      setShowNewSupervisor(false);
       setNewSupervisorName("");
       setNewSupervisorMobile("");
     }
   }, [open, editRow]);
 
   const isCircle = entityType === "circle";
-
-  async function addSupervisorInline() {
-    if (!newSupervisorName.trim() || !newSupervisorMobile.trim()) {
-      toast.error("أدخل اسم المشرف والجوال");
-      return;
-    }
-    setAddingSupervisor(true);
-    try {
-      const res = await api.adminTeachersCreate({
-        full_name_ar: newSupervisorName.trim(),
-        mobile: newSupervisorMobile.trim(),
-        role: "track_supervisor",
-      });
-      const staffRes = await api.adminStaff();
-      const items = staffRes.items ?? [];
-      onStaffUpdated(items);
-      setSupervisorId(String(res.id));
-      setShowNewSupervisor(false);
-      setNewSupervisorName("");
-      setNewSupervisorMobile("");
-      toast.success("تمت إضافة مشرف المسار");
-    } catch (err) {
-      toast.error(apiErrorMessage(err, "فشل إضافة المشرف"));
-    } finally {
-      setAddingSupervisor(false);
-    }
-  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -623,53 +589,30 @@ function GroupFormDialog({
               )}
             </>
           ) : (
-            <div className="space-y-2">
-              <div className="flex items-end gap-2">
-                <div className="flex-1 space-y-1">
-                  <Label style={tajawal}>مشرف المسار *</Label>
-                  <select
-                    value={supervisorId}
-                    onChange={(e) => setSupervisorId(e.target.value)}
-                    className={ds.select}
-                    style={tajawal}
-                    required={!isEdit && !showNewSupervisor}
-                    disabled={showNewSupervisor}
-                  >
-                    <option value="">
-                      {showNewSupervisor ? "— مشرف جديد أدناه —" : "— اختر المشرف —"}
+            <>
+              <div className="space-y-1">
+                <Label style={tajawal}>مشرف المسار *</Label>
+                <select
+                  value={supervisorId}
+                  onChange={(e) => setSupervisorId(e.target.value)}
+                  className={ds.select}
+                  style={tajawal}
+                  required={isEdit}
+                >
+                  <option value="">
+                    {isEdit ? "— اختر المشرف —" : "— مشرف جديد أدناه —"}
+                  </option>
+                  {trackSupervisors.map((s) => (
+                    <option key={s.id} value={String(s.id)}>
+                      {s.full_name_ar}
                     </option>
-                    {trackSupervisors.map((s) => (
-                      <option key={s.id} value={String(s.id)}>
-                        {s.full_name_ar}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {!isEdit && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="shrink-0 mb-0.5"
-                    style={tajawal}
-                    onClick={() => {
-                      setShowNewSupervisor((v) => !v);
-                      if (!showNewSupervisor) setSupervisorId("");
-                    }}
-                  >
-                    {showNewSupervisor ? "إلغاء" : "+ إضافة مشرف جديد"}
-                  </Button>
-                )}
+                  ))}
+                </select>
               </div>
-              {showNewSupervisor && !isEdit && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg border border-border p-3">
-                  <div className="space-y-1 sm:col-span-2">
-                    <p className="text-xs text-muted-foreground" style={tajawal}>
-                      الدور: مشرف مسار (ثابت)
-                    </p>
-                  </div>
+              {!supervisorId && !isEdit && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <Label style={tajawal}>اسم المشرف</Label>
+                    <Label style={tajawal}>اسم المشرف الجديد</Label>
                     <Input
                       value={newSupervisorName}
                       onChange={(e) => setNewSupervisorName(e.target.value)}
@@ -683,22 +626,9 @@ function GroupFormDialog({
                       dir="ltr"
                     />
                   </div>
-                  <div className="sm:col-span-2">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      className={ds.btnRound}
-                      style={tajawal}
-                      disabled={addingSupervisor}
-                      onClick={() => void addSupervisorInline()}
-                    >
-                      {addingSupervisor ? "جاري الإضافة…" : "حفظ المشرف واختياره"}
-                    </Button>
-                  </div>
                 </div>
               )}
-            </div>
+            </>
           )}
 
           <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>

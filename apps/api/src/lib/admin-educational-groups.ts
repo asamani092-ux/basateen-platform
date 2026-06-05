@@ -15,6 +15,7 @@ import {
   circleTrackSelectSql,
 } from "./admin-gm-schema";
 import { hasTable, tableHasColumn } from "./db-schema";
+import { dropCircleTriggers, runHardDeleteBatch } from "./db-batch";
 
 export type EducationalEntityType = "circle" | "track";
 
@@ -223,18 +224,6 @@ async function clearCircleChildStatements(
   return stmts;
 }
 
-async function runDeleteBatch(
-  env: Env,
-  batch: D1PreparedStatement[],
-): Promise<void> {
-  await env.DB.prepare(`PRAGMA foreign_keys = OFF`).run();
-  try {
-    await env.DB.batch(batch);
-  } finally {
-    await env.DB.prepare(`PRAGMA foreign_keys = ON`).run();
-  }
-}
-
 async function detachStudentsFromTrack(
   env: Env,
   trackId: number,
@@ -257,9 +246,11 @@ export async function safeDeleteEducationalGroup(
   entityType: EducationalEntityType,
   id: number,
   complexId: number,
-): Promise<{ soft_deleted?: boolean }> {
+): Promise<void> {
   if (entityType === "circle") {
     if (!(await hasTable(env, "circles"))) throw new Error("circle_not_found");
+
+    await dropCircleTriggers(env);
 
     const row = await env.DB.prepare(
       `SELECT id FROM circles WHERE id = ? AND complex_id = ?`,
@@ -277,8 +268,8 @@ export async function safeDeleteEducationalGroup(
       ),
     ];
 
-    await runDeleteBatch(env, batch);
-    return {};
+    await runHardDeleteBatch(env, batch);
+    return;
   }
 
   const row = await env.DB.prepare(
@@ -315,8 +306,7 @@ export async function safeDeleteEducationalGroup(
     ),
   );
 
-  await runDeleteBatch(env, batch);
-  return {};
+  await runHardDeleteBatch(env, batch);
 }
 
 export function parseEducationalEntityType(

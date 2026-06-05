@@ -31,6 +31,7 @@ import {
 import {
   circleCreateSchema,
   staffTeacherCreateSchema,
+  trackCreateSchema,
 } from "../lib/staff-schema";
 import {
   usesV25FlatStaffSchema,
@@ -313,11 +314,8 @@ export async function handleAdminStaffDelete(
     const userId = m ? Number(m[1]) : NaN;
     if (!Number.isFinite(userId)) return json({ error: "invalid_id" }, 400);
 
-    const result = await safeDeleteStaffUser(env, userId, auth!.complexId);
-    return new Response(JSON.stringify({ ok: true, ...result }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    await safeDeleteStaffUser(env, userId, auth!.complexId);
+    return json({ ok: true });
   } catch (error: unknown) {
     console.error("[admin-gm] staff delete:", error);
     const message =
@@ -797,16 +795,8 @@ export async function handleAdminEducationalGroupsDelete(
       return json({ error: "invalid_id_or_type" }, 400);
     }
 
-    const result = await safeDeleteEducationalGroup(
-      env,
-      entityType,
-      id,
-      auth!.complexId,
-    );
-    return new Response(JSON.stringify({ ok: true, ...result }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    await safeDeleteEducationalGroup(env, entityType, id, auth!.complexId);
+    return json({ ok: true });
   } catch (error: unknown) {
     console.error("[admin-gm] educational-groups delete:", error);
     const message =
@@ -1258,11 +1248,11 @@ async function resolveTrackSupervisorId(
   env: Env,
   complexId: number,
   body: {
-    supervisor_id?: number;
-    new_supervisor?: { full_name_ar?: string; mobile?: string };
+    supervisor_id?: number | null;
+    new_supervisor?: { full_name_ar: string; mobile: string };
   },
 ): Promise<{ id: number } | { error: string; status: number }> {
-  let supervisorId = Number(body.supervisor_id);
+  let supervisorId = Number(body.supervisor_id ?? 0);
   if (Number.isFinite(supervisorId) && supervisorId > 0) {
     const sup = await env.DB.prepare(
       `SELECT id FROM users WHERE id = ? AND complex_id = ? AND COALESCE(is_active, 1) = 1`,
@@ -1309,25 +1299,24 @@ export async function handleAdminTracksCreate(
   const denied = requireGm(auth);
   if (denied) return denied;
 
-  let body: {
-    name_ar?: string;
-    default_capacity?: number;
-    supervisor_id?: number;
-    new_supervisor?: { full_name_ar?: string; mobile?: string };
-    stage_ids?: number[];
-    circle_ids?: number[];
-  };
+  let raw: unknown;
   try {
-    body = await request.json();
+    raw = await request.json();
   } catch {
     return json({ error: "invalid_json" }, 400);
   }
 
-  if (!body.name_ar?.trim()) return json({ error: "name_required" }, 400);
-  const defaultCapacity = Number(body.default_capacity ?? 20);
-  if (!Number.isFinite(defaultCapacity) || defaultCapacity < 1) {
-    return json({ error: "default_capacity_required" }, 400);
+  const parsed = trackCreateSchema.safeParse(raw);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return json(
+      { error: issue?.message ?? "validation_failed" },
+      400,
+    );
   }
+
+  const body = parsed.data;
+  const defaultCapacity = body.default_capacity;
 
   const hasSupervisorCol = await tableHasColumn(env, "tracks", "supervisor_id");
   const hasTrackStages = await hasTable(env, "track_stages");
@@ -1342,7 +1331,7 @@ export async function handleAdminTracksCreate(
       `INSERT INTO tracks (complex_id, name_ar, supervisor_id, default_capacity)
        VALUES (?, ?, ?, ?)`,
     )
-      .bind(auth!.complexId, body.name_ar.trim(), resolved.id, defaultCapacity)
+      .bind(auth!.complexId, body.name_ar, resolved.id, defaultCapacity)
       .run();
 
     return json({ ok: true, id: ins.meta.last_row_id as number });
@@ -1356,7 +1345,7 @@ export async function handleAdminTracksCreate(
   const cols = ["complex_id", "name_ar", "default_capacity"];
   const vals: (string | number)[] = [
     auth!.complexId,
-    body.name_ar.trim(),
+    body.name_ar,
     defaultCapacity,
   ];
   if (hasSupervisorCol) {

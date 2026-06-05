@@ -333,14 +333,8 @@ export function StaffManagementPage() {
           }}
           onDelete={async () => {
             try {
-              const res = await api.adminStaffDelete(actionRow.id);
-              if (res.soft_deleted) {
-                toast.warning(
-                  "تعذّر الحذف النهائي — تم التعليق فقط. نفّذ npm run db:remote:036:recover ثم أعد المحاولة.",
-                );
-              } else {
-                toast.success("تم الحذف من قاعدة البيانات");
-              }
+              await api.adminStaffDelete(actionRow.id);
+              toast.success("تم الحذف من قاعدة البيانات");
               setItems((prev) => prev.filter((x) => x.id !== actionRow.id));
               setActionRow(null);
             } catch (err) {

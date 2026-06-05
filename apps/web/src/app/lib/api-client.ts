@@ -603,7 +603,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
   adminStaffDelete: (id: number) =>
-    request<{ ok: boolean; soft_deleted?: boolean }>(`/api/admin/staff/${id}`, {
+    request<{ ok: boolean }>(`/api/admin/staff/${id}`, {
       method: "DELETE",
     }),
   adminTeachers: () =>
@@ -636,7 +636,7 @@ export const api = {
   adminEducationalGroups: () =>
     request<{ items: EducationalGroupRow[] }>("/api/admin/educational-groups"),
   adminEducationalGroupDelete: (entityType: "circle" | "track", id: number) =>
-    request<{ ok: boolean; soft_deleted?: boolean }>(
+    request<{ ok: boolean }>(
       `/api/admin/educational-groups/${entityType}/${id}`,
       { method: "DELETE" },
     ),

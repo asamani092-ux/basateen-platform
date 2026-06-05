@@ -4,6 +4,7 @@
 import type { Env } from "../types";
 import { hashPassword } from "./password";
 import { hasTable, tableHasColumn } from "./db-schema";
+import { runHardDeleteBatch } from "./db-batch";
 import { usersHaveRoleColumn } from "./db-user";
 import {
   usesV25FlatStaffSchema,
@@ -229,7 +230,7 @@ export async function safeDeleteStaffUser(
   env: Env,
   userId: number,
   complexId: number,
-): Promise<{ soft_deleted?: boolean }> {
+): Promise<void> {
   if (userId === SOVEREIGN_USER_ID) {
     throw new Error("cannot_delete_sovereign_user");
   }
@@ -252,19 +253,7 @@ export async function safeDeleteStaffUser(
     ),
   ];
 
-  try {
-    await env.DB.batch(batch);
-    return {};
-  } catch (err) {
-    console.error("[admin-staff] delete batch failed:", err);
-    if (await tableHasColumn(env, "users", "is_active")) {
-      await env.DB.prepare(`UPDATE users SET is_active = 0 WHERE id = ?`)
-        .bind(userId)
-        .run();
-      return { soft_deleted: true };
-    }
-    throw err;
-  }
+  await runHardDeleteBatch(env, batch);
 }
 
 export { SOVEREIGN_USER_ID, V25_CIRCLE_STAGE_TO_ID_SQL };

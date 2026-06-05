@@ -1,4 +1,4 @@
-# منصة مجمع البساتين (Basateen Platform)
+# منصة بساتين (Basateen Platform)
 
 منصة سحابية: React (Pages) + Cloudflare Worker + D1.
 

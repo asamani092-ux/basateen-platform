@@ -32,6 +32,15 @@ async function studentColumn(env: Env, column: string, fallback = "NULL"): Promi
     : `${fallback} AS ${column}`;
 }
 
+/** Unified display name — full_name_ar with legacy `name` fallback. */
+async function studentNameSelect(env: Env): Promise<string> {
+  const hasFull = await tableHasColumn(env, "students", "full_name_ar");
+  if (hasFull) return "s.full_name_ar";
+  const hasName = await tableHasColumn(env, "students", "name");
+  if (hasName) return "s.name AS full_name_ar";
+  return "'' AS full_name_ar";
+}
+
 export async function handleStudentsList(
   request: Request,
   env: Env,
@@ -52,6 +61,9 @@ export async function handleStudentsList(
     const url = new URL(request.url);
     const q = (url.searchParams.get("q") ?? "").trim();
     const admissionStatus = url.searchParams.get("admission_status")?.trim();
+    const stageFilter = url.searchParams.get("stage_id")?.trim();
+    const circleFilter = url.searchParams.get("circle_id")?.trim();
+    const trackFilter = url.searchParams.get("track_id")?.trim();
     const defaultLimit = auth.role === "super_admin" ? 500 : 100;
     const limit = Math.min(
       Number(url.searchParams.get("limit") ?? defaultLimit),
@@ -68,10 +80,12 @@ export async function handleStudentsList(
       ? "COALESCE(s.is_active, 1) = 1"
       : "1=1";
 
+    const nameSelect = await studentNameSelect(env);
+
     let sql = `
     SELECT
       s.id,
-      s.full_name_ar,
+      ${nameSelect},
       ${await studentColumn(env, "national_id")},
       ${await studentColumn(env, "nationality")},
       ${await studentColumn(env, "phone")},
@@ -157,12 +171,62 @@ export async function handleStudentsList(
       binds.push(admissionStatus);
     }
 
+    if (stageFilter) {
+      const stageId = Number(stageFilter);
+      if (
+        Number.isFinite(stageId) &&
+        stageId >= 1 &&
+        stageId <= 4 &&
+        (await tableHasColumn(env, "students", "stage_id"))
+      ) {
+        sql += ` AND s.stage_id = ?`;
+        binds.push(stageId);
+      }
+    }
+
+    if (circleFilter) {
+      const circleId = Number(circleFilter);
+      if (Number.isFinite(circleId) && circleId > 0) {
+        if (hasCurrentCircle) {
+          sql += ` AND s.current_circle_id = ?`;
+          binds.push(circleId);
+        } else if (placement.historyCircleRef) {
+          sql += ` AND ${placement.historyCircleRef} = ?`;
+          binds.push(circleId);
+        }
+      }
+    }
+
+    if (trackFilter) {
+      const trackId = Number(trackFilter);
+      if (Number.isFinite(trackId) && trackId > 0) {
+        const hasCurrentTrack = await tableHasColumn(env, "students", "current_track_id");
+        if (hasCurrentTrack) {
+          sql += ` AND s.current_track_id = ?`;
+          binds.push(trackId);
+        } else if (placement.trackRef && placement.trackRef !== "NULL") {
+          sql += ` AND ${placement.trackRef} = ?`;
+          binds.push(trackId);
+        }
+      }
+    }
+
     if (q.length > 0) {
-      sql += ` AND s.full_name_ar LIKE ?`;
+      if (await tableHasColumn(env, "students", "full_name_ar")) {
+        sql += ` AND s.full_name_ar LIKE ?`;
+      } else if (await tableHasColumn(env, "students", "name")) {
+        sql += ` AND s.name LIKE ?`;
+      }
       binds.push(`%${q}%`);
     }
 
-    sql += ` ORDER BY s.full_name_ar LIMIT ?`;
+    const orderName =
+      (await tableHasColumn(env, "students", "full_name_ar"))
+        ? "s.full_name_ar"
+        : (await tableHasColumn(env, "students", "name"))
+          ? "s.name"
+          : "s.id";
+    sql += ` ORDER BY ${orderName} LIMIT ?`;
     binds.push(limit);
 
     const stmt = env.DB.prepare(sql);

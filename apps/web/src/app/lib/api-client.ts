@@ -249,10 +249,21 @@ export const api = {
       body: JSON.stringify({ mobile }),
     }),
   me: () => request<{ user: AuthUser }>("/api/auth/me"),
-  students: (q?: string) => {
-    const params = new URLSearchParams();
-    if (q?.trim()) params.set("q", q.trim());
-    const qs = params.toString();
+  students: (params?: {
+    q?: string;
+    stage_id?: number | null;
+    circle_id?: number | null;
+    track_id?: number | null;
+  }) => {
+    const search = new URLSearchParams();
+    const q = typeof params === "string" ? params : params?.q;
+    if (q?.trim()) search.set("q", q.trim());
+    if (params && typeof params !== "string") {
+      if (params.stage_id != null) search.set("stage_id", String(params.stage_id));
+      if (params.circle_id != null) search.set("circle_id", String(params.circle_id));
+      if (params.track_id != null) search.set("track_id", String(params.track_id));
+    }
+    const qs = search.toString();
     return request<{ items: StudentRow[]; count: number }>(
       `/api/students${qs ? `?${qs}` : ""}`,
     );
@@ -1069,6 +1080,31 @@ export const api = {
         latest_reason: string | null;
       }>;
     }>("/api/admin-dept/pledges"),
+  adminDeptPatchPledge: (
+    pledgeId: number,
+    body: { reason_ar?: string; pledge_date?: string },
+  ) =>
+    request<{
+      ok: boolean;
+      pledge_id: number;
+      student_id: number;
+      pledge_count: number;
+      max_pledges: number;
+      threshold_reached: boolean;
+    }>(`/api/admin-dept/pledges/entry/${pledgeId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  adminDeptDeletePledge: (pledgeId: number) =>
+    request<{
+      ok: boolean;
+      student_id: number;
+      pledge_count: number;
+      max_pledges: number;
+      threshold_reached: boolean;
+    }>(`/api/admin-dept/pledges/entry/${pledgeId}`, {
+      method: "DELETE",
+    }),
   adminDeptReports: (params?: {
     startDate?: string;
     endDate?: string;

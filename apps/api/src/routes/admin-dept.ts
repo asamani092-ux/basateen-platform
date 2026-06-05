@@ -185,6 +185,37 @@ async function bumpPledgeSummary(env: Env, studentId: number): Promise<number> {
   return Number(row?.c ?? 0);
 }
 
+async function syncPledgeSummary(env: Env, studentId: number): Promise<number> {
+  const row = await env.DB.prepare(
+    `SELECT COUNT(*) AS c FROM student_pledges WHERE student_id = ?`,
+  )
+    .bind(studentId)
+    .first<{ c: number }>();
+  const count = Number(row?.c ?? 0);
+
+  if (await hasTable(env, "student_disciplinary_summary")) {
+    if (count === 0) {
+      await env.DB.prepare(
+        `DELETE FROM student_disciplinary_summary WHERE student_id = ?`,
+      )
+        .bind(studentId)
+        .run();
+    } else {
+      await env.DB.prepare(
+        `INSERT INTO student_disciplinary_summary (student_id, pledge_count, updated_at)
+         VALUES (?, ?, datetime('now'))
+         ON CONFLICT(student_id) DO UPDATE SET
+           pledge_count = excluded.pledge_count,
+           updated_at = datetime('now')`,
+      )
+        .bind(studentId, count)
+        .run();
+    }
+  }
+
+  return count;
+}
+
 export async function handleAdminDeptRouter(
   request: Request,
   env: Env,
@@ -692,6 +723,91 @@ async function handleAdminDeptRouterImpl(
         pledgeCount >= maxPledges
           ? `بلغ الطالب ${student.full_name_ar} الحد الأعلى للتعهدات (${maxPledges}).`
           : null,
+    });
+  }
+
+  // PATCH /api/admin-dept/pledges/entry/:id
+  const pledgeEntryPatch = path.match(/^\/api\/admin-dept\/pledges\/entry\/(\d+)$/);
+  if (request.method === "PATCH" && pledgeEntryPatch) {
+    if (!(await hasTable(env, "student_pledges"))) {
+      return json({ error: "migration_required", migration: "024_admin_department" }, 503);
+    }
+
+    const pledgeId = Number(pledgeEntryPatch[1]);
+    let body: { reason_ar?: string; pledge_date?: string };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+
+    const existing = await env.DB.prepare(
+      `SELECT id, student_id FROM student_pledges
+       WHERE id = ? AND complex_id = ?`,
+    )
+      .bind(pledgeId, admin.complexId)
+      .first<{ id: number; student_id: number }>();
+    if (!existing) return json({ error: "pledge_not_found" }, 404);
+
+    const reason = body.reason_ar?.trim();
+    const pledgeDate = body.pledge_date?.trim();
+    if (!reason && !pledgeDate) {
+      return json({ error: "reason_or_date_required" }, 400);
+    }
+
+    if (reason) {
+      await env.DB.prepare(`UPDATE student_pledges SET reason_ar = ? WHERE id = ?`)
+        .bind(reason, pledgeId)
+        .run();
+    }
+    if (pledgeDate) {
+      await env.DB.prepare(`UPDATE student_pledges SET pledge_date = ? WHERE id = ?`)
+        .bind(pledgeDate, pledgeId)
+        .run();
+    }
+
+    const pledgeCount = await syncPledgeSummary(env, existing.student_id);
+    const maxPledges = await getMaxPledges(env, admin.complexId);
+
+    return json({
+      ok: true,
+      pledge_id: pledgeId,
+      student_id: existing.student_id,
+      pledge_count: pledgeCount,
+      max_pledges: maxPledges,
+      threshold_reached: pledgeCount >= maxPledges,
+    });
+  }
+
+  // DELETE /api/admin-dept/pledges/entry/:id
+  const pledgeEntryDelete = path.match(/^\/api\/admin-dept\/pledges\/entry\/(\d+)$/);
+  if (request.method === "DELETE" && pledgeEntryDelete) {
+    if (!(await hasTable(env, "student_pledges"))) {
+      return json({ error: "migration_required", migration: "024_admin_department" }, 503);
+    }
+
+    const pledgeId = Number(pledgeEntryDelete[1]);
+    const existing = await env.DB.prepare(
+      `SELECT id, student_id FROM student_pledges
+       WHERE id = ? AND complex_id = ?`,
+    )
+      .bind(pledgeId, admin.complexId)
+      .first<{ id: number; student_id: number }>();
+    if (!existing) return json({ error: "pledge_not_found" }, 404);
+
+    await env.DB.prepare(`DELETE FROM student_pledges WHERE id = ?`)
+      .bind(pledgeId)
+      .run();
+
+    const pledgeCount = await syncPledgeSummary(env, existing.student_id);
+    const maxPledges = await getMaxPledges(env, admin.complexId);
+
+    return json({
+      ok: true,
+      student_id: existing.student_id,
+      pledge_count: pledgeCount,
+      max_pledges: maxPledges,
+      threshold_reached: pledgeCount >= maxPledges,
     });
   }
 

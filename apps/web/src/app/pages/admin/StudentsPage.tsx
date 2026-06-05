@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Search } from "lucide-react";
 import { AdminEntityActionModal } from "../../components/admin/AdminEntityActionModal";
@@ -38,11 +38,19 @@ import {
 import { Badge } from "../../components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../components/ui/select";
+import {
   api,
   type EducationalGroupRow,
   type StudentRow,
 } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
+import { EDUCATIONAL_STAGES } from "../../lib/stages";
 import { ds, tajawal } from "../../lib/design-system";
 import { cn } from "../../components/ui/utils";
 import {
@@ -53,8 +61,13 @@ import {
   validateStudentCreateForm,
 } from "../../lib/students-import";
 
+const ALL_FILTER = "all";
+
 export function StudentsPage() {
   const [q, setQ] = useState("");
+  const [stageFilter, setStageFilter] = useState(ALL_FILTER);
+  const [circleFilter, setCircleFilter] = useState(ALL_FILTER);
+  const [trackFilter, setTrackFilter] = useState(ALL_FILTER);
   const [items, setItems] = useState<StudentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +85,16 @@ export function StudentsPage() {
       .catch(() => setGroups([]));
   }, [hasApi]);
 
-  const load = useCallback(async (query: string) => {
+  const circles = useMemo(
+    () => groups.filter((g) => g.entity_type === "circle"),
+    [groups],
+  );
+  const tracks = useMemo(
+    () => groups.filter((g) => g.entity_type === "track"),
+    [groups],
+  );
+
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     if (!hasApi) {
@@ -82,7 +104,12 @@ export function StudentsPage() {
       return;
     }
     try {
-      const res = await api.students(query);
+      const res = await api.students({
+        q,
+        stage_id: stageFilter !== ALL_FILTER ? Number(stageFilter) : undefined,
+        circle_id: circleFilter !== ALL_FILTER ? Number(circleFilter) : undefined,
+        track_id: trackFilter !== ALL_FILTER ? Number(trackFilter) : undefined,
+      });
       const payload = res as {
         items?: StudentRow[];
         error?: string;
@@ -100,12 +127,12 @@ export function StudentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [hasApi]);
+  }, [hasApi, q, stageFilter, circleFilter, trackFilter]);
 
   useEffect(() => {
-    const t = setTimeout(() => load(q), 300);
+    const t = setTimeout(() => void load(), 300);
     return () => clearTimeout(t);
-  }, [q, load]);
+  }, [load]);
 
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto">
@@ -139,15 +166,71 @@ export function StudentsPage() {
               إضافة طالب ➕
             </Button>
           </div>
-          <div className="relative max-w-md">
-            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder="ابحث باسم الطالب..."
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              className={`pr-10 ${ds.btnRound}`}
-              style={tajawal}
-            />
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="relative sm:col-span-2 lg:col-span-1">
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="ابحث باسم الطالب..."
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                className={`pr-10 ${ds.btnRound}`}
+                style={tajawal}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground" style={tajawal}>
+                المرحلة الدراسية
+              </Label>
+              <Select value={stageFilter} onValueChange={setStageFilter}>
+                <SelectTrigger className={ds.btnRound}>
+                  <SelectValue placeholder="كل المراحل" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_FILTER}>كل المراحل</SelectItem>
+                  {EDUCATIONAL_STAGES.map((s) => (
+                    <SelectItem key={s.id} value={String(s.id)}>
+                      {s.name_ar}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground" style={tajawal}>
+                الحلقة
+              </Label>
+              <Select value={circleFilter} onValueChange={setCircleFilter}>
+                <SelectTrigger className={ds.btnRound}>
+                  <SelectValue placeholder="كل الحلقات" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_FILTER}>كل الحلقات</SelectItem>
+                  {circles.map((c) => (
+                    <SelectItem key={c.id} value={String(c.id)}>
+                      {c.name_ar}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground" style={tajawal}>
+                المسار
+              </Label>
+              <Select value={trackFilter} onValueChange={setTrackFilter}>
+                <SelectTrigger className={ds.btnRound}>
+                  <SelectValue placeholder="كل المسارات" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_FILTER}>كل المسارات</SelectItem>
+                  {tracks.map((t) => (
+                    <SelectItem key={t.id} value={String(t.id)}>
+                      {t.name_ar}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="overflow-x-auto">
@@ -193,7 +276,7 @@ export function StudentsPage() {
                       className={cn(suspended && "opacity-45")}
                     >
                       <TableCell className="font-medium" style={tajawal}>
-                        {s.full_name_ar}
+                        {s.full_name_ar?.trim() || "—"}
                       </TableCell>
                       <TableCell style={tajawal}>{s.national_id ?? "—"}</TableCell>
                       <TableCell style={tajawal}>{s.phone ?? "—"}</TableCell>
@@ -243,7 +326,7 @@ export function StudentsPage() {
         onOpenChange={setAddOpen}
         onCreated={() => {
           setAddOpen(false);
-          void load(q);
+          void load();
         }}
       />
 

@@ -49,7 +49,18 @@ export async function createCircleRow(
         params.capacity,
       )
       .run();
-    return ins.meta.last_row_id as number;
+    const circleId = ins.meta.last_row_id as number;
+    if (await hasTable(env, "teacher_assignments")) {
+      await env.DB.prepare(`DELETE FROM teacher_assignments WHERE circle_id = ?`)
+        .bind(circleId)
+        .run();
+      await env.DB.prepare(
+        `INSERT INTO teacher_assignments (user_id, circle_id) VALUES (?, ?)`,
+      )
+        .bind(params.teacher_id, circleId)
+        .run();
+    }
+    return circleId;
   }
 
   const cols = ["complex_id", "name_ar", "capacity"];
@@ -78,6 +89,14 @@ export async function createCircleRow(
     .run();
 
   const circleId = ins.meta.last_row_id as number;
+
+  if (hasTeacherId) {
+    await env.DB.prepare(
+      `UPDATE circles SET teacher_id = ? WHERE id = ? AND complex_id = ?`,
+    )
+      .bind(params.teacher_id, circleId, complexId)
+      .run();
+  }
 
   if (await hasTable(env, "teacher_assignments")) {
     await env.DB.prepare(`DELETE FROM teacher_assignments WHERE circle_id = ?`)
@@ -209,8 +228,8 @@ export async function circleTeacherJoinSql(env: Env): Promise<{
   if (hasAssignments) {
     return {
       joinSql: `LEFT JOIN teacher_assignments ta ON ta.circle_id = c.id
-     LEFT JOIN users u ON u.id = ta.user_id AND ${teacherRoleFilter}`,
-      teacherIdCol: `u.id AS teacher_id`,
+     LEFT JOIN users u ON u.id = ta.user_id`,
+      teacherIdCol: `ta.user_id AS teacher_id`,
       teacherNameCol: `u.full_name_ar AS teacher_name`,
     };
   }

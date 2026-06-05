@@ -23,6 +23,7 @@ import {
 } from "../../components/ui/table";
 import { api, type CircleOption } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
+import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import { ds, tajawal } from "../../lib/design-system";
 
 type AbsentRow = {
@@ -224,12 +225,12 @@ export function AbsentWhatsappPage() {
             <TableBody>
               {items.map((r) => (
                 <TableRow key={r.student_id}>
-                  <TableCell className={`${ds.table.cell} font-medium`} style={tajawal}>
+                  <TableTruncatedCell className="font-medium" style={tajawal}>
                     {r.full_name_ar}
-                  </TableCell>
-                  <TableCell className={ds.table.cell} style={tajawal}>
+                  </TableTruncatedCell>
+                  <TableTruncatedCell style={tajawal}>
                     {r.circle_name ?? "—"}
-                  </TableCell>
+                  </TableTruncatedCell>
                   <TableCell className={ds.table.cell} style={tajawal}>
                     {r.status === "excused" ? "مستأذن" : "غائب"}
                   </TableCell>

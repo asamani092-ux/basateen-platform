@@ -27,6 +27,8 @@ import {
   type StudentRow,
 } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
+import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
+import { formatStudentPlacement } from "../../lib/student-placement-display";
 import { ds, tajawal } from "../../lib/design-system";
 
 const ERROR_AR: Record<string, string> = {
@@ -212,11 +214,24 @@ export function TransfersPage() {
                 style={tajawal}
               >
                 <span className="block w-full">
-                  <span className="block font-semibold text-foreground">
+                  <span className="block font-semibold text-foreground truncate" title={s.full_name_ar}>
                     {s.full_name_ar}
                   </span>
-                  <span className="block text-xs text-muted-foreground font-normal">
-                    {s.circle_name ?? "—"} · {s.track_name ?? "—"}
+                  <span
+                    className="block text-xs text-muted-foreground font-normal truncate"
+                    title={formatStudentPlacement({
+                      circleName: s.circle_name,
+                      trackName: s.track_name,
+                      emptyLabel: "—",
+                    }).title}
+                  >
+                    {
+                      formatStudentPlacement({
+                        circleName: s.circle_name,
+                        trackName: s.track_name,
+                        emptyLabel: "—",
+                      }).text
+                    }
                   </span>
                 </span>
               </Button>
@@ -364,9 +379,9 @@ export function TransfersPage() {
               <TableBody>
                 {detail.history.map((h: HistoryRow) => (
                   <TableRow key={h.id}>
-                    <TableCell style={tajawal}>{h.circle_name}</TableCell>
-                    <TableCell style={tajawal}>{h.track_name ?? "—"}</TableCell>
-                    <TableCell style={tajawal}>{h.from_at}</TableCell>
+                    <TableTruncatedCell style={tajawal}>{h.circle_name}</TableTruncatedCell>
+                    <TableTruncatedCell style={tajawal}>{h.track_name ?? "—"}</TableTruncatedCell>
+                    <TableTruncatedCell style={tajawal}>{h.from_at}</TableTruncatedCell>
                     <TableCell style={tajawal}>
                       {h.to_at ?? (
                         <Badge variant="default" className="rounded-lg">

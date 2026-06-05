@@ -16,6 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "../ui/table";
+import { TableTruncatedCell } from "../shared/TableTruncatedCell";
 import { ds, tajawal } from "../../lib/design-system";
 import { api } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
@@ -156,9 +157,9 @@ export function StaffAttendancePanel({
             <TableBody>
               {items.map((r) => (
                 <TableRow key={r.id}>
-                  <TableCell style={tajawal}>{r.full_name_ar}</TableCell>
-                  <TableCell style={tajawal}>{r.role}</TableCell>
-                  <TableCell style={tajawal}>{r.status}</TableCell>
+                  <TableTruncatedCell style={tajawal}>{r.full_name_ar}</TableTruncatedCell>
+                  <TableTruncatedCell style={tajawal}>{r.role}</TableTruncatedCell>
+                  <TableTruncatedCell style={tajawal}>{r.status}</TableTruncatedCell>
                 </TableRow>
               ))}
             </TableBody>

@@ -6,6 +6,8 @@ import {
   TableActionsCell,
   TableIconAction,
 } from "../../components/admin/TableIconAction";
+import { StudentPlacementCell } from "../../components/shared/StudentPlacementCell";
+import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import { Button } from "../../components/ui/button";
 import {
   Dialog,
@@ -314,19 +316,19 @@ export function StudentsPage() {
             <Table className={ds.tableMin}>
               <TableHeader>
                 <TableRow>
-                  <TableHead className={ds.table.head} style={tajawal}>
+                  <TableHead className={`${ds.table.head} ${ds.table.colName}`} style={tajawal}>
                     الاسم
                   </TableHead>
-                  <TableHead className={ds.table.head} style={tajawal}>
+                  <TableHead className={`${ds.table.head} ${ds.table.colId}`} style={tajawal}>
                     الهوية
                   </TableHead>
-                  <TableHead className={ds.table.head} style={tajawal}>
+                  <TableHead className={`${ds.table.head} ${ds.table.colPhone}`} style={tajawal}>
                     الجوال
                   </TableHead>
-                  <TableHead className={ds.table.head} style={tajawal}>
+                  <TableHead className={`${ds.table.head} ${ds.table.colPlacement}`} style={tajawal}>
                     الحلقة / المسار
                   </TableHead>
-                  <TableHead className={ds.table.head} style={tajawal}>
+                  <TableHead className={`${ds.table.head} ${ds.table.colStatus}`} style={tajawal}>
                     الحالة
                   </TableHead>
                   <TableHead className={ds.table.headActions} style={tajawal}>
@@ -342,29 +344,23 @@ export function StudentsPage() {
                       key={s.id}
                       className={cn(suspended && "opacity-45")}
                     >
-                      <TableCell className="font-medium" style={tajawal}>
+                      <TableTruncatedCell
+                        className="font-medium"
+                        title={s.full_name_ar?.trim() || undefined}
+                        style={tajawal}
+                      >
                         {s.full_name_ar?.trim() || "—"}
-                      </TableCell>
-                      <TableCell style={tajawal}>{s.national_id ?? "—"}</TableCell>
-                      <TableCell style={tajawal}>{s.phone ?? "—"}</TableCell>
-                      <TableCell style={tajawal}>
-                        {s.circle_name ? (
-                          <span>
-                            {s.circle_name}
-                            {s.track_name ? (
-                              <span className="text-muted-foreground text-xs block">
-                                {s.track_name}
-                              </span>
-                            ) : null}
-                          </span>
-                        ) : s.track_name ? (
-                          <span className="text-amber-700 dark:text-amber-400">
-                            بدون حلقة — {s.track_name}
-                          </span>
-                        ) : (
-                          <Badge variant="secondary">غير مسند</Badge>
-                        )}
-                      </TableCell>
+                      </TableTruncatedCell>
+                      <TableTruncatedCell style={tajawal}>
+                        {s.national_id ?? "—"}
+                      </TableTruncatedCell>
+                      <TableTruncatedCell style={tajawal}>
+                        {s.phone ?? "—"}
+                      </TableTruncatedCell>
+                      <StudentPlacementCell
+                        circleName={s.circle_name}
+                        trackName={s.track_name}
+                      />
                       <TableCell style={tajawal}>
                         {suspended ? (
                           <Badge variant="secondary">معلّق</Badge>

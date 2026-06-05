@@ -470,8 +470,10 @@ export function StudentDailyAttendancePage() {
                 <TableBody>
                   {filteredRows.map((r) => (
                     <TableRow key={r.student_id}>
-                      <TableCell className={cellClass} style={tajawal}>
-                        <p className="font-medium">{r.full_name_ar}</p>
+                      <TableCell className={`${cellClass} max-w-0`} style={tajawal}>
+                        <p className="font-medium truncate" title={r.full_name_ar}>
+                          {r.full_name_ar}
+                        </p>
                         {r.has_record && (
                           <span className="text-xs text-muted-foreground">
                             مسجّل في قاعدة البيانات

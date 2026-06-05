@@ -25,6 +25,7 @@ import { ToggleGroup, ToggleGroupItem } from "../../components/ui/toggle-group";
 import { useAuth } from "../../context/AuthContext";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
+import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import { ds, tajawal } from "../../lib/design-system";
 
 type Row = {
@@ -291,9 +292,7 @@ export function DailyRecitationPage() {
             <TableBody>
               {rows.map((r) => (
                 <TableRow key={r.student_id}>
-                  <TableCell className={ds.table.cell} style={tajawal}>
-                    {r.full_name_ar}
-                  </TableCell>
+                  <TableTruncatedCell style={tajawal}>{r.full_name_ar}</TableTruncatedCell>
                   <TableCell className="text-center align-middle">
                     <input
                       type="checkbox"

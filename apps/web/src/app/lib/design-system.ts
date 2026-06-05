@@ -24,6 +24,12 @@ export const ds = {
   table: {
     head: "text-right align-middle font-medium",
     cell: "text-right align-middle",
+    truncateCell: "max-w-0 truncate",
+    colName: "w-[22%]",
+    colId: "w-[14%]",
+    colPhone: "w-[14%]",
+    colPlacement: "w-[18%]",
+    colStatus: "w-[10%]",
     headActions: "text-center align-middle w-[120px]",
     headActionsWide: "text-center align-middle w-[220px]",
     actionsCell: "text-center align-middle w-[120px] p-2",

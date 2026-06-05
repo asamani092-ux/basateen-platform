@@ -20,6 +20,7 @@ import {
 } from "../../components/ui/table";
 import { api, type CircleOption } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
+import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import { ds, tajawal } from "../../lib/design-system";
 
 type MasterRow = {
@@ -156,14 +157,24 @@ export function MasterGridConsole() {
         <div className="p-4 border-b border-border text-sm text-muted-foreground" style={tajawal}>
           عدد السجلات: {titleCount}
         </div>
-        <Table>
+        <Table className={ds.tableMin}>
           <TableHeader>
             <TableRow>
-              <TableHead style={tajawal}>الطالب</TableHead>
-              <TableHead style={tajawal}>الحالة</TableHead>
-              <TableHead style={tajawal}>القبول الحالي</TableHead>
-              <TableHead style={tajawal}>المسار الحالي</TableHead>
-              <TableHead style={tajawal}>الإجراء</TableHead>
+              <TableHead className={`${ds.table.head} ${ds.table.colName}`} style={tajawal}>
+                الطالب
+              </TableHead>
+              <TableHead className={`${ds.table.head} ${ds.table.colStatus}`} style={tajawal}>
+                الحالة
+              </TableHead>
+              <TableHead className={`${ds.table.head} ${ds.table.colPlacement}`} style={tajawal}>
+                الحلقة
+              </TableHead>
+              <TableHead className={`${ds.table.head} ${ds.table.colPlacement}`} style={tajawal}>
+                المسار
+              </TableHead>
+              <TableHead className={ds.table.headActions} style={tajawal}>
+                الإجراء
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -176,14 +187,24 @@ export function MasterGridConsole() {
             ) : (
               items.map((row) => (
                 <TableRow key={row.id}>
-                  <TableCell style={tajawal}>
-                    <Link className="text-primary hover:underline" to={`/edu-supervisor/students/${row.id}`}>
+                  <TableTruncatedCell style={tajawal}>
+                    <Link
+                      className="text-primary hover:underline truncate block"
+                      title={row.full_name_ar}
+                      to={`/edu-supervisor/students/${row.id}`}
+                    >
                       {row.full_name_ar}
                     </Link>
-                  </TableCell>
-                  <TableCell style={tajawal}>{row.is_active === 1 ? "نشط" : "موقوف"}</TableCell>
-                  <TableCell style={tajawal}>{row.current_circle_name ?? "غير مقبول بعد"}</TableCell>
-                  <TableCell style={tajawal}>{row.current_track_name ?? "غير مرتبط"}</TableCell>
+                  </TableTruncatedCell>
+                  <TableTruncatedCell style={tajawal}>
+                    {row.is_active === 1 ? "نشط" : "موقوف"}
+                  </TableTruncatedCell>
+                  <TableTruncatedCell style={tajawal}>
+                    {row.current_circle_name ?? "—"}
+                  </TableTruncatedCell>
+                  <TableTruncatedCell style={tajawal}>
+                    {row.current_track_name ?? "—"}
+                  </TableTruncatedCell>
                   <TableCell>
                     <Button type="button" size="sm" variant="outline" onClick={() => openAdmission(row)} style={tajawal}>
                       قبول/توزيع

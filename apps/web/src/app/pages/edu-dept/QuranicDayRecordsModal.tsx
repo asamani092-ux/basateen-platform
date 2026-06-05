@@ -21,6 +21,7 @@ import {
 } from "../../components/ui/table";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
+import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import { ds, tajawal } from "../../lib/design-system";
 
 type RecordRow = {
@@ -171,9 +172,7 @@ export function QuranicDayRecordsModal({
             <TableBody>
               {items.map((row) => (
                 <TableRow key={row.id}>
-                  <TableCell className={ds.table.cell} style={tajawal}>
-                    {row.full_name_ar}
-                  </TableCell>
+                  <TableTruncatedCell style={tajawal}>{row.full_name_ar}</TableTruncatedCell>
                   <TableCell
                     className={`${ds.table.cell} text-center tabular-nums`}
                     style={tajawal}

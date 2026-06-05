@@ -6,6 +6,7 @@ import {
   TableActionsCell,
   TableIconAction,
 } from "../../components/admin/TableIconAction";
+import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import { Button } from "../../components/ui/button";
 import {
   Dialog,
@@ -242,21 +243,19 @@ export function StaffManagementPage() {
                 ) : (
                   items.map((row) => (
                     <TableRow key={row.id}>
-                      <TableCell className={ds.table.cell} style={tajawal}>
-                        {row.full_name_ar}
-                      </TableCell>
-                      <TableCell className={ds.table.cell} dir="ltr">
+                      <TableTruncatedCell style={tajawal}>{row.full_name_ar}</TableTruncatedCell>
+                      <TableTruncatedCell className={ds.table.cell} dir="ltr">
                         {row.mobile ?? "—"}
-                      </TableCell>
-                      <TableCell className={ds.table.cell} style={tajawal}>
+                      </TableTruncatedCell>
+                      <TableTruncatedCell style={tajawal}>
                         {staffRoleLabel(row.role)}
                         {row.is_active === 0 ? (
                           <span className="mr-2 text-xs text-amber-700">(معلق)</span>
                         ) : null}
-                      </TableCell>
-                      <TableCell className={ds.table.cell} style={tajawal}>
+                      </TableTruncatedCell>
+                      <TableTruncatedCell title={assignedEntityLabel(row)} style={tajawal}>
                         {assignedEntityLabel(row)}
-                      </TableCell>
+                      </TableTruncatedCell>
                       <TableActionsCell wide>
                         {row.role === "teacher" && (
                           <TableIconAction

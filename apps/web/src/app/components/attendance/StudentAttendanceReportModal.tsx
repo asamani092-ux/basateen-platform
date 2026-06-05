@@ -26,6 +26,7 @@ import {
 } from "../ui/table";
 import { api, type CircleOption } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
+import { TableTruncatedCell } from "../shared/TableTruncatedCell";
 import { ds, tajawal } from "../../lib/design-system";
 
 export type StudentReportRow = {
@@ -251,9 +252,9 @@ export function StudentAttendanceReportModal({
                     key={r.student_id}
                     className="print:break-inside-avoid"
                   >
-                    <TableCell className={`${cellClass} print:w-[40%]`} style={tajawal}>
+                    <TableTruncatedCell className={`${cellClass} print:w-[40%]`} style={tajawal}>
                       {r.full_name_ar}
-                    </TableCell>
+                    </TableTruncatedCell>
                     <TableCell className={`${cellClass} print:w-[20%] print:text-center`} style={tajawal}>
                       {r.present_days}
                     </TableCell>

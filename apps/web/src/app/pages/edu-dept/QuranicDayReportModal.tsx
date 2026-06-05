@@ -17,6 +17,7 @@ import {
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { cn } from "../../components/ui/utils";
+import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import { ds, tajawal } from "../../lib/design-system";
 
 type ReportData = Awaited<ReturnType<typeof api.eduDeptQuranicDayReport>>;
@@ -125,9 +126,7 @@ export function QuranicDayReportModal({
                   <TableBody>
                     {data.students.map((st) => (
                       <TableRow key={st.student_id}>
-                        <TableCell className={ds.table.cell} style={tajawal}>
-                          {st.full_name_ar}
-                        </TableCell>
+                        <TableTruncatedCell style={tajawal}>{st.full_name_ar}</TableTruncatedCell>
                         <TableCell
                           className={`${ds.table.cell} text-center tabular-nums`}
                           style={tajawal}

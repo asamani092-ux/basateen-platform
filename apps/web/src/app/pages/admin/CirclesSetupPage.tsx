@@ -39,6 +39,7 @@ import {
 } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
 import { EDUCATIONAL_STAGES, type StageId } from "../../lib/stages";
+import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import { ds, tajawal } from "../../lib/design-system";
 import {
   adminInvalidateFor,
@@ -208,7 +209,7 @@ export function CirclesSetupPage() {
                       key={`${row.entity_type}-${row.id}`}
                       className={row.is_active === 0 ? "opacity-60" : undefined}
                     >
-                      <TableCell className={ds.table.cell} style={tajawal}>
+                      <TableTruncatedCell style={tajawal}>
                         {row.name_ar}
                         {row.is_active === 0 ? (
                           <Badge
@@ -219,7 +220,7 @@ export function CirclesSetupPage() {
                             معلّق
                           </Badge>
                         ) : null}
-                      </TableCell>
+                      </TableTruncatedCell>
                       <TableCell className={ds.table.cell}>
                         <Badge
                           variant={
@@ -235,7 +236,7 @@ export function CirclesSetupPage() {
                           {ENTITY_BADGE[row.entity_type]}
                         </Badge>
                       </TableCell>
-                      <TableCell className={ds.table.cell} style={tajawal}>
+                      <TableTruncatedCell style={tajawal}>
                         {row.assignee_id ? (
                           row.assignee_name ?? "—"
                         ) : (
@@ -243,7 +244,7 @@ export function CirclesSetupPage() {
                             غير معين
                           </span>
                         )}
-                      </TableCell>
+                      </TableTruncatedCell>
                       <TableCell className={ds.table.cell} style={tajawal}>
                         {row.student_count}
                       </TableCell>

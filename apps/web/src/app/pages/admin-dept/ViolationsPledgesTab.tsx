@@ -28,6 +28,7 @@ import {
 import { api } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
 import { stageLabel } from "../../lib/stages";
+import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import { ds, tajawal } from "../../lib/design-system";
 
 type Row = {
@@ -162,9 +163,7 @@ export function ViolationsPledgesTab() {
               <TableBody>
                 {items.map((row) => (
                   <TableRow key={row.id}>
-                    <TableCell className={ds.table.cell} style={tajawal}>
-                      {row.full_name_ar}
-                    </TableCell>
+                    <TableTruncatedCell style={tajawal}>{row.full_name_ar}</TableTruncatedCell>
                     <TableCell className={ds.table.cell} style={tajawal}>
                       {stageLabel(row.stage_id)}
                     </TableCell>

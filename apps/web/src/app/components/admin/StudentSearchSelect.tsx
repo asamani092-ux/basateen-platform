@@ -13,6 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { api, type StudentRow } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { cn } from "../ui/utils";
+import { formatStudentPlacement } from "../../lib/student-placement-display";
 import { ds, tajawal } from "../../lib/design-system";
 
 type Props = {
@@ -141,10 +142,18 @@ export function StudentSearchSelect({
                       value === s.id ? "opacity-100" : "opacity-0",
                     )}
                   />
-                  <span style={tajawal}>{s.full_name_ar}</span>
-                  {s.circle_name && (
-                    <span className="text-xs text-muted-foreground mr-2">
-                      — {s.circle_name}
+                  <span className="truncate block" style={tajawal}>
+                    {s.full_name_ar}
+                  </span>
+                  {(s.circle_name || s.track_name) && (
+                    <span className="text-xs text-muted-foreground mr-2 truncate block">
+                      {
+                        formatStudentPlacement({
+                          circleName: s.circle_name,
+                          trackName: s.track_name,
+                          emptyLabel: "—",
+                        }).text
+                      }
                     </span>
                   )}
                 </CommandItem>

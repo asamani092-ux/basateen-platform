@@ -5,6 +5,10 @@ import { AttendanceHistoryModal } from "../../components/attendance/AttendanceHi
 import { RetroactiveAttendanceAccordion } from "../../components/attendance/RetroactiveAttendanceAccordion";
 import { StaffAttendanceReportModal } from "../../components/attendance/StaffAttendanceReportModal";
 import { AttendanceFilterBar } from "../../components/attendance/AttendanceFilterBar";
+import {
+  TablePagination,
+  type PageInfo,
+} from "../../components/shared/TablePagination";
 import { Button } from "../../components/ui/button";
 import { Label } from "../../components/ui/label";
 import { useAdminDataSyncContext } from "../../context/AdminDataSyncContext";
@@ -29,7 +33,9 @@ export function StaffAttendancePage() {
   const [retroStart, setRetroStart] = useState(todayIso);
   const [retroEnd, setRetroEnd] = useState(todayIso);
   const [rows, setRows] = useState<Row[]>([]);
-  const [baseline, setBaseline] = useState<Record<number, string>>({});
+  const [statusMap, setStatusMap] = useState<Record<number, string>>({});
+  const [page, setPage] = useState(1);
+  const [pageInfo, setPageInfo] = useState<PageInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,8 +45,8 @@ export function StaffAttendancePage() {
   const { invalidate } = useAdminDataSyncContext();
 
   const dirtyCount = useMemo(
-    () => rows.filter((r) => (baseline[r.user_id] ?? "present") !== r.status).length,
-    [rows, baseline],
+    () => Object.keys(statusMap).length,
+    [statusMap],
   );
 
   const load = useCallback(async () => {
@@ -52,7 +58,7 @@ export function StaffAttendancePage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.adminDeptStaff(date);
+      const res = await api.adminDeptStaff(date, page);
       const items: Row[] = res.items.map((r) => ({
         user_id: r.user_id,
         full_name_ar: r.full_name_ar,
@@ -60,16 +66,19 @@ export function StaffAttendancePage() {
         status: normalizeAttendanceStatus(r.status ?? "present"),
       }));
       setRows(items);
-      const base: Record<number, string> = {};
-      for (const r of items) base[r.user_id] = r.status;
-      setBaseline(base);
+      setPageInfo(res.page ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل التحميل");
       setRows([]);
-      setBaseline({});
+      setPageInfo(null);
     } finally {
       setLoading(false);
     }
+  }, [date, page]);
+
+  useEffect(() => {
+    setPage(1);
+    setStatusMap({});
   }, [date]);
 
   useEffect(() => {
@@ -81,28 +90,38 @@ export function StaffAttendancePage() {
   }
 
   function pickStatus(userId: number, status: string) {
-    setRows((prev) =>
-      prev.map((r) => (r.user_id === userId ? { ...r, status } : r)),
-    );
+    setStatusMap((prev) => ({ ...prev, [userId]: status }));
   }
 
   async function commitAttendance() {
-    if (rows.length === 0) return;
+    if (!pageInfo && rows.length === 0) return;
     setCommitting(true);
     setError(null);
     try {
-      const res = await api.adminDeptSaveStaffAttendance({
+      const records: Array<{ user_id: number; status: string }> = [];
+      let p = 1;
+      let hasNext = true;
+      while (hasNext) {
+        const res = await api.adminDeptStaff(date, p);
+        for (const r of res.items) {
+          records.push({
+            user_id: r.user_id,
+            status: normalizeAttendanceStatus(
+              statusMap[r.user_id] ?? r.status ?? "present",
+            ),
+          });
+        }
+        hasNext = res.page?.has_next ?? false;
+        p += 1;
+      }
+      const saveRes = await api.adminDeptSaveStaffAttendance({
         attendance_date: date,
-        records: rows.map((r) => ({
-          user_id: r.user_id,
-          status: r.status,
-        })),
+        records,
       });
-      const base: Record<number, string> = {};
-      for (const r of rows) base[r.user_id] = r.status;
-      setBaseline(base);
-      toastAttendanceBulkSaved(res.saved);
+      setStatusMap({});
+      toastAttendanceBulkSaved(saveRes.saved);
       bumpDashboard();
+      await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل اعتماد التحضير");
     } finally {
@@ -110,9 +129,18 @@ export function StaffAttendancePage() {
     }
   }
 
+  const displayRows = useMemo(
+    () =>
+      rows.map((r) => ({
+        ...r,
+        status: normalizeAttendanceStatus(statusMap[r.user_id] ?? r.status),
+      })),
+    [rows, statusMap],
+  );
+
   const filteredRows = useMemo(
-    () => rows.filter((r) => matchesArabicName(nameQuery, r.full_name_ar)),
-    [rows, nameQuery],
+    () => displayRows.filter((r) => matchesArabicName(nameQuery, r.full_name_ar)),
+    [displayRows, nameQuery],
   );
 
   const dailyTableRows = useMemo(
@@ -202,7 +230,7 @@ export function StaffAttendancePage() {
         groupOptions={[]}
         hideGroupFilter
         shownCount={filteredRows.length}
-        totalCount={rows.length}
+        totalCount={pageInfo?.total ?? rows.length}
         hiddenDirty={0}
       />
 
@@ -216,11 +244,20 @@ export function StaffAttendancePage() {
             لا يوجد منسوبون يطابقون البحث.
           </p>
         ) : (
-          <AttendanceDailyTable
-            rows={dailyTableRows}
-            disabled={committing}
-            onStatusChange={pickStatus}
-          />
+          <>
+            <AttendanceDailyTable
+              rows={dailyTableRows}
+              disabled={committing}
+              onStatusChange={pickStatus}
+            />
+            {pageInfo && (
+              <TablePagination
+                page={pageInfo}
+                onPageChange={setPage}
+                className="print:hidden"
+              />
+            )}
+          </>
         )}
       </div>
 

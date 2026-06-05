@@ -5,6 +5,7 @@ import { studentCreateBodySchema } from "../lib/students-schema";
 import { hasTable, studentIsActiveSql, tableHasColumn } from "../lib/db-schema";
 import { buildStudentPlacementSql } from "../lib/student-list-sql";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
+import { PAGE_SIZE_MAX, pageMeta, parsePageParams } from "../lib/pagination";
 
 type StudentListRow = {
   id: number;
@@ -68,11 +69,7 @@ export async function handleStudentsList(
     const circleFilter = url.searchParams.get("circle_id")?.trim();
     const trackFilter = url.searchParams.get("track_id")?.trim();
     const statusFilter = url.searchParams.get("status_filter")?.trim();
-    const defaultLimit = auth.role === "super_admin" ? 500 : 100;
-    const limit = Math.min(
-      Number(url.searchParams.get("limit") ?? defaultLimit),
-      500,
-    );
+    const pageParams = parsePageParams(url);
     const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
     const hasAdmissionStatus = await tableHasColumn(env, "students", "admission_status");
     const hasSupervisorScopes = await hasTable(env, "supervisor_scopes");
@@ -249,8 +246,14 @@ export async function handleStudentsList(
         : (await tableHasColumn(env, "students", "name"))
           ? "s.name"
           : "s.id";
-    sql += ` ORDER BY ${orderName} LIMIT ?`;
-    binds.push(limit);
+    const countSql = `SELECT COUNT(*) AS c FROM (${sql})`;
+    const countRow = await env.DB.prepare(countSql)
+      .bind(...binds)
+      .first<{ c: number }>();
+    const total = Number(countRow?.c ?? 0);
+
+    sql += ` ORDER BY ${orderName} LIMIT ? OFFSET ?`;
+    binds.push(pageParams.pageSize, pageParams.offset);
 
     const stmt = env.DB.prepare(sql);
     const result = await stmt.bind(...binds).all<StudentListRow>();
@@ -259,6 +262,7 @@ export async function handleStudentsList(
       items: result.results ?? [],
       count: result.results?.length ?? 0,
       q: q || null,
+      page: pageMeta(total, pageParams),
     });
   } catch (err) {
     console.error("students_list_failed", err);

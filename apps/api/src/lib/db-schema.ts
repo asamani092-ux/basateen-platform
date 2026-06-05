@@ -95,6 +95,19 @@ export async function studentIsActiveSql(
   return sqliteActiveEq1(col);
 }
 
+/** طالب مؤهل للتحضير والتقارير النشطة — يستبعد المعلّقين */
+export async function studentAttendanceEligibleSql(
+  env: Env,
+  alias = "s",
+): Promise<string> {
+  const parts = [await studentIsActiveSql(env, alias)];
+  if (await tableHasColumn(env, "students", "account_status")) {
+    const col = alias ? `${alias}.account_status` : "account_status";
+    parts.push(`COALESCE(${col}, 'active') != 'suspended'`);
+  }
+  return parts.join(" AND ");
+}
+
 /** Join history only when it represents current placement (legacy schema). */
 export async function canJoinStudentHistoryForPlacement(env: Env): Promise<boolean> {
   const circleCol = await historyCircleColumn(env, "h");

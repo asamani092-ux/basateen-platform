@@ -162,34 +162,65 @@ export async function getAuth(
   const pragma = await env.DB.prepare("PRAGMA table_info(users)").all<{ name: string }>();
   const hasRole = (pragma.results ?? []).some((c) => c.name === "role");
 
+  const userColumns = await env.DB.prepare("PRAGMA table_info(users)").all<{ name: string }>();
+  const colSet = new Set((userColumns.results ?? []).map((c) => c.name));
+  const hasComplexId = colSet.has("complex_id");
+
   const userRow = hasRole
     ? await env.DB.prepare(
-        `SELECT id, is_active, role FROM users WHERE id = ? LIMIT 1`,
-      )
-        .bind(verified.auth.userId)
-        .first<{ id: number; is_active: number | null; role: string | null }>()
-    : await env.DB.prepare(
-        `SELECT id, is_active, is_admin, is_educational, is_programs, is_teacher
+        `SELECT id, is_active, role${hasComplexId ? ", complex_id" : ""}
          FROM users WHERE id = ? LIMIT 1`,
       )
         .bind(verified.auth.userId)
-        .first<DbUserRow & { id: number; is_active: number | null }>();
+        .first<{
+          id: number;
+          is_active: number | null;
+          role: string | null;
+          complex_id?: number | null;
+        }>()
+    : await env.DB.prepare(
+        `SELECT id, is_active, is_admin, is_educational, is_programs, is_teacher${
+          hasComplexId ? ", complex_id" : ""
+        }
+         FROM users WHERE id = ? LIMIT 1`,
+      )
+        .bind(verified.auth.userId)
+        .first<DbUserRow & { id: number; is_active: number | null; complex_id?: number | null }>();
 
   if (!userRow || typeof userRow.is_active === "undefined" || userRow.is_active !== 1) {
     authFailureFlags.set(request, "legacy_session_detected");
     return null;
   }
-  const role = normalizeUserRole(
+  const dbRole = normalizeUserRole(
     hasRole
       ? String((userRow as { role: string }).role)
       : resolveRoleFromUser(userRow as DbUserRow),
   );
-  if (!VALID_ROLES.includes(role)) {
+  if (!VALID_ROLES.includes(dbRole)) {
     authFailureFlags.set(request, "legacy_session_detected");
     return null;
   }
 
-  return verified.auth;
+  if (verified.auth.role !== dbRole) {
+    authFailureFlags.set(request, "legacy_session_detected");
+    return null;
+  }
+
+  const complexId =
+    hasComplexId && typeof userRow.complex_id === "number"
+      ? userRow.complex_id
+      : verified.auth.complexId;
+
+  if (complexId !== verified.auth.complexId) {
+    authFailureFlags.set(request, "legacy_session_detected");
+    return null;
+  }
+
+  return {
+    userId: verified.auth.userId,
+    role: dbRole,
+    complexId,
+  };
 }
 
 export function requireAuth(

@@ -1,5 +1,6 @@
 import type { Env } from "../types";
-import { studentIsActiveSql, tableHasColumn } from "./db-schema";
+import { studentAttendanceEligibleSql, tableHasColumn } from "./db-schema";
+import { PAGE_SIZE_MAX, pageMeta, parsePageParams, type PageParams } from "./pagination";
 import {
   resolveAttendanceTableName,
   type AttendanceStatus,
@@ -25,7 +26,11 @@ export async function loadStudentsForEntityAttendance(
   complexId: number,
   entity: { type: AttendanceEntityType; id: number },
   date: string,
-): Promise<{ items: unknown[]; attTable: string } | { error: string; hint?: string }> {
+  pageParams?: PageParams,
+): Promise<
+  | { items: unknown[]; attTable: string; page?: ReturnType<typeof pageMeta> }
+  | { error: string; hint?: string }
+> {
   const column =
     entity.type === "circle" ? "current_circle_id" : "current_track_id";
   if (!(await tableHasColumn(env, "students", column))) {
@@ -43,8 +48,17 @@ export async function loadStudentsForEntityAttendance(
   const attSourceCol = (await tableHasColumn(env, attTable, "source"))
     ? ", sa.source"
     : "";
-  const isActiveExpr = await studentIsActiveSql(env, "s");
+  const eligibleExpr = await studentAttendanceEligibleSql(env, "s");
   const placementCol = entity.type === "circle" ? "current_circle_id" : "current_track_id";
+  const params = pageParams ?? { page: 1, pageSize: PAGE_SIZE_MAX, offset: 0 };
+
+  const countRow = await env.DB.prepare(
+    `SELECT COUNT(*) AS c FROM students s
+     WHERE s.complex_id = ? AND ${eligibleExpr} AND s.${placementCol} = ?`,
+  )
+    .bind(complexId, entity.id)
+    .first<{ c: number }>();
+  const total = Number(countRow?.c ?? 0);
 
   const rows = await env.DB.prepare(
     `SELECT s.id AS student_id, s.full_name_ar,
@@ -56,14 +70,19 @@ export async function loadStudentsForEntityAttendance(
      FROM students s
      LEFT JOIN ${attTable} sa
        ON sa.student_id = s.id AND sa.attendance_date = ?
-     WHERE s.complex_id = ? AND ${isActiveExpr}
+     WHERE s.complex_id = ? AND ${eligibleExpr}
        AND s.${placementCol} = ?
-     ORDER BY s.full_name_ar`,
+     ORDER BY s.full_name_ar
+     LIMIT ? OFFSET ?`,
   )
-    .bind(date, complexId, entity.id)
+    .bind(date, complexId, entity.id, params.pageSize, params.offset)
     .all();
 
-  return { items: rows.results ?? [], attTable };
+  return {
+    items: rows.results ?? [],
+    attTable,
+    page: pageMeta(total, params),
+  };
 }
 
 export async function studentBelongsToEntity(
@@ -72,7 +91,7 @@ export async function studentBelongsToEntity(
   studentId: number,
   entity: { type: AttendanceEntityType; id: number },
 ): Promise<boolean> {
-  const isActiveExpr = await studentIsActiveSql(env, "");
+  const isActiveExpr = await studentAttendanceEligibleSql(env, "");
   const column =
     entity.type === "circle" ? "current_circle_id" : "current_track_id";
   if (!(await tableHasColumn(env, "students", column))) return false;

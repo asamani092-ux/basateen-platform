@@ -10,6 +10,10 @@ import { AttendanceMagicLinksModal } from "../../components/attendance/Attendanc
 import { RetroactiveAttendanceAccordion } from "../../components/attendance/RetroactiveAttendanceAccordion";
 import { StudentAttendanceReportModal } from "../../components/attendance/StudentAttendanceReportModal";
 import { AttendanceFilterBar } from "../../components/attendance/AttendanceFilterBar";
+import {
+  TablePagination,
+  type PageInfo,
+} from "../../components/shared/TablePagination";
 import { Button } from "../../components/ui/button";
 import { Label } from "../../components/ui/label";
 import { useAdminDataSyncContext } from "../../context/AdminDataSyncContext";
@@ -35,7 +39,9 @@ export function StudentDailyAttendancePage() {
   const [circles, setCircles] = useState<CircleOption[]>([]);
   const [tracks, setTracks] = useState<AdminTrackRow[]>([]);
   const [rows, setRows] = useState<StudentRow[]>([]);
-  const [baseline, setBaseline] = useState<Record<number, string>>({});
+  const [statusMap, setStatusMap] = useState<Record<number, string>>({});
+  const [page, setPage] = useState(1);
+  const [pageInfo, setPageInfo] = useState<PageInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingGroups, setLoadingGroups] = useState(true);
   const [committing, setCommitting] = useState(false);
@@ -46,10 +52,7 @@ export function StudentDailyAttendancePage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const { invalidate } = useAdminDataSyncContext();
 
-  const dirtyCount = useMemo(
-    () => rows.filter((r) => (baseline[r.student_id] ?? "present") !== r.status).length,
-    [rows, baseline],
-  );
+  const dirtyCount = useMemo(() => Object.keys(statusMap).length, [statusMap]);
 
   useEffect(() => {
     if (!canUseApi()) {
@@ -71,7 +74,7 @@ export function StudentDailyAttendancePage() {
   const loadStudents = useCallback(async () => {
     if (!entity || !canUseApi()) {
       setRows([]);
-      setBaseline({});
+      setPageInfo(null);
       return;
     }
     setLoading(true);
@@ -79,24 +82,27 @@ export function StudentDailyAttendancePage() {
     try {
       const res =
         entity.type === "circle"
-          ? await api.adminDeptStudentAttendance(entity.id, date)
-          : await api.adminDeptTrackAttendance(entity.id, date);
+          ? await api.adminDeptStudentAttendance(entity.id, date, page)
+          : await api.adminDeptTrackAttendance(entity.id, date, page);
       const items: StudentRow[] = (res.items ?? []).map((r) => ({
         student_id: r.student_id,
         full_name_ar: r.full_name_ar,
         status: normalizeAttendanceStatus(r.status ?? "present"),
       }));
       setRows(items);
-      const base: Record<number, string> = {};
-      for (const r of items) base[r.student_id] = r.status;
-      setBaseline(base);
+      setPageInfo(res.page ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل تحميل الطلاب");
       setRows([]);
-      setBaseline({});
+      setPageInfo(null);
     } finally {
       setLoading(false);
     }
+  }, [entity, date, page]);
+
+  useEffect(() => {
+    setPage(1);
+    setStatusMap({});
   }, [entity, date]);
 
   useEffect(() => {
@@ -108,30 +114,43 @@ export function StudentDailyAttendancePage() {
   }
 
   function pickStatus(studentId: number, status: string) {
-    setRows((prev) =>
-      prev.map((r) => (r.student_id === studentId ? { ...r, status } : r)),
-    );
+    setStatusMap((prev) => ({ ...prev, [studentId]: status }));
   }
 
   async function commitAttendance() {
-    if (!entity || rows.length === 0) return;
+    if (!entity) return;
     setCommitting(true);
     setError(null);
     try {
+      const records: Array<{ student_id: number; status: string }> = [];
+      let p = 1;
+      let hasNext = true;
+      while (hasNext) {
+        const res =
+          entity.type === "circle"
+            ? await api.adminDeptStudentAttendance(entity.id, date, p)
+            : await api.adminDeptTrackAttendance(entity.id, date, p);
+        for (const r of res.items ?? []) {
+          records.push({
+            student_id: r.student_id,
+            status: normalizeAttendanceStatus(
+              statusMap[r.student_id] ?? r.status ?? "present",
+            ),
+          });
+        }
+        hasNext = res.page?.has_next ?? false;
+        p += 1;
+      }
       const res = await api.adminDeptSaveStudentAttendance({
         attendance_date: date,
         circle_id: entity.type === "circle" ? entity.id : undefined,
         track_id: entity.type === "track" ? entity.id : undefined,
-        records: rows.map((r) => ({
-          student_id: r.student_id,
-          status: r.status,
-        })),
+        records,
       });
-      const base: Record<number, string> = {};
-      for (const r of rows) base[r.student_id] = r.status;
-      setBaseline(base);
+      setStatusMap({});
       toastAttendanceBulkSaved(res.saved);
       bumpDashboard();
+      await loadStudents();
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل اعتماد التحضير");
     } finally {
@@ -139,9 +158,18 @@ export function StudentDailyAttendancePage() {
     }
   }
 
+  const displayRows = useMemo(
+    () =>
+      rows.map((r) => ({
+        ...r,
+        status: normalizeAttendanceStatus(statusMap[r.student_id] ?? r.status),
+      })),
+    [rows, statusMap],
+  );
+
   const filteredRows = useMemo(
-    () => rows.filter((r) => matchesArabicName(nameQuery, r.full_name_ar)),
-    [rows, nameQuery],
+    () => displayRows.filter((r) => matchesArabicName(nameQuery, r.full_name_ar)),
+    [displayRows, nameQuery],
   );
 
   const dailyTableRows = useMemo(
@@ -275,7 +303,7 @@ export function StudentDailyAttendancePage() {
             onGroupChange={() => {}}
             groupOptions={[]}
             shownCount={filteredRows.length}
-            totalCount={rows.length}
+            totalCount={pageInfo?.total ?? rows.length}
             hiddenDirty={0}
             hideGroupFilter
           />
@@ -290,17 +318,26 @@ export function StudentDailyAttendancePage() {
                 لا يوجد طلاب يطابقون البحث.
               </p>
             ) : (
-              <AttendanceDailyTable
-                rows={dailyTableRows}
-                disabled={committing}
-                onStatusChange={pickStatus}
-              />
+              <>
+                <AttendanceDailyTable
+                  rows={dailyTableRows}
+                  disabled={committing}
+                  onStatusChange={pickStatus}
+                />
+                {pageInfo && (
+                  <TablePagination
+                    page={pageInfo}
+                    onPageChange={setPage}
+                    className="print:hidden"
+                  />
+                )}
+              </>
             )}
           </div>
         </>
       )}
 
-      {entity && !loading && filteredRows.length > 0 && (
+      {entity && !loading && (pageInfo?.total ?? filteredRows.length) > 0 && (
         <div className="fixed bottom-0 inset-x-0 z-20 border-t border-border bg-background/95 backdrop-blur px-4 py-3">
           <div className="max-w-[1600px] mx-auto flex justify-end">
             <Button

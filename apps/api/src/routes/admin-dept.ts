@@ -5,6 +5,7 @@ import {
   requireAuth,
   requireRoles,
 } from "../middleware/auth";
+import { enforceRateLimit } from "../lib/rate-limit";
 import {
   circleLabelRow,
   studentCircleScopeSql,
@@ -19,16 +20,20 @@ import {
 import {
   activePlacementSql,
   hasTable,
+  studentAttendanceEligibleSql,
   studentIsActiveSql,
   tableHasColumn,
 } from "../lib/db-schema";
 import { buildStudentPlacementSql } from "../lib/student-list-sql";
 import { STAGE_LABELS } from "../lib/dept-scope";
 import {
+  findActiveMagicLinkForEntity,
   randomMagicToken,
   resolveMagicGroupId,
   type MagicLinkContext,
 } from "../lib/magic-link";
+import { pageMeta, parsePageParams } from "../lib/pagination";
+import { fetchSemesterPeriod, semesterQueryRange } from "../lib/semester-period";
 import {
   batchSaveStaffAttendance,
   batchSaveStudentAttendance,
@@ -253,9 +258,17 @@ async function handleAdminDeptRouterImpl(
   // GET /api/admin-dept/staff
   if (request.method === "GET" && path === "/api/admin-dept/staff") {
     const date = url.searchParams.get("date")?.trim() || todayIso();
+    const pageParams = parsePageParams(url);
     const { sql } = await staffListSql(env);
-    const rows = await env.DB.prepare(sql)
+    const countRow = await env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM (${sql})`,
+    )
       .bind(date, admin.complexId, admin.complexId)
+      .first<{ c: number }>();
+    const total = Number(countRow?.c ?? 0);
+
+    const rows = await env.DB.prepare(`${sql} LIMIT ? OFFSET ?`)
+      .bind(date, admin.complexId, admin.complexId, pageParams.pageSize, pageParams.offset)
       .all<{
         user_id: number;
         full_name_ar: string;
@@ -279,7 +292,12 @@ async function handleAdminDeptRouterImpl(
       recorded_at: r.recorded_at,
     }));
 
-    return json({ date, items, default_status: "present" });
+    return json({
+      date,
+      items,
+      default_status: "present",
+      page: pageMeta(total, pageParams),
+    });
   }
 
   // GET /api/admin-dept/staff/attendance | GET /api/admin/staff/attendance (تقرير مجمّع)
@@ -412,11 +430,13 @@ async function handleAdminDeptRouterImpl(
     }
 
     const date = url.searchParams.get("date")?.trim() || todayIso();
+    const pageParams = parsePageParams(url);
     const loaded = await loadStudentsForEntityAttendance(
       env,
       admin.complexId,
       { type: "track", id: trackId },
       date,
+      pageParams,
     );
     if ("error" in loaded) {
       return json(loaded, loaded.error === "migration_required" ? 503 : 500);
@@ -434,6 +454,7 @@ async function handleAdminDeptRouterImpl(
       track,
       items: loaded.items,
       default_status: "present",
+      page: loaded.page,
     });
   }
 
@@ -449,11 +470,13 @@ async function handleAdminDeptRouterImpl(
     }
 
     const date = url.searchParams.get("date")?.trim() || todayIso();
+    const pageParams = parsePageParams(url);
     const loaded = await loadStudentsForEntityAttendance(
       env,
       admin.complexId,
       { type: "circle", id: circleId },
       date,
+      pageParams,
     );
     if ("error" in loaded) {
       return json(loaded, loaded.error === "migration_required" ? 503 : 500);
@@ -467,6 +490,7 @@ async function handleAdminDeptRouterImpl(
       circle,
       items: loaded.items,
       default_status: "present",
+      page: loaded.page,
     });
   }
 
@@ -648,7 +672,7 @@ async function handleAdminDeptRouterImpl(
     }
 
     const placement = await buildStudentPlacementSql(env);
-    const isActiveExpr = await studentIsActiveSql(env, "s");
+    const isActiveExpr = await studentAttendanceEligibleSql(env, "s");
 
     let sql = `
       SELECT s.id AS student_id, s.full_name_ar, s.guardian_phone, s.stage_id,
@@ -698,20 +722,6 @@ async function handleAdminDeptRouterImpl(
     });
 
     return json({ date, items, template });
-  }
-
-  // POST /api/admin-dept/admission — مُلغى: مصدر الحقيقة POST /api/admin/students
-  if (request.method === "POST" && path === "/api/admin-dept/admission") {
-    console.warn("deprecated_admission_endpoint", path);
-    return json(
-      {
-        error: "endpoint_deprecated",
-        message:
-          "تم دمج القبول والتسجيل في بيانات الطلاب — استخدم POST /api/admin/students",
-        use: "/api/admin/students",
-      },
-      410,
-    );
   }
 
   // POST /api/admin-dept/pledges
@@ -1190,14 +1200,16 @@ async function handleAdminDeptRouterImpl(
 
   // GET /api/admin-dept/reports
   if (request.method === "GET" && path === "/api/admin-dept/reports") {
+    const semester = await fetchSemesterPeriod(env, admin.complexId);
+    const semesterRange = semesterQueryRange(semester);
     const startDate =
       url.searchParams.get("startDate")?.trim() ||
       url.searchParams.get("start_date")?.trim() ||
-      todayIso();
+      semesterRange.start;
     const endDate =
       url.searchParams.get("endDate")?.trim() ||
       url.searchParams.get("end_date")?.trim() ||
-      startDate;
+      semesterRange.end;
     const statusFilter = (
       url.searchParams.get("status")?.trim() || "all"
     ).toLowerCase();
@@ -1209,7 +1221,7 @@ async function handleAdminDeptRouterImpl(
     const includeStaff = typeFilter === "all" || typeFilter === "staff";
     const includeStudents = typeFilter === "all" || typeFilter === "student";
     const includeItems = url.searchParams.get("include_items") !== "false";
-    const isActiveExpr = await studentIsActiveSql(env, "s");
+    const isActiveExpr = await studentAttendanceEligibleSql(env, "s");
 
     type ReportRow = {
       name: string;
@@ -1224,7 +1236,8 @@ async function handleAdminDeptRouterImpl(
         SELECT u.full_name_ar AS name, sa.attendance_date AS date, sa.status
         FROM staff_attendance sa
         JOIN users u ON u.id = sa.user_id
-        WHERE sa.complex_id = ? AND sa.attendance_date BETWEEN ? AND ?`;
+        WHERE sa.complex_id = ? AND sa.attendance_date BETWEEN ? AND ?
+          AND u.is_active = 1`;
       if (absentOnly) staffSql += ` AND sa.status IN ('absent', 'excused')`;
       staffSql += ` ORDER BY sa.attendance_date DESC, u.full_name_ar`;
       const staffRows = await env.DB.prepare(staffSql)
@@ -1876,6 +1889,9 @@ async function handleAdminDeptRouterImpl(
 
   // POST /api/admin-dept/magic-links
   if (request.method === "POST" && path === "/api/admin-dept/magic-links") {
+    const limited = await enforceRateLimit(request, "magic-links-create", 15, 60);
+    if (limited) return limited;
+
     if (!(await hasTable(env, "shared_access_tokens"))) {
       return json({ error: "migration_required", migration: "024_admin_department" }, 503);
     }
@@ -1924,6 +1940,18 @@ async function handleAdminDeptRouterImpl(
       }
     } else if (!(await assertTrackInComplex(env, admin.complexId, entity.id))) {
       return json({ error: "track_not_found" }, 404);
+    }
+
+    const existing = await findActiveMagicLinkForEntity(env, admin.complexId, entity);
+    if (existing) {
+      return json(
+        {
+          error: "active_link_exists",
+          message:
+            "يوجد رابط فعال مسبقاً لهذه الحلقة/المسار، يرجى تعطيله أولاً",
+        },
+        409,
+      );
     }
 
     const token = randomMagicToken();

@@ -6,6 +6,7 @@ import {
 } from "./db-schema";
 import { countComplexStaff, countComplexStudents } from "./admin-roster-counts";
 import { resolveAttendanceTableName } from "./student-attendance-db";
+import { fetchSemesterPeriod, semesterQueryRange } from "./semester-period";
 
 export type AdminDashboardStats = {
   complex_name: string | null;
@@ -58,7 +59,10 @@ export async function fetchAdminDashboardStats(
   env: Env,
   complexId: number,
 ): Promise<AdminDashboardStats> {
-  const month = currentMonthRange();
+  const semester = await fetchSemesterPeriod(env, complexId);
+  const month = semester.active
+    ? semesterQueryRange(semester)
+    : currentMonthRange();
 
   const circlesActiveP = (async () => {
     if (!(await hasTable(env, "circles"))) return 0;

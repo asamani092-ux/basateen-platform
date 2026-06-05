@@ -45,6 +45,8 @@ import {
   handleAdminStaffAttendanceUpsert,
   handleAdminComplexSettingsGet,
   handleAdminComplexSettingsPatch,
+  handleSemesterStart,
+  handleSemesterEnd,
 } from "./routes/admin-gm-stats";
 import { handleAdminDeptRouter } from "./routes/admin-dept";
 import { handlePublicLinksRouter } from "./routes/public-links";
@@ -139,6 +141,26 @@ const superAdminStats: Array<{ method: string; path: string; handler: RouteHandl
     handler: handleAdminComplexSettingsPatch,
   },
   { method: "PATCH", path: "/api/admin/complex-settings", handler: handleAdminComplexSettingsPatch },
+  {
+    method: "POST",
+    path: "/api/admin/complex-settings/semester/start",
+    handler: handleSemesterStart,
+  },
+  {
+    method: "POST",
+    path: "/api/super-admin/complex-settings/semester/start",
+    handler: handleSemesterStart,
+  },
+  {
+    method: "POST",
+    path: "/api/admin/complex-settings/semester/end",
+    handler: handleSemesterEnd,
+  },
+  {
+    method: "POST",
+    path: "/api/super-admin/complex-settings/semester/end",
+    handler: handleSemesterEnd,
+  },
 ];
 
 async function dispatchDepartmentRouters(

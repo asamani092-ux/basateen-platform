@@ -7,6 +7,10 @@ import {
   TableIconAction,
 } from "../../components/admin/TableIconAction";
 import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
+import {
+  TablePagination,
+  type PageInfo,
+} from "../../components/shared/TablePagination";
 import { Button } from "../../components/ui/button";
 import {
   Dialog,
@@ -106,6 +110,8 @@ function apiErrorMessage(err: unknown, fallback: string): string {
 
 export function StaffManagementPage() {
   const [items, setItems] = useState<StaffMemberRow[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageInfo, setPageInfo] = useState<PageInfo | null>(null);
   const [circles, setCircles] = useState<AdminCircleRow[]>([]);
   const [tracks, setTracks] = useState<AdminTrackRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -116,35 +122,12 @@ export function StaffManagementPage() {
   const hasApi = Boolean(getApiToken());
   const { invalidate } = useAdminDataSyncContext();
 
-  const load = useCallback(async () => {
-    if (!hasApi) {
-      toast.error("أعد تسجيل الدخول لربط API");
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    const [staffRes, circlesRes, tracksRes] = await Promise.allSettled([
-      api.adminStaff(),
+  const loadMeta = useCallback(async () => {
+    if (!hasApi) return;
+    const [circlesRes, tracksRes] = await Promise.allSettled([
       api.adminCirclesSummary(),
       api.adminTracks(),
     ]);
-    if (staffRes.status === "fulfilled") {
-      const payload = staffRes.value as {
-        items?: StaffMemberRow[];
-        error?: string;
-        message?: string;
-      };
-      if (payload.error) {
-        toast.error(payload.message ?? "تعذر تحميل المنسوبين");
-        setItems([]);
-      } else {
-        setItems(payload.items ?? []);
-      }
-    } else {
-      console.error("[staff] list:", staffRes.reason);
-      setItems([]);
-      toast.error(apiErrorMessage(staffRes.reason, "تعذر تحميل المنسوبين"));
-    }
     if (circlesRes.status === "fulfilled") {
       setCircles((circlesRes.value.items ?? []).filter((c) => c.is_active));
     } else {
@@ -155,14 +138,52 @@ export function StaffManagementPage() {
     } else {
       setTracks([]);
     }
-    setLoading(false);
   }, [hasApi]);
+
+  const load = useCallback(async () => {
+    if (!hasApi) {
+      toast.error("أعد تسجيل الدخول لربط API");
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const staffRes = await Promise.allSettled([api.adminStaff({ page })]);
+    if (staffRes[0].status === "fulfilled") {
+      const payload = staffRes[0].value as {
+        items?: StaffMemberRow[];
+        page?: PageInfo;
+        error?: string;
+        message?: string;
+      };
+      if (payload.error) {
+        toast.error(payload.message ?? "تعذر تحميل المنسوبين");
+        setItems([]);
+        setPageInfo(null);
+      } else {
+        setItems(payload.items ?? []);
+        setPageInfo(payload.page ?? null);
+      }
+    } else {
+      console.error("[staff] list:", staffRes[0].reason);
+      setItems([]);
+      setPageInfo(null);
+      toast.error(apiErrorMessage(staffRes[0].reason, "تعذر تحميل المنسوبين"));
+    }
+    setLoading(false);
+  }, [hasApi, page]);
+
+  useEffect(() => {
+    void loadMeta();
+  }, [loadMeta]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  useAdminDataSync(["staff", "groups"], load);
+  useAdminDataSync(["staff", "groups"], () => {
+    void loadMeta();
+    void load();
+  });
 
   function afterStaffMutation() {
     invalidate(adminInvalidateFor("staff"));
@@ -190,7 +211,7 @@ export function StaffManagementPage() {
               قائمة المنسوبين
             </CardTitle>
             <CardDescription style={tajawal}>
-              {items.length} منسوب مسجّل
+              {pageInfo?.total ?? items.length} منسوب مسجّل
             </CardDescription>
           </div>
           <Button
@@ -293,6 +314,9 @@ export function StaffManagementPage() {
                 )}
               </TableBody>
             </Table>
+            {pageInfo && (
+              <TablePagination page={pageInfo} onPageChange={setPage} />
+            )}
             </div>
           )}
         </CardContent>

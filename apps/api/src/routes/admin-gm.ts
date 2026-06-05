@@ -1,4 +1,5 @@
 import type { Env } from "../types";
+import { pageMeta, parsePageParams } from "../lib/pagination";
 import type { UserRole } from "../types";
 import { hashPassword } from "../lib/password";
 import {
@@ -276,9 +277,25 @@ export async function handleAdminStaffList(
     const denied = requireGm(auth);
     if (denied) return denied;
 
-    const sql = await staffListSql(env);
-    const rows = await env.DB.prepare(sql)
-      .bind(auth!.complexId)
+    const url = new URL(request.url);
+    const pageParams = parsePageParams(url);
+    const roleFilter = url.searchParams.get("role")?.trim();
+    let sql = await staffListSql(env);
+    const binds: (string | number)[] = [auth!.complexId];
+    if (roleFilter) {
+      sql = sql.replace(
+        /ORDER BY u\.full_name_ar\s*$/i,
+        "AND u.role = ? ORDER BY u.full_name_ar",
+      );
+      binds.push(roleFilter);
+    }
+    const countRow = await env.DB.prepare(`SELECT COUNT(*) AS c FROM (${sql})`)
+      .bind(...binds)
+      .first<{ c: number }>();
+    const total = Number(countRow?.c ?? 0);
+
+    const rows = await env.DB.prepare(`${sql} LIMIT ? OFFSET ?`)
+      .bind(...binds, pageParams.pageSize, pageParams.offset)
       .all<{
         id: number;
         full_name_ar: string;
@@ -291,7 +308,7 @@ export async function handleAdminStaffList(
         track_name: string | null;
       }>();
 
-    return json({ items: rows.results ?? [] });
+    return json({ items: rows.results ?? [], page: pageMeta(total, pageParams) });
   } catch (error: unknown) {
     console.error("[admin-gm] staff list:", error);
     const message =

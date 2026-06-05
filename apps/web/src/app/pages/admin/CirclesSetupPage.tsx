@@ -63,6 +63,19 @@ function apiErrorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
+async function fetchStaffByRole(role: string): Promise<StaffMemberRow[]> {
+  const all: StaffMemberRow[] = [];
+  let p = 1;
+  let hasNext = true;
+  while (hasNext) {
+    const res = await api.adminStaff({ role, page: p });
+    all.push(...(res.items ?? []));
+    hasNext = res.page?.has_next ?? false;
+    p += 1;
+  }
+  return all;
+}
+
 export function CirclesSetupPage() {
   const [items, setItems] = useState<EducationalGroupRow[]>([]);
   const [staff, setStaff] = useState<StaffMemberRow[]>([]);
@@ -89,9 +102,10 @@ export function CirclesSetupPage() {
       return;
     }
     setLoading(true);
-    const [groupsRes, staffRes] = await Promise.allSettled([
+    const [groupsRes, teachersRes, trackSupRes] = await Promise.allSettled([
       api.adminEducationalGroups(),
-      api.adminStaff(),
+      fetchStaffByRole("teacher"),
+      fetchStaffByRole("track_supervisor"),
     ]);
     if (groupsRes.status === "fulfilled") {
       setItems(groupsRes.value.items ?? []);
@@ -100,8 +114,8 @@ export function CirclesSetupPage() {
       setItems([]);
       toast.error(apiErrorMessage(groupsRes.reason, "تعذر تحميل الحلقات والمسارات"));
     }
-    if (staffRes.status === "fulfilled") {
-      setStaff(staffRes.value.items ?? []);
+    if (teachersRes.status === "fulfilled" && trackSupRes.status === "fulfilled") {
+      setStaff([...teachersRes.value, ...trackSupRes.value]);
     } else {
       setStaff([]);
     }

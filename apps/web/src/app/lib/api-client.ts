@@ -258,6 +258,8 @@ export const api = {
           circle_id?: number | null;
           track_id?: number | null;
           status_filter?: "active" | "suspended" | "no_circle" | "no_track" | null;
+          page?: number;
+          page_size?: number;
         },
   ) => {
     const search = new URLSearchParams();
@@ -268,11 +270,22 @@ export const api = {
       if (params.circle_id != null) search.set("circle_id", String(params.circle_id));
       if (params.track_id != null) search.set("track_id", String(params.track_id));
       if (params.status_filter) search.set("status_filter", params.status_filter);
+      if (params.page != null) search.set("page", String(params.page));
+      if (params.page_size != null) search.set("page_size", String(params.page_size));
     }
     const qs = search.toString();
-    return request<{ items: StudentRow[]; count: number }>(
-      `/api/students${qs ? `?${qs}` : ""}`,
-    );
+    return request<{
+      items: StudentRow[];
+      count: number;
+      page?: {
+        page: number;
+        page_size: number;
+        total: number;
+        total_pages: number;
+        has_prev: boolean;
+        has_next: boolean;
+      };
+    }>(`/api/students${qs ? `?${qs}` : ""}`);
   },
   studentsCreate: (body: {
     full_name_ar: string;
@@ -616,7 +629,24 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  adminStaff: () => request<{ items: StaffMemberRow[] }>("/api/admin/staff"),
+  adminStaff: (params?: { page?: number; page_size?: number; role?: string }) => {
+    const search = new URLSearchParams();
+    if (params?.page != null) search.set("page", String(params.page));
+    if (params?.page_size != null) search.set("page_size", String(params.page_size));
+    if (params?.role?.trim()) search.set("role", params.role.trim());
+    const qs = search.toString();
+    return request<{
+      items: StaffMemberRow[];
+      page?: {
+        page: number;
+        page_size: number;
+        total: number;
+        total_pages: number;
+        has_prev: boolean;
+        has_next: boolean;
+      };
+    }>(`/api/admin/staff${qs ? `?${qs}` : ""}`);
+  },
   adminStaffPatch: (
     id: number,
     body: {
@@ -830,7 +860,20 @@ export const api = {
       school_days: number[];
       graduates_count: number;
       huffadh_count: number;
+      semester_active?: boolean;
+      semester_start_date?: string | null;
+      semester_end_date?: string | null;
     }>("/api/admin/complex-settings"),
+  adminSemesterStart: () =>
+    request<{ ok: boolean; semester_start_date: string; semester_active: boolean }>(
+      "/api/admin/complex-settings/semester/start",
+      { method: "POST", body: "{}" },
+    ),
+  adminSemesterEnd: (confirm_text: string) =>
+    request<{ ok: boolean; semester_end_date: string; semester_active: boolean }>(
+      "/api/admin/complex-settings/semester/end",
+      { method: "POST", body: JSON.stringify({ confirm_text }) },
+    ),
   adminPatchComplexSettings: (body: {
     semester_weeks?: number;
     school_days?: number[];
@@ -877,8 +920,11 @@ export const api = {
       body: JSON.stringify(body),
     }),
   /** القسم الإداري — API v2.6 */
-  adminDeptStaff: (date?: string) => {
-    const qs = date ? `?date=${encodeURIComponent(date)}` : "";
+  adminDeptStaff: (date?: string, page = 1) => {
+    const search = new URLSearchParams();
+    if (date) search.set("date", date);
+    search.set("page", String(page));
+    const qs = search.toString();
     return request<{
       date: string;
       items: Array<{
@@ -891,7 +937,15 @@ export const api = {
         recorded_at?: string | null;
       }>;
       default_status: string;
-    }>(`/api/admin-dept/staff${qs}`);
+      page?: {
+        page: number;
+        page_size: number;
+        total: number;
+        total_pages: number;
+        has_prev: boolean;
+        has_next: boolean;
+      };
+    }>(`/api/admin-dept/staff?${qs}`);
   },
   adminPatchAttendance: (
     id: number,
@@ -1011,8 +1065,11 @@ export const api = {
       }>;
     }>(`/api/admin-dept/staff/attendance?${qs}`);
   },
-  adminDeptStudentAttendance: (circleId: number, date?: string) => {
-    const qs = date ? `?date=${encodeURIComponent(date)}` : "";
+  adminDeptStudentAttendance: (circleId: number, date?: string, page = 1) => {
+    const search = new URLSearchParams();
+    if (date) search.set("date", date);
+    search.set("page", String(page));
+    const qs = search.toString();
     return request<{
       attendance_date: string;
       entity_type?: "circle";
@@ -1028,10 +1085,21 @@ export const api = {
         source?: string | null;
       }>;
       default_status: string;
-    }>(`/api/admin-dept/students/attendance/${circleId}${qs}`);
+      page?: {
+        page: number;
+        page_size: number;
+        total: number;
+        total_pages: number;
+        has_prev: boolean;
+        has_next: boolean;
+      };
+    }>(`/api/admin-dept/students/attendance/${circleId}?${qs}`);
   },
-  adminDeptTrackAttendance: (trackId: number, date?: string) => {
-    const qs = date ? `?date=${encodeURIComponent(date)}` : "";
+  adminDeptTrackAttendance: (trackId: number, date?: string, page = 1) => {
+    const search = new URLSearchParams();
+    if (date) search.set("date", date);
+    search.set("page", String(page));
+    const qs = search.toString();
     return request<{
       attendance_date: string;
       entity_type: "track";
@@ -1047,7 +1115,15 @@ export const api = {
         source?: string | null;
       }>;
       default_status: string;
-    }>(`/api/admin-dept/students/attendance/track/${trackId}${qs}`);
+      page?: {
+        page: number;
+        page_size: number;
+        total: number;
+        total_pages: number;
+        has_prev: boolean;
+        has_next: boolean;
+      };
+    }>(`/api/admin-dept/students/attendance/track/${trackId}?${qs}`);
   },
   adminDeptSaveStudentAttendance: (body: {
     circle_id?: number;
@@ -1950,129 +2026,6 @@ export const api = {
   ) =>
     request<{ ok: boolean; saved: number }>(
       `/api/public/attendance/${encodeURIComponent(token)}`,
-      { method: "POST", body: JSON.stringify(body) },
-    ),
-  gsScope: () =>
-    request<{
-      scope: { type: string; stageIds?: number[] };
-      supervisor_scope: string;
-      stage_labels: Record<number, string>;
-    }>("/api/admin-dept/scope"),
-  gsStaffAttendanceToday: (date?: string) => {
-    const qs = date ? `?date=${encodeURIComponent(date)}` : "";
-    return request<{
-      date: string;
-      items: Array<{
-        user_id: number;
-        full_name_ar: string;
-        role: string;
-        status: string;
-      }>;
-      default_status: string;
-    }>(`/api/admin-dept/staff-attendance/today${qs}`);
-  },
-  gsStaffAttendanceInitToday: () =>
-    request<{ ok: boolean; date: string; count: number }>(
-      "/api/admin-dept/staff-attendance/init-today",
-      { method: "POST", body: "{}" },
-    ),
-  gsStaffAttendanceUpsert: (body: {
-    user_id: number;
-    status: string;
-    attendance_date?: string;
-  }) =>
-    request<{ ok: boolean }>(
-      "/api/admin-dept/staff-attendance/upsert",
-      { method: "POST", body: JSON.stringify(body) },
-    ),
-  gsApplications: (status = "pending") =>
-    request<{ items: unknown[] }>(
-      `/api/admin-dept/applications?status=${encodeURIComponent(status)}`,
-    ),
-  gsApplicationCreate: (body: Record<string, unknown>) =>
-    request<{ ok: boolean; id: number }>(
-      "/api/admin-dept/applications",
-      { method: "POST", body: JSON.stringify(body) },
-    ),
-  gsApplicationAccept: (id: number) =>
-    request<{ ok: boolean; student_id: number }>(
-      `/api/admin-dept/applications/${id}/accept`,
-      { method: "POST", body: "{}" },
-    ),
-  gsApplicationReject: (id: number) =>
-    request<{ ok: boolean }>(
-      `/api/admin-dept/applications/${id}/reject`,
-      { method: "POST", body: "{}" },
-    ),
-  gsDisciplinary: () =>
-    request<{ items: unknown[] }>("/api/admin-dept/disciplinary"),
-  gsDisciplinaryViolation: (studentId: number, description?: string) =>
-    request<{ ok: boolean }>(
-      `/api/admin-dept/disciplinary/${studentId}/violation`,
-      {
-        method: "POST",
-        body: JSON.stringify({ description }),
-      },
-    ),
-  gsDisciplinaryAction: (
-    studentId: number,
-    action: "archive_pledge" | "suspend" | "dismiss" | "transfer",
-    note?: string,
-  ) =>
-    request<{ ok: boolean }>(
-      `/api/admin-dept/disciplinary/${studentId}/action`,
-      { method: "POST", body: JSON.stringify({ action, note }) },
-    ),
-  gsDashboard: () =>
-    request<{
-      today: string;
-      kpis: {
-        active_students: number;
-        present_today: number;
-        attendance_rate_today: number;
-        graduates_count: number;
-        huffadh_count: number;
-        pending_applications: number;
-        pending_placement: number;
-      };
-    }>("/api/admin-dept/dashboard"),
-  gsTvLaunch: () =>
-    request<{
-      session: {
-        id: number;
-        tv_launch_key: string;
-        name_ar: string;
-      } | null;
-      fallback_url: string;
-    }>("/api/admin-dept/tv-launch"),
-  gsStudentAttendanceToday: (date?: string) => {
-    const qs = date ? `?date=${encodeURIComponent(date)}` : "";
-    return request<{
-      date: string;
-      items: Array<{
-        student_id: number;
-        full_name_ar: string;
-        stage_id: number | null;
-        circle_name: string | null;
-        status: string;
-      }>;
-      scope: { type: string; stageIds?: number[] };
-      default_status: string;
-    }>(`/api/admin-dept/student-attendance/today${qs}`);
-  },
-  gsStudentAttendanceInitToday: () =>
-    request<{ ok: boolean; date: string; count: number }>(
-      "/api/admin-dept/student-attendance/init-today",
-      { method: "POST", body: "{}" },
-    ),
-  gsStudentAttendanceUpsert: (body: {
-    student_id: number;
-    status: string;
-    attendance_date?: string;
-    notes?: string;
-  }) =>
-    request<{ ok: boolean }>(
-      "/api/admin-dept/student-attendance/upsert",
       { method: "POST", body: JSON.stringify(body) },
     ),
   eduStudentAttendanceToday: (date?: string) => {

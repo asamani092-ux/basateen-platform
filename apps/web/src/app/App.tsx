@@ -42,6 +42,7 @@ import { PledgesPage } from "./pages/admin-dept/PledgesPage";
 import { AdminReportsPage } from "./pages/admin-dept/AdminReportsPage";
 import { StaffManagementPage } from "./pages/admin/StaffManagementPage";
 import { CirclesSetupPage } from "./pages/admin/CirclesSetupPage";
+import { AdminGeneralSettingsPage } from "./pages/admin/AdminGeneralSettingsPage";
 import { STAFF_ROLES } from "./config/role-access";
 
 export default function App() {
@@ -70,6 +71,7 @@ export default function App() {
                 element={<Navigate to="/super-admin/staff" replace />}
               />
               <Route path="super-admin/circles-setup" element={<CirclesSetupPage />} />
+              <Route path="super-admin/settings" element={<AdminGeneralSettingsPage />} />
               <Route
                 path="super-admin/statistics"
                 element={<Navigate to="/admin-dept/reports" replace />}

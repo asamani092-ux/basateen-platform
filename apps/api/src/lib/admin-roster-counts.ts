@@ -1,7 +1,7 @@
 import type { Env } from "../types";
 import { staffListSql } from "./admin-staff";
 import { buildStudentPlacementSql } from "./student-list-sql";
-import { studentIsActiveSql } from "./db-schema";
+import { studentAttendanceEligibleSql } from "./db-schema";
 
 export type ComplexStaffCounts = {
   total: number;
@@ -47,7 +47,7 @@ export async function countComplexStudents(
 ): Promise<ComplexStudentCounts> {
   const placement = await buildStudentPlacementSql(env);
   const { historyJoin, circleRef, trackRef } = placement;
-  const isActiveExpr = await studentIsActiveSql(env, "s");
+  const isActiveExpr = await studentAttendanceEligibleSql(env, "s");
   const base = `FROM students s ${historyJoin} WHERE s.complex_id = ? AND ${isActiveExpr}`;
 
   const totalP = env.DB.prepare(`SELECT COUNT(*) AS c ${base}`)

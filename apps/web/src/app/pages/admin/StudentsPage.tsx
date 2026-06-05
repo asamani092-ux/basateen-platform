@@ -53,6 +53,10 @@ import {
 } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
 import { EDUCATIONAL_STAGES } from "../../lib/stages";
+import {
+  TablePagination,
+  type PageInfo,
+} from "../../components/shared/TablePagination";
 import { ds, tajawal } from "../../lib/design-system";
 import { cn } from "../../components/ui/utils";
 import {
@@ -87,6 +91,8 @@ export function StudentsPage() {
   const [trackFilter, setTrackFilter] = useState(ALL_FILTER);
   const [statusFilter, setStatusFilter] = useState(ALL_FILTER);
   const [items, setItems] = useState<StudentRow[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageInfo, setPageInfo] = useState<PageInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -132,6 +138,7 @@ export function StudentsPage() {
         track_id: trackFilter !== ALL_FILTER ? Number(trackFilter) : undefined,
         status_filter:
           statusFilter !== ALL_FILTER ? (statusFilter as StatusFilterValue) : undefined,
+        page,
       });
       const payload = res as {
         items?: StudentRow[];
@@ -143,14 +150,20 @@ export function StudentsPage() {
         setItems(payload.items ?? []);
       } else {
         setItems(payload.items ?? []);
+        setPageInfo((res as { page?: PageInfo }).page ?? null);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل تحميل الطلاب");
       setItems([]);
+      setPageInfo(null);
     } finally {
       setLoading(false);
     }
-  }, [hasApi, q, stageFilter, circleFilter, trackFilter, statusFilter]);
+  }, [hasApi, q, stageFilter, circleFilter, trackFilter, statusFilter, page]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [q, stageFilter, circleFilter, trackFilter, statusFilter]);
 
   const syncAdminData = useCallback(async () => {
     await Promise.all([load(), loadGroups()]);

@@ -31,8 +31,8 @@ export function AttendanceDailyTable({
   return (
     <div className={ds.tableWrap}>
       <Table className={ds.tableMin}>
-        <TableHeader>
-          <TableRow>
+        <TableHeader className="print:table-header-group">
+          <TableRow className="print:break-inside-avoid">
             <TableHead className={ds.table.head} style={tajawal}>
               الاسم
             </TableHead>
@@ -46,7 +46,7 @@ export function AttendanceDailyTable({
         </TableHeader>
         <TableBody>
           {rows.map((row) => (
-            <TableRow key={row.id}>
+            <TableRow key={row.id} className="print:break-inside-avoid">
               <TableCell className={`${ds.table.cell} min-w-0`} style={tajawal}>
                 <p className="font-medium truncate">{row.full_name_ar}</p>
                 {row.subtitle ? (

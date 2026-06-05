@@ -1,5 +1,6 @@
 import type { Env } from "../types";
-import { hasTable, studentIsActiveSql } from "../lib/db-schema";
+import { hasTable, studentAttendanceEligibleSql } from "../lib/db-schema";
+import { enforceRateLimit } from "../lib/rate-limit";
 import {
   isSharedTokenUsable,
   loadSharedToken,
@@ -102,7 +103,7 @@ async function loadStudentsForMagicLink(
   env: Env,
   resolved: ResolvedAttendanceLink,
 ): Promise<unknown[]> {
-  const isActiveExpr = await studentIsActiveSql(env, "s");
+  const isActiveExpr = await studentAttendanceEligibleSql(env, "s");
   const placementCol =
     resolved.groupType === "track" ? "current_track_id" : "current_circle_id";
 
@@ -131,6 +132,9 @@ export async function handlePublicLinksRouter(
   if (!match) return null;
 
   const token = decodeURIComponent(match[1]);
+
+  const limited = await enforceRateLimit(request, `public-attendance:${token}`);
+  if (limited) return limited;
 
   if (request.method === "GET") {
     const resolved = await resolveAttendanceToken(env, token);
@@ -172,7 +176,7 @@ export async function handlePublicLinksRouter(
       return json({ error: "records_required" }, 400);
     }
 
-    const isActiveExpr = await studentIsActiveSql(env, "");
+    const isActiveExpr = await studentAttendanceEligibleSql(env, "");
     const placementCol =
       data.groupType === "track" ? "current_track_id" : "current_circle_id";
     const allowedRows = await env.DB.prepare(

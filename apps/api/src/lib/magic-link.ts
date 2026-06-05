@@ -81,6 +81,30 @@ export function isSharedTokenUsable(row: SharedAccessTokenRow): boolean {
   return Date.now() <= exp;
 }
 
+export async function findActiveMagicLinkForEntity(
+  env: Env,
+  complexId: number,
+  entity: { type: "circle" | "track"; id: number },
+): Promise<SharedAccessTokenRow | null> {
+  if (!(await hasTable(env, "shared_access_tokens"))) return null;
+  const rows = await env.DB.prepare(
+    `SELECT id, complex_id, token, feature_name, context_data, is_active,
+            created_by_user_id, created_at, deactivated_at, expires_at,
+            last_used_at, use_count
+     FROM shared_access_tokens
+     WHERE complex_id = ? AND is_active = 1 AND feature_name = 'student_attendance'`,
+  )
+    .bind(complexId)
+    .all<SharedAccessTokenRow>();
+
+  for (const row of rows.results ?? []) {
+    const ctx = parseMagicContext(row.context_data);
+    const { groupType, groupId } = resolveMagicGroupId(ctx);
+    if (groupType === entity.type && groupId === entity.id) return row;
+  }
+  return null;
+}
+
 export async function touchSharedTokenUse(env: Env, tokenId: number): Promise<void> {
   await env.DB.prepare(
     `UPDATE shared_access_tokens

@@ -149,6 +149,106 @@ async function getMaxPledges(env: Env, complexId: number): Promise<number> {
   return Number(row?.max_pledges_per_student ?? 3);
 }
 
+const PLEDGES_PAGE_LIMIT = 20;
+const PLEDGES_CRITICAL_MIN = 3;
+
+type PledgeSummaryRow = {
+  student_id: number;
+  full_name_ar: string;
+  guardian_phone: string | null;
+  pledge_count: number;
+  latest_pledge_id: number | null;
+  latest_reason: string | null;
+  latest_pledge_date: string | null;
+};
+
+async function pledgeSummarySelectSql(
+  env: Env,
+  guardianCol: string,
+  isActiveExpr: string,
+): Promise<string> {
+  return `SELECT s.id AS student_id, s.full_name_ar, ${guardianCol},
+              COALESCE(d.pledge_count, pc.cnt, 0) AS pledge_count,
+              lp.id AS latest_pledge_id,
+              lp.reason_ar AS latest_reason,
+              lp.pledge_date AS latest_pledge_date
+       FROM students s
+       INNER JOIN (
+         SELECT student_id, COUNT(*) AS cnt
+         FROM student_pledges
+         WHERE complex_id = ?
+         GROUP BY student_id
+       ) pc ON pc.student_id = s.id
+       LEFT JOIN student_disciplinary_summary d ON d.student_id = s.id
+       LEFT JOIN student_pledges lp ON lp.id = (
+         SELECT p2.id FROM student_pledges p2
+         WHERE p2.student_id = s.id
+         ORDER BY p2.pledge_date DESC, p2.id DESC
+         LIMIT 1
+       )
+       WHERE s.complex_id = ? AND ${isActiveExpr}`;
+}
+
+async function loadPledgesSummaryList(
+  env: Env,
+  complexId: number,
+  q?: string,
+): Promise<PledgeSummaryRow[]> {
+  const hasGuardian = await tableHasColumn(env, "students", "guardian_phone");
+  const guardianCol = hasGuardian ? "s.guardian_phone" : "NULL AS guardian_phone";
+  const hasNationalId = await tableHasColumn(env, "students", "national_id");
+  const isActiveExpr = await studentIsActiveSql(env, "s");
+  const baseSql = await pledgeSummarySelectSql(env, guardianCol, isActiveExpr);
+
+  if (q && q.trim().length > 0) {
+    const term = q.trim();
+    const like = `%${term}%`;
+    const filters = ["s.full_name_ar LIKE ?"];
+    const binds: (string | number)[] = [complexId, complexId, like];
+    if (hasNationalId) {
+      filters.push("s.national_id LIKE ?");
+      binds.push(like);
+    }
+    if (/^\d+$/.test(term)) {
+      filters.push("CAST(s.id AS TEXT) = ?");
+      binds.push(term);
+    }
+    const rows = await env.DB.prepare(
+      `${baseSql} AND (${filters.join(" OR ")})
+       ORDER BY pledge_count DESC, s.full_name_ar`,
+    )
+      .bind(...binds)
+      .all<PledgeSummaryRow>();
+    return rows.results ?? [];
+  }
+
+  const critical = await env.DB.prepare(
+    `${baseSql} AND COALESCE(d.pledge_count, pc.cnt, 0) >= ?
+     ORDER BY pledge_count DESC, s.full_name_ar
+     LIMIT ?`,
+  )
+    .bind(complexId, complexId, PLEDGES_CRITICAL_MIN, PLEDGES_PAGE_LIMIT)
+    .all<PledgeSummaryRow>();
+  const items = [...(critical.results ?? [])];
+  if (items.length >= PLEDGES_PAGE_LIMIT) return items;
+
+  const excludeIds = items.map((r) => r.student_id);
+  const remaining = PLEDGES_PAGE_LIMIT - items.length;
+  let recentSql = `${baseSql}`;
+  const recentBinds: (string | number)[] = [complexId, complexId];
+  if (excludeIds.length > 0) {
+    recentSql += ` AND s.id NOT IN (${excludeIds.map(() => "?").join(",")})`;
+    recentBinds.push(...excludeIds);
+  }
+  recentSql += ` ORDER BY lp.pledge_date DESC, lp.id DESC, pledge_count DESC LIMIT ?`;
+  recentBinds.push(remaining);
+
+  const recent = await env.DB.prepare(recentSql)
+    .bind(...recentBinds)
+    .all<PledgeSummaryRow>();
+  return [...items, ...(recent.results ?? [])];
+}
+
 async function bumpPledgeSummary(env: Env, studentId: number): Promise<number> {
   if (await hasTable(env, "student_disciplinary_summary")) {
     await env.DB.prepare(
@@ -863,46 +963,18 @@ async function handleAdminDeptRouterImpl(
     });
   }
 
-  // GET /api/admin-dept/pledges — جدول ملخص التعهدات
+  // GET /api/admin-dept/pledges — جدول ملخص التعهدات (ذكي + بحث)
   if (request.method === "GET" && path === "/api/admin-dept/pledges") {
     if (!(await hasTable(env, "student_pledges"))) {
       return json({ error: "migration_required", migration: "024_admin_department" }, 503);
     }
-    const hasGuardian = await tableHasColumn(env, "students", "guardian_phone");
-    const guardianCol = hasGuardian ? "s.guardian_phone" : "NULL AS guardian_phone";
-    const rows = await env.DB.prepare(
-      `SELECT s.id AS student_id, s.full_name_ar, ${guardianCol},
-              COALESCE(d.pledge_count, pc.cnt, 0) AS pledge_count,
-              lp.id AS latest_pledge_id,
-              lp.reason_ar AS latest_reason,
-              lp.pledge_date AS latest_pledge_date
-       FROM students s
-       INNER JOIN (
-         SELECT student_id, COUNT(*) AS cnt
-         FROM student_pledges
-         GROUP BY student_id
-       ) pc ON pc.student_id = s.id
-       LEFT JOIN student_disciplinary_summary d ON d.student_id = s.id
-       LEFT JOIN student_pledges lp ON lp.id = (
-         SELECT p2.id FROM student_pledges p2
-         WHERE p2.student_id = s.id
-         ORDER BY p2.pledge_date DESC, p2.id DESC
-         LIMIT 1
-       )
-       WHERE s.complex_id = ? AND ${await studentIsActiveSql(env, "s")}
-       ORDER BY pledge_count DESC, s.full_name_ar`,
-    )
-      .bind(admin.complexId)
-      .all<{
-        student_id: number;
-        full_name_ar: string;
-        guardian_phone: string | null;
-        pledge_count: number;
-        latest_pledge_id: number | null;
-        latest_reason: string | null;
-        latest_pledge_date: string | null;
-      }>();
-    return json({ items: rows.results ?? [] });
+    const q = url.searchParams.get("q")?.trim() ?? "";
+    const items = await loadPledgesSummaryList(env, admin.complexId, q || undefined);
+    return json({
+      items,
+      mode: q ? "search" : "smart",
+      limit: q ? null : PLEDGES_PAGE_LIMIT,
+    });
   }
 
   // GET /api/admin-dept/pledges/:studentId

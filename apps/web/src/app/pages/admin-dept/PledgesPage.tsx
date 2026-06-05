@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
-import { Eye, FileText, Plus, Printer } from "lucide-react";
+import { Eye, FileText, MoreHorizontal, Plus, Printer, Search } from "lucide-react";
 import { toast } from "sonner";
-import {
-  TableActionsCell,
-  TableIconAction,
-} from "../../components/admin/TableIconAction";
+import { TableIconAction } from "../../components/admin/TableIconAction";
 import { AdminStudentSearchCombobox } from "../../components/admin/AdminStudentSearchCombobox";
 import { Button } from "../../components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../../components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -105,6 +108,8 @@ export function PledgesPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [summaryRows, setSummaryRows] = useState<SummaryRow[]>([]);
   const [summaryLoading, setSummaryLoading] = useState(true);
+  const [searchQ, setSearchQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
   const [reportStudentId, setReportStudentId] = useState<number | null>(null);
   const [modalStudentId, setModalStudentId] = useState<number | null>(null);
   const [reason, setReason] = useState("");
@@ -127,6 +132,11 @@ export function PledgesPage() {
   } | null>(null);
   const [pledgeBusy, setPledgeBusy] = useState(false);
 
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(searchQ.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchQ]);
+
   const loadSummary = useCallback(async () => {
     if (!canUseApi()) {
       setSummaryLoading(false);
@@ -134,15 +144,18 @@ export function PledgesPage() {
     }
     setSummaryLoading(true);
     try {
-      const res = await api.adminDeptPledgesList();
+      const res = await api.adminDeptPledgesList(
+        debouncedQ ? { q: debouncedQ } : undefined,
+      );
       setSummaryRows(res.items);
+      setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "تعذر تحميل جدول التعهدات");
       setSummaryRows([]);
     } finally {
       setSummaryLoading(false);
     }
-  }, []);
+  }, [debouncedQ]);
 
   useEffect(() => {
     void loadSummary();
@@ -311,11 +324,13 @@ export function PledgesPage() {
         </p>
       )}
 
-      <Tabs defaultValue="pledges" className="w-full">
-        <TabsList className="w-full justify-start rounded-none border-b border-border bg-transparent p-0 h-auto flex-wrap print:hidden">
+      <Tabs defaultValue="pledges" className="w-full space-y-4">
+        <TabsList
+          className={`${ds.card} w-full justify-start gap-1 p-1 h-auto flex-wrap print:hidden bg-muted/40`}
+        >
           <TabsTrigger
             value="pledges"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-2"
+            className="flex-1 sm:flex-none data-[state=active]:bg-background data-[state=active]:shadow-sm px-4 py-2.5 rounded-lg"
             style={tajawal}
           >
             <FileText className="w-4 h-4 ml-2 inline" />
@@ -323,19 +338,40 @@ export function PledgesPage() {
           </TabsTrigger>
           <TabsTrigger
             value="escalations"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-2"
+            className="flex-1 sm:flex-none data-[state=active]:bg-background data-[state=active]:shadow-sm px-4 py-2.5 rounded-lg"
             style={tajawal}
           >
-            تصعيدات المعلمين
+            تصعيد المعلمين
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="pledges" className="mt-4 space-y-4">
+        <TabsContent value="pledges" className="mt-0 space-y-4">
           <div className={`${ds.card} overflow-hidden print:hidden`}>
-            <div className="p-4 border-b border-border">
-              <h3 className={ds.page.section} style={tajawal}>
-                جدول التعهدات الرئيسي
-              </h3>
+            <div className="p-4 border-b border-border space-y-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <h3 className={ds.page.section} style={tajawal}>
+                    جدول التعهدات الرئيسي
+                  </h3>
+                  <p className="text-sm text-muted-foreground mt-1" style={tajawal}>
+                    {debouncedQ
+                      ? "نتائج البحث من قاعدة البيانات"
+                      : "الحالات الحرجة (3+ تعهدات) ثم أحدث السجلات — 20 كحد أقصى"}
+                  </p>
+                </div>
+                <div className="relative w-full sm:max-w-sm">
+                  <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                  <Input
+                    type="search"
+                    value={searchQ}
+                    onChange={(e) => setSearchQ(e.target.value)}
+                    placeholder="بحث بالاسم أو الهوية…"
+                    className={`pr-9 ${ds.btnRound}`}
+                    style={tajawal}
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
             </div>
             {summaryLoading ? (
               <p className="p-4 text-sm text-muted-foreground" style={tajawal}>
@@ -343,156 +379,147 @@ export function PledgesPage() {
               </p>
             ) : summaryRows.length === 0 ? (
               <p className={`m-4 ${ds.alert.info}`} style={tajawal}>
-                لا توجد تعهدات مسجّلة بعد.
+                {debouncedQ ? "لا توجد نتائج مطابقة." : "لا توجد تعهدات مسجّلة بعد."}
               </p>
             ) : (
-              <Table className={ds.tableMin} dir="rtl">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className={`${ds.table.head} ${ds.table.colName}`} style={tajawal}>
-                      الاسم
-                    </TableHead>
-                    <TableHead className={`${ds.table.head} ${ds.table.colPhone}`} style={tajawal}>
-                      رقم ولي الأمر
-                    </TableHead>
-                    <TableHead className={`${ds.table.head} w-[10%]`} style={tajawal}>
-                      عدد التعهدات
-                    </TableHead>
-                    <TableHead className={`${ds.table.head} w-[24%] max-w-[280px]`} style={tajawal}>
-                      سبب التعهد
-                    </TableHead>
-                    <TableHead className={ds.table.headActionsWide} style={tajawal}>
-                      الإجراءات
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {summaryRows.map((row) => (
-                    <TableRow key={row.student_id}>
-                      <TableTruncatedCell className={ds.table.colName} style={tajawal}>
-                        {row.full_name_ar}
-                      </TableTruncatedCell>
-                      <TableTruncatedCell
-                        className={ds.table.colPhone}
-                        style={{ ...tajawal, direction: "ltr" }}
-                      >
-                        {row.guardian_phone ?? "—"}
-                      </TableTruncatedCell>
-                      <TableCell className={`${ds.table.cell} tabular-nums`} style={tajawal}>
-                        {row.pledge_count}
-                      </TableCell>
-                      <TableTruncatedCell
-                        className="text-muted-foreground max-w-[280px]"
-                        style={tajawal}
-                      >
-                        {row.latest_reason ?? "—"}
-                      </TableTruncatedCell>
-                      <TableActionsCell wide>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className={ds.btnRound}
-                          onClick={() => void openStudentDetail(row)}
-                          style={tajawal}
-                        >
-                          <Eye className="w-4 h-4" />
-                          عرض
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className={ds.btnRound}
-                          onClick={async () => {
-                            setReportStudentId(row.student_id);
-                            const res = await api.adminDeptPledgeReport(row.student_id);
-                            const student = res.student as {
-                              full_name_ar?: string;
-                              guardian_phone?: string | null;
-                            };
-                            printPledgeForm(
-                              student.full_name_ar ?? row.full_name_ar,
-                              student.guardian_phone ?? row.guardian_phone,
-                              res.pledges,
-                              res.pledge_count,
-                            );
-                          }}
-                          style={tajawal}
-                        >
-                          <Printer className="w-4 h-4" />
-                          طباعة
-                        </Button>
-                        {row.latest_pledge_id != null ? (
-                          <>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className={ds.btnRound}
-                              onClick={() =>
-                                setEditPledge({
-                                  id: row.latest_pledge_id!,
-                                  reason_ar: row.latest_reason ?? "",
-                                  pledge_date:
-                                    row.latest_pledge_date ??
-                                    new Date().toISOString().slice(0, 10),
-                                })
-                              }
-                              style={tajawal}
-                            >
-                              تعديل
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="sm"
-                              className={ds.btnRound}
-                              onClick={() =>
-                                setDeletePledge({
-                                  id: row.latest_pledge_id!,
-                                  reason_ar: row.latest_reason ?? "آخر تعهد",
-                                })
-                              }
-                              style={tajawal}
-                            >
-                              حذف
-                            </Button>
-                          </>
-                        ) : null}
-                      </TableActionsCell>
+              <div className={ds.tableWrap}>
+                <Table className={ds.tableMin} dir="rtl">
+                  <TableHeader className="print:table-header-group">
+                    <TableRow className="print:break-inside-avoid">
+                      <TableHead className={`${ds.table.head} ${ds.table.colName}`} style={tajawal}>
+                        اسم الطالب
+                      </TableHead>
+                      <TableHead className={`${ds.table.head} ${ds.table.colPhone}`} style={tajawal}>
+                        رقم ولي الأمر
+                      </TableHead>
+                      <TableHead className={`${ds.table.head} w-[10%]`} style={tajawal}>
+                        عدد التعهدات
+                      </TableHead>
+                      <TableHead className={`${ds.table.head} w-[24%] max-w-[280px]`} style={tajawal}>
+                        سبب التعهد
+                      </TableHead>
+                      <TableHead className={ds.table.headActions} style={tajawal}>
+                        الإجراءات
+                      </TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {summaryRows.map((row) => (
+                      <TableRow key={row.student_id} className="print:break-inside-avoid">
+                        <TableTruncatedCell className={ds.table.colName} style={tajawal}>
+                          {row.full_name_ar}
+                        </TableTruncatedCell>
+                        <TableTruncatedCell
+                          className={ds.table.colPhone}
+                          style={{ ...tajawal, direction: "ltr" }}
+                        >
+                          {row.guardian_phone ?? "—"}
+                        </TableTruncatedCell>
+                        <TableCell className={`${ds.table.cell} tabular-nums`} style={tajawal}>
+                          {row.pledge_count}
+                        </TableCell>
+                        <TableTruncatedCell
+                          className="text-muted-foreground max-w-[280px]"
+                          style={tajawal}
+                        >
+                          {row.latest_reason ?? "—"}
+                        </TableTruncatedCell>
+                        <TableCell className={`${ds.table.cell} w-[56px]`}>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className={ds.btnRound}
+                                aria-label="إجراءات"
+                              >
+                                <MoreHorizontal className="w-4 h-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="min-w-[10rem]">
+                              <DropdownMenuItem
+                                style={tajawal}
+                                onClick={() => void openStudentDetail(row)}
+                              >
+                                <Eye className="w-4 h-4 ml-2" />
+                                عرض السجل
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                style={tajawal}
+                                onClick={async () => {
+                                  setReportStudentId(row.student_id);
+                                  const res = await api.adminDeptPledgeReport(row.student_id);
+                                  const student = res.student as {
+                                    full_name_ar?: string;
+                                    guardian_phone?: string | null;
+                                  };
+                                  printPledgeForm(
+                                    student.full_name_ar ?? row.full_name_ar,
+                                    student.guardian_phone ?? row.guardian_phone,
+                                    res.pledges,
+                                    res.pledge_count,
+                                  );
+                                }}
+                              >
+                                <Printer className="w-4 h-4 ml-2" />
+                                طباعة
+                              </DropdownMenuItem>
+                              {row.latest_pledge_id != null ? (
+                                <>
+                                  <DropdownMenuItem
+                                    style={tajawal}
+                                    onClick={() =>
+                                      setEditPledge({
+                                        id: row.latest_pledge_id!,
+                                        reason_ar: row.latest_reason ?? "",
+                                        pledge_date:
+                                          row.latest_pledge_date ??
+                                          new Date().toISOString().slice(0, 10),
+                                      })
+                                    }
+                                  >
+                                    تعديل
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    variant="destructive"
+                                    style={tajawal}
+                                    onClick={() =>
+                                      setDeletePledge({
+                                        id: row.latest_pledge_id!,
+                                        reason_ar: row.latest_reason ?? "آخر تعهد",
+                                      })
+                                    }
+                                  >
+                                    حذف
+                                  </DropdownMenuItem>
+                                </>
+                              ) : null}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             )}
-          </div>
-
-          <div className={`${ds.card} p-4 print:hidden space-y-3`}>
-            <Label style={tajawal}>بحث سريع عن طالب</Label>
-            <AdminStudentSearchCombobox
-              id="pledge-report-student-search"
-              value={reportStudentId}
-              onChange={(id) => {
-                setReportStudentId(id);
-                setReport(null);
-                if (id != null) void loadReport(id);
-              }}
-            />
           </div>
         </TabsContent>
 
-        <TabsContent value="escalations" className="mt-4">
-          <div className={ds.card}>
+        <TabsContent value="escalations" className="mt-0">
+          <div className={`${ds.card} overflow-hidden`}>
             <div className="p-4 border-b border-border">
               <h3 className={ds.page.section} style={tajawal}>
-                تصعيدات المعلمين (معلقة)
+                تصعيد المعلمين
               </h3>
               <p className="text-sm text-muted-foreground mt-1" style={tajawal}>
                 عرض الطلب، تعديله، قبوله كتعهد رسمي، أو حذفه.
               </p>
             </div>
-            <TeacherEscalationsTab onChanged={loadSummary} />
+            <div className="p-4">
+              <TeacherEscalationsTab onChanged={loadSummary} />
+            </div>
           </div>
         </TabsContent>
       </Tabs>

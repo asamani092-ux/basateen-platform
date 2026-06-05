@@ -78,7 +78,7 @@ export async function handleStudentsList(
     const hasSupervisorScopes = await hasTable(env, "supervisor_scopes");
     const hasTeacherAssignments = await hasTable(env, "teacher_assignments");
     const placement = await buildStudentPlacementSql(env);
-    const { historyJoin, circleJoin, trackJoin, circleRef, historyCircleRef } =
+    const { historyJoin, circleJoin, trackJoin, circleRef, trackRef, historyCircleRef } =
       placement;
     const isActiveExpr = (await tableHasColumn(env, "students", "is_active"))
       ? "COALESCE(s.is_active, 1) = 1"
@@ -222,9 +222,17 @@ export async function handleStudentsList(
       } else if (statusFilter === "suspended" && hasAccountStatus) {
         sql += ` AND s.account_status = 'suspended'`;
       } else if (statusFilter === "no_circle") {
-        sql += ` AND (${circleRef} IS NULL OR c.id IS NULL)`;
+        if (circleRef !== "NULL") {
+          sql += ` AND ${circleRef} IS NULL`;
+        } else {
+          sql += ` AND c.id IS NULL`;
+        }
       } else if (statusFilter === "no_track") {
-        sql += ` AND (${trackRef} IS NULL OR t.id IS NULL)`;
+        if (trackRef !== "NULL") {
+          sql += ` AND ${trackRef} IS NULL`;
+        } else {
+          sql += ` AND t.id IS NULL`;
+        }
       }
     }
 

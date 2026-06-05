@@ -15,6 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "../../components/ui/table";
+import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import { api, type CircleOption } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
 import { stageLabel, type StageId } from "../../lib/stages";
@@ -67,27 +68,35 @@ export function AdminCirclesPage() {
             جاري التحميل…
           </p>
         ) : (
-          <Table>
+          <Table className={ds.tableMin}>
             <TableHeader>
               <TableRow>
-                <TableHead style={tajawal}>الحلقة</TableHead>
-                <TableHead style={tajawal}>المرحلة</TableHead>
-                <TableHead style={tajawal}>العدد / الافتراضي</TableHead>
-                <TableHead style={tajawal}>الحالة</TableHead>
+                <TableHead className={`${ds.table.head} ${ds.table.colName}`} style={tajawal}>
+                  الحلقة
+                </TableHead>
+                <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
+                  المرحلة
+                </TableHead>
+                <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
+                  العدد / الافتراضي
+                </TableHead>
+                <TableHead className={`${ds.table.head} ${ds.table.colStatus}`} style={tajawal}>
+                  الحالة
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {items.map((c) => (
                 <TableRow key={c.id}>
-                  <TableCell style={tajawal}>{c.name_ar}</TableCell>
-                  <TableCell style={tajawal}>
+                  <TableTruncatedCell style={tajawal}>{c.name_ar}</TableTruncatedCell>
+                  <TableCell className={ds.table.cell} style={tajawal}>
                     {c.stage_id ? stageLabel(c.stage_id as StageId) : "—"}
                   </TableCell>
-                  <TableCell style={tajawal}>
+                  <TableCell className={ds.table.cell} style={tajawal}>
                     {c.student_count ?? "—"}/
                     {c.default_capacity ?? c.capacity}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className={ds.table.cell}>
                     <CircleCapacityBadge circle={c} />
                   </TableCell>
                 </TableRow>

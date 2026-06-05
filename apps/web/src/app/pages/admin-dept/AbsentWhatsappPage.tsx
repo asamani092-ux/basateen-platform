@@ -231,15 +231,18 @@ export function AbsentWhatsappPage() {
                   <TableTruncatedCell style={tajawal}>
                     {r.circle_name ?? "—"}
                   </TableTruncatedCell>
-                  <TableCell className={ds.table.cell} style={tajawal}>
+                  <TableCell
+                    className={`${ds.table.cell} ${ds.table.colStatus} whitespace-nowrap`}
+                    style={tajawal}
+                  >
                     {r.status === "excused" ? "مستأذن" : "غائب"}
                   </TableCell>
-                  <TableCell
-                    className={`${ds.table.cell} text-muted-foreground font-mono`}
-                    dir="ltr"
+                  <TableTruncatedCell
+                    className={`${ds.table.colPhone} text-muted-foreground font-mono`}
+                    style={{ ...tajawal, direction: "ltr" }}
                   >
                     {r.guardian_phone ?? "—"}
-                  </TableCell>
+                  </TableTruncatedCell>
                   <TableActionsCell>
                     {r.whatsapp_url ? (
                       <TableIconAction

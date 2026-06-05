@@ -229,12 +229,18 @@ export function StatisticsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Table>
+            <Table className={ds.tableMin}>
               <TableHeader>
                 <TableRow>
-                  <TableHead style={tajawal}>الطالب</TableHead>
-                  <TableHead style={tajawal}>الحلقة</TableHead>
-                  <TableHead style={tajawal}>وقت الرصد</TableHead>
+                  <TableHead className={`${ds.table.head} ${ds.table.colName}`} style={tajawal}>
+                    الطالب
+                  </TableHead>
+                  <TableHead className={`${ds.table.head} ${ds.table.colPlacement}`} style={tajawal}>
+                    الحلقة
+                  </TableHead>
+                  <TableHead className={`${ds.table.head} w-[16%]`} style={tajawal}>
+                    وقت الرصد
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -242,7 +248,9 @@ export function StatisticsPage() {
                   <TableRow key={i}>
                     <TableTruncatedCell style={tajawal}>{r.full_name_ar}</TableTruncatedCell>
                     <TableTruncatedCell style={tajawal}>{r.circle_name ?? "—"}</TableTruncatedCell>
-                    <TableCell style={tajawal}>{r.logged_at}</TableCell>
+                    <TableCell className={`${ds.table.cell} whitespace-nowrap`} style={tajawal}>
+                      {r.logged_at}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -257,20 +265,30 @@ export function StatisticsPage() {
             <CardTitle style={tajawal}>الحضور حسب الحلقة — اليوم</CardTitle>
           </CardHeader>
           <CardContent>
-            <Table>
+            <Table className={ds.tableMin}>
               <TableHeader>
                 <TableRow>
-                  <TableHead style={tajawal}>الحلقة</TableHead>
-                  <TableHead style={tajawal}>مسجّلون</TableHead>
-                  <TableHead style={tajawal}>حاضرون اليوم</TableHead>
+                  <TableHead className={`${ds.table.head} ${ds.table.colName}`} style={tajawal}>
+                    الحلقة
+                  </TableHead>
+                  <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
+                    مسجّلون
+                  </TableHead>
+                  <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
+                    حاضرون اليوم
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {stats.by_circle.map((c) => (
                   <TableRow key={c.id}>
-                    <TableCell style={tajawal}>{c.name_ar}</TableCell>
-                    <TableCell style={tajawal}>{c.enrolled}</TableCell>
-                    <TableCell style={tajawal}>{c.present_today}</TableCell>
+                    <TableTruncatedCell style={tajawal}>{c.name_ar}</TableTruncatedCell>
+                    <TableCell className={ds.table.cell} style={tajawal}>
+                      {c.enrolled}
+                    </TableCell>
+                    <TableCell className={ds.table.cell} style={tajawal}>
+                      {c.present_today}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

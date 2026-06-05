@@ -102,16 +102,13 @@ export function StaffAttendancePage() {
   }
 
   async function commitAttendance() {
-    if (dirtyCount === 0) return;
+    if (rows.length === 0) return;
     setCommitting(true);
     setError(null);
     try {
-      const changed = rows.filter(
-        (r) => (baseline[r.user_id] ?? "present") !== r.status,
-      );
       const res = await api.adminDeptSaveStaffAttendance({
         attendance_date: date,
-        records: changed.map((r) => ({
+        records: rows.map((r) => ({
           user_id: r.user_id,
           status: r.status,
         })),
@@ -242,22 +239,24 @@ export function StaffAttendancePage() {
         )}
       </div>
 
-      <div className="fixed bottom-0 inset-x-0 z-20 border-t border-border bg-background/95 backdrop-blur px-4 py-3">
-        <div className="max-w-[1600px] mx-auto flex justify-end">
-          <Button
-            type="button"
-            size="lg"
-            className={`${ds.btnRound} w-full sm:w-auto min-h-12 px-8`}
-            disabled={committing || dirtyCount === 0 || loading}
-            onClick={() => void commitAttendance()}
-            style={tajawal}
-          >
-            <CheckCircle2 className="w-5 h-5" />
-            {committing ? "جاري الاعتماد…" : "اعتماد التحضير"}
-            {dirtyCount > 0 ? ` (${dirtyCount})` : ""}
-          </Button>
+      {!loading && filteredRows.length > 0 && (
+        <div className="fixed bottom-0 inset-x-0 z-20 border-t border-border bg-background/95 backdrop-blur px-4 py-3">
+          <div className="max-w-[1600px] mx-auto flex justify-end">
+            <Button
+              type="button"
+              size="lg"
+              className={`${ds.btnRound} w-full sm:w-auto min-h-12 px-8`}
+              disabled={committing}
+              onClick={() => void commitAttendance()}
+              style={tajawal}
+            >
+              <CheckCircle2 className="w-5 h-5" />
+              {committing ? "جاري الاعتماد…" : "اعتماد التحضير"}
+              {dirtyCount > 0 ? ` (${dirtyCount})` : ""}
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

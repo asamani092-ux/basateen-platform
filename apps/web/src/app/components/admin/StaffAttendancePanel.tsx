@@ -146,20 +146,33 @@ export function StaffAttendancePanel({
             جاري التحميل…
           </p>
         ) : (
-          <Table>
+          <Table className={ds.tableMin}>
             <TableHeader>
               <TableRow>
-                <TableHead style={tajawal}>الاسم</TableHead>
-                <TableHead style={tajawal}>الدور</TableHead>
-                <TableHead style={tajawal}>الحالة</TableHead>
+                <TableHead className={`${ds.table.head} ${ds.table.colName}`} style={tajawal}>
+                  الاسم
+                </TableHead>
+                <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
+                  الدور
+                </TableHead>
+                <TableHead className={`${ds.table.head} ${ds.table.colStatusCompact}`} style={tajawal}>
+                  الحالة
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {items.map((r) => (
                 <TableRow key={r.id}>
-                  <TableTruncatedCell style={tajawal}>{r.full_name_ar}</TableTruncatedCell>
+                  <TableTruncatedCell className={ds.table.colName} style={tajawal}>
+                    {r.full_name_ar}
+                  </TableTruncatedCell>
                   <TableTruncatedCell style={tajawal}>{r.role}</TableTruncatedCell>
-                  <TableTruncatedCell style={tajawal}>{r.status}</TableTruncatedCell>
+                  <TableCell
+                    className={`${ds.table.cell} ${ds.table.colStatusCompact} whitespace-nowrap`}
+                    style={tajawal}
+                  >
+                    {r.status}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

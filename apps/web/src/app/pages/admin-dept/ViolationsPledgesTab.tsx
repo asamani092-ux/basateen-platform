@@ -167,10 +167,10 @@ export function ViolationsPledgesTab() {
                     <TableCell className={ds.table.cell} style={tajawal}>
                       {stageLabel(row.stage_id)}
                     </TableCell>
-                    <TableCell className={ds.table.cell} style={tajawal}>
+                    <TableTruncatedCell style={tajawal}>
                       {ESC_LABELS[row.escalation_level] ?? row.escalation_level}
                       {row.notice_count > 0 ? ` (${row.notice_count})` : ""}
-                    </TableCell>
+                    </TableTruncatedCell>
                     <TableActionsCell wide>
                       <TableIconAction
                         kind="violation"

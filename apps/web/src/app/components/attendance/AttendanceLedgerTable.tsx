@@ -1,5 +1,6 @@
 import { TableIconAction } from "../admin/TableIconAction";
 import { AttendanceStatusButtons } from "./AttendanceStatusButtons";
+import { TableTruncatedCell } from "../shared/TableTruncatedCell";
 import { formatStudentPlacement } from "../../lib/student-placement-display";
 import {
   Table,
@@ -32,9 +33,6 @@ export function AttendanceLedgerTable({
   onStatusChange,
   onDelete,
 }: Props) {
-  const cellClass = "text-right px-3 py-2.5";
-  const compactActionClass = "w-10 px-1 text-center";
-
   return (
     <Table className={`${ds.tableMin} border-collapse`}>
       <TableHeader>
@@ -45,7 +43,7 @@ export function AttendanceLedgerTable({
             </TableHead>
           )}
           <TableHead
-            className={`${ds.table.head} w-[min(28%,200px)]`}
+            className={`${ds.table.head} ${ds.table.colName}`}
             style={tajawal}
           >
             الاسم
@@ -60,10 +58,13 @@ export function AttendanceLedgerTable({
               الدور
             </TableHead>
           )}
-          <TableHead className={`${ds.table.head}`} style={tajawal}>
+          <TableHead
+            className={`${ds.table.head} ${ds.table.colStatusCompact}`}
+            style={tajawal}
+          >
             الحالة
           </TableHead>
-          <TableHead className={`${ds.table.head} ${compactActionClass}`} style={tajawal}>
+          <TableHead className={ds.table.headActions} style={tajawal}>
             <span className="sr-only">حذف</span>
           </TableHead>
         </TableRow>
@@ -83,42 +84,34 @@ export function AttendanceLedgerTable({
             >
               {showDateColumn && (
                 <TableCell
-                  className={`${cellClass} whitespace-nowrap text-sm`}
+                  className={`${ds.table.cell} whitespace-nowrap`}
                   style={tajawal}
                 >
                   {entry.attendance_date}
                 </TableCell>
               )}
-              <TableCell
-                className={`${cellClass} whitespace-normal align-top`}
-                style={tajawal}
-              >
-                <p className="font-medium leading-snug break-words">
-                  {entry.full_name_ar}
-                </p>
-                {dirty && (
-                  <span className="text-xs text-amber-700 dark:text-amber-400">
-                    غير محفوظ
-                  </span>
-                )}
-              </TableCell>
+              <TableTruncatedCell className="font-medium" style={tajawal}>
+                {dirty
+                  ? `${entry.full_name_ar} (غير محفوظ)`
+                  : entry.full_name_ar}
+              </TableTruncatedCell>
               {showPlacement && (
-                <TableCell
-                  className={`${cellClass} text-sm whitespace-normal break-words`}
+                <TableTruncatedCell
+                  title={placement.title}
+                  className={ds.table.colPlacement}
                   style={tajawal}
                 >
                   {placement.text}
-                </TableCell>
+                </TableTruncatedCell>
               )}
               {showRole && (
-                <TableCell
-                  className={`${cellClass} text-sm whitespace-normal`}
-                  style={tajawal}
-                >
+                <TableTruncatedCell style={tajawal}>
                   {entry.role ?? "—"}
-                </TableCell>
+                </TableTruncatedCell>
               )}
-              <TableCell className={`${cellClass} align-middle`}>
+              <TableCell
+                className={`${ds.table.cell} ${ds.table.colStatusCompact} align-middle`}
+              >
                 <AttendanceStatusButtons
                   value={entry.status}
                   disabled={rowBusyKey === entry.rowKey}
@@ -127,7 +120,7 @@ export function AttendanceLedgerTable({
                   }
                 />
               </TableCell>
-              <TableCell className={compactActionClass}>
+              <TableCell className={ds.table.actionsCell}>
                 <TableIconAction
                   kind="delete"
                   label="حذف السجل"

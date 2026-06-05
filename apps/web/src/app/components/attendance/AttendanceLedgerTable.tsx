@@ -11,6 +11,7 @@ import {
   TableRow,
 } from "../ui/table";
 import { ds, tajawal } from "../../lib/design-system";
+import { staffRoleLabel } from "../../lib/staff-role-label";
 import { isEntryDirty, type LedgerEntry } from "../../lib/attendance-ledger";
 import type { AttendanceStatusValue } from "../../lib/attendance-mutations";
 
@@ -34,7 +35,8 @@ export function AttendanceLedgerTable({
   onDelete,
 }: Props) {
   return (
-    <Table className={`${ds.tableMin} border-collapse`}>
+    <div className={ds.tableWrap}>
+    <Table className={ds.tableMin}>
       <TableHeader>
         <TableRow>
           {showDateColumn && (
@@ -59,7 +61,7 @@ export function AttendanceLedgerTable({
             </TableHead>
           )}
           <TableHead
-            className={`${ds.table.head} ${ds.table.colStatusCompact}`}
+            className={`${ds.table.head} ${ds.table.colStatusBtns}`}
             style={tajawal}
           >
             الحالة
@@ -106,11 +108,11 @@ export function AttendanceLedgerTable({
               )}
               {showRole && (
                 <TableTruncatedCell style={tajawal}>
-                  {entry.role ?? "—"}
+                  {staffRoleLabel(entry.role)}
                 </TableTruncatedCell>
               )}
               <TableCell
-                className={`${ds.table.cell} ${ds.table.colStatusCompact} align-middle`}
+                className={`${ds.table.cell} ${ds.table.colStatusBtns} align-middle`}
               >
                 <AttendanceStatusButtons
                   value={entry.status}
@@ -133,5 +135,6 @@ export function AttendanceLedgerTable({
         })}
       </TableBody>
     </Table>
+    </div>
   );
 }

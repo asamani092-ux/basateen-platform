@@ -166,6 +166,7 @@ export function CirclesSetupPage() {
               جاري التحميل…
             </p>
           ) : (
+            <div className={ds.tableWrap}>
             <Table className={ds.tableMin}>
               <TableHeader>
                 <TableRow>
@@ -251,15 +252,14 @@ export function CirclesSetupPage() {
                       <TableCell className={ds.table.cell} style={tajawal}>
                         {row.student_count}/{row.default_capacity}
                       </TableCell>
-                      <TableCell className={ds.table.cell} style={tajawal}>
-                        {row.entity_type === "circle" && row.capacity_warning ? (
-                          <span className="text-sm text-amber-700 dark:text-amber-400">
-                            {row.capacity_warning}
-                          </span>
-                        ) : (
-                          "—"
-                        )}
-                      </TableCell>
+                      <TableTruncatedCell
+                        className="max-w-[10rem] text-amber-700 dark:text-amber-400"
+                        style={tajawal}
+                      >
+                        {row.entity_type === "circle" && row.capacity_warning
+                          ? row.capacity_warning
+                          : "—"}
+                      </TableTruncatedCell>
                       <TableActionsCell>
                         <TableIconAction
                           kind="edit"
@@ -275,6 +275,7 @@ export function CirclesSetupPage() {
                 )}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>

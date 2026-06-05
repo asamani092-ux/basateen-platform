@@ -48,7 +48,7 @@ type Props = {
 
 export function AttendanceStatusButtons({ value, onChange, disabled }: Props) {
   return (
-    <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:justify-end sm:gap-1.5 w-full">
+    <div className="inline-flex flex-nowrap items-center justify-end gap-1 shrink-0">
       {OPTIONS.map((opt) => {
         const isActive = value === opt.value;
         return (
@@ -59,7 +59,7 @@ export function AttendanceStatusButtons({ value, onChange, disabled }: Props) {
             variant={isActive ? opt.activeVariant : opt.idleVariant}
             disabled={disabled}
             className={cn(
-              "w-full sm:w-auto min-w-0 sm:min-w-[4rem] rounded-full text-xs font-medium",
+              "h-8 px-3 rounded-full text-xs font-medium whitespace-nowrap shrink-0",
               isActive ? opt.activeClass : opt.idleClass,
             )}
             style={tajawal}

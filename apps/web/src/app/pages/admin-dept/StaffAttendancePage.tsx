@@ -15,22 +15,7 @@ import { matchesArabicName } from "../../lib/attendance-search";
 import { todayIso } from "../../lib/attendance-ledger";
 import { toastAttendanceBulkSaved } from "../../lib/attendance-mutations";
 import { ds, tajawal } from "../../lib/design-system";
-
-function formatRole(role: string | null | undefined): string {
-  return (
-    (
-      {
-        super_admin: "مشرف عام",
-        admin_supervisor: "مشرف إداري",
-        edu_supervisor: "مشرف تعليمي",
-        programs_supervisor: "مشرف برامج",
-        prog_supervisor: "مشرف برامج",
-        track_supervisor: "مشرف مسار",
-        teacher: "معلم",
-      } as Record<string, string>
-    )[role ?? ""] || "غير محدد"
-  );
-}
+import { staffRoleLabel } from "../../lib/staff-role-label";
 
 type Row = {
   user_id: number;
@@ -135,7 +120,7 @@ export function StaffAttendancePage() {
       filteredRows.map((r) => ({
         id: r.user_id,
         full_name_ar: r.full_name_ar,
-        subtitle: formatRole(r.role),
+        subtitle: staffRoleLabel(r.role),
         status: r.status,
       })),
     [filteredRows],

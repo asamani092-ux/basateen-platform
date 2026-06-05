@@ -155,7 +155,7 @@ export function StaffAttendancePanel({
                 <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
                   الدور
                 </TableHead>
-                <TableHead className={`${ds.table.head} ${ds.table.colStatusCompact}`} style={tajawal}>
+                <TableHead className={`${ds.table.head} ${ds.table.colStatusBtns}`} style={tajawal}>
                   الحالة
                 </TableHead>
               </TableRow>
@@ -168,7 +168,7 @@ export function StaffAttendancePanel({
                   </TableTruncatedCell>
                   <TableTruncatedCell style={tajawal}>{r.role}</TableTruncatedCell>
                   <TableCell
-                    className={`${ds.table.cell} ${ds.table.colStatusCompact} whitespace-nowrap`}
+                    className={`${ds.table.cell} ${ds.table.colStatusBtns} whitespace-nowrap`}
                     style={tajawal}
                   >
                     {r.status}

@@ -162,9 +162,10 @@ export async function collectHardDeleteCircleBatch(
   circleId: number,
   complexId: number,
 ): Promise<D1PreparedStatement[]> {
+  // Standard CRUD: purge child rows → DELETE circle.
+  // No UPDATE students (FK metadata may still reference circles_legacy_035 after 035 RENAME).
   return [
     ...(await clearCircleChildStatements(env, circleId)),
-    ...(await detachStudentsFromCircle(env, circleId, complexId)),
     env.DB.prepare(`DELETE FROM circles WHERE id = ? AND complex_id = ?`).bind(
       circleId,
       complexId,
@@ -204,23 +205,6 @@ export async function collectHardDeleteTrackBatch(
     ),
   );
   return batch;
-}
-
-async function detachStudentsFromCircle(
-  env: Env,
-  circleId: number,
-  complexId: number,
-): Promise<D1PreparedStatement[]> {
-  const stmts: D1PreparedStatement[] = [];
-  if (await tableHasColumn(env, "students", "current_circle_id")) {
-    stmts.push(
-      env.DB.prepare(
-        `UPDATE students SET current_circle_id = NULL
-         WHERE current_circle_id = ? AND complex_id = ?`,
-      ).bind(circleId, complexId),
-    );
-  }
-  return stmts;
 }
 
 /** فك ارتباطات الحلقة قبل الحذف النهائي — O(t) حيث t عدد الجداول الفرعية */

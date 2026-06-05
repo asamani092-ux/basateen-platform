@@ -75,9 +75,23 @@ export async function dropAllTriggers(env: Env): Promise<string[]> {
   );
 }
 
+/** إسقاط مُشغّلات students / history المرتبطة بالحلقات — O(t) */
+export async function dropStudentCircleTriggers(env: Env): Promise<string[]> {
+  const rows = await env.DB.prepare(
+    `SELECT name FROM sqlite_master
+     WHERE type = 'trigger'
+       AND tbl_name IN ('students', 'student_circle_history')`,
+  ).all<{ name: string }>();
+  return dropTriggersByNames(
+    env,
+    (rows.results ?? []).map((r) => r.name),
+  );
+}
+
 /** تجهيز قاعدة البيانات قبل حذف حلقة — O(t) */
 export async function prepareCircleHardDelete(env: Env): Promise<void> {
   await dropAllTriggers(env);
   await dropPhantomLegacyTriggers(env);
   await dropCircleTriggers(env);
+  await dropStudentCircleTriggers(env);
 }

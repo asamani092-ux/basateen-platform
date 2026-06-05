@@ -97,6 +97,8 @@
     "db:local:040": "node scripts/migrate-040-local.mjs",
     "db:remote:041": "node scripts/migrate-041-remote.mjs",
     "db:local:041": "node scripts/migrate-041-local.mjs",
+    "db:remote:042": "node scripts/migrate-042-remote.mjs",
+    "db:local:042": "node scripts/migrate-042-local.mjs",
     "db:remote:036:tracks": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/036_tracks_consolidate_single_table.sql",
     "db:remote:034:wipe": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/034_admin_data_wipe.sql",
     "db:remote:034:wipe:ext": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/034_admin_data_wipe_extensions.sql",

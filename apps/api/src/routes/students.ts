@@ -2,7 +2,7 @@ import type { Env } from "../types";
 import { ADMIN_DATA_ROLES } from "../lib/roles";
 import { createStudentWithPlacement } from "../lib/students-admin";
 import { studentCreateBodySchema } from "../lib/students-schema";
-import { hasTable, tableHasColumn } from "../lib/db-schema";
+import { hasTable, studentIsActiveSql, tableHasColumn } from "../lib/db-schema";
 import { buildStudentPlacementSql } from "../lib/student-list-sql";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 
@@ -80,9 +80,7 @@ export async function handleStudentsList(
     const placement = await buildStudentPlacementSql(env);
     const { historyJoin, circleJoin, trackJoin, circleRef, trackRef, historyCircleRef } =
       placement;
-    const isActiveExpr = (await tableHasColumn(env, "students", "is_active"))
-      ? "COALESCE(s.is_active, 1) = 1"
-      : "1=1";
+    const isActiveExpr = await studentIsActiveSql(env, "s");
 
     const nameSelect = await studentNameSelect(env);
 

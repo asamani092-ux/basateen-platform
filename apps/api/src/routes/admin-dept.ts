@@ -12,7 +12,12 @@ import {
   validateCircleStage,
 } from "../lib/admin-dept-schema";
 import { teachersListSql } from "../lib/admin-gm-schema";
-import { activePlacementSql, hasTable, tableHasColumn } from "../lib/db-schema";
+import {
+  activePlacementSql,
+  hasTable,
+  studentIsActiveSql,
+  tableHasColumn,
+} from "../lib/db-schema";
 import { buildStudentPlacementSql } from "../lib/student-list-sql";
 import { STAGE_LABELS } from "../lib/dept-scope";
 import { randomMagicToken, type MagicLinkContext } from "../lib/magic-link";
@@ -605,9 +610,7 @@ async function handleAdminDeptRouterImpl(
     }
 
     const placement = await buildStudentPlacementSql(env);
-    const isActiveExpr = (await tableHasColumn(env, "students", "is_active"))
-      ? "COALESCE(s.is_active, 1) = 1"
-      : "1=1";
+    const isActiveExpr = await studentIsActiveSql(env, "s");
 
     let sql = `
       SELECT s.id AS student_id, s.full_name_ar, s.guardian_phone, s.stage_id,
@@ -1446,12 +1449,14 @@ async function handleAdminDeptRouterImpl(
         ? "s.guardian_phone"
         : "NULL AS guardian_phone";
 
+      const isActiveExpr = await studentIsActiveSql(env, "s");
+
       let sql = `
       SELECT s.id, s.full_name_ar, ${nationalExpr}, ${phoneExpr}, ${guardianExpr},
              c.name_ar AS circle_name
       FROM students s
       ${circleJoin}
-      WHERE s.complex_id = ? AND COALESCE(s.is_active, 1) = 1`;
+      WHERE s.complex_id = ? AND ${isActiveExpr}`;
       const binds: (string | number)[] = [admin.complexId];
 
       if (q.length > 0) {

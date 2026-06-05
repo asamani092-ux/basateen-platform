@@ -120,8 +120,10 @@ export function StudentAttendanceReportModal({
     setTimeout(cleanup, 1000);
   }
 
+  const headClass =
+    "text-right px-4 py-3 print:px-2 print:py-1 print:text-xs print:font-semibold border border-black/20 print:border-black";
   const cellClass =
-    "text-right px-4 py-3 print:px-2 print:py-1.5 print:text-xs";
+    "text-right px-4 py-3 print:px-2 print:py-1 print:text-xs border border-black/10 print:border-black";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -225,19 +227,20 @@ export function StudentAttendanceReportModal({
           </p>
 
           {rows.length > 0 ? (
-            <Table className="w-full border-collapse text-sm print:text-xs">
+            <div className="overflow-x-auto print:overflow-visible">
+            <Table className="w-full border-collapse print:table-fixed print:w-full">
               <TableHeader>
                 <TableRow className="print:break-inside-avoid">
-                  <TableHead className={cellClass} style={tajawal}>
+                  <TableHead className={`${headClass} print:w-[40%]`} style={tajawal}>
                     اسم الطالب
                   </TableHead>
-                  <TableHead className={cellClass} style={tajawal}>
+                  <TableHead className={`${headClass} print:w-[20%]`} style={tajawal}>
                     أيام الحضور
                   </TableHead>
-                  <TableHead className={cellClass} style={tajawal}>
+                  <TableHead className={`${headClass} print:w-[20%]`} style={tajawal}>
                     أيام الاستئذان
                   </TableHead>
-                  <TableHead className={cellClass} style={tajawal}>
+                  <TableHead className={`${headClass} print:w-[20%]`} style={tajawal}>
                     أيام الغياب
                   </TableHead>
                 </TableRow>
@@ -248,22 +251,23 @@ export function StudentAttendanceReportModal({
                     key={r.student_id}
                     className="print:break-inside-avoid"
                   >
-                    <TableCell className={cellClass} style={tajawal}>
+                    <TableCell className={`${cellClass} print:w-[40%]`} style={tajawal}>
                       {r.full_name_ar}
                     </TableCell>
-                    <TableCell className={cellClass} style={tajawal}>
+                    <TableCell className={`${cellClass} print:w-[20%] print:text-center`} style={tajawal}>
                       {r.present_days}
                     </TableCell>
-                    <TableCell className={cellClass} style={tajawal}>
+                    <TableCell className={`${cellClass} print:w-[20%] print:text-center`} style={tajawal}>
                       {r.excused_days}
                     </TableCell>
-                    <TableCell className={cellClass} style={tajawal}>
+                    <TableCell className={`${cellClass} print:w-[20%] print:text-center`} style={tajawal}>
                       {r.absent_days}
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
+            </div>
           ) : (
             !loading &&
             loadedRange && (

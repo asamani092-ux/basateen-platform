@@ -76,6 +76,24 @@ export async function historyTrackColumn(
   return null;
 }
 
+/**
+ * SQLite-safe «active» predicate — D1 may store is_active as TEXT '1.0' not INTEGER 1.
+ * Time O(1) per row evaluation; Space O(1).
+ */
+export function sqliteActiveEq1(columnExpr: string): string {
+  return `COALESCE(CAST(${columnExpr} AS INTEGER), 1) = 1`;
+}
+
+export async function studentIsActiveSql(
+  env: Env,
+  alias = "s",
+): Promise<string> {
+  if (!(await tableHasColumn(env, "students", "is_active"))) {
+    return "1=1";
+  }
+  return sqliteActiveEq1(`${alias}.is_active`);
+}
+
 /** Join history only when it represents current placement (legacy schema). */
 export async function canJoinStudentHistoryForPlacement(env: Env): Promise<boolean> {
   const circleCol = await historyCircleColumn(env, "h");

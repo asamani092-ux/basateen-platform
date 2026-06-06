@@ -10,10 +10,14 @@ export type ComplexStaffCounts = {
 
 export type ComplexStudentCounts = {
   total: number;
-  with_circle: number;
-  without_circle: number;
-  with_track: number;
-  without_track: number;
+  /** حلقة فقط — circle IS NOT NULL AND track IS NULL */
+  circle_only: number;
+  /** مسار فقط — track IS NOT NULL AND circle IS NULL */
+  track_only: number;
+  /** حلقة ومسار معاً */
+  circle_and_track: number;
+  /** بدون حلقة ولا مسار */
+  unassigned: number;
 };
 
 /**
@@ -54,56 +58,70 @@ export async function countComplexStudents(
     .bind(complexId)
     .first<{ c: number }>();
 
-  const withCircleP =
-    circleRef !== "NULL"
+  const hasCircle = circleRef !== "NULL";
+  const hasTrack = trackRef !== "NULL";
+
+  const circleOnlyP =
+    hasCircle && hasTrack
       ? env.DB.prepare(
-          `SELECT COUNT(*) AS c ${base} AND ${circleRef} IS NOT NULL`,
+          `SELECT COUNT(*) AS c ${base} AND ${circleRef} IS NOT NULL AND ${trackRef} IS NULL`,
+        )
+          .bind(complexId)
+          .first<{ c: number }>()
+      : hasCircle
+        ? env.DB.prepare(
+            `SELECT COUNT(*) AS c ${base} AND ${circleRef} IS NOT NULL`,
+          )
+            .bind(complexId)
+            .first<{ c: number }>()
+        : Promise.resolve({ c: 0 } as { c: number });
+
+  const trackOnlyP =
+    hasCircle && hasTrack
+      ? env.DB.prepare(
+          `SELECT COUNT(*) AS c ${base} AND ${trackRef} IS NOT NULL AND ${circleRef} IS NULL`,
+        )
+          .bind(complexId)
+          .first<{ c: number }>()
+      : hasTrack
+        ? env.DB.prepare(
+            `SELECT COUNT(*) AS c ${base} AND ${trackRef} IS NOT NULL`,
+          )
+            .bind(complexId)
+            .first<{ c: number }>()
+        : Promise.resolve({ c: 0 } as { c: number });
+
+  const bothP =
+    hasCircle && hasTrack
+      ? env.DB.prepare(
+          `SELECT COUNT(*) AS c ${base} AND ${circleRef} IS NOT NULL AND ${trackRef} IS NOT NULL`,
         )
           .bind(complexId)
           .first<{ c: number }>()
       : Promise.resolve({ c: 0 } as { c: number });
 
-  const withoutCircleP =
-    circleRef !== "NULL"
+  const unassignedP =
+    hasCircle && hasTrack
       ? env.DB.prepare(
-          `SELECT COUNT(*) AS c ${base} AND ${circleRef} IS NULL`,
+          `SELECT COUNT(*) AS c ${base} AND ${circleRef} IS NULL AND ${trackRef} IS NULL`,
         )
           .bind(complexId)
           .first<{ c: number }>()
       : Promise.resolve({ c: 0 } as { c: number });
 
-  const withTrackP =
-    trackRef !== "NULL"
-      ? env.DB.prepare(
-          `SELECT COUNT(*) AS c ${base} AND ${trackRef} IS NOT NULL`,
-        )
-          .bind(complexId)
-          .first<{ c: number }>()
-      : Promise.resolve({ c: 0 } as { c: number });
-
-  const withoutTrackP =
-    trackRef !== "NULL"
-      ? env.DB.prepare(
-          `SELECT COUNT(*) AS c ${base} AND ${trackRef} IS NULL`,
-        )
-          .bind(complexId)
-          .first<{ c: number }>()
-      : Promise.resolve({ c: 0 } as { c: number });
-
-  const [total, withCircle, withoutCircle, withTrack, withoutTrack] =
-    await Promise.all([
-      totalP,
-      withCircleP,
-      withoutCircleP,
-      withTrackP,
-      withoutTrackP,
-    ]);
+  const [total, circleOnly, trackOnly, both, unassigned] = await Promise.all([
+    totalP,
+    circleOnlyP,
+    trackOnlyP,
+    bothP,
+    unassignedP,
+  ]);
 
   return {
     total: Number(total?.c ?? 0),
-    with_circle: Number(withCircle?.c ?? 0),
-    without_circle: Number(withoutCircle?.c ?? 0),
-    with_track: Number(withTrack?.c ?? 0),
-    without_track: Number(withoutTrack?.c ?? 0),
+    circle_only: Number(circleOnly?.c ?? 0),
+    track_only: Number(trackOnly?.c ?? 0),
+    circle_and_track: Number(both?.c ?? 0),
+    unassigned: Number(unassigned?.c ?? 0),
   };
 }

@@ -13,10 +13,10 @@ export type AdminDashboardStats = {
   generated_at: string;
   students: {
     total: number;
-    with_circle: number;
-    without_circle: number;
-    with_track: number;
-    without_track: number;
+    circle_only: number;
+    track_only: number;
+    circle_and_track: number;
+    unassigned: number;
   };
   groups: {
     circles_active: number;

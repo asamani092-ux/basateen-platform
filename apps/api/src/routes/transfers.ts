@@ -13,6 +13,7 @@ import {
 } from "../lib/db-schema";
 import { buildStudentPlacementSql } from "../lib/student-list-sql";
 import { applyStudentPlacement } from "../lib/students-admin";
+import { resolveCircleTrackId } from "../lib/circle-track";
 import { transferStudentCircle } from "../lib/edu-transfer";
 import { safeDeleteStudent } from "../lib/students-admin";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
@@ -173,11 +174,11 @@ export async function handleStudentTransfer(
   if (!student) return json({ error: "student_not_found" }, 404);
 
   const targetCircle = await env.DB.prepare(
-    `SELECT id, track_id, name_ar FROM circles
+    `SELECT id, name_ar FROM circles
      WHERE id = ? AND complex_id = ? AND is_active = 1`,
   )
     .bind(targetCircleId, auth.complexId)
-    .first<{ id: number; track_id: number | null; name_ar: string }>();
+    .first<{ id: number; name_ar: string }>();
 
   if (!targetCircle) return json({ error: "circle_not_found" }, 404);
 
@@ -190,10 +191,14 @@ export async function handleStudentTransfer(
     ? capacityWarningMessage(targetCapacity)
     : null;
 
-  const trackId =
+  const trackId = await resolveCircleTrackId(
+    env,
+    targetCircleId,
+    auth.complexId,
     body.track_id != null && body.track_id !== undefined
       ? Number(body.track_id)
-      : targetCircle.track_id;
+      : null,
+  );
 
     const hasHistory = await hasTable(env, "student_circle_history");
     const hasLegacyHistory = hasHistory && (await tableHasColumn(env, "student_circle_history", "circle_id"));
@@ -235,6 +240,7 @@ export async function handleStudentTransfer(
       newTrackId: trackId,
       movedByUserId: auth.userId,
       reason: note,
+      complexId: auth.complexId,
     });
 
     const hasAdmission = await tableHasColumn(env, "students", "admission_status");

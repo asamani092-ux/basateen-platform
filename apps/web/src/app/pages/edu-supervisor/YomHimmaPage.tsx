@@ -15,6 +15,7 @@ import {
 import { useAuth } from "../../context/AuthContext";
 import { api } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
+import { EduKpiCard } from "../../components/edu/EduKpiCard";
 import { TargetPicker, type TargetSelection } from "../../components/edu/TargetPicker";
 import { EDUCATIONAL_STAGES } from "../../lib/stages";
 import { ds, tajawal } from "../../lib/design-system";
@@ -647,18 +648,14 @@ export function YomHimmaPage() {
                     ((done * rules.hizb_points - penalties) / target) * 100,
                   ),
                 );
+                const weightedScore = done * rules.hizb_points - penalties;
                 return (
-                  <div key={t.student_id} className={`${ds.card} p-4 space-y-2 text-right`}>
-                    <p className="font-semibold" style={tajawal}>
-                      {t.full_name_ar}
-                    </p>
-                    <p className="text-sm text-muted-foreground" style={tajawal}>
-                      أحزاب: {done} / {target}
-                    </p>
-                    <p className="text-2xl font-bold text-primary tabular-nums" style={tajawal}>
-                      {pct.toFixed(0)}%
-                    </p>
-                  </div>
+                  <EduKpiCard
+                    key={t.student_id}
+                    label={t.full_name_ar}
+                    value={`${pct.toFixed(0)}%`}
+                    sub={`أحزاب: ${done} × ${rules.hizb_points} − خصومات = ${weightedScore.toFixed(0)} / ${target}`}
+                  />
                 );
               })}
             </div>

@@ -6,7 +6,9 @@ import {
   requireRoles,
 } from "../middleware/auth";
 import { assignStudentCircle } from "../lib/placement";
+import { tableHasColumn } from "../lib/db-schema";
 import {
+  buildStudentsInScopeWhere,
   loadUserScope,
   studentsInScopeBinds,
   studentsInScopeWhere,
@@ -257,11 +259,41 @@ export async function handleEduDeptRouter(
   }
 
   if (request.method === "GET" && path === "/api/edu-dept/master-grid") {
-    const pendingOnly = url.searchParams.get("pending_acceptance") === "1";
-    const q = (url.searchParams.get("q") ?? "").trim();
-    const scopeWhere = studentsInScopeWhere(scope);
-    let sql = `
-      SELECT * FROM (
+    try {
+      const pendingOnly = url.searchParams.get("pending_acceptance") === "1";
+      const q = (url.searchParams.get("q") ?? "").trim();
+      const scopeWhere = await buildStudentsInScopeWhere(env, scope);
+      const hasCurrentCircle = await tableHasColumn(
+        env,
+        "students",
+        "current_circle_id",
+      );
+      const hasCurrentTrack = await tableHasColumn(
+        env,
+        "students",
+        "current_track_id",
+      );
+
+      let innerSql: string;
+      if (hasCurrentCircle) {
+        innerSql = `
+        SELECT
+          s.id,
+          s.full_name_ar,
+          s.is_active,
+          s.stage_id,
+          s.school_grade,
+          s.admission_status,
+          s.current_circle_id,
+          c.name_ar AS current_circle_name,
+          ${hasCurrentTrack ? "s.current_track_id" : "NULL AS current_track_id"},
+          ${hasCurrentTrack ? "t.name_ar AS current_track_name" : "NULL AS current_track_name"}
+        FROM students s
+        LEFT JOIN circles c ON c.id = s.current_circle_id
+        ${hasCurrentTrack ? "LEFT JOIN tracks t ON t.id = s.current_track_id" : ""}
+        WHERE ${scopeWhere}`;
+      } else {
+        innerSql = `
         SELECT
           s.id,
           s.full_name_ar,
@@ -278,47 +310,57 @@ export async function handleEduDeptRouter(
           ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL
         LEFT JOIN circles c ON c.id = h.circle_id
         LEFT JOIN tracks t ON t.id = h.track_id
-        WHERE ${scopeWhere}
-      ) master_sheet
-      WHERE 1 = 1
-    `;
-    const binds: Array<string | number> = [
-      ...studentsInScopeBinds(auth.complexId, scope),
-    ];
-    if (pendingOnly) {
-      sql += ` AND current_circle_id IS NULL AND current_track_id IS NULL`;
+        WHERE ${scopeWhere}`;
+      }
+
+      let sql = `SELECT * FROM (${innerSql}) master_sheet WHERE 1 = 1`;
+      const binds: Array<string | number> = [
+        ...studentsInScopeBinds(auth.complexId, scope),
+      ];
+      if (pendingOnly) {
+        sql += ` AND current_circle_id IS NULL AND current_track_id IS NULL`;
+      }
+      if (q.length > 0) {
+        sql += ` AND full_name_ar LIKE ?`;
+        binds.push(`%${q}%`);
+      }
+      sql += ` ORDER BY full_name_ar LIMIT 500`;
+      const rows = await env.DB.prepare(sql).bind(...binds).all();
+
+      const circles = await env.DB.prepare(
+        `SELECT id, name_ar
+         FROM circles
+         WHERE complex_id = ? AND is_active = 1
+         ORDER BY name_ar`,
+      )
+        .bind(auth.complexId)
+        .all();
+
+      const tracks = await env.DB.prepare(
+        `SELECT id, name_ar
+         FROM tracks
+         WHERE complex_id = ?
+         ORDER BY name_ar`,
+      )
+        .bind(auth.complexId)
+        .all();
+
+      return json({
+        items: rows.results ?? [],
+        circles: circles.results ?? [],
+        tracks: tracks.results ?? [],
+        pending_filter_applied: pendingOnly,
+      });
+    } catch (err) {
+      console.error("master_grid_failed", err);
+      return json(
+        {
+          error: "master_grid_failed",
+          message: err instanceof Error ? err.message : String(err),
+        },
+        500,
+      );
     }
-    if (q.length > 0) {
-      sql += ` AND full_name_ar LIKE ?`;
-      binds.push(`%${q}%`);
-    }
-    sql += ` ORDER BY full_name_ar LIMIT 500`;
-    const rows = await env.DB.prepare(sql).bind(...binds).all();
-
-    const circles = await env.DB.prepare(
-      `SELECT id, name_ar, track_id
-       FROM circles
-       WHERE complex_id = ? AND is_active = 1
-       ORDER BY name_ar`,
-    )
-      .bind(auth.complexId)
-      .all();
-
-    const tracks = await env.DB.prepare(
-      `SELECT id, name_ar
-       FROM tracks
-       WHERE complex_id = ?
-       ORDER BY name_ar`,
-    )
-      .bind(auth.complexId)
-      .all();
-
-    return json({
-      items: rows.results ?? [],
-      circles: circles.results ?? [],
-      tracks: tracks.results ?? [],
-      pending_filter_applied: pendingOnly,
-    });
   }
 
   return json({ error: "Not Found", path }, 404);

@@ -307,7 +307,8 @@ export async function handleEduDeptMegaRouter(
         (await hasTable(env, "student_comp_scores"))
       ) {
         const rows = await env.DB.prepare(
-          `SELECT scs.student_id, SUM(scs.points) AS total_points
+          `SELECT scs.student_id,
+                  SUM(scs.points * COALESCE(ct.weight_points, 1)) AS total_points
            FROM student_comp_scores scs
            INNER JOIN competition_tasks ct ON ct.id = scs.task_id
            WHERE ct.competition_id = ?

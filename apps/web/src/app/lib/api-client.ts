@@ -2006,8 +2006,9 @@ export const api = {
         top_circle: { circle_id: number; circle_name: string; avg_quality: number } | null;
         active_students: number;
         total_records: number;
-        total_faces_semester: number;
-        faces_today: number;
+        total_faces_in_range?: number;
+        total_faces_semester?: number;
+        faces_today?: number;
       };
       circles: Array<{ id: number; name_ar: string }>;
       items: Array<{

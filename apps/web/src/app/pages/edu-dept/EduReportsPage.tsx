@@ -1,16 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { BarChart3, BookOpen, CalendarRange, TrendingUp } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Progress } from "../../components/ui/progress";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../../components/ui/select";
 import {
   Table,
   TableBody,
@@ -19,27 +12,15 @@ import {
   TableHeader,
   TableRow,
 } from "../../components/ui/table";
+import { EduKpiCard } from "../../components/edu/EduKpiCard";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { cn } from "../../components/ui/utils";
+import { defaultDateRange } from "../../lib/local-iso-date";
 import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import { ds, tajawal } from "../../lib/design-system";
 
-type DatePreset = "last3" | "last7" | "month" | "custom";
 type ReportData = Awaited<ReturnType<typeof api.eduDeptReportsProgress>>;
-
-function isoDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
-function rangeForPreset(preset: DatePreset): { start: string; end: string } {
-  const end = new Date();
-  const start = new Date(end);
-  if (preset === "last3") start.setDate(end.getDate() - 2);
-  else if (preset === "last7") start.setDate(end.getDate() - 6);
-  else if (preset === "month") start.setDate(1);
-  return { start: isoDate(start), end: isoDate(end) };
-}
 
 function qualityBarClass(pct: number): string {
   if (pct >= 75) return "[&>div]:bg-emerald-500";
@@ -48,9 +29,9 @@ function qualityBarClass(pct: number): string {
 }
 
 export function EduReportsPage() {
-  const [preset, setPreset] = useState<DatePreset>("last7");
-  const [customStart, setCustomStart] = useState(() => isoDate(new Date()));
-  const [customEnd, setCustomEnd] = useState(() => isoDate(new Date()));
+  const initial = defaultDateRange(7);
+  const [startDate, setStartDate] = useState(initial.start);
+  const [endDate, setEndDate] = useState(initial.end);
   const [circleId, setCircleId] = useState("");
   const [circles, setCircles] = useState<Array<{ id: number; name_ar: string }>>([]);
   const [data, setData] = useState<ReportData | null>(null);
@@ -58,15 +39,12 @@ export function EduReportsPage() {
   const [applied, setApplied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { startDate, endDate } = useMemo(() => {
-    if (preset === "custom") {
-      return { startDate: customStart, endDate: customEnd };
-    }
-    return rangeForPreset(preset);
-  }, [preset, customStart, customEnd]);
-
   const load = useCallback(async () => {
     if (!canUseApi()) return;
+    if (startDate > endDate) {
+      setError("تاريخ البداية يجب أن يكون قبل النهاية");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -93,8 +71,13 @@ export function EduReportsPage() {
     });
   }, []);
 
+  const facesInRange =
+    data?.summary.total_faces_in_range ??
+    data?.summary.faces_today ??
+    0;
+
   return (
-    <div className="space-y-6 max-w-[1200px]">
+    <div className="space-y-6 max-w-[1200px]" dir="rtl">
       <div>
         <h2 className={`${ds.page.title} flex items-center gap-2`} style={tajawal}>
           <BarChart3 className="w-7 h-7 text-primary" />
@@ -113,19 +96,23 @@ export function EduReportsPage() {
 
       <div className={`${ds.card} p-4 space-y-4`}>
         <div className={ds.filterRow}>
-          <div className="space-y-1 w-full sm:flex-1 sm:min-w-[200px] sm:max-w-sm">
-            <Label style={tajawal}>الفترة السريعة</Label>
-            <Select value={preset} onValueChange={(v) => setPreset(v as DatePreset)}>
-              <SelectTrigger className={ds.btnRound}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="last3">آخر 3 أيام</SelectItem>
-                <SelectItem value="last7">آخر أسبوع</SelectItem>
-                <SelectItem value="month">هذا الشهر</SelectItem>
-                <SelectItem value="custom">مخصص</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="space-y-1 w-full sm:flex-1 sm:min-w-[200px] sm:max-w-xs">
+            <Label style={tajawal}>من تاريخ</Label>
+            <Input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className={ds.btnRound}
+            />
+          </div>
+          <div className="space-y-1 w-full sm:flex-1 sm:min-w-[200px] sm:max-w-xs">
+            <Label style={tajawal}>إلى تاريخ</Label>
+            <Input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className={ds.btnRound}
+            />
           </div>
           <div className="space-y-1 w-full sm:flex-1 sm:min-w-[200px] sm:max-w-xs">
             <Label style={tajawal}>الحلقة</Label>
@@ -155,33 +142,6 @@ export function EduReportsPage() {
             </Button>
           </div>
         </div>
-
-        {preset === "custom" && (
-          <div className={ds.filterRow}>
-            <div className="space-y-1 w-full sm:flex-1 sm:max-w-xs">
-              <Label style={tajawal}>من</Label>
-              <Input
-                type="date"
-                value={customStart}
-                onChange={(e) => setCustomStart(e.target.value)}
-                className={ds.btnRound}
-              />
-            </div>
-            <div className="space-y-1 w-full sm:flex-1 sm:max-w-xs">
-              <Label style={tajawal}>إلى</Label>
-              <Input
-                type="date"
-                value={customEnd}
-                onChange={(e) => setCustomEnd(e.target.value)}
-                className={ds.btnRound}
-              />
-            </div>
-          </div>
-        )}
-
-        <p className="text-xs text-muted-foreground" style={tajawal}>
-          الفترة المعروضة: {startDate} — {endDate}
-        </p>
       </div>
 
       {loading ? (
@@ -190,25 +150,32 @@ export function EduReportsPage() {
         </p>
       ) : !applied ? (
         <p className={ds.alert.info} style={tajawal}>
-          طبّق الفلتر لعرض تقرير الطلاب — لا يُحمّل الجدول تلقائياً لتوفير الذاكرة.
+          حدّد النطاق الزمني ثم طبّق الفلتر لعرض التقرير.
         </p>
       ) : data ? (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <StatCard
-              icon={<BookOpen className="w-6 h-6 text-primary" />}
-              label="إجمالي الأوجه (منذ بداية الفصل)"
-              value={String(data.summary.total_faces_semester ?? 0)}
+            <EduKpiCard
+              icon={<BookOpen className="w-5 h-5 text-primary" />}
+              label="إجمالي الأوجه في النطاق"
+              value={facesInRange}
+              sub={`${data.date_from} — ${data.date_to}`}
             />
-            <StatCard
-              icon={<CalendarRange className="w-6 h-6 text-primary" />}
-              label="أوجه اليوم"
-              value={String(data.summary.faces_today ?? 0)}
+            <EduKpiCard
+              icon={<CalendarRange className="w-5 h-5 text-primary" />}
+              label="سجلات الرصد"
+              value={data.summary.total_records}
+              sub={`${data.summary.active_students} طالب نشط`}
             />
-            <StatCard
-              icon={<TrendingUp className="w-6 h-6 text-primary" />}
+            <EduKpiCard
+              icon={<TrendingUp className="w-5 h-5 text-primary" />}
               label="متوسط إنجاز الجودة"
               value={`${data.summary.avg_quality}%`}
+              sub={
+                data.summary.top_circle
+                  ? `أفضل حلقة: ${data.summary.top_circle.circle_name}`
+                  : undefined
+              }
             />
           </div>
 
@@ -282,28 +249,6 @@ export function EduReportsPage() {
           </div>
         </>
       ) : null}
-    </div>
-  );
-}
-
-function StatCard({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className={`${ds.card} p-5 space-y-2`}>
-      <div className="flex items-center gap-2">{icon}</div>
-      <p className="text-xs text-muted-foreground" style={tajawal}>
-        {label}
-      </p>
-      <p className="text-lg font-bold tabular-nums" style={tajawal}>
-        {value}
-      </p>
     </div>
   );
 }

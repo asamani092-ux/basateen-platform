@@ -6,13 +6,18 @@ import {
   requireRoles,
 } from "../middleware/auth";
 import { hasTable, tableHasColumn } from "../lib/db-schema";
+import { resolveCircleTrackId } from "../lib/circle-track";
 import {
+  buildStudentsInScopeWhere,
   loadUserScope,
   studentsInScopeBinds,
-  studentsInScopeWhere,
   teacherCanAccessStudent,
 } from "../lib/dept-scope";
-import { transferStudentCircle } from "../lib/edu-transfer";
+import {
+  transferStudentCircle,
+  transferStudentPlacement,
+} from "../lib/edu-transfer";
+import { todayLocalIso } from "../lib/local-iso-date";
 import {
   loadEventDefaults,
   upsertEventDefaults,
@@ -37,7 +42,7 @@ function json(data: unknown, status = 200): Response {
 }
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayLocalIso();
 }
 
 /** Academic semester start (September) for cumulative face metrics. */
@@ -68,11 +73,13 @@ function computeQualityPct(
   const revised = Boolean(row.revised);
   const rabtBonus = listened && repeated && revised ? wRabt : 0;
   const earned =
-    (listened ? wL : 0) +
-    (repeated ? wRep : 0) +
-    (revised ? wRev : 0) +
-    rabtBonus;
-  const penalties = pen * (Number(row.error_count) + Number(row.tune_errors));
+    (listened ? 1 * wL : 0) +
+    (repeated ? 1 * wRep : 0) +
+    (revised ? 1 * wRev : 0) +
+    rabtBonus * 1;
+  const penalties =
+    pen *
+    (Number(row.error_count) * 1 + Number(row.tune_errors) * 1);
   const raw = maxScore > 0 ? ((earned - penalties) / maxScore) * 100 : 0;
   return Math.round(Math.max(0, Math.min(100, raw)) * 10) / 10;
 }
@@ -175,6 +182,48 @@ async function resolveRecitationCircles(
     const circle = await resolveTeacherPrimaryCircle(env, auth.userId, auth.complexId);
     if (!circle) return [];
     return [circle];
+  }
+
+  if (auth.role === "track_supervisor" && (await hasTable(env, "supervisor_scopes"))) {
+    const scoped = await env.DB.prepare(
+      `SELECT DISTINCT circle_id FROM supervisor_scopes
+       WHERE user_id = ? AND circle_id IS NOT NULL`,
+    )
+      .bind(auth.userId)
+      .all<{ circle_id: number }>();
+    const circleIds = (scoped.results ?? [])
+      .map((r) => r.circle_id)
+      .filter((id) => Number.isFinite(id) && id > 0);
+    if (circleIds.length === 0) return [];
+
+    const trackScoped = await env.DB.prepare(
+      `SELECT DISTINCT track_id FROM supervisor_scopes
+       WHERE user_id = ? AND track_id IS NOT NULL`,
+    )
+      .bind(auth.userId)
+      .all<{ track_id: number }>();
+    const trackIds = (trackScoped.results ?? [])
+      .map((r) => r.track_id)
+      .filter((id) => Number.isFinite(id) && id > 0);
+
+    let sql = `SELECT DISTINCT c.id, c.name_ar
+      FROM circles c
+      WHERE c.complex_id = ? AND c.id IN (${circleIds.map(() => "?").join(",")})`;
+    const binds: (string | number)[] = [auth.complexId, ...circleIds];
+    if (hasIsActive) sql += ` AND c.is_active = 1`;
+
+    if (trackIds.length > 0 && (await hasTable(env, "track_circles"))) {
+      sql += ` AND c.id IN (
+        SELECT circle_id FROM track_circles WHERE track_id IN (${trackIds.map(() => "?").join(",")})
+      )`;
+      binds.push(...trackIds);
+    }
+
+    sql += ` ORDER BY c.name_ar`;
+    const rows = await env.DB.prepare(sql)
+      .bind(...binds)
+      .all<{ id: number; name_ar: string }>();
+    return rows.results ?? [];
   }
 
   if (auth.role === "programs_supervisor") {
@@ -750,19 +799,36 @@ export async function handleEduDeptCoreRouter(
       if (!Number.isFinite(newCircleId) || newCircleId <= 0) {
         return json({ error: "target_circle_required" }, 400);
       }
-      const circle = await env.DB.prepare(
-        `SELECT id, track_id FROM circles WHERE id = ? AND complex_id = ? AND is_active = 1`,
+      const circleExists = await env.DB.prepare(
+        `SELECT id FROM circles WHERE id = ? AND complex_id = ? AND is_active = 1`,
       )
         .bind(newCircleId, auth.complexId)
-        .first<{ id: number; track_id: number | null }>();
-      if (!circle) return json({ error: "circle_not_found" }, 404);
-      await transferStudentCircle(env, {
-        studentId: row.student_id,
+        .first<{ id: number }>();
+      if (!circleExists) return json({ error: "circle_not_found" }, 404);
+      const trackId = await resolveCircleTrackId(
+        env,
         newCircleId,
-        newTrackId: circle.track_id,
-        movedByUserId: auth.userId,
-        reason: row.notes ?? "موافقة على طلب نقل — القسم التعليمي",
-      });
+        auth.complexId,
+      );
+      try {
+        await transferStudentCircle(env, {
+          studentId: row.student_id,
+          newCircleId,
+          newTrackId: trackId,
+          movedByUserId: auth.userId,
+          reason: row.notes ?? "موافقة على طلب نقل — القسم التعليمي",
+          complexId: auth.complexId,
+        });
+      } catch (err) {
+        console.error("teacher_request_transfer_failed", err);
+        return json(
+          {
+            error: "transfer_failed",
+            message: err instanceof Error ? err.message : String(err),
+          },
+          500,
+        );
+      }
     }
 
     await env.DB.prepare(
@@ -798,7 +864,7 @@ export async function handleEduDeptCoreRouter(
       return json({ error: "student_id_and_circle_id_required" }, 400);
     }
     const scope = await loadUserScope(env, auth.userId);
-    const scopeWhere = studentsInScopeWhere(scope);
+    const scopeWhere = await buildStudentsInScopeWhere(env, scope);
     const allowed = await env.DB.prepare(
       `SELECT s.id FROM students s WHERE ${scopeWhere} AND s.id = ?`,
     )
@@ -806,27 +872,60 @@ export async function handleEduDeptCoreRouter(
       .first();
     if (!allowed) return json({ error: "student_out_of_scope" }, 403);
 
-    const circle = await env.DB.prepare(
-      `SELECT id, track_id FROM circles WHERE id = ? AND complex_id = ? AND is_active = 1`,
+    const circleExists = await env.DB.prepare(
+      `SELECT id FROM circles WHERE id = ? AND complex_id = ? AND is_active = 1`,
     )
       .bind(circleId, auth.complexId)
-      .first<{ id: number; track_id: number | null }>();
-    if (!circle) return json({ error: "circle_not_found" }, 404);
+      .first<{ id: number }>();
+    if (!circleExists) return json({ error: "circle_not_found" }, 404);
 
-    const trackId =
-      body.track_id != null ? Number(body.track_id) : circle.track_id;
+    const explicitTrack =
+      body.track_id != null ? Number(body.track_id) : null;
+    const trackId = await resolveCircleTrackId(
+      env,
+      circleId,
+      auth.complexId,
+      explicitTrack,
+    );
     const note =
       typeof body.note === "string"
         ? body.note.trim().slice(0, 500)
         : "نقل يدوي — القسم التعليمي";
 
-    await transferStudentCircle(env, {
-      studentId,
-      newCircleId: circleId,
-      newTrackId: trackId,
-      movedByUserId: auth.userId,
-      reason: note,
-    });
+    const current = await env.DB.prepare(
+      `SELECT current_circle_id, current_track_id FROM students WHERE id = ?`,
+    )
+      .bind(studentId)
+      .first<{
+        current_circle_id: number | null;
+        current_track_id: number | null;
+      }>();
+
+    const trackOnly =
+      current?.current_circle_id === circleId &&
+      explicitTrack != null &&
+      explicitTrack !== current?.current_track_id;
+
+    try {
+      await transferStudentPlacement(env, {
+        studentId,
+        newCircleId: circleId,
+        newTrackId: trackId,
+        movedByUserId: auth.userId,
+        reason: note,
+        complexId: auth.complexId,
+        trackOnly,
+      });
+    } catch (err) {
+      console.error("manual_transfer_failed", err);
+      return json(
+        {
+          error: "transfer_failed",
+          message: err instanceof Error ? err.message : String(err),
+        },
+        500,
+      );
+    }
     return json({ ok: true });
   }
 
@@ -838,11 +937,13 @@ export async function handleEduDeptCoreRouter(
     if (!(await hasTable(env, "edu_daily_recitation"))) return migrationRequired();
 
     const today = todayIso();
-    const dateParam = url.searchParams.get("date")?.trim();
     const dateFromParam = url.searchParams.get("date_from")?.trim();
     const dateToParam = url.searchParams.get("date_to")?.trim();
-    const dateFrom = dateFromParam || dateParam || today;
-    const dateTo = dateToParam || dateParam || today;
+    const dateFrom = dateFromParam || today;
+    const dateTo = dateToParam || dateFrom;
+    if (dateFrom > dateTo) {
+      return json({ error: "invalid_date_range", date_from: dateFrom, date_to: dateTo }, 400);
+    }
     const circleIdParam = url.searchParams.get("circle_id");
     const circleFilter =
       circleIdParam != null && circleIdParam !== ""
@@ -1004,40 +1105,27 @@ export async function handleEduDeptCoreRouter(
       }
     }
 
-    const semesterStart = semesterStartIso();
-    let facesSemesterSql = `
+    let facesInRangeSql = `
       SELECT COALESCE(SUM(dr.face_count), 0) AS total
       FROM edu_daily_recitation dr
       INNER JOIN students s ON s.id = dr.student_id AND s.complex_id = ?
-      WHERE dr.recitation_date >= ?`;
-    const facesSemesterBinds: (string | number)[] = [auth.complexId, semesterStart];
+      WHERE dr.recitation_date >= ? AND dr.recitation_date <= ?`;
+    const facesInRangeBinds: (string | number)[] = [
+      auth.complexId,
+      dateFrom,
+      dateTo,
+    ];
     if (circleFilter != null && Number.isFinite(circleFilter) && circleFilter > 0) {
-      facesSemesterSql += ` AND dr.circle_id = ?`;
-      facesSemesterBinds.push(circleFilter);
+      facesInRangeSql += ` AND dr.circle_id = ?`;
+      facesInRangeBinds.push(circleFilter);
     }
 
-    let facesTodaySql = `
-      SELECT COALESCE(SUM(dr.face_count), 0) AS total
-      FROM edu_daily_recitation dr
-      INNER JOIN students s ON s.id = dr.student_id AND s.complex_id = ?
-      WHERE dr.recitation_date = ?`;
-    const facesTodayBinds: (string | number)[] = [auth.complexId, today];
-    if (circleFilter != null && Number.isFinite(circleFilter) && circleFilter > 0) {
-      facesTodaySql += ` AND dr.circle_id = ?`;
-      facesTodayBinds.push(circleFilter);
-    }
-
-    let totalFacesSemester = 0;
-    let facesToday = 0;
+    let totalFacesInRange = 0;
     if (hasFace) {
-      const semRow = await env.DB.prepare(facesSemesterSql)
-        .bind(...facesSemesterBinds)
+      const rangeRow = await env.DB.prepare(facesInRangeSql)
+        .bind(...facesInRangeBinds)
         .first<{ total: number }>();
-      totalFacesSemester = Number(semRow?.total ?? 0);
-      const todayRow = await env.DB.prepare(facesTodaySql)
-        .bind(...facesTodayBinds)
-        .first<{ total: number }>();
-      facesToday = Number(todayRow?.total ?? 0);
+      totalFacesInRange = Number(rangeRow?.total ?? 0);
     }
 
     const circles = await env.DB.prepare(
@@ -1050,14 +1138,14 @@ export async function handleEduDeptCoreRouter(
       date: dateTo,
       date_from: dateFrom,
       date_to: dateTo,
-      semester_start: semesterStart,
       summary: {
         avg_quality: avgQuality,
         top_circle: topCircle,
         active_students: activeCount,
         total_records: rowCount,
-        total_faces_semester: totalFacesSemester,
-        faces_today: facesToday,
+        total_faces_in_range: totalFacesInRange,
+        faces_today: totalFacesInRange,
+        total_faces_semester: totalFacesInRange,
       },
       circles: circles.results ?? [],
       items,

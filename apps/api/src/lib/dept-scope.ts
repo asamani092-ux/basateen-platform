@@ -64,7 +64,7 @@ export async function readSupervisorScopeString(
   return "global";
 }
 
-const ACTIVE_PLACEMENT = "h.to_at IS NULL";
+const ACTIVE_PLACEMENT = "h.to_at IS NULL AND h.frozen_at IS NULL";
 
 export function stageFilterWhere(scope: ScopeMode, column = "stage_id"): string {
   if (scope.type === "global") return "1=1";
@@ -76,6 +76,7 @@ export function stageFilterBinds(scope: ScopeMode): number[] {
   return scope.type === "global" ? [] : [...scope.stageIds];
 }
 
+/** @deprecated استخدم buildStudentsInScopeWhere للتوافق مع v25 */
 export function studentsInScopeWhere(scope: ScopeMode): string {
   if (scope.type === "global") {
     return "s.complex_id = ? AND s.is_active = 1";
@@ -90,6 +91,28 @@ export function studentsInScopeWhere(scope: ScopeMode): string {
         AND c.stage_id IN (${ph})
     )
   )`;
+}
+
+/** Time O(1); Space O(1) — استعلام نطاق طلاب متوافق مع v25 */
+export async function buildStudentsInScopeWhere(
+  env: Env,
+  scope: ScopeMode,
+): Promise<string> {
+  if (scope.type === "global") {
+    return "s.complex_id = ? AND s.is_active = 1";
+  }
+  const ph = scope.stageIds.map(() => "?").join(",");
+  const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
+  if (hasCurrentCircle) {
+    return `s.complex_id = ? AND s.is_active = 1 AND (
+      s.stage_id IN (${ph})
+      OR EXISTS (
+        SELECT 1 FROM circles c
+        WHERE c.id = s.current_circle_id AND c.stage_id IN (${ph})
+      )
+    )`;
+  }
+  return studentsInScopeWhere(scope);
 }
 
 export function studentsInScopeBinds(
@@ -145,6 +168,22 @@ export async function teacherCanAccessStudent(
       .first<{ ok: number }>();
     return Boolean(row?.ok);
   }
+
+  const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
+  if (hasCurrentCircle) {
+    const row = await env.DB.prepare(
+      `SELECT 1 AS ok
+       FROM students s
+       JOIN teacher_assignments ta
+         ON ta.circle_id = s.current_circle_id AND ta.user_id = ?
+       WHERE s.id = ? AND s.is_active = 1
+       LIMIT 1`,
+    )
+      .bind(teacherUserId, studentId)
+      .first<{ ok: number }>();
+    return Boolean(row?.ok);
+  }
+
   const row = await env.DB.prepare(
     `SELECT 1 AS ok
      FROM students s

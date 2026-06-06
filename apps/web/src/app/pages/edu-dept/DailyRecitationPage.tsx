@@ -42,7 +42,12 @@ type Row = {
 
 type ViewMode = "grid" | "cards";
 
-const SUPERVISOR_ROLES = new Set(["edu_supervisor", "super_admin", "programs_supervisor"]);
+const SUPERVISOR_ROLES = new Set([
+  "edu_supervisor",
+  "track_supervisor",
+  "super_admin",
+  "programs_supervisor",
+]);
 
 export function DailyRecitationPage() {
   const { user } = useAuth();
@@ -173,7 +178,9 @@ export function DailyRecitationPage() {
           </h2>
           <p className={ds.page.description} style={tajawal}>
             {isSupervisor
-              ? "متابعة أو رصد حلقات المسار — اختر الحلقة ثم سجّل الإنجاز."
+              ? user?.role === "track_supervisor"
+                ? "رصد حلقات مسارك — اختر الحلقة ثم سجّل الإنجاز."
+                : "متابعة أو رصد الحلقات — اختر الحلقة ثم سجّل الإنجاز."
               : "سماع، تكرار، مراجعة، وأوجه — حلقتك تُحمّل تلقائياً."}
           </p>
           {!isSupervisor && circleName && (
@@ -212,9 +219,10 @@ export function DailyRecitationPage() {
         </p>
       )}
 
-      <div className={`${ds.card} p-4 flex flex-col md:flex-row flex-wrap gap-4 md:items-end`}>
+      <div className={`${ds.card} p-4`}>
+        <div className={ds.filterRow}>
         {isSupervisor && (
-          <div className="space-y-1 w-full md:max-w-xs">
+          <div className="space-y-1 w-full sm:flex-1 sm:min-w-[200px] sm:max-w-xs">
             <Label style={tajawal}>الحلقة</Label>
             <select
               value={circleId ?? ""}
@@ -233,7 +241,7 @@ export function DailyRecitationPage() {
             </select>
           </div>
         )}
-        <div className="space-y-1 w-full md:max-w-xs">
+        <div className="space-y-1 w-full sm:flex-1 sm:min-w-[200px] sm:max-w-xs">
           <Label style={tajawal}>التاريخ</Label>
           <Input
             type="date"
@@ -241,6 +249,7 @@ export function DailyRecitationPage() {
             onChange={(e) => setDate(e.target.value)}
             className={ds.btnRound}
           />
+        </div>
         </div>
       </div>
 

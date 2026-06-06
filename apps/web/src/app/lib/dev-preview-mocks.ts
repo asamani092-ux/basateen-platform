@@ -942,22 +942,20 @@ export function resolveDevPreviewMock<T>(
 
   if (p === "/api/edu-dept/reports/progress" && m === "GET") {
     const students = previewStore.getStudents().slice(0, 5);
-    const semesterStart =
-      new Date().getMonth() + 1 >= 9
-        ? `${new Date().getFullYear()}-09-01`
-        : `${new Date().getFullYear() - 1}-09-01`;
+    const dateFrom = url.searchParams.get("date_from") ?? date;
+    const dateTo = url.searchParams.get("date_to") ?? dateFrom;
     return {
-      date,
-      date_from: date,
-      date_to: date,
-      semester_start: semesterStart,
+      date: dateTo,
+      date_from: dateFrom,
+      date_to: dateTo,
       summary: {
         avg_quality: 78.5,
         top_circle: { circle_id: 1, circle_name: "حلقة تجريبية", avg_quality: 82 },
         active_students: 4,
         total_records: students.length,
-        total_faces_semester: 120,
-        faces_today: 8,
+        total_faces_in_range: 24,
+        total_faces_semester: 24,
+        faces_today: 24,
       },
       circles: PREVIEW_CIRCLES.slice(0, 3).map((c) => ({ id: c.id, name_ar: c.name_ar })),
       items: students.map((s, i) => ({

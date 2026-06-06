@@ -46,10 +46,10 @@ type KpiSummary = {
 type DashboardStats = {
   students: {
     total: number;
-    with_circle: number;
-    without_circle: number;
-    with_track: number;
-    without_track: number;
+    circle_only: number;
+    track_only: number;
+    circle_and_track: number;
+    unassigned: number;
   };
   groups: { circles_active: number; tracks_active: number };
   staff: { total: number; by_role: Record<string, number> };
@@ -79,10 +79,10 @@ const emptyKpi: KpiSummary = {
 const emptyDashboard: DashboardStats = {
   students: {
     total: 0,
-    with_circle: 0,
-    without_circle: 0,
-    with_track: 0,
-    without_track: 0,
+    circle_only: 0,
+    track_only: 0,
+    circle_and_track: 0,
+    unassigned: 0,
   },
   groups: { circles_active: 0, tracks_active: 0 },
   staff: { total: 0, by_role: {} },
@@ -285,7 +285,7 @@ export function AdminReportsPage() {
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
             {dashboardLoading ? (
-              Array.from({ length: 8 }).map((_, i) => (
+              Array.from({ length: 9 }).map((_, i) => (
                 <KpiSkeleton key={i} />
               ))
             ) : (
@@ -294,20 +294,6 @@ export function AdminReportsPage() {
                   icon={<GraduationCap className="w-5 h-5 text-primary" />}
                   label="إجمالي الطلاب"
                   value={dashboard.students.total}
-                />
-                <KpiCard
-                  icon={<UserCheck className="w-5 h-5 text-emerald-600" />}
-                  label="طلاب مسندون لحلقة"
-                  value={dashboard.students.with_circle}
-                  sub={`${dashboard.students.without_circle} بدون حلقة`}
-                  highlight={dashboard.students.without_circle > 0}
-                />
-                <KpiCard
-                  icon={<UserCheck className="w-5 h-5 text-emerald-600" />}
-                  label="طلاب مسندون لمسار"
-                  value={dashboard.students.with_track}
-                  sub={`${dashboard.students.without_track} بدون مسار`}
-                  highlight={dashboard.students.without_track > 0}
                 />
                 <KpiCard
                   icon={<Layers className="w-5 h-5 text-primary" />}
@@ -320,23 +306,43 @@ export function AdminReportsPage() {
                   value={dashboard.groups.tracks_active}
                 />
                 <KpiCard
+                  icon={<BookOpen className="w-5 h-5 text-primary" />}
+                  label="إجمالي التعهدات"
+                  value={dashboard.pledges?.total ?? 0}
+                  sub={
+                    dashboard.pledges
+                      ? `${dashboard.pledges.this_month} هذا الشهر — ${dashboard.pledges.students_with_pledges} طالب`
+                      : undefined
+                  }
+                />
+                <KpiCard
+                  icon={<BarChart3 className="w-5 h-5 text-primary" />}
+                  label="تحضير اليوم (مسجّل)"
+                  value={dashboard.attendance.students_marked_today}
+                  sub={`${dashboard.attendance.students_present_today} حاضر — ${dashboard.attendance.staff_marked_today} منسوب مُحضَّر`}
+                />
+                <KpiCard
+                  icon={<UserCheck className="w-5 h-5 text-emerald-600" />}
+                  label="طلاب الحلقات"
+                  value={dashboard.students.circle_only}
+                  sub="حلقة فقط — بدون مسار"
+                />
+                <KpiCard
+                  icon={<UserCheck className="w-5 h-5 text-emerald-600" />}
+                  label="طلاب المسارات"
+                  value={dashboard.students.track_only}
+                  sub="مسار فقط — بدون حلقة"
+                />
+                <KpiCard
+                  icon={<UserCheck className="w-5 h-5 text-violet-600" />}
+                  label="طلاب الحلق والمسارات"
+                  value={dashboard.students.circle_and_track}
+                  sub="مشتركون في حلقة ومسار"
+                />
+                <KpiCard
                   icon={<Users className="w-5 h-5 text-primary" />}
                   label="إجمالي المنسوبين"
                   value={dashboard.staff.total}
-                />
-                {dashboard.pledges && (
-                  <KpiCard
-                    icon={<BookOpen className="w-5 h-5 text-primary" />}
-                    label="التعهدات (هذا الشهر)"
-                    value={dashboard.pledges.this_month}
-                    sub={`${dashboard.pledges.total} إجمالي — ${dashboard.pledges.students_with_pledges} طالب`}
-                  />
-                )}
-                <KpiCard
-                  icon={<BarChart3 className="w-5 h-5 text-primary" />}
-                  label="تحضير اليوم (طلاب)"
-                  value={dashboard.attendance.students_present_today}
-                  sub={`${dashboard.attendance.students_marked_today} مسجّل — ${dashboard.attendance.staff_present_today} منسوب حاضر (${dashboard.attendance.staff_marked_today} مُحضَّر)`}
                 />
               </>
             )}
@@ -364,24 +370,18 @@ export function AdminReportsPage() {
             </div>
           )}
 
-          {!dashboardLoading &&
-            (dashboard.students.without_circle > 0 ||
-              dashboard.students.without_track > 0) && (
-              <div className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                <p style={tajawal}>
-                  يوجد{" "}
-                  <strong className="tabular-nums">
-                    {dashboard.students.without_circle}
-                  </strong>{" "}
-                  طالب بدون حلقة و{" "}
-                  <strong className="tabular-nums">
-                    {dashboard.students.without_track}
-                  </strong>{" "}
-                  طالب بدون مسار — راجع تبويب الطلاب لإسنادهم.
-                </p>
-              </div>
-            )}
+          {!dashboardLoading && dashboard.students.unassigned > 0 && (
+            <div className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <p style={tajawal}>
+                يوجد{" "}
+                <strong className="tabular-nums">
+                  {dashboard.students.unassigned}
+                </strong>{" "}
+                طالب غير مسند لحلقة أو مسار — راجع تبويب الطلاب لإسنادهم.
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
 

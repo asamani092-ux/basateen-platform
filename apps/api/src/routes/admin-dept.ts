@@ -17,6 +17,7 @@ import {
   countComplexStaff,
   countComplexStudents,
 } from "../lib/admin-roster-counts";
+import { fetchStudentForAdminReport } from "../lib/admin-student-report";
 import {
   activePlacementSql,
   hasTable,
@@ -1569,24 +1570,16 @@ async function handleAdminDeptRouterImpl(
     const history: AttRow[] = [];
 
     if (beneficiaryType === "student") {
-      const hasGuardian = await tableHasColumn(env, "students", "guardian_phone");
-      const student = await env.DB.prepare(
-        hasGuardian
-          ? `SELECT id, full_name_ar, guardian_phone, stage_id, current_circle_id
-             FROM students
-             WHERE id = ? AND complex_id = ? AND COALESCE(is_active, 1) = 1`
-          : `SELECT id, full_name_ar, stage_id, current_circle_id
-             FROM students
-             WHERE id = ? AND complex_id = ? AND COALESCE(is_active, 1) = 1`,
-      )
-        .bind(personId, admin.complexId)
-        .first<{
-          id: number;
-          full_name_ar: string;
-          guardian_phone?: string | null;
-          stage_id: number | null;
-          current_circle_id: number | null;
-        }>();
+      const personRef =
+        url.searchParams.get("person_id") ??
+        url.searchParams.get("student_id") ??
+        url.searchParams.get("id") ??
+        "";
+      const student = await fetchStudentForAdminReport(
+        env,
+        admin.complexId,
+        personRef,
+      );
       if (!student) return json({ error: "student_not_found" }, 404);
 
       const attTable = await resolveAttendanceTableName(env);
@@ -1598,7 +1591,7 @@ async function handleAdminDeptRouterImpl(
              AND attendance_date BETWEEN ? AND ?
            ORDER BY attendance_date DESC`,
         )
-          .bind(personId, admin.complexId, startDate, endDate)
+          .bind(student.id, admin.complexId, startDate, endDate)
           .all<AttRow>();
         for (const r of attRows.results ?? []) history.push(r);
       }
@@ -1615,11 +1608,9 @@ async function handleAdminDeptRouterImpl(
       const disciplinePct =
         total > 0 ? Math.round((present / total) * 100) : 100;
 
-      let circleName: string | null = null;
-      if (student.current_circle_id) {
-        const circle = await circleLabelRow(env, student.current_circle_id);
-        circleName = circle?.name_ar ?? null;
-      }
+      const placementLabel =
+        [student.circle_name, student.track_name].filter(Boolean).join(" · ") ||
+        null;
 
       return json({
         type: "student",
@@ -1631,7 +1622,7 @@ async function handleAdminDeptRouterImpl(
           full_name_ar: student.full_name_ar,
           guardian_phone: student.guardian_phone ?? null,
           stage_id: student.stage_id,
-          circle_name: circleName,
+          circle_name: placementLabel,
         },
         summary: { present, absent, excused, total },
         discipline_pct: disciplinePct,
@@ -1698,22 +1689,12 @@ async function handleAdminDeptRouterImpl(
   // GET /api/admin-dept/reports/student/:studentId — سجل حضور طالب كامل
   const studentReport = path.match(/^\/api\/admin-dept\/reports\/student\/(\d+)$/);
   if (request.method === "GET" && studentReport) {
-    const studentId = Number(studentReport[1]);
-    const hasGuardian = await tableHasColumn(env, "students", "guardian_phone");
-    const student = await env.DB.prepare(
-      hasGuardian
-        ? `SELECT id, full_name_ar, guardian_phone, stage_id FROM students
-           WHERE id = ? AND complex_id = ? AND COALESCE(is_active, 1) = 1`
-        : `SELECT id, full_name_ar, stage_id FROM students
-           WHERE id = ? AND complex_id = ? AND COALESCE(is_active, 1) = 1`,
-    )
-      .bind(studentId, admin.complexId)
-      .first<{
-        id: number;
-        full_name_ar: string;
-        guardian_phone: string | null;
-        stage_id: number | null;
-      }>();
+    const studentRef = studentReport[1];
+    const student = await fetchStudentForAdminReport(
+      env,
+      admin.complexId,
+      studentRef,
+    );
     if (!student) return json({ error: "student_not_found" }, 404);
 
     type AttRow = { date: string; status: string };
@@ -1726,7 +1707,7 @@ async function handleAdminDeptRouterImpl(
          WHERE student_id = ? AND complex_id = ?
          ORDER BY attendance_date DESC`,
       )
-        .bind(studentId, admin.complexId)
+        .bind(student.id, admin.complexId)
         .all<AttRow>();
       for (const r of attRows.results ?? []) history.push(r);
     }

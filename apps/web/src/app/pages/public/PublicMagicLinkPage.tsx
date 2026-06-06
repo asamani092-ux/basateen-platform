@@ -15,7 +15,6 @@ export function PublicMagicLinkPage() {
   const [entityType, setEntityType] = useState<"circle" | "track">("circle");
   const [entityName, setEntityName] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
-  const [baseline, setBaseline] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,9 +39,6 @@ export function PublicMagicLinkPage() {
         status: normalizeAttendanceStatus(r.status),
       }));
       setRows(items);
-      const base: Record<number, string> = {};
-      for (const r of items) base[r.student_id] = r.status;
-      setBaseline(base);
     } catch (e) {
       setError(e instanceof Error ? e.message : "الرابط غير صالح أو موقوف");
       setRows([]);
@@ -62,25 +58,17 @@ export function PublicMagicLinkPage() {
   }
 
   async function save() {
-    const changed = rows.filter(
-      (r) => (baseline[r.student_id] ?? "present") !== r.status,
-    );
-    if (changed.length === 0) {
-      setDone(true);
-      return;
-    }
+    if (rows.length === 0) return;
     setSaving(true);
     setError(null);
+    setDone(false);
     try {
       await api.publicAttendanceSave(token, {
-        records: changed.map((r) => ({
+        records: rows.map((r) => ({
           student_id: r.student_id,
           status: r.status,
         })),
       });
-      const base: Record<number, string> = {};
-      for (const r of rows) base[r.student_id] = r.status;
-      setBaseline(base);
       setDone(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل الحفظ");

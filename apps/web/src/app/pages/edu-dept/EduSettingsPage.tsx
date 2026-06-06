@@ -21,15 +21,7 @@ export function EduSettingsPage() {
     weight_repeat: 1,
     rabt_weight: 1,
     penalty_per_error: 0.5,
-    hizb_points: 1,
-    alert_penalty: 1,
-    error_penalty: 2,
-    alerts_per_error: 5,
-    fail_threshold_errors: 3,
-    mistake_penalty: 1,
-    comp_alert_penalty: 0.5,
-    lahn_penalty: 0.5,
-    default_task_weight: 1,
+    competition_attendance_weight: 1,
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -51,20 +43,8 @@ export function EduSettingsPage() {
         weight_repeat: Number(res.settings.weight_repeat ?? 1),
         rabt_weight: Number(res.settings.rabt_weight ?? 1),
         penalty_per_error: Number(res.settings.penalty_per_error ?? 0.5),
-        hizb_points: Number(res.settings.himma_defaults?.hizb_points ?? 1),
-        alert_penalty: Number(res.settings.himma_defaults?.alert_penalty ?? 1),
-        error_penalty: Number(res.settings.himma_defaults?.error_penalty ?? 2),
-        alerts_per_error: Number(res.settings.himma_defaults?.alerts_per_error ?? 5),
-        fail_threshold_errors: Number(
-          res.settings.himma_defaults?.fail_threshold_errors ?? 3,
-        ),
-        mistake_penalty: Number(res.settings.competition_defaults?.mistake_penalty ?? 1),
-        comp_alert_penalty: Number(
-          res.settings.competition_defaults?.alert_penalty ?? 0.5,
-        ),
-        lahn_penalty: Number(res.settings.competition_defaults?.lahn_penalty ?? 0.5),
-        default_task_weight: Number(
-          res.settings.competition_defaults?.default_task_weight ?? 1,
+        competition_attendance_weight: Number(
+          res.settings.competition_attendance_weight ?? 1,
         ),
       });
     } catch (e) {
@@ -90,19 +70,7 @@ export function EduSettingsPage() {
         weight_repeat: weights.weight_repeat,
         rabt_weight: weights.rabt_weight,
         penalty_per_error: weights.penalty_per_error,
-        himma_defaults: {
-          hizb_points: weights.hizb_points,
-          alert_penalty: weights.alert_penalty,
-          error_penalty: weights.error_penalty,
-          alerts_per_error: weights.alerts_per_error,
-          fail_threshold_errors: weights.fail_threshold_errors,
-        },
-        competition_defaults: {
-          mistake_penalty: weights.mistake_penalty,
-          alert_penalty: weights.comp_alert_penalty,
-          lahn_penalty: weights.lahn_penalty,
-          default_task_weight: weights.default_task_weight,
-        },
+        competition_attendance_weight: weights.competition_attendance_weight,
       });
       setSuccess("تم حفظ أوزان التقييم.");
       setDialogOpen(false);
@@ -121,7 +89,7 @@ export function EduSettingsPage() {
           إعدادات التعليم
         </h2>
         <p className={ds.page.description} style={tajawal}>
-          ضبط أوزان تقييم المهام اليومية للمعلمين والتقارير.
+          ضبط أوزان تقييم المهام اليومية وحضور المنافسات — منفصل عن التحضير الإداري.
         </p>
       </div>
 
@@ -139,7 +107,7 @@ export function EduSettingsPage() {
       <div className={`${ds.card} p-12 flex flex-col items-center justify-center text-center gap-4 min-h-[280px]`}>
         <Settings2 className="w-12 h-12 text-muted-foreground/60" />
         <p className="text-sm text-muted-foreground max-w-sm" style={tajawal}>
-          أوزان السماع والتكرار والمراجعة والربط وخصم الأخطاء — تُعدّل من نموذج واحد.
+          أوزان السماع والتكرار والمراجعة والربط وخصم الأخطاء — وحضور المنافسات بشكل مستقل.
         </p>
         <Button
           type="button"
@@ -164,6 +132,9 @@ export function EduSettingsPage() {
               </p>
             ) : (
               <>
+                <p className="text-sm font-semibold" style={tajawal}>
+                  الرصد اليومي للمعلم
+                </p>
                 <Field
                   label="درجة السماع"
                   value={weights.weight_listening}
@@ -190,36 +161,18 @@ export function EduSettingsPage() {
                   onChange={(v) => setWeights((w) => ({ ...w, penalty_per_error: v }))}
                 />
                 <p className="text-sm font-semibold pt-2 border-t border-border" style={tajawal}>
-                  يوم الهمة
+                  حضور المنافسات (مستقل)
                 </p>
                 <Field
-                  label="درجة الحزب"
-                  value={weights.hizb_points}
-                  onChange={(v) => setWeights((w) => ({ ...w, hizb_points: v }))}
+                  label="وزن حضور المنافسات"
+                  value={weights.competition_attendance_weight}
+                  onChange={(v) =>
+                    setWeights((w) => ({ ...w, competition_attendance_weight: v }))
+                  }
                 />
-                <Field
-                  label="خصم تنبيه"
-                  value={weights.alert_penalty}
-                  onChange={(v) => setWeights((w) => ({ ...w, alert_penalty: v }))}
-                />
-                <Field
-                  label="خصم خطأ/لحن"
-                  value={weights.error_penalty}
-                  onChange={(v) => setWeights((w) => ({ ...w, error_penalty: v }))}
-                />
-                <p className="text-sm font-semibold pt-2 border-t border-border" style={tajawal}>
-                  المنافسات
+                <p className="text-xs text-muted-foreground" style={tajawal}>
+                  يُحسب في نقاط المنافسات فقط ولا يؤثر على إحصائيات الغياب الإدارية.
                 </p>
-                <Field
-                  label="وزن المهمة الافتراضي"
-                  value={weights.default_task_weight}
-                  onChange={(v) => setWeights((w) => ({ ...w, default_task_weight: v }))}
-                />
-                <Field
-                  label="خصم الخطأ"
-                  value={weights.mistake_penalty}
-                  onChange={(v) => setWeights((w) => ({ ...w, mistake_penalty: v }))}
-                />
                 <Button
                   type="submit"
                   variant="default"

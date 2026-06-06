@@ -490,7 +490,48 @@ export const api = {
       competition: Record<string, unknown>;
       targets: Array<Record<string, unknown>>;
       plans: Array<Record<string, unknown>>;
+      logs: Array<Record<string, unknown>>;
     }>(`/api/edu-dept/competitions/${id}`),
+  competitionsPatch: (id: number, body: Record<string, unknown>) =>
+    request<{ ok: boolean }>(`/api/edu-dept/competitions/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  competitionsDashboard: (
+    id: number,
+    params: { date_from: string; date_to: string },
+  ) =>
+    request<{
+      date_from: string;
+      date_to: string;
+      kpis: {
+        discipline_pct: number;
+        achievement_pct: number;
+        participants: number;
+        target_juz: number;
+        achieved_juz: number;
+      };
+      leaders: Array<{ student_id: number; score: number; full_name_ar?: string }>;
+    }>(
+      `/api/edu-dept/competitions/${id}/dashboard?date_from=${encodeURIComponent(params.date_from)}&date_to=${encodeURIComponent(params.date_to)}`,
+    ),
+  competitionsAttendanceGet: (id: number, date: string) =>
+    request<{
+      date: string;
+      items: Array<{ student_id: number; full_name_ar: string; present: boolean }>;
+      present_count: number;
+      total: number;
+    }>(
+      `/api/edu-dept/competitions/${id}/attendance?date=${encodeURIComponent(date)}`,
+    ),
+  competitionsAttendanceSave: (
+    id: number,
+    body: { date: string; records: Array<{ student_id: number; present: boolean }> },
+  ) =>
+    request<{ ok: boolean }>(`/api/edu-dept/competitions/${id}/attendance`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   competitionsLiveLogToken: (id: number) =>
     request<{ ok: boolean; live_log_token: string; path: string }>(
       `/api/edu-dept/competitions/${id}/live-log-token`,
@@ -1550,19 +1591,7 @@ export const api = {
         weight_repeat: number;
         rabt_weight: number;
         penalty_per_error: number;
-        himma_defaults?: {
-          hizb_points: number;
-          alert_penalty: number;
-          error_penalty: number;
-          alerts_per_error: number;
-          fail_threshold_errors: number;
-        };
-        competition_defaults?: {
-          mistake_penalty: number;
-          alert_penalty: number;
-          lahn_penalty: number;
-          default_task_weight: number;
-        };
+        competition_attendance_weight: number;
       };
     }>("/api/edu-dept/settings"),
   eduDeptSettingsPatch: (body: {
@@ -1571,19 +1600,7 @@ export const api = {
     weight_repeat: number;
     rabt_weight: number;
     penalty_per_error: number;
-    himma_defaults?: {
-      hizb_points: number;
-      alert_penalty: number;
-      error_penalty: number;
-      alerts_per_error: number;
-      fail_threshold_errors: number;
-    };
-    competition_defaults?: {
-      mistake_penalty: number;
-      alert_penalty: number;
-      lahn_penalty: number;
-      default_task_weight: number;
-    };
+    competition_attendance_weight: number;
   }) =>
     request<{ ok: boolean }>("/api/edu-dept/settings", {
       method: "PATCH",

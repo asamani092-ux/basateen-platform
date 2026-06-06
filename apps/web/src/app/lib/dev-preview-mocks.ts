@@ -627,19 +627,7 @@ export function resolveDevPreviewMock<T>(
         weight_repeat: 1,
         rabt_weight: 1,
         penalty_per_error: 0.5,
-        himma_defaults: {
-          hizb_points: 1,
-          alert_penalty: 1,
-          error_penalty: 2,
-          alerts_per_error: 5,
-          fail_threshold_errors: 3,
-        },
-        competition_defaults: {
-          mistake_penalty: 1,
-          alert_penalty: 0.5,
-          lahn_penalty: 0.5,
-          default_task_weight: 1,
-        },
+        competition_attendance_weight: 1,
       },
     } as T;
   }
@@ -1276,7 +1264,7 @@ export function resolveDevPreviewMock<T>(
     return { ok: true, targets } as T;
   }
 
-  const compDetail = p.match(/^\/api\/edu-supervisor\/competitions\/(\d+)$/);
+  const compDetail = p.match(/^\/api\/edu-(?:supervisor|dept)\/competitions\/(\d+)$/);
   if (compDetail && m === "GET") {
     const id = Number(compDetail[1]);
     const c = previewStore.getCompetition(id) ?? previewStore.getCompetitions()[0];
@@ -1289,11 +1277,17 @@ export function resolveDevPreviewMock<T>(
     } as T;
   }
 
-  if (p === "/api/edu-supervisor/competitions" && m === "GET") {
+  if (
+    (p === "/api/edu-supervisor/competitions" || p === "/api/edu-dept/competitions") &&
+    m === "GET"
+  ) {
     return { items: previewStore.getCompetitions() } as T;
   }
 
-  if (p === "/api/edu-supervisor/competitions" && m === "POST") {
+  if (
+    (p === "/api/edu-supervisor/competitions" || p === "/api/edu-dept/competitions") &&
+    m === "POST"
+  ) {
     const body = bodyText ? JSON.parse(bodyText) : {};
     const row = {
       id: previewStore.getCompetitions().length + 1,
@@ -1310,8 +1304,13 @@ export function resolveDevPreviewMock<T>(
     return { ok: true, id: row.id, tv_launch_key: row.tv_launch_key } as T;
   }
 
-  if (p.match(/^\/api\/edu-supervisor\/competitions\/\d+\/live-log-token$/) && m === "POST") {
-    const id = Number(p.match(/^\/api\/edu-supervisor\/competitions\/(\d+)\/live-log-token$/)![1]);
+  if (
+    p.match(/^\/api\/edu-(?:supervisor|dept)\/competitions\/\d+\/live-log-token$/) &&
+    m === "POST"
+  ) {
+    const id = Number(
+      p.match(/^\/api\/edu-(?:supervisor|dept)\/competitions\/(\d+)\/live-log-token$/)![1],
+    );
     const token = `preview-comp-${Date.now()}`;
     previewStore.setCompetitionLiveToken(id, token);
     return { ok: true, live_log_token: token, access_pin: "1234", path: `/live-log/${token}` } as T;

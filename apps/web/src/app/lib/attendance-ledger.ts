@@ -1,4 +1,7 @@
-import type { AttendanceStatusValue } from "./attendance-mutations";
+import type {
+  AttendanceStatusValue,
+  BeneficiaryType,
+} from "./attendance-mutations";
 import { matchesArabicName } from "./attendance-search";
 import { normalizeAttendanceStatus } from "./attendance-status";
 
@@ -86,6 +89,31 @@ export function mapLedgerItem(item: {
     circle_name: item.circle_name ?? null,
     track_name: item.track_name ?? null,
   };
+}
+
+function ledgerPlacementKey(
+  entry: LedgerEntry,
+  beneficiaryType: BeneficiaryType,
+): string {
+  if (beneficiaryType === "student") {
+    return (entry.circle_name ?? entry.track_name ?? "").trim();
+  }
+  return (entry.role ?? "").trim();
+}
+
+/** Time O(n log n); Space O(n) — نسخة مرتبة من السجلات */
+export function sortLedgerEntries(
+  beneficiaryType: BeneficiaryType,
+  entries: LedgerEntry[],
+): LedgerEntry[] {
+  return [...entries].sort((a, b) => {
+    const primary = ledgerPlacementKey(a, beneficiaryType).localeCompare(
+      ledgerPlacementKey(b, beneficiaryType),
+      "ar",
+    );
+    if (primary !== 0) return primary;
+    return a.full_name_ar.localeCompare(b.full_name_ar, "ar");
+  });
 }
 
 export function matchesLedgerSearch(

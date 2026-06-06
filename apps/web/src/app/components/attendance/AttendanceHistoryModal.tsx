@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search, Save } from "lucide-react";
+import { Search, Save, Trash2 } from "lucide-react";
+import { DoubleConfirmDialog } from "../shared/DoubleConfirmDialog";
 import {
   Dialog,
   DialogContent,
@@ -20,12 +21,15 @@ import {
   matchesLedgerSearch,
   patchEntryStatus,
   removeEntry,
+  sortLedgerEntries,
   type LedgerEntry,
 } from "../../lib/attendance-ledger";
 import {
   bulkSaveAttendance,
+  clearDisplayedAttendance,
   removeAttendanceRecord,
   toastAttendanceBulkSaved,
+  toastAttendanceCleared,
   toastAttendanceDeleted,
   type AttendanceStatusValue,
   type BeneficiaryType,
@@ -55,6 +59,7 @@ export function AttendanceHistoryModal({
   const [rowBusyKey, setRowBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
   const dirtyCount = countDirty(entries);
   const isStudent = beneficiaryType === "student";
@@ -69,7 +74,12 @@ export function AttendanceHistoryModal({
         start_date: startDate,
         end_date: endDate,
       });
-      setEntries((res.items ?? []).map(mapLedgerItem));
+      setEntries(
+        sortLedgerEntries(
+          beneficiaryType,
+          (res.items ?? []).map(mapLedgerItem),
+        ),
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل تحميل السجل");
       setEntries([]);
@@ -90,10 +100,19 @@ export function AttendanceHistoryModal({
 
   const filteredEntries = useMemo(
     () =>
-      isStudent
-        ? entries.filter((e) => matchesLedgerSearch(e, searchQuery))
-        : entries.filter((e) => matchesLedgerSearch(e, searchQuery)),
-    [entries, searchQuery, isStudent],
+      sortLedgerEntries(
+        beneficiaryType,
+        entries.filter((e) => matchesLedgerSearch(e, searchQuery)),
+      ),
+    [entries, searchQuery, beneficiaryType],
+  );
+
+  const displayedAttendanceIds = useMemo(
+    () =>
+      filteredEntries
+        .map((e) => e.attendance_id)
+        .filter((id): id is number => id != null),
+    [filteredEntries],
   );
 
   function handleStatusChange(entry: LedgerEntry, status: AttendanceStatusValue) {
@@ -116,6 +135,24 @@ export function AttendanceHistoryModal({
       setError(e instanceof Error ? e.message : "فشل حذف السجل");
     } finally {
       setRowBusyKey(null);
+    }
+  }
+
+  async function bulkDeleteDisplayed() {
+    if (displayedAttendanceIds.length === 0) return;
+    setError(null);
+    try {
+      const deleted = await clearDisplayedAttendance({
+        beneficiaryType,
+        startDate,
+        endDate,
+        attendanceIds: displayedAttendanceIds,
+      });
+      toastAttendanceCleared(deleted);
+      onSaved?.();
+      onOpenChange(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "فشل حذف السجلات");
     }
   }
 
@@ -191,28 +228,51 @@ export function AttendanceHistoryModal({
           )}
         </div>
 
-        <DialogFooter className="shrink-0 gap-2 sm:gap-2 border-t border-border pt-4">
+        <DialogFooter className="shrink-0 flex-col sm:flex-col gap-3 border-t border-border pt-4">
           <Button
             type="button"
-            variant="outline"
-            className={ds.btnRound}
-            onClick={() => onOpenChange(false)}
+            variant="destructive"
+            className={`${ds.btnRound} w-full sm:w-auto self-end`}
+            disabled={loading || displayedAttendanceIds.length === 0}
+            onClick={() => setBulkDeleteOpen(true)}
             style={tajawal}
           >
-            إلغاء
+            <Trash2 className="w-4 h-4" />
+            حذف جميع السجلات المعروضة
           </Button>
-          <Button
-            type="button"
-            className={ds.btnRound}
-            disabled={saveBusy || dirtyCount === 0}
-            onClick={() => void saveChanges()}
-            style={tajawal}
-          >
-            <Save className="w-4 h-4" />
-            {saveBusy ? "جاري الحفظ…" : `حفظ التعديلات${dirtyCount > 0 ? ` (${dirtyCount})` : ""}`}
-          </Button>
+          <div className="flex w-full justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className={ds.btnRound}
+              onClick={() => onOpenChange(false)}
+              style={tajawal}
+            >
+              إلغاء
+            </Button>
+            <Button
+              type="button"
+              className={ds.btnRound}
+              disabled={saveBusy || dirtyCount === 0}
+              onClick={() => void saveChanges()}
+              style={tajawal}
+            >
+              <Save className="w-4 h-4" />
+              {saveBusy ? "جاري الحفظ…" : `حفظ التعديلات${dirtyCount > 0 ? ` (${dirtyCount})` : ""}`}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
+
+      <DoubleConfirmDialog
+        open={bulkDeleteOpen}
+        onOpenChange={setBulkDeleteOpen}
+        title="حذف جميع السجلات المعروضة"
+        description={`سيتم حذف ${displayedAttendanceIds.length} سجل تحضير من قاعدة البيانات. لا يمكن التراجع.`}
+        confirmLabel="حذف الكل"
+        destructive
+        onConfirm={bulkDeleteDisplayed}
+      />
     </Dialog>
   );
 }

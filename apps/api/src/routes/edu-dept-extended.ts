@@ -1,4 +1,5 @@
 import type { Env } from "../types";
+import { tableHasColumn } from "../lib/db-schema";
 import type { ScopeMode } from "../lib/dept-scope";
 import {
   loadUserScope,
@@ -63,12 +64,19 @@ export async function handleEduDeptExtendedRoutes(
       .bind(...studentsInScopeBinds(auth.complexId, scope))
       .first<{ c: number }>();
 
+    const hasCompStageId = await tableHasColumn(env, "competitions", "stage_id");
+    const compStageWhere = hasCompStageId
+      ? scope.type === "global"
+        ? "1=1"
+        : `(${stageFilterWhere(scope, "c.stage_id")} OR c.stage_id IS NULL)`
+      : "1=1";
+    const compStageBinds = hasCompStageId && scope.type !== "global" ? stageFilterBinds(scope) : [];
     const competitions = await env.DB.prepare(
       `SELECT COUNT(*) AS c FROM competitions c
        WHERE c.complex_id = ? AND c.status = 'active'
-         AND (${stageFilterWhere(scope, "c.stage_id")} OR c.stage_id IS NULL)`,
+         AND ${compStageWhere}`,
     )
-      .bind(auth.complexId, ...stageFilterBinds(scope))
+      .bind(auth.complexId, ...compStageBinds)
       .first<{ c: number }>();
 
     const himma = await env.DB.prepare(

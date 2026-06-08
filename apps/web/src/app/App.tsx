@@ -11,18 +11,13 @@ import { TvLivePage } from "./pages/tv/TvLivePage";
 import { LiveLogPage } from "./pages/live-log/LiveLogPage";
 import { EduSettingsPage } from "./pages/edu-dept/EduSettingsPage";
 import { DailyRecitationPage } from "./pages/edu-dept/DailyRecitationPage";
-import { StudentTransferPage } from "./pages/edu-dept/StudentTransferPage";
+import { EduTransfersPage } from "./pages/edu-dept/EduTransfersPage";
 import { TeacherCompetitionsPage } from "./pages/edu-dept/TeacherCompetitionsPage";
 import { EduReportsPage } from "./pages/edu-dept/EduReportsPage";
 import { PublicQuranicDayPage } from "./pages/public/PublicQuranicDayPage";
-import { MasterGridConsole } from "./pages/edu-supervisor/MasterGridConsole";
 import { CompetitionsPage } from "./pages/edu-supervisor/CompetitionsPage";
 import { StudentsPage } from "./pages/admin/StudentsPage";
-import { TransfersPage } from "./pages/admin/TransfersPage";
-import { AdminCirclesPage } from "./pages/admin/AdminCirclesPage";
-import { EduDashboardPage } from "./pages/edu-supervisor/EduDashboardPage";
 import { CompetitionDetailPage } from "./pages/edu-supervisor/CompetitionDetailPage";
-import { StudentProfilePage } from "./pages/edu-supervisor/StudentProfilePage";
 import { ProgSupervisorLayout } from "./layouts/ProgSupervisorLayout";
 import { QuizBuilderPage } from "./pages/prog-dept/QuizBuilderPage";
 import { ProgramsArchivePage } from "./pages/prog-dept/ProgramsArchivePage";
@@ -77,7 +72,7 @@ export default function App() {
               />
 
               <Route path="edu-dept" element={<EduSupervisorLayout />}>
-                <Route index element={<Navigate to="dashboard" replace />} />
+                <Route index element={<Navigate to="reports" replace />} />
                 <Route path="settings" element={<EduSettingsPage />} />
                 <Route path="daily-recitation" element={<DailyRecitationPage />} />
                 <Route path="teacher-competitions" element={<TeacherCompetitionsPage />} />
@@ -86,13 +81,31 @@ export default function App() {
                   element={<Navigate to="/edu-dept/competitions" replace />}
                 />
                 <Route path="reports" element={<EduReportsPage />} />
-                <Route path="transfer-requests" element={<StudentTransferPage />} />
-                <Route path="dashboard" element={<EduDashboardPage />} />
-                <Route path="master-grid" element={<MasterGridConsole />} />
-                <Route path="students" element={<StudentsPage />} />
-                <Route path="students/:studentId" element={<StudentProfilePage />} />
-                <Route path="transfers" element={<TransfersPage />} />
-                <Route path="circles" element={<AdminCirclesPage />} />
+                <Route
+                  path="transfer-requests"
+                  element={<Navigate to="/edu-dept/transfers" replace />}
+                />
+                <Route
+                  path="dashboard"
+                  element={<Navigate to="/edu-dept/reports" replace />}
+                />
+                <Route
+                  path="master-grid"
+                  element={<Navigate to="/edu-dept/transfers" replace />}
+                />
+                <Route
+                  path="students"
+                  element={<Navigate to="/admin-dept/students" replace />}
+                />
+                <Route
+                  path="students/:studentId"
+                  element={<Navigate to="/admin-dept/students" replace />}
+                />
+                <Route path="transfers" element={<EduTransfersPage />} />
+                <Route
+                  path="circles"
+                  element={<Navigate to="/super-admin/circles-setup" replace />}
+                />
                 <Route path="competitions" element={<CompetitionsPage />} />
                 <Route
                   path="events-engine"
@@ -137,7 +150,7 @@ export default function App() {
               <Route path="admin/staff" element={<Navigate to="/super-admin/staff" replace />} />
               <Route path="admin/circles-setup" element={<Navigate to="/super-admin/circles-setup" replace />} />
               <Route path="admin/statistics" element={<Navigate to="/admin-dept/reports" replace />} />
-              <Route path="edu-supervisor/*" element={<Navigate to="/edu-dept/dashboard" replace />} />
+              <Route path="edu-supervisor/*" element={<Navigate to="/edu-dept/reports" replace />} />
               <Route path="general-supervisor/*" element={<Navigate to="/admin-dept/staff-attendance" replace />} />
               <Route path="prog-supervisor/*" element={<Navigate to="/prog-dept/quizzes" replace />} />
               <Route path="admin-dept/dashboard" element={<Navigate to="/admin-dept/reports" replace />} />

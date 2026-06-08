@@ -90,7 +90,7 @@ const MOCK_BY_MOBILE: Record<string, Omit<AuthUser, "mobile">> = {
 
     sections: ["admin", "education"],
 
-    homePath: "/edu-dept/dashboard",
+    homePath: "/edu-dept/reports",
 
   },
 

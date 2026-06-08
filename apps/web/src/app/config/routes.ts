@@ -51,12 +51,6 @@ const EDU_DEPT_CORE_NAV: NavItem[] = [
     roles: EDU_SUPERVISOR_ROLES,
   },
   {
-    id: "quranic-days",
-    label: "اليوم القرآني / يوم الهمة",
-    path: "/edu-dept/quranic-days",
-    roles: EDU_SUPERVISOR_ROLES,
-  },
-  {
     id: "transfer-requests",
     label: "متابعة النقل",
     path: "/edu-dept/transfer-requests",
@@ -77,9 +71,9 @@ export const EDU_DEPT_NAV: NavItem[] = [
   { id: "transfers", label: "نقل الطلاب", path: "/edu-dept/transfers", roles: ["edu_supervisor"] },
   { id: "circles", label: "الحلقات التشغيلية", path: "/edu-dept/circles", roles: ["edu_supervisor"] },
   {
-    id: "events-engine",
-    label: "محرك الفعاليات",
-    path: "/edu-dept/events-engine",
+    id: "competitions",
+    label: "المنافسات",
+    path: "/edu-dept/competitions",
     roles: ["edu_supervisor"],
   },
 ];
@@ -248,11 +242,13 @@ export function isNavActive(path: string, pathname: string): boolean {
       pathname.startsWith("/edu-dept/daily-recitation/")
     );
   }
-  if (path === "/edu-dept/events-engine") {
+  if (path === "/edu-dept/competitions") {
     return (
+      pathname === "/edu-dept/competitions" ||
+      pathname.startsWith("/edu-dept/competitions/") ||
       pathname === "/edu-dept/events-engine" ||
-      pathname === "/edu-dept/yom-himma" ||
-      pathname.startsWith("/edu-dept/competitions")
+      pathname === "/edu-dept/quranic-days" ||
+      pathname === "/edu-dept/yom-himma"
     );
   }
   if (path === "/edu-dept/students") {

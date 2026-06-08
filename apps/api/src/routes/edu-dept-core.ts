@@ -18,12 +18,6 @@ import {
   transferStudentPlacement,
 } from "../lib/edu-transfer";
 import { todayLocalIso } from "../lib/local-iso-date";
-import {
-  loadEventDefaults,
-  upsertEventDefaults,
-  type CompetitionDefaults,
-  type HimmaDefaults,
-} from "../lib/edu-settings-defaults";
 
 const EDU_SETTINGS_ROLES = ["edu_supervisor", "super_admin"] as const;
 const EDU_SUPERVISOR_ROLES = ["edu_supervisor", "super_admin"] as const;
@@ -353,17 +347,26 @@ export async function handleEduDeptCoreRouter(
 
     const hasRabt = await tableHasColumn(env, "edu_settings", "rabt_weight");
 
+    const hasCompAttWeight = await tableHasColumn(
+      env,
+      "edu_settings",
+      "competition_attendance_weight",
+    );
+
     if (request.method === "GET") {
       const row = await env.DB.prepare(
         hasRabt
-          ? `SELECT weight_listening, weight_revision, weight_repeat, rabt_weight, penalty_per_error, updated_at
+          ? `SELECT weight_listening, weight_revision, weight_repeat, rabt_weight, penalty_per_error${
+              hasCompAttWeight ? ", competition_attendance_weight" : ""
+            }, updated_at
              FROM edu_settings WHERE complex_id = ?`
-          : `SELECT weight_listening, weight_revision, weight_repeat, penalty_per_error, updated_at
+          : `SELECT weight_listening, weight_revision, weight_repeat, penalty_per_error${
+              hasCompAttWeight ? ", competition_attendance_weight" : ""
+            }, updated_at
              FROM edu_settings WHERE complex_id = ?`,
       )
         .bind(auth.complexId)
         .first<Record<string, number>>();
-      const eventDefaults = await loadEventDefaults(env, auth.complexId);
       return json({
         settings: {
           weight_listening: row?.weight_listening ?? 1,
@@ -371,14 +374,15 @@ export async function handleEduDeptCoreRouter(
           weight_repeat: row?.weight_repeat ?? 1,
           rabt_weight: hasRabt ? (row?.rabt_weight ?? 1) : 1,
           penalty_per_error: row?.penalty_per_error ?? 0.5,
-          himma_defaults: eventDefaults.himma,
-          competition_defaults: eventDefaults.competition,
+          competition_attendance_weight: hasCompAttWeight
+            ? (row?.competition_attendance_weight ?? 1)
+            : 1,
         },
       });
     }
 
     if (request.method === "PATCH") {
-      let body: Record<string, number | Partial<HimmaDefaults> | Partial<CompetitionDefaults>>;
+      let body: Record<string, number>;
       try {
         body = await request.json();
       } catch {
@@ -389,9 +393,26 @@ export async function handleEduDeptCoreRouter(
       const wRep = Number(body.weight_repeat ?? 1);
       const wRabt = Number(body.rabt_weight ?? 1);
       const pen = Number(body.penalty_per_error ?? 0.5);
-      const himmaBody = body.himma_defaults as Partial<HimmaDefaults> | undefined;
-      const compBody = body.competition_defaults as Partial<CompetitionDefaults> | undefined;
-      if (hasRabt) {
+      const compAttW = Number(body.competition_attendance_weight ?? 1);
+      if (hasRabt && hasCompAttWeight) {
+        await env.DB.prepare(
+          `INSERT INTO edu_settings (
+             complex_id, weight_listening, weight_revision, weight_repeat,
+             rabt_weight, penalty_per_error, competition_attendance_weight, updated_at
+           )
+           VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(complex_id) DO UPDATE SET
+             weight_listening = excluded.weight_listening,
+             weight_revision = excluded.weight_revision,
+             weight_repeat = excluded.weight_repeat,
+             rabt_weight = excluded.rabt_weight,
+             penalty_per_error = excluded.penalty_per_error,
+             competition_attendance_weight = excluded.competition_attendance_weight,
+             updated_at = datetime('now')`,
+        )
+          .bind(auth.complexId, wL, wR, wRep, wRabt, pen, compAttW)
+          .run();
+      } else if (hasRabt) {
         await env.DB.prepare(
           `INSERT INTO edu_settings (complex_id, weight_listening, weight_revision, weight_repeat, rabt_weight, penalty_per_error, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
@@ -418,9 +439,6 @@ export async function handleEduDeptCoreRouter(
         )
           .bind(auth.complexId, wL, wR, wRep, pen)
           .run();
-      }
-      if (himmaBody || compBody) {
-        await upsertEventDefaults(env, auth.complexId, himmaBody, compBody);
       }
       return json({ ok: true });
     }

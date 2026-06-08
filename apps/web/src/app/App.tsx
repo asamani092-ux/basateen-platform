@@ -14,10 +14,9 @@ import { DailyRecitationPage } from "./pages/edu-dept/DailyRecitationPage";
 import { StudentTransferPage } from "./pages/edu-dept/StudentTransferPage";
 import { TeacherCompetitionsPage } from "./pages/edu-dept/TeacherCompetitionsPage";
 import { EduReportsPage } from "./pages/edu-dept/EduReportsPage";
-import { QuranicDaysManagerPage } from "./pages/edu-dept/QuranicDaysManagerPage";
 import { PublicQuranicDayPage } from "./pages/public/PublicQuranicDayPage";
 import { MasterGridConsole } from "./pages/edu-supervisor/MasterGridConsole";
-import { EventsEngineConsole } from "./pages/edu-supervisor/EventsEngineConsole";
+import { CompetitionsPage } from "./pages/edu-supervisor/CompetitionsPage";
 import { StudentsPage } from "./pages/admin/StudentsPage";
 import { TransfersPage } from "./pages/admin/TransfersPage";
 import { AdminCirclesPage } from "./pages/admin/AdminCirclesPage";
@@ -82,7 +81,10 @@ export default function App() {
                 <Route path="settings" element={<EduSettingsPage />} />
                 <Route path="daily-recitation" element={<DailyRecitationPage />} />
                 <Route path="teacher-competitions" element={<TeacherCompetitionsPage />} />
-                <Route path="quranic-days" element={<QuranicDaysManagerPage />} />
+                <Route
+                  path="quranic-days"
+                  element={<Navigate to="/edu-dept/competitions" replace />}
+                />
                 <Route path="reports" element={<EduReportsPage />} />
                 <Route path="transfer-requests" element={<StudentTransferPage />} />
                 <Route path="dashboard" element={<EduDashboardPage />} />
@@ -91,7 +93,11 @@ export default function App() {
                 <Route path="students/:studentId" element={<StudentProfilePage />} />
                 <Route path="transfers" element={<TransfersPage />} />
                 <Route path="circles" element={<AdminCirclesPage />} />
-                <Route path="events-engine" element={<EventsEngineConsole />} />
+                <Route path="competitions" element={<CompetitionsPage />} />
+                <Route
+                  path="events-engine"
+                  element={<Navigate to="/edu-dept/competitions" replace />}
+                />
                 <Route
                   path="competitions/:competitionId"
                   element={<CompetitionDetailPage />}

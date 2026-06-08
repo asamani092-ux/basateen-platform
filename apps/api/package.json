@@ -102,6 +102,7 @@
     "db:remote:043": "node scripts/migrate-043-remote.mjs",
     "db:remote:045": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/045_generic_competitions_engine.sql",
     "db:remote:046": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/046_dynamic_evaluation_engine.sql",
+    "db:remote:047": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/047_transfer_notifications.sql",
     "db:remote:036:tracks": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/036_tracks_consolidate_single_table.sql",
     "db:remote:034:wipe": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/034_admin_data_wipe.sql",
     "db:remote:034:wipe:ext": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/034_admin_data_wipe_extensions.sql",

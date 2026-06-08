@@ -15,6 +15,7 @@ import { useAuth } from "../context/AuthContext";
 import { AdminDataSyncProvider } from "../context/AdminDataSyncContext";
 import type { UserRole } from "../lib/auth-store";
 import { DevPreviewBanner } from "../components/DevPreviewBanner";
+import { TeacherNotificationsBanner } from "../components/edu/TeacherNotificationsBanner";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { ds, tajawal } from "../lib/design-system";
 
@@ -258,6 +259,7 @@ export function RoleShellLayout() {
           </div>
           <main className="flex-1 min-h-0 p-4 sm:p-6 md:p-8 overflow-auto">
             <DevPreviewBanner />
+            <TeacherNotificationsBanner />
             <Outlet />
           </main>
         </div>

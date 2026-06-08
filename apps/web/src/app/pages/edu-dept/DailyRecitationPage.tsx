@@ -32,6 +32,7 @@ import { ds, tajawal } from "../../lib/design-system";
 type Row = {
   student_id: number;
   full_name_ar: string;
+  admin_present?: boolean;
   task_scores: Record<string, boolean | number>;
   notes: string;
 };
@@ -57,6 +58,7 @@ function normalizeRow(
   item: {
     student_id: number;
     full_name_ar: string;
+    admin_present?: boolean;
     task_scores?: Record<string, boolean | number>;
     notes?: string;
     listened?: boolean;
@@ -83,6 +85,7 @@ function normalizeRow(
   return {
     student_id: item.student_id,
     full_name_ar: item.full_name_ar,
+    admin_present: Boolean(item.admin_present),
     task_scores: applyDependentScores({ ...base, ...legacyScores }, criteria),
     notes: item.notes ?? "",
   };
@@ -316,9 +319,9 @@ export function DailyRecitationPage() {
             لا يوجد طلاب في هذه الحلقة.
           </p>
         ) : viewMode === "grid" ? (
-          <div className="overflow-x-auto">
-            <Table className={`${ds.tableMin} text-right`}>
-              <TableHeader>
+          <div className="overflow-x-auto max-h-[70vh]">
+            <Table className={`${ds.tableMin} text-right edu-recitation-grid`}>
+              <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
                   <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
                     الطالب
@@ -350,9 +353,14 @@ export function DailyRecitationPage() {
               </TableHeader>
               <TableBody>
                 {rows.map((r) => (
-                  <TableRow key={r.student_id}>
+                  <TableRow key={r.student_id} className="print:break-inside-avoid">
                     <TableCell className={ds.table.cell} style={tajawal}>
-                      {r.full_name_ar}
+                      <span>{r.full_name_ar}</span>
+                      {r.admin_present && (
+                        <span className="mr-2 text-[10px] text-emerald-600 font-medium">
+                          حضور إداري
+                        </span>
+                      )}
                     </TableCell>
                     {editableCriteria.map((c) => (
                       <TableCell key={c.id} className="text-center align-middle">

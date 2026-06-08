@@ -60,21 +60,41 @@ const EDU_DEPT_CORE_NAV: NavItem[] = [
 
 /** القسم التعليمي — لوحات المشرف التعليمي */
 export const EDU_DEPT_NAV: NavItem[] = [
-  { id: "dashboard", label: "لوحة المتابعة", path: "/edu-dept/dashboard", roles: ["edu_supervisor"] },
+  {
+    id: "dashboard",
+    label: "لوحة المتابعة",
+    path: "/edu-dept/dashboard",
+    roles: EDU_SUPERVISOR_ROLES,
+  },
   {
     id: "master-grid",
     label: "انتظار القبول والتوزيع",
     path: "/edu-dept/master-grid",
-    roles: ["edu_supervisor"],
+    roles: EDU_SUPERVISOR_ROLES,
   },
-  { id: "students", label: "الطلاب و Excel", path: "/edu-dept/students", roles: ["edu_supervisor"] },
-  { id: "transfers", label: "نقل الطلاب", path: "/edu-dept/transfers", roles: ["edu_supervisor"] },
-  { id: "circles", label: "الحلقات التشغيلية", path: "/edu-dept/circles", roles: ["edu_supervisor"] },
+  {
+    id: "students",
+    label: "الطلاب و Excel",
+    path: "/edu-dept/students",
+    roles: EDU_SUPERVISOR_ROLES,
+  },
+  {
+    id: "transfers",
+    label: "نقل الطلاب",
+    path: "/edu-dept/transfers",
+    roles: EDU_SUPERVISOR_ROLES,
+  },
+  {
+    id: "circles",
+    label: "الحلقات التشغيلية",
+    path: "/edu-dept/circles",
+    roles: EDU_SUPERVISOR_ROLES,
+  },
   {
     id: "competitions",
     label: "المنافسات",
     path: "/edu-dept/competitions",
-    roles: ["edu_supervisor"],
+    roles: EDU_SUPERVISOR_ROLES,
   },
 ];
 

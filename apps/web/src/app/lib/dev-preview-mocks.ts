@@ -622,12 +622,23 @@ export function resolveDevPreviewMock<T>(
   if (p === "/api/edu-dept/settings" && m === "GET") {
     return {
       settings: {
-        weight_listening: 1,
-        weight_revision: 1,
-        weight_repeat: 1,
-        rabt_weight: 1,
-        penalty_per_error: 0.5,
-        competition_attendance_weight: 1,
+        evaluation_criteria: [
+          { id: "listening", name: "السماع", type: "points", max_weight: 1, input: "boolean" },
+          { id: "repeat", name: "التكرار", type: "points", max_weight: 1, input: "boolean" },
+          { id: "revision", name: "المراجعة", type: "points", max_weight: 1, input: "boolean" },
+          {
+            id: "rabt",
+            name: "الربط",
+            type: "points",
+            max_weight: 1,
+            input: "boolean",
+            requires_all: ["listening", "repeat", "revision"],
+          },
+          { id: "faces", name: "الأوجه", type: "points", max_weight: 1, input: "number" },
+          { id: "error", name: "الخطأ", type: "penalty", max_weight: 0.5, input: "number" },
+          { id: "tune", name: "اللحن", type: "penalty", max_weight: 0.5, input: "number" },
+        ],
+        updated_at: null,
       },
     } as T;
   }
@@ -664,21 +675,39 @@ export function resolveDevPreviewMock<T>(
   }
   if (p === "/api/edu-dept/my-students" && m === "GET") {
     const students = previewStore.getStudents().slice(0, 6);
+    const evaluation_criteria = [
+      { id: "listening", name: "السماع", type: "points", max_weight: 1, input: "boolean" },
+      { id: "repeat", name: "التكرار", type: "points", max_weight: 1, input: "boolean" },
+      { id: "revision", name: "المراجعة", type: "points", max_weight: 1, input: "boolean" },
+      {
+        id: "rabt",
+        name: "الربط",
+        type: "points",
+        max_weight: 1,
+        input: "boolean",
+        requires_all: ["listening", "repeat", "revision"],
+      },
+      { id: "error", name: "الخطأ", type: "penalty", max_weight: 0.5, input: "number" },
+      { id: "tune", name: "اللحن", type: "penalty", max_weight: 0.5, input: "number" },
+    ];
     return {
       date,
       circle_id: 1,
       circle_name: "حلقة تجريبية",
       needs_circle_selection: false,
       circles: PREVIEW_CIRCLES.slice(0, 3).map((c) => ({ id: c.id, name_ar: c.name_ar })),
+      evaluation_criteria,
       items: students.map((s, i) => ({
         student_id: s.id,
         full_name_ar: s.full_name_ar,
-        listened: i % 2 === 0,
-        repeated: true,
-        revised: false,
-        error_count: i,
-        tune_errors: 0,
-        face_count: 2,
+        task_scores: {
+          listening: i % 2 === 0,
+          repeat: true,
+          revision: false,
+          rabt: false,
+          error: i,
+          tune: 0,
+        },
         notes: "",
       })),
     } as T;

@@ -24,6 +24,7 @@ import { useAuth } from "../../context/AuthContext";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import {
+  computeQualityFromCriteria,
   emptyTaskScores,
   type EvalCriterion,
 } from "../../lib/evaluation-criteria";
@@ -344,6 +345,12 @@ export function DailyRecitationPage() {
                       {c.name}
                     </TableHead>
                   ))}
+                  <TableHead
+                    className={`${ds.table.head} text-center w-[8%]`}
+                    style={tajawal}
+                  >
+                    الجودة %
+                  </TableHead>
                   {!isSupervisor && (
                     <TableHead className={ds.table.headActions} style={tajawal}>
                       إجراء
@@ -384,6 +391,12 @@ export function DailyRecitationPage() {
                         </span>
                       </TableCell>
                     ))}
+                    <TableCell
+                      className={`${ds.table.cell} text-center font-semibold tabular-nums`}
+                      style={tajawal}
+                    >
+                      {computeQualityFromCriteria(r.task_scores, criteria)}%
+                    </TableCell>
                     {!isSupervisor && (
                       <TableActionsCell>
                         <Button

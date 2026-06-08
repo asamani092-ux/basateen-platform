@@ -1197,10 +1197,21 @@ export async function handleEduDeptCoreRouter(
       return json({ error: "invalid_date_range", date_from: dateFrom, date_to: dateTo }, 400);
     }
     const circleIdParam = url.searchParams.get("circle_id");
+    const trackIdParam = url.searchParams.get("track_id");
     const circleFilter =
       circleIdParam != null && circleIdParam !== ""
         ? Number(circleIdParam)
         : null;
+    const trackFilter =
+      trackIdParam != null && trackIdParam !== ""
+        ? Number(trackIdParam)
+        : null;
+    if (
+      (circleFilter == null || !Number.isFinite(circleFilter) || circleFilter <= 0) &&
+      (trackFilter == null || !Number.isFinite(trackFilter) || trackFilter <= 0)
+    ) {
+      return json({ error: "circle_or_track_required" }, 400);
+    }
 
     const hasFace = await tableHasColumn(env, "edu_daily_recitation", "face_count");
     const hasTaskScores = await tableHasColumn(
@@ -1227,9 +1238,18 @@ export async function handleEduDeptCoreRouter(
       LEFT JOIN circles c ON c.id = dr.circle_id
       WHERE dr.recitation_date >= ? AND dr.recitation_date <= ?`;
     const binds: (string | number)[] = [auth.complexId, dateFrom, dateTo];
+    const hasCircleTrack = await tableHasColumn(env, "circles", "track_id");
     if (circleFilter != null && Number.isFinite(circleFilter) && circleFilter > 0) {
       sql += ` AND dr.circle_id = ?`;
       binds.push(circleFilter);
+    } else if (
+      trackFilter != null &&
+      Number.isFinite(trackFilter) &&
+      trackFilter > 0 &&
+      hasCircleTrack
+    ) {
+      sql += ` AND c.track_id = ?`;
+      binds.push(trackFilter);
     }
     sql += ` ORDER BY s.full_name_ar, dr.recitation_date`;
 
@@ -1375,6 +1395,16 @@ export async function handleEduDeptCoreRouter(
     if (circleFilter != null && Number.isFinite(circleFilter) && circleFilter > 0) {
       facesInRangeSql += ` AND dr.circle_id = ?`;
       facesInRangeBinds.push(circleFilter);
+    } else if (
+      trackFilter != null &&
+      Number.isFinite(trackFilter) &&
+      trackFilter > 0 &&
+      hasCircleTrack
+    ) {
+      facesInRangeSql += ` AND dr.circle_id IN (
+        SELECT id FROM circles WHERE complex_id = ? AND track_id = ?
+      )`;
+      facesInRangeBinds.push(auth.complexId, trackFilter);
     }
 
     let totalFacesInRange = 0;
@@ -1391,10 +1421,22 @@ export async function handleEduDeptCoreRouter(
       .bind(auth.complexId)
       .all<{ id: number; name_ar: string }>();
 
+    let tracks: Array<{ id: number; name_ar: string }> = [];
+    if (hasCircleTrack) {
+      const trackRows = await env.DB.prepare(
+        `SELECT id, name_ar FROM tracks WHERE complex_id = ? AND COALESCE(is_active, 1) = 1 ORDER BY name_ar`,
+      )
+        .bind(auth.complexId)
+        .all<{ id: number; name_ar: string }>();
+      tracks = trackRows.results ?? [];
+    }
+
     return json({
       date: dateTo,
       date_from: dateFrom,
       date_to: dateTo,
+      scope_type: circleFilter ? "circle" : "track",
+      scope_id: circleFilter ?? trackFilter,
       summary: {
         avg_quality: avgQuality,
         top_circle: topCircle,
@@ -1405,6 +1447,7 @@ export async function handleEduDeptCoreRouter(
         total_faces_semester: totalFacesInRange,
       },
       circles: circles.results ?? [],
+      tracks,
       items,
     });
   }
@@ -1485,15 +1528,18 @@ export async function handleEduDeptCoreRouter(
     return json({ ok: true });
   }
 
-  if (path === "/api/edu-dept/reports/individual" && request.method === "GET") {
+  if (
+    (path === "/api/edu-dept/reports/educational-profile" ||
+      path === "/api/edu-dept/reports/individual") &&
+    request.method === "GET"
+  ) {
     if (!requireRoles(auth, [...EDU_SUPERVISOR_ROLES])) {
       return json({ error: "forbidden" }, 403);
     }
+    if (!(await hasTable(env, "edu_daily_recitation"))) return migrationRequired();
+
     const personId = Number(url.searchParams.get("person_id") ?? NaN);
-    const startDate = url.searchParams.get("start")?.trim() || todayIso();
-    const endDate = url.searchParams.get("end")?.trim() || startDate;
     if (!Number.isFinite(personId)) return json({ error: "person_id_required" }, 400);
-    if (startDate > endDate) return json({ error: "invalid_date_range" }, 400);
 
     const student = await fetchStudentForAdminReport(env, auth.complexId, personId);
     if (!student) return json({ error: "student_not_found" }, 404);
@@ -1502,97 +1548,107 @@ export async function handleEduDeptCoreRouter(
       .bind(auth.complexId)
       .first<{ name_ar: string }>();
 
-    const attTable = await resolveAttendanceTableName(env);
-    const items: Array<{ date: string; status: string }> = [];
-    if (attTable) {
-      const attRows = await env.DB.prepare(
-        `SELECT attendance_date AS date, status FROM ${attTable}
-         WHERE student_id = ? AND complex_id = ? AND attendance_date BETWEEN ? AND ?
-         ORDER BY attendance_date DESC`,
-      )
-        .bind(student.id, auth.complexId, startDate, endDate)
-        .all<{ date: string; status: string }>();
-      for (const r of attRows.results ?? []) items.push(r);
+    const criteria = await loadEvaluationCriteria(env, auth.complexId);
+    const hasTaskScores = await tableHasColumn(env, "edu_daily_recitation", "task_scores_json");
+    const hasFace = await tableHasColumn(env, "edu_daily_recitation", "face_count");
+    const hasCircleTrack = await tableHasColumn(env, "circles", "track_id");
+
+    const trackJoin = hasCircleTrack
+      ? "LEFT JOIN tracks t ON t.id = c.track_id"
+      : "LEFT JOIN tracks t ON 1=0";
+    const trackCol = hasCircleTrack ? "t.name_ar AS track_name" : "NULL AS track_name";
+
+    const rows = await env.DB.prepare(
+      `SELECT dr.recitation_date, dr.circle_id, dr.notes,
+              dr.listened, dr.repeated, dr.revised, dr.error_count, dr.tune_errors,
+              ${hasTaskScores ? "dr.task_scores_json," : ""}
+              ${hasFace ? "dr.face_count," : ""}
+              c.name_ar AS circle_name, ${trackCol}
+       FROM edu_daily_recitation dr
+       LEFT JOIN circles c ON c.id = dr.circle_id
+       ${trackJoin}
+       WHERE dr.student_id = ?
+       ORDER BY dr.recitation_date ASC, dr.id ASC`,
+    )
+      .bind(student.id)
+      .all<Record<string, unknown>>();
+
+    type TaskCell = { id: string; name: string; value: boolean | number };
+    type ProfileRow = {
+      date: string;
+      circle_name: string | null;
+      track_name: string | null;
+      quality_pct: number;
+      face_count: number;
+      notes: string | null;
+      tasks: TaskCell[];
+    };
+
+    const items: ProfileRow[] = [];
+    let qualitySum = 0;
+    let totalFaces = 0;
+
+    for (const r of rows.results ?? []) {
+      const legacy = {
+        listened: r.listened as number | boolean | undefined,
+        repeated: r.repeated as number | boolean | undefined,
+        revised: r.revised as number | boolean | undefined,
+        error_count: Number(r.error_count ?? 0),
+        tune_errors: Number(r.tune_errors ?? 0),
+        face_count: Number(r.face_count ?? 0),
+      };
+      const scores = parseTaskScoresJson(
+        hasTaskScores ? (r.task_scores_json as string | null) : null,
+        legacy,
+      );
+      const quality_pct = computeQualityFromCriteria(scores, criteria);
+      qualitySum += quality_pct;
+      const faces = hasFace ? Number(r.face_count ?? 0) : 0;
+      totalFaces += faces;
+
+      const tasks: TaskCell[] = criteria.map((c) => ({
+        id: c.id,
+        name: c.name,
+        value: scores[c.id] ?? (c.type === "penalty" || c.input === "number" ? 0 : false),
+      }));
+
+      items.push({
+        date: String(r.recitation_date),
+        circle_name: (r.circle_name as string | null) ?? null,
+        track_name: (r.track_name as string | null) ?? null,
+        quality_pct,
+        face_count: faces,
+        notes: (r.notes as string | null) ?? null,
+        tasks,
+      });
     }
 
-    let present = 0;
-    let absent = 0;
-    let excused = 0;
-    for (const r of items) {
-      if (r.status === "present") present++;
-      else if (r.status === "excused") excused++;
-      else absent++;
-    }
-    const total = items.length;
-    const disciplinePct = total > 0 ? Math.round((present / total) * 100) : 100;
-
-    let recitation_avg_quality: number | null = null;
-    let recitation_records = 0;
-    if (await hasTable(env, "edu_daily_recitation")) {
-      const hasTaskScores = await tableHasColumn(env, "edu_daily_recitation", "task_scores_json");
-      const criteria = await loadEvaluationCriteria(env, auth.complexId);
-      const rows = await env.DB.prepare(
-        `SELECT ${hasTaskScores ? "task_scores_json," : ""} listened, repeated, revised, error_count, tune_errors, face_count
-         FROM edu_daily_recitation
-         WHERE student_id = ? AND recitation_date BETWEEN ? AND ?`,
-      )
-        .bind(student.id, startDate, endDate)
-        .all<Record<string, unknown>>();
-      let sum = 0;
-      for (const r of rows.results ?? []) {
-        const legacy = {
-          listened: r.listened as number | boolean | undefined,
-          repeated: r.repeated as number | boolean | undefined,
-          revised: r.revised as number | boolean | undefined,
-          error_count: Number(r.error_count ?? 0),
-          tune_errors: Number(r.tune_errors ?? 0),
-          face_count: Number(r.face_count ?? 0),
-        };
-        const scores = parseTaskScoresJson(
-          hasTaskScores ? (r.task_scores_json as string | null) : null,
-          legacy,
-        );
-        sum += computeQualityFromCriteria(scores, criteria);
-        recitation_records++;
-      }
-      if (recitation_records > 0) {
-        recitation_avg_quality = Math.round((sum / recitation_records) * 10) / 10;
-      }
-    }
-
-    const pledges: Array<{ id: number; reason_ar: string; pledge_date: string }> = [];
-    if (await hasTable(env, "student_pledges")) {
-      const pRows = await env.DB.prepare(
-        `SELECT id, reason_ar, pledge_date FROM student_pledges
-         WHERE student_id = ? AND complex_id = ?
-           AND pledge_date BETWEEN ? AND ?
-         ORDER BY pledge_date DESC`,
-      )
-        .bind(student.id, auth.complexId, startDate, endDate)
-        .all<{ id: number; reason_ar: string; pledge_date: string }>();
-      for (const p of pRows.results ?? []) pledges.push(p);
-    }
+    const recordCount = items.length;
+    const firstDate = recordCount > 0 ? items[0].date : null;
+    const lastDate = recordCount > 0 ? items[recordCount - 1].date : null;
+    const avgQuality =
+      recordCount > 0 ? Math.round((qualitySum / recordCount) * 10) / 10 : null;
 
     const placementLabel =
       [student.circle_name, student.track_name].filter(Boolean).join(" · ") || null;
 
     return json({
-      type: "student",
-      start_date: startDate,
-      end_date: endDate,
+      type: "educational",
       complex_name: complex?.name_ar ?? null,
       person: {
         id: student.id,
         full_name_ar: student.full_name_ar,
-        guardian_phone: student.guardian_phone ?? null,
-        circle_name: placementLabel,
+        current_placement: placementLabel,
       },
-      summary: { present, absent, excused, total },
-      discipline_pct: disciplinePct,
+      criteria: criteria.map((c) => ({ id: c.id, name: c.name, type: c.type })),
+      summary: {
+        total_records: recordCount,
+        avg_quality_pct: avgQuality,
+        total_faces: totalFaces,
+        first_record_date: firstDate,
+        last_record_date: lastDate,
+      },
       items,
-      recitation_avg_quality,
-      recitation_records,
-      pledges,
     });
   }
 

@@ -403,24 +403,52 @@
     color: #000 !important;
   }
 
-  body.printing-edu-general-report aside,
-  body.printing-edu-general-report nav,
-  body.printing-edu-general-report .print\\:hidden,
-  body.printing-edu-general-report button {
+  body.printing-edu-detail-report aside,
+  body.printing-edu-detail-report nav,
+  body.printing-edu-detail-report .print\\:hidden,
+  body.printing-edu-detail-report button,
+  body.printing-edu-circle-report aside,
+  body.printing-edu-circle-report nav,
+  body.printing-edu-circle-report .print\\:hidden,
+  body.printing-edu-circle-report button {
     display: none !important;
   }
 
-  body.printing-edu-general-report .edu-reports-page {
+  body.printing-edu-detail-report .edu-reports-page,
+  body.printing-edu-circle-report .edu-reports-page {
     max-width: none !important;
   }
 
-  body.printing-edu-general-report .edu-print-table thead {
+  body.printing-edu-detail-report #edu-student-educational-print,
+  body.printing-edu-circle-report #edu-circle-report-print {
+    display: block !important;
+  }
+
+  body.printing-edu-detail-report .edu-reports-page > *:not(:has(#edu-student-educational-print)),
+  body.printing-edu-circle-report .edu-reports-page > *:not(#edu-circle-report-print) {
+    display: none !important;
+  }
+
+  body.printing-edu-detail-report .edu-print-table thead,
+  body.printing-edu-circle-report .edu-print-table thead {
     display: table-header-group !important;
   }
 
-  body.printing-edu-general-report .edu-print-table tr {
+  body.printing-edu-detail-report .edu-print-table tr,
+  body.printing-edu-circle-report .edu-print-table tr {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
+  }
+
+  body.printing-edu-detail-report .edu-print-table-wrap,
+  body.printing-edu-circle-report .edu-print-table-wrap {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  @page {
+    size: A4;
+    margin: 12mm;
   }
 
   .edu-print-table thead {

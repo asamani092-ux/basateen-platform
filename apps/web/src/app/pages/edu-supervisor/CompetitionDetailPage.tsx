@@ -33,7 +33,7 @@ export function CompetitionDetailPage() {
   return (
     <div className="space-y-6">
       <Button asChild variant="outline" className={ds.btnRound} style={tajawal}>
-        <Link to="/edu-supervisor/competitions">← المنافسات</Link>
+        <Link to="/edu-dept/competitions">← المنافسات</Link>
       </Button>
 
       {error && (

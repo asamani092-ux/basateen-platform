@@ -84,7 +84,7 @@ export function CompetitionsPage() {
       setTargets(emptyTargets());
       await load();
       if (res.id) {
-        window.location.href = `/edu-supervisor/competitions/${res.id}`;
+        window.location.href = `/edu-dept/competitions/${res.id}`;
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل الإنشاء");
@@ -227,7 +227,7 @@ export function CompetitionsPage() {
           <div key={c.id} className={`${ds.card} p-4 flex flex-wrap gap-3 justify-between`}>
             <div>
               <Link
-                to={`/edu-supervisor/competitions/${c.id}`}
+                to={`/edu-dept/competitions/${c.id}`}
                 className="font-semibold text-primary hover:underline"
                 style={tajawal}
               >

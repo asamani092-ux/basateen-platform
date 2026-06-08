@@ -17,7 +17,7 @@ import { EduReportsPage } from "./pages/edu-dept/EduReportsPage";
 import { QuranicDaysManagerPage } from "./pages/edu-dept/QuranicDaysManagerPage";
 import { PublicQuranicDayPage } from "./pages/public/PublicQuranicDayPage";
 import { MasterGridConsole } from "./pages/edu-supervisor/MasterGridConsole";
-import { EventsEngineConsole } from "./pages/edu-supervisor/EventsEngineConsole";
+import { CompetitionsPage } from "./pages/edu-supervisor/CompetitionsPage";
 import { StudentsPage } from "./pages/admin/StudentsPage";
 import { TransfersPage } from "./pages/admin/TransfersPage";
 import { AdminCirclesPage } from "./pages/admin/AdminCirclesPage";
@@ -89,7 +89,11 @@ export default function App() {
                 <Route path="students/:studentId" element={<StudentProfilePage />} />
                 <Route path="transfers" element={<TransfersPage />} />
                 <Route path="circles" element={<AdminCirclesPage />} />
-                <Route path="events-engine" element={<EventsEngineConsole />} />
+                <Route path="competitions" element={<CompetitionsPage />} />
+                <Route
+                  path="events-engine"
+                  element={<Navigate to="/edu-dept/competitions" replace />}
+                />
                 <Route
                   path="competitions/:competitionId"
                   element={<CompetitionDetailPage />}

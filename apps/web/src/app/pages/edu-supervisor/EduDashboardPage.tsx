@@ -74,7 +74,7 @@ export function EduDashboardPage() {
           <Link to="/edu-supervisor/students">الطلاب</Link>
         </Button>
         <Button asChild variant="outline" className={ds.btnRound} style={tajawal}>
-          <Link to="/edu-supervisor/events-engine">محرك الفعاليات</Link>
+          <Link to="/edu-dept/competitions">المنافسات</Link>
         </Button>
       </div>
     </div>

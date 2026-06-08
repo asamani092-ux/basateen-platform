@@ -13,6 +13,15 @@ import {
   studentsInScopeBinds,
   teacherCanAccessStudent,
 } from "../lib/dept-scope";
+import { circleTrackSelectSql } from "../lib/admin-gm-schema";
+import {
+  circleTeacherUserId,
+  createEduNotification,
+  logTransferEvent,
+  notifyTransferRecipients,
+} from "../lib/edu-transfer-log";
+import { fetchStudentForAdminReport } from "../lib/admin-student-report";
+import { resolveAttendanceTableName } from "../lib/student-attendance-db";
 import {
   transferStudentCircle,
   transferStudentPlacement,
@@ -251,6 +260,35 @@ async function canAccessRecitationCircle(
   return circles.some((c) => c.id === circleId);
 }
 
+function attendanceCriterionId(criteria: EvalCriterion[]): string | null {
+  const exact = criteria.find((c) => c.id === "attendance" || c.id === "presence");
+  if (exact) return exact.id;
+  const byName = criteria.find((c) => c.name.includes("حضور"));
+  return byName?.id ?? null;
+}
+
+async function presentStudentIdsForDate(
+  env: Env,
+  complexId: number,
+  date: string,
+  studentIds: number[],
+): Promise<Set<number>> {
+  const out = new Set<number>();
+  if (studentIds.length === 0) return out;
+  const attTable = await resolveAttendanceTableName(env);
+  if (!attTable) return out;
+  const ph = studentIds.map(() => "?").join(",");
+  const rows = await env.DB.prepare(
+    `SELECT student_id FROM ${attTable}
+     WHERE complex_id = ? AND attendance_date = ? AND status = 'present'
+       AND student_id IN (${ph})`,
+  )
+    .bind(complexId, date, ...studentIds)
+    .all<{ student_id: number }>();
+  for (const r of rows.results ?? []) out.add(r.student_id);
+  return out;
+}
+
 async function loadDailyRecitationItems(
   env: Env,
   complexId: number,
@@ -258,6 +296,18 @@ async function loadDailyRecitationItems(
   date: string,
 ) {
   const students = await studentsInCircle(env, complexId, circleId);
+  const criteria = await loadEvaluationCriteria(env, complexId);
+  const attCriterionId = attendanceCriterionId(criteria);
+  const attCriterion = criteria.find((c) => c.id === attCriterionId);
+  const presentIds =
+    attCriterionId != null
+      ? await presentStudentIdsForDate(
+          env,
+          complexId,
+          date,
+          students.map((s) => s.id),
+        )
+      : new Set<number>();
   const hasFace = await tableHasColumn(env, "edu_daily_recitation", "face_count");
   const hasTaskScores = await tableHasColumn(env, "edu_daily_recitation", "task_scores_json");
   const extraCols = [
@@ -298,9 +348,17 @@ async function loadDailyRecitationItems(
       face_count: hasFace ? m?.face_count : 0,
     };
     const task_scores = parseTaskScoresJson(m?.task_scores_json, legacy);
+    if (attCriterionId && presentIds.has(s.id)) {
+      if (attCriterion?.input === "number") {
+        task_scores[attCriterionId] = Number(attCriterion.max_weight);
+      } else {
+        task_scores[attCriterionId] = true;
+      }
+    }
     return {
       student_id: s.id,
       full_name_ar: s.full_name_ar,
+      admin_present: presentIds.has(s.id),
       task_scores,
       listened: Boolean(m?.listened),
       repeated: Boolean(m?.repeated),
@@ -875,16 +933,23 @@ export async function handleEduDeptCoreRouter(
       return json({ error: "invalid_status" }, 400);
     }
     const row = await env.DB.prepare(
-      `SELECT * FROM teacher_requests WHERE id = ? AND complex_id = ?`,
+      `SELECT tr.*, s.full_name_ar AS student_name, s.current_circle_id, s.current_track_id
+       FROM teacher_requests tr
+       JOIN students s ON s.id = tr.student_id
+       WHERE tr.id = ? AND tr.complex_id = ?`,
     )
       .bind(id, auth.complexId)
       .first<{
         id: number;
         student_id: number;
+        teacher_user_id: number;
         request_type: string;
         status: string;
         target_circle_id: number | null;
         notes: string | null;
+        student_name: string;
+        current_circle_id: number | null;
+        current_track_id: number | null;
       }>();
     if (!row) return json({ error: "not_found" }, 404);
     if (row.status !== "pending") return json({ error: "already_resolved" }, 409);
@@ -894,12 +959,15 @@ export async function handleEduDeptCoreRouter(
       if (!Number.isFinite(newCircleId) || newCircleId <= 0) {
         return json({ error: "target_circle_required" }, 400);
       }
-      const circleExists = await env.DB.prepare(
-        `SELECT id FROM circles WHERE id = ? AND complex_id = ? AND is_active = 1`,
+      const newCircle = await env.DB.prepare(
+        `SELECT c.id, c.name_ar, t.name_ar AS track_name
+         FROM circles c
+         LEFT JOIN tracks t ON t.id = c.track_id
+         WHERE c.id = ? AND c.complex_id = ? AND c.is_active = 1`,
       )
         .bind(newCircleId, auth.complexId)
-        .first<{ id: number }>();
-      if (!circleExists) return json({ error: "circle_not_found" }, 404);
+        .first<{ id: number; name_ar: string; track_name: string | null }>();
+      if (!newCircle) return json({ error: "circle_not_found" }, 404);
       const trackId = await resolveCircleTrackId(
         env,
         newCircleId,
@@ -914,15 +982,54 @@ export async function handleEduDeptCoreRouter(
           reason: row.notes ?? "موافقة على طلب نقل — القسم التعليمي",
           complexId: auth.complexId,
         });
+        const eventId = await logTransferEvent(env, {
+          complexId: auth.complexId,
+          studentId: row.student_id,
+          studentName: row.student_name,
+          status: "success",
+          source: "teacher_request",
+          teacherRequestId: row.id,
+          oldCircleId: row.current_circle_id,
+          newCircleId,
+          oldTrackId: row.current_track_id,
+          newTrackId: trackId,
+          newCircleName: newCircle.name_ar,
+          newTrackName: newCircle.track_name,
+          reason: row.notes,
+          initiatedByUserId: row.teacher_user_id,
+          resolvedByUserId: auth.userId,
+        });
+        const oldTeacher = await circleTeacherUserId(env, row.current_circle_id);
+        const newTeacher = await circleTeacherUserId(env, newCircleId);
+        await notifyTransferRecipients(env, {
+          complexId: auth.complexId,
+          studentName: row.student_name,
+          newCircleName: newCircle.name_ar,
+          newTrackName: newCircle.track_name,
+          recipientUserIds: [row.teacher_user_id, oldTeacher, newTeacher].filter(
+            (x): x is number => x != null,
+          ),
+          referenceId: eventId,
+        });
       } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
         console.error("teacher_request_transfer_failed", err);
-        return json(
-          {
-            error: "transfer_failed",
-            message: err instanceof Error ? err.message : String(err),
-          },
-          500,
-        );
+        await logTransferEvent(env, {
+          complexId: auth.complexId,
+          studentId: row.student_id,
+          studentName: row.student_name,
+          status: "failed",
+          source: "teacher_request",
+          teacherRequestId: row.id,
+          oldCircleId: row.current_circle_id,
+          newCircleId,
+          reason: row.notes,
+          errorCode: "transfer_failed",
+          errorMessage: msg,
+          initiatedByUserId: row.teacher_user_id,
+          resolvedByUserId: auth.userId,
+        });
+        return json({ error: "transfer_failed", message: msg }, 500);
       }
     }
 
@@ -933,6 +1040,16 @@ export async function handleEduDeptCoreRouter(
     )
       .bind(body.status, auth.userId, id)
       .run();
+
+    if (body.status === "rejected" && row.request_type === "transfer") {
+      await createEduNotification(env, {
+        complexId: auth.complexId,
+        recipientUserId: row.teacher_user_id,
+        titleAr: "رفض طلب نقل",
+        bodyAr: `تم رفض طلب نقل الطالب (${row.student_name}).`,
+        referenceId: row.id,
+      });
+    }
 
     return json({ ok: true, status: body.status });
   }
@@ -983,18 +1100,25 @@ export async function handleEduDeptCoreRouter(
       explicitTrack,
     );
     const note =
-      typeof body.note === "string"
-        ? body.note.trim().slice(0, 500)
-        : "نقل يدوي — القسم التعليمي";
+      typeof body.note === "string" ? body.note.trim().slice(0, 500) : "";
+    if (!note) return json({ error: "reason_required" }, 400);
 
     const current = await env.DB.prepare(
-      `SELECT current_circle_id, current_track_id FROM students WHERE id = ?`,
+      `SELECT full_name_ar, current_circle_id, current_track_id FROM students WHERE id = ?`,
     )
       .bind(studentId)
       .first<{
+        full_name_ar: string;
         current_circle_id: number | null;
         current_track_id: number | null;
       }>();
+
+    const newCircle = await env.DB.prepare(
+      `SELECT c.name_ar, t.name_ar AS track_name FROM circles c
+       LEFT JOIN tracks t ON t.id = c.track_id WHERE c.id = ?`,
+    )
+      .bind(circleId)
+      .first<{ name_ar: string; track_name: string | null }>();
 
     const trackOnly =
       current?.current_circle_id === circleId &&
@@ -1011,15 +1135,48 @@ export async function handleEduDeptCoreRouter(
         complexId: auth.complexId,
         trackOnly,
       });
+      const eventId = await logTransferEvent(env, {
+        complexId: auth.complexId,
+        studentId,
+        studentName: current?.full_name_ar,
+        status: "success",
+        source: "manual",
+        oldCircleId: current?.current_circle_id,
+        newCircleId: circleId,
+        oldTrackId: current?.current_track_id,
+        newTrackId: trackId,
+        newCircleName: newCircle?.name_ar,
+        newTrackName: newCircle?.track_name,
+        reason: note,
+        resolvedByUserId: auth.userId,
+      });
+      const oldTeacher = await circleTeacherUserId(env, current?.current_circle_id);
+      const newTeacher = await circleTeacherUserId(env, circleId);
+      await notifyTransferRecipients(env, {
+        complexId: auth.complexId,
+        studentName: current?.full_name_ar ?? "طالب",
+        newCircleName: newCircle?.name_ar ?? "—",
+        newTrackName: newCircle?.track_name,
+        recipientUserIds: [oldTeacher, newTeacher].filter((x): x is number => x != null),
+        referenceId: eventId,
+      });
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       console.error("manual_transfer_failed", err);
-      return json(
-        {
-          error: "transfer_failed",
-          message: err instanceof Error ? err.message : String(err),
-        },
-        500,
-      );
+      await logTransferEvent(env, {
+        complexId: auth.complexId,
+        studentId,
+        studentName: current?.full_name_ar,
+        status: "failed",
+        source: "manual",
+        oldCircleId: current?.current_circle_id,
+        newCircleId: circleId,
+        reason: note,
+        errorCode: "transfer_failed",
+        errorMessage: msg,
+        resolvedByUserId: auth.userId,
+      });
+      return json({ error: "transfer_failed", message: msg }, 500);
     }
     return json({ ok: true });
   }
@@ -1249,6 +1406,193 @@ export async function handleEduDeptCoreRouter(
       },
       circles: circles.results ?? [],
       items,
+    });
+  }
+
+  if (path === "/api/edu-dept/placement-options" && request.method === "GET") {
+    if (!requireRoles(auth, [...EDU_SUPERVISOR_ROLES])) {
+      return json({ error: "forbidden" }, 403);
+    }
+    const track = await circleTrackSelectSql(env);
+    const hasTeacher = await tableHasColumn(env, "circles", "teacher_id");
+    const teacherJoin = hasTeacher
+      ? "LEFT JOIN users u ON u.id = c.teacher_id"
+      : "";
+    const teacherCol = hasTeacher ? ", u.full_name_ar AS teacher_name" : ", NULL AS teacher_name";
+    const q = url.searchParams.get("q")?.trim() ?? "";
+    let sql = `
+      SELECT c.id, c.name_ar, ${track.trackIdCol}, ${track.trackNameCol}${teacherCol}
+      FROM circles c
+      ${track.joinSql}
+      ${teacherJoin}
+      WHERE c.complex_id = ? AND COALESCE(c.is_active, 1) = 1`;
+    const binds: (string | number)[] = [auth.complexId];
+    if (q) {
+      sql += ` AND (c.name_ar LIKE ? OR ${track.trackNameCol} LIKE ?)`;
+      binds.push(`%${q}%`, `%${q}%`);
+    }
+    sql += ` ORDER BY c.name_ar LIMIT 300`;
+    const items = await env.DB.prepare(sql).bind(...binds).all();
+    return json({ items: items.results ?? [] });
+  }
+
+  if (path === "/api/edu-dept/transfers/history" && request.method === "GET") {
+    if (!requireRoles(auth, [...EDU_SUPERVISOR_ROLES])) {
+      return json({ error: "forbidden" }, 403);
+    }
+    if (!(await hasTable(env, "edu_transfer_events"))) return json({ items: [] });
+    const q = url.searchParams.get("q")?.trim() ?? "";
+    let sql = `SELECT * FROM edu_transfer_events WHERE complex_id = ?`;
+    const binds: (string | number)[] = [auth.complexId];
+    if (q) {
+      sql += ` AND (student_name LIKE ? OR reason LIKE ? OR error_message LIKE ?)`;
+      binds.push(`%${q}%`, `%${q}%`, `%${q}%`);
+    }
+    sql += ` ORDER BY created_at DESC LIMIT 200`;
+    const items = await env.DB.prepare(sql).bind(...binds).all();
+    return json({ items: items.results ?? [] });
+  }
+
+  if (path === "/api/edu-dept/notifications" && request.method === "GET") {
+    if (!requireRoles(auth, ["teacher", "track_supervisor"])) {
+      return json({ error: "forbidden" }, 403);
+    }
+    if (!(await hasTable(env, "edu_notifications"))) return json({ items: [] });
+    const items = await env.DB.prepare(
+      `SELECT id, title_ar, body_ar, is_read, created_at
+       FROM edu_notifications
+       WHERE complex_id = ? AND recipient_user_id = ? AND is_read = 0
+       ORDER BY created_at DESC LIMIT 50`,
+    )
+      .bind(auth.complexId, auth.userId)
+      .all();
+    return json({ items: items.results ?? [] });
+  }
+
+  const notifRead = path.match(/^\/api\/edu-dept\/notifications\/(\d+)\/read$/);
+  if (notifRead && request.method === "PATCH") {
+    if (!requireRoles(auth, ["teacher", "track_supervisor"])) {
+      return json({ error: "forbidden" }, 403);
+    }
+    if (!(await hasTable(env, "edu_notifications"))) return json({ error: "not_found" }, 404);
+    const nid = Number(notifRead[1]);
+    await env.DB.prepare(
+      `UPDATE edu_notifications SET is_read = 1, read_at = datetime('now')
+       WHERE id = ? AND recipient_user_id = ? AND complex_id = ?`,
+    )
+      .bind(nid, auth.userId, auth.complexId)
+      .run();
+    return json({ ok: true });
+  }
+
+  if (path === "/api/edu-dept/reports/individual" && request.method === "GET") {
+    if (!requireRoles(auth, [...EDU_SUPERVISOR_ROLES])) {
+      return json({ error: "forbidden" }, 403);
+    }
+    const personId = Number(url.searchParams.get("person_id") ?? NaN);
+    const startDate = url.searchParams.get("start")?.trim() || todayIso();
+    const endDate = url.searchParams.get("end")?.trim() || startDate;
+    if (!Number.isFinite(personId)) return json({ error: "person_id_required" }, 400);
+    if (startDate > endDate) return json({ error: "invalid_date_range" }, 400);
+
+    const student = await fetchStudentForAdminReport(env, auth.complexId, personId);
+    if (!student) return json({ error: "student_not_found" }, 404);
+
+    const complex = await env.DB.prepare(`SELECT name_ar FROM complexes WHERE id = ?`)
+      .bind(auth.complexId)
+      .first<{ name_ar: string }>();
+
+    const attTable = await resolveAttendanceTableName(env);
+    const items: Array<{ date: string; status: string }> = [];
+    if (attTable) {
+      const attRows = await env.DB.prepare(
+        `SELECT attendance_date AS date, status FROM ${attTable}
+         WHERE student_id = ? AND complex_id = ? AND attendance_date BETWEEN ? AND ?
+         ORDER BY attendance_date DESC`,
+      )
+        .bind(student.id, auth.complexId, startDate, endDate)
+        .all<{ date: string; status: string }>();
+      for (const r of attRows.results ?? []) items.push(r);
+    }
+
+    let present = 0;
+    let absent = 0;
+    let excused = 0;
+    for (const r of items) {
+      if (r.status === "present") present++;
+      else if (r.status === "excused") excused++;
+      else absent++;
+    }
+    const total = items.length;
+    const disciplinePct = total > 0 ? Math.round((present / total) * 100) : 100;
+
+    let recitation_avg_quality: number | null = null;
+    let recitation_records = 0;
+    if (await hasTable(env, "edu_daily_recitation")) {
+      const hasTaskScores = await tableHasColumn(env, "edu_daily_recitation", "task_scores_json");
+      const criteria = await loadEvaluationCriteria(env, auth.complexId);
+      const rows = await env.DB.prepare(
+        `SELECT ${hasTaskScores ? "task_scores_json," : ""} listened, repeated, revised, error_count, tune_errors, face_count
+         FROM edu_daily_recitation
+         WHERE student_id = ? AND recitation_date BETWEEN ? AND ?`,
+      )
+        .bind(student.id, startDate, endDate)
+        .all<Record<string, unknown>>();
+      let sum = 0;
+      for (const r of rows.results ?? []) {
+        const legacy = {
+          listened: r.listened as number | boolean | undefined,
+          repeated: r.repeated as number | boolean | undefined,
+          revised: r.revised as number | boolean | undefined,
+          error_count: Number(r.error_count ?? 0),
+          tune_errors: Number(r.tune_errors ?? 0),
+          face_count: Number(r.face_count ?? 0),
+        };
+        const scores = parseTaskScoresJson(
+          hasTaskScores ? (r.task_scores_json as string | null) : null,
+          legacy,
+        );
+        sum += computeQualityFromCriteria(scores, criteria);
+        recitation_records++;
+      }
+      if (recitation_records > 0) {
+        recitation_avg_quality = Math.round((sum / recitation_records) * 10) / 10;
+      }
+    }
+
+    const pledges: Array<{ id: number; reason_ar: string; pledge_date: string }> = [];
+    if (await hasTable(env, "student_pledges")) {
+      const pRows = await env.DB.prepare(
+        `SELECT id, reason_ar, pledge_date FROM student_pledges
+         WHERE student_id = ? AND complex_id = ?
+           AND pledge_date BETWEEN ? AND ?
+         ORDER BY pledge_date DESC`,
+      )
+        .bind(student.id, auth.complexId, startDate, endDate)
+        .all<{ id: number; reason_ar: string; pledge_date: string }>();
+      for (const p of pRows.results ?? []) pledges.push(p);
+    }
+
+    const placementLabel =
+      [student.circle_name, student.track_name].filter(Boolean).join(" · ") || null;
+
+    return json({
+      type: "student",
+      start_date: startDate,
+      end_date: endDate,
+      complex_name: complex?.name_ar ?? null,
+      person: {
+        id: student.id,
+        full_name_ar: student.full_name_ar,
+        guardian_phone: student.guardian_phone ?? null,
+        circle_name: placementLabel,
+      },
+      summary: { present, absent, excused, total },
+      discipline_pct: disciplinePct,
+      items,
+      recitation_avg_quality,
+      recitation_records,
+      pledges,
     });
   }
 

@@ -102,7 +102,7 @@ export async function handleEduCompetitionsRouter(
 
   const auth = await getAuth(request, env);
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
-  if (!requireRoles(auth, ["edu_supervisor"])) {
+  if (!requireRoles(auth, ["edu_supervisor", "super_admin"])) {
     return json({ error: "forbidden" }, 403);
   }
 

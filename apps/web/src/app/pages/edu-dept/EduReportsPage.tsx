@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { BarChart3, BookOpen, CalendarRange, TrendingUp } from "lucide-react";
+import { BarChart3, BookOpen, CalendarRange, Printer, Search, TrendingUp } from "lucide-react";
+import { AdminStudentSearchCombobox } from "../../components/admin/AdminStudentSearchCombobox";
+import {
+  EduStudentReportModal,
+  type EduStudentReport,
+} from "../../components/edu/EduStudentReportModal";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -38,6 +43,10 @@ export function EduReportsPage() {
   const [loading, setLoading] = useState(false);
   const [applied, setApplied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [studentId, setStudentId] = useState<number | null>(null);
+  const [detailReport, setDetailReport] = useState<EduStudentReport | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const load = useCallback(async () => {
     if (!canUseApi()) return;
@@ -76,8 +85,42 @@ export function EduReportsPage() {
     data?.summary.faces_today ??
     0;
 
+  async function openStudentReport() {
+    if (studentId == null) {
+      setError("اختر طالباً من البحث");
+      return;
+    }
+    if (startDate > endDate) {
+      setError("تاريخ البداية يجب أن يكون قبل النهاية");
+      return;
+    }
+    setDetailLoading(true);
+    setError(null);
+    try {
+      const res = await api.eduDeptIndividualReport({
+        person_id: studentId,
+        start: startDate,
+        end: endDate,
+      });
+      setDetailReport(res);
+      setDetailOpen(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "فشل تحميل التقرير التفصيلي");
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  function printGeneralReport() {
+    document.body.classList.add("printing-edu-general-report");
+    window.print();
+    window.setTimeout(() => {
+      document.body.classList.remove("printing-edu-general-report");
+    }, 500);
+  }
+
   return (
-    <div className="space-y-6 max-w-[1200px]" dir="rtl">
+    <div className="space-y-6 max-w-[1200px] edu-reports-page" dir="rtl">
       <div>
         <h2 className={`${ds.page.title} flex items-center gap-2`} style={tajawal}>
           <BarChart3 className="w-7 h-7 text-primary" />
@@ -94,7 +137,30 @@ export function EduReportsPage() {
         </p>
       )}
 
-      <div className={`${ds.card} p-4 space-y-4`}>
+      <div className={`${ds.card} p-4 space-y-4 print:hidden`}>
+        <div className="space-y-2">
+          <Label style={tajawal}>بحث عن طالب (تقرير تفصيلي)</Label>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="flex-1">
+              <AdminStudentSearchCombobox
+                id="edu-report-student"
+                value={studentId}
+                onChange={setStudentId}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              className={ds.btnRound}
+              disabled={detailLoading}
+              onClick={() => void openStudentReport()}
+              style={tajawal}
+            >
+              <Search className="w-4 h-4" />
+              التقرير التفصيلي
+            </Button>
+          </div>
+        </div>
         <div className={ds.filterRow}>
           <div className="space-y-1 w-full sm:flex-1 sm:min-w-[200px] sm:max-w-xs">
             <Label style={tajawal}>من تاريخ</Label>
@@ -154,7 +220,22 @@ export function EduReportsPage() {
         </p>
       ) : data ? (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="flex flex-wrap gap-2 print:hidden">
+            <Button
+              type="button"
+              variant="outline"
+              className={ds.btnRound}
+              onClick={printGeneralReport}
+              style={tajawal}
+            >
+              <Printer className="w-4 h-4" />
+              طباعة التقرير العام
+            </Button>
+          </div>
+          <div
+            id="edu-general-report-print"
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+          >
             <EduKpiCard
               icon={<BookOpen className="w-5 h-5 text-primary" />}
               label="إجمالي الأوجه في النطاق"
@@ -179,7 +260,7 @@ export function EduReportsPage() {
             />
           </div>
 
-          <div className={ds.card}>
+          <div className={`${ds.card} edu-print-table-wrap`}>
             <div className="p-4 border-b border-border">
               <h3 className={ds.page.section} style={tajawal}>
                 تقدم الطلاب — {data.date_from} إلى {data.date_to}
@@ -190,8 +271,8 @@ export function EduReportsPage() {
                 لا توجد سجلات رصد في هذه الفترة.
               </p>
             ) : (
-              <Table className={`${ds.tableMin} text-right`} dir="rtl">
-                <TableHeader>
+              <Table className={`${ds.tableMin} text-right edu-print-table`} dir="rtl">
+                <TableHeader className="print:table-header-group">
                   <TableRow>
                     <TableHead className={`${ds.table.head} w-[20%]`} style={tajawal}>
                       الطالب
@@ -212,7 +293,7 @@ export function EduReportsPage() {
                 </TableHeader>
                 <TableBody>
                   {data.items.map((row) => (
-                    <TableRow key={row.student_id}>
+                    <TableRow key={row.student_id} className="print:break-inside-avoid">
                       <TableTruncatedCell style={tajawal}>{row.full_name_ar}</TableTruncatedCell>
                       <TableTruncatedCell style={tajawal}>{row.circle_name}</TableTruncatedCell>
                       <TableCell className={ds.table.cell}>
@@ -249,6 +330,12 @@ export function EduReportsPage() {
           </div>
         </>
       ) : null}
+
+      <EduStudentReportModal
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        report={detailReport}
+      />
     </div>
   );
 }

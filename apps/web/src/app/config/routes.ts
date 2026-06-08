@@ -40,7 +40,7 @@ export const SUPERVISOR_EDU_NAV: NavItem[] = [
   },
   {
     id: "transfers",
-    label: "متابعة ونقل الطلاب",
+    label: "نقل الطلاب",
     path: "/edu-dept/transfers",
     roles: EDU_SUPERVISOR_ROLES,
   },

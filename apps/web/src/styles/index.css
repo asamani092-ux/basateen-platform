@@ -402,4 +402,28 @@
   body.printing-individual-discipline-report .individual-discipline-report-print * {
     color: #000 !important;
   }
+
+  body.printing-edu-general-report aside,
+  body.printing-edu-general-report nav,
+  body.printing-edu-general-report .print\\:hidden,
+  body.printing-edu-general-report button {
+    display: none !important;
+  }
+
+  body.printing-edu-general-report .edu-reports-page {
+    max-width: none !important;
+  }
+
+  body.printing-edu-general-report .edu-print-table thead {
+    display: table-header-group !important;
+  }
+
+  body.printing-edu-general-report .edu-print-table tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  .edu-print-table thead {
+    display: table-header-group;
+  }
 }

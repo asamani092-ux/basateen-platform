@@ -1730,12 +1730,79 @@ export const api = {
     student_id: number;
     circle_id: number;
     track_id?: number | null;
-    note?: string;
+    note: string;
   }) =>
     request<{ ok: boolean }>("/api/edu-dept/transfers/manual", {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  eduDeptPlacementOptions: (q?: string) =>
+    request<{
+      items: Array<{
+        id: number;
+        name_ar: string;
+        track_id: number | null;
+        track_name: string | null;
+        teacher_name: string | null;
+      }>;
+    }>(
+      `/api/edu-dept/placement-options${q?.trim() ? `?q=${encodeURIComponent(q.trim())}` : ""}`,
+    ),
+  eduDeptTransferHistory: (q?: string) =>
+    request<{
+      items: Array<{
+        id: number;
+        student_name: string | null;
+        status: "success" | "failed";
+        source: string;
+        new_circle_name: string | null;
+        new_track_name: string | null;
+        reason: string | null;
+        error_message: string | null;
+        created_at: string;
+      }>;
+    }>(
+      `/api/edu-dept/transfers/history${q?.trim() ? `?q=${encodeURIComponent(q.trim())}` : ""}`,
+    ),
+  eduDeptNotifications: () =>
+    request<{
+      items: Array<{
+        id: number;
+        title_ar: string;
+        body_ar: string;
+        is_read: number;
+        created_at: string;
+      }>;
+    }>("/api/edu-dept/notifications"),
+  eduDeptNotificationDismiss: (id: number) =>
+    request<{ ok: boolean }>(`/api/edu-dept/notifications/${id}/read`, {
+      method: "PATCH",
+    }),
+  eduDeptIndividualReport: (params: {
+    person_id: number;
+    start: string;
+    end: string;
+  }) =>
+    request<{
+      type: "student";
+      start_date: string;
+      end_date: string;
+      complex_name: string | null;
+      person: {
+        id: number;
+        full_name_ar: string;
+        guardian_phone?: string | null;
+        circle_name?: string | null;
+      };
+      summary: { present: number; absent: number; excused: number; total: number };
+      discipline_pct: number;
+      items: Array<{ date: string; status: string }>;
+      recitation_avg_quality: number | null;
+      recitation_records: number;
+      pledges: Array<{ id: number; reason_ar: string; pledge_date: string }>;
+    }>(
+      `/api/edu-dept/reports/individual?person_id=${params.person_id}&start=${encodeURIComponent(params.start)}&end=${encodeURIComponent(params.end)}`,
+    ),
   eduDeptTeacherCompetitionsList: () =>
     request<{
       items: Array<{

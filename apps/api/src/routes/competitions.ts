@@ -49,6 +49,36 @@ function defaultRules(): Record<string, unknown> {
   };
 }
 
+type CompetitionSchema = {
+  description: boolean;
+  telemetry_type: boolean;
+  scope_json: boolean;
+  created_by_user_id: boolean;
+  updated_at: boolean;
+  stage_id: boolean;
+};
+
+async function competitionSchema(env: Env): Promise<CompetitionSchema> {
+  const t = "competitions";
+  const [description, telemetry_type, scope_json, created_by_user_id, updated_at, stage_id] =
+    await Promise.all([
+      tableHasColumn(env, t, "description"),
+      tableHasColumn(env, t, "telemetry_type"),
+      tableHasColumn(env, t, "scope_json"),
+      tableHasColumn(env, t, "created_by_user_id"),
+      tableHasColumn(env, t, "updated_at"),
+      tableHasColumn(env, t, "stage_id"),
+    ]);
+  return {
+    description,
+    telemetry_type,
+    scope_json,
+    created_by_user_id,
+    updated_at,
+    stage_id,
+  };
+}
+
 /** v25 competitions table may omit stage_id — avoid referencing missing column. */
 function competitionsScopeClause(
   scope: ScopeMode,
@@ -62,6 +92,138 @@ function competitionsScopeClause(
     where: `(${stageWhere} OR c.stage_id IS NULL)`,
     binds: stageFilterBinds(scope),
   };
+}
+
+async function insertCompetitionRow(
+  env: Env,
+  schema: CompetitionSchema,
+  params: {
+    complexId: number;
+    name_ar: string;
+    description?: string;
+    start_date: string;
+    end_date: string;
+    rules_json: string;
+    tv_launch_key: string;
+    userId: number;
+  },
+) {
+  const cols = [
+    "complex_id",
+    "name_ar",
+    "start_date",
+    "end_date",
+    "status",
+    "rules_json",
+    "tv_launch_key",
+  ];
+  const placeholders = ["?", "?", "?", "?", "'draft'", "?", "?"];
+  const binds: (string | number)[] = [
+    params.complexId,
+    params.name_ar,
+    params.start_date,
+    params.end_date,
+    params.rules_json,
+    params.tv_launch_key,
+  ];
+
+  if (schema.description) {
+    cols.splice(2, 0, "description");
+    placeholders.splice(2, 0, "?");
+    binds.splice(2, 0, params.description ?? "");
+  }
+  if (schema.telemetry_type) {
+    cols.push("telemetry_type");
+    placeholders.push("'intensive_routine'");
+  }
+  if (schema.scope_json) {
+    cols.push("scope_json");
+    placeholders.push("'{}'");
+  }
+  if (schema.created_by_user_id) {
+    cols.push("created_by_user_id");
+    placeholders.push("?");
+    binds.push(params.userId);
+  }
+
+  return env.DB.prepare(
+    `INSERT INTO competitions (${cols.join(", ")}) VALUES (${placeholders.join(", ")})`,
+  )
+    .bind(...binds)
+    .run();
+}
+
+async function patchCompetitionRow(
+  env: Env,
+  schema: CompetitionSchema,
+  id: number,
+  complexId: number,
+  body: {
+    name_ar?: string;
+    description?: string;
+    start_date?: string;
+    end_date?: string;
+    status?: string;
+    scope?: { student_ids?: number[]; circle_ids?: number[]; track_ids?: number[] };
+  },
+  rulesJson: string,
+) {
+  const sets = [
+    "name_ar = COALESCE(?, name_ar)",
+    "start_date = COALESCE(?, start_date)",
+    "end_date = COALESCE(?, end_date)",
+    "status = COALESCE(?, status)",
+    "rules_json = ?",
+  ];
+  const binds: (string | number | null)[] = [
+    body.name_ar?.trim() ?? null,
+    body.start_date ?? null,
+    body.end_date ?? null,
+    body.status ?? null,
+    rulesJson,
+  ];
+
+  if (schema.description) {
+    sets.splice(1, 0, "description = COALESCE(?, description)");
+    binds.splice(1, 0, body.description ?? null);
+  }
+  if (schema.scope_json) {
+    sets.push("scope_json = COALESCE(?, scope_json)");
+    binds.push(body.scope ? JSON.stringify(body.scope) : null);
+  }
+  if (schema.updated_at) {
+    sets.push("updated_at = datetime('now')");
+  }
+  binds.push(id, complexId);
+
+  await env.DB.prepare(
+    `UPDATE competitions SET ${sets.join(", ")} WHERE id = ? AND complex_id = ?`,
+  )
+    .bind(...binds)
+    .run();
+}
+
+async function setCompetitionStatus(
+  env: Env,
+  schema: CompetitionSchema,
+  id: number,
+  complexId: number,
+  status: string,
+  liveLogToken?: string,
+) {
+  const sets = liveLogToken
+    ? ["live_log_token = ?", "status = ?"]
+    : ["status = ?"];
+  const binds: (string | number)[] = liveLogToken
+    ? [liveLogToken, status, id, complexId]
+    : [status, id, complexId];
+  if (schema.updated_at) sets.push("updated_at = datetime('now')");
+
+  await env.DB.prepare(
+    `UPDATE competitions SET ${sets.join(", ")} WHERE id = ? AND complex_id = ?`,
+  )
+    .bind(...binds)
+    .run();
 }
 
 async function competitionExists(
@@ -126,13 +288,12 @@ export async function handleEduCompetitionsRouter(
   }
 
   const scope = await loadUserScope(env, auth.userId);
-  const hasDescription = await tableHasColumn(env, "competitions", "description");
+  const schema = await competitionSchema(env);
   const hasCompAttendance = await hasTable(env, "competition_attendance");
 
   if (request.method === "GET" && path === "/api/edu-dept/competitions") {
-    const hasStageId = await tableHasColumn(env, "competitions", "stage_id");
-    const scopeClause = competitionsScopeClause(scope, hasStageId);
-    const descCol = hasDescription ? ", c.description" : "";
+    const scopeClause = competitionsScopeClause(scope, schema.stage_id);
+    const descCol = schema.description ? ", c.description" : "";
     const rows = await env.DB.prepare(
       `SELECT c.id, c.name_ar${descCol}, c.start_date, c.end_date, c.status,
               c.live_log_token, c.tv_launch_key
@@ -165,40 +326,16 @@ export async function handleEduCompetitionsRouter(
 
     const tvKey = randomKey();
     const rules = { ...defaultRules(), ...(body.rules ?? {}) };
-    const ins = hasDescription
-      ? await env.DB.prepare(
-          `INSERT INTO competitions
-           (complex_id, name_ar, description, start_date, end_date, status, telemetry_type,
-            rules_json, scope_json, tv_launch_key, created_by_user_id)
-           VALUES (?, ?, ?, ?, ?, 'draft', 'intensive_routine', ?, '{}', ?, ?)`,
-        )
-          .bind(
-            auth.complexId,
-            body.name_ar.trim(),
-            body.description?.trim() ?? "",
-            body.start_date,
-            body.end_date,
-            JSON.stringify(rules),
-            tvKey,
-            auth.userId,
-          )
-          .run()
-      : await env.DB.prepare(
-          `INSERT INTO competitions
-           (complex_id, name_ar, start_date, end_date, status, telemetry_type,
-            rules_json, scope_json, tv_launch_key, created_by_user_id)
-           VALUES (?, ?, ?, ?, 'draft', 'intensive_routine', ?, '{}', ?, ?)`,
-        )
-          .bind(
-            auth.complexId,
-            body.name_ar.trim(),
-            body.start_date,
-            body.end_date,
-            JSON.stringify(rules),
-            tvKey,
-            auth.userId,
-          )
-          .run();
+    const ins = await insertCompetitionRow(env, schema, {
+      complexId: auth.complexId,
+      name_ar: body.name_ar.trim(),
+      description: body.description?.trim(),
+      start_date: body.start_date,
+      end_date: body.end_date,
+      rules_json: JSON.stringify(rules),
+      tv_launch_key: tvKey,
+      userId: auth.userId,
+    });
 
     return json({ ok: true, id: ins.meta.last_row_id as number, tv_launch_key: tvKey });
   }
@@ -238,9 +375,12 @@ export async function handleEduCompetitionsRouter(
       return json({
         competition: {
           ...row,
-          description: hasDescription ? row.description ?? "" : "",
+          description: schema.description ? row.description ?? "" : "",
+          telemetry_type: schema.telemetry_type ? row.telemetry_type ?? "intensive_routine" : "intensive_routine",
           rules: JSON.parse(String(row.rules_json ?? "{}")),
-          scope: JSON.parse(String(row.scope_json ?? "{}")),
+          scope: schema.scope_json
+            ? JSON.parse(String(row.scope_json ?? "{}"))
+            : {},
         },
         targets: targets.results ?? [],
         plans: plans.results ?? [],
@@ -274,55 +414,7 @@ export async function handleEduCompetitionsRouter(
       const startDate = body.start_date ?? String(row.start_date);
       const endDate = body.end_date ?? String(row.end_date);
 
-      if (hasDescription) {
-        await env.DB.prepare(
-          `UPDATE competitions SET
-             name_ar = COALESCE(?, name_ar),
-             description = COALESCE(?, description),
-             start_date = COALESCE(?, start_date),
-             end_date = COALESCE(?, end_date),
-             status = COALESCE(?, status),
-             rules_json = ?,
-             scope_json = COALESCE(?, scope_json),
-             updated_at = datetime('now')
-           WHERE id = ? AND complex_id = ?`,
-        )
-          .bind(
-            body.name_ar?.trim() ?? null,
-            body.description ?? null,
-            body.start_date ?? null,
-            body.end_date ?? null,
-            body.status ?? null,
-            JSON.stringify(nextRules),
-            body.scope ? JSON.stringify(body.scope) : null,
-            id,
-            auth.complexId,
-          )
-          .run();
-      } else {
-        await env.DB.prepare(
-          `UPDATE competitions SET
-             name_ar = COALESCE(?, name_ar),
-             start_date = COALESCE(?, start_date),
-             end_date = COALESCE(?, end_date),
-             status = COALESCE(?, status),
-             rules_json = ?,
-             scope_json = COALESCE(?, scope_json),
-             updated_at = datetime('now')
-           WHERE id = ? AND complex_id = ?`,
-        )
-          .bind(
-            body.name_ar?.trim() ?? null,
-            body.start_date ?? null,
-            body.end_date ?? null,
-            body.status ?? null,
-            JSON.stringify(nextRules),
-            body.scope ? JSON.stringify(body.scope) : null,
-            id,
-            auth.complexId,
-          )
-          .run();
-      }
+      await patchCompetitionRow(env, schema, id, auth.complexId, body, JSON.stringify(nextRules));
 
       if (body.scope) {
         await syncTargets(env, id, body.scope);
@@ -360,12 +452,7 @@ export async function handleEduCompetitionsRouter(
     const row = await competitionExists(env, id, auth.complexId);
     if (!row) return json({ error: "not_found" }, 404);
     const token = randomKey();
-    await env.DB.prepare(
-      `UPDATE competitions SET live_log_token = ?, status = 'active', updated_at = datetime('now')
-       WHERE id = ? AND complex_id = ?`,
-    )
-      .bind(token, id, auth.complexId)
-      .run();
+    await setCompetitionStatus(env, schema, id, auth.complexId, "active", token);
     return json({ ok: true, live_log_token: token, path: `/live-log/${token}` });
   }
 
@@ -374,12 +461,7 @@ export async function handleEduCompetitionsRouter(
   );
   if (request.method === "POST" && activateMatch) {
     const id = Number(activateMatch[1]);
-    await env.DB.prepare(
-      `UPDATE competitions SET status = 'active', updated_at = datetime('now')
-       WHERE id = ? AND complex_id = ?`,
-    )
-      .bind(id, auth.complexId)
-      .run();
+    await setCompetitionStatus(env, schema, id, auth.complexId, "active");
     return json({ ok: true });
   }
 

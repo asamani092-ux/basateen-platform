@@ -164,8 +164,12 @@ export async function handleEduDeptExtendedRoutes(
       .bind(studentId)
       .all();
 
+    const hasTelemetry = await tableHasColumn(env, "competitions", "telemetry_type");
+    const telemetryCol = hasTelemetry
+      ? "c.telemetry_type"
+      : "'intensive_routine' AS telemetry_type";
     const compSummary = await env.DB.prepare(
-      `SELECT c.id, c.name_ar, c.telemetry_type, c.start_date, c.end_date
+      `SELECT c.id, c.name_ar, ${telemetryCol}, c.start_date, c.end_date
        FROM competition_logs cl
        JOIN competitions c ON c.id = cl.competition_id
        WHERE cl.student_id = ?

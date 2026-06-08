@@ -1,5 +1,6 @@
 import type { Env } from "../types";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
+import { tableHasColumn } from "../lib/db-schema";
 import { FIELD_EDU_ROLES } from "../lib/roles";
 
 type HimmaRules = {

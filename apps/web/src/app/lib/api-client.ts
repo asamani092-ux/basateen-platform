@@ -1778,30 +1778,34 @@ export const api = {
     request<{ ok: boolean }>(`/api/edu-dept/notifications/${id}/read`, {
       method: "PATCH",
     }),
-  eduDeptIndividualReport: (params: {
-    person_id: number;
-    start: string;
-    end: string;
-  }) =>
+  eduDeptEducationalProfile: (params: { person_id: number }) =>
     request<{
-      type: "student";
-      start_date: string;
-      end_date: string;
+      type: "educational";
       complex_name: string | null;
       person: {
         id: number;
         full_name_ar: string;
-        guardian_phone?: string | null;
-        circle_name?: string | null;
+        current_placement: string | null;
       };
-      summary: { present: number; absent: number; excused: number; total: number };
-      discipline_pct: number;
-      items: Array<{ date: string; status: string }>;
-      recitation_avg_quality: number | null;
-      recitation_records: number;
-      pledges: Array<{ id: number; reason_ar: string; pledge_date: string }>;
+      criteria: Array<{ id: string; name: string; type: string }>;
+      summary: {
+        total_records: number;
+        avg_quality_pct: number | null;
+        total_faces: number;
+        first_record_date: string | null;
+        last_record_date: string | null;
+      };
+      items: Array<{
+        date: string;
+        circle_name: string | null;
+        track_name: string | null;
+        quality_pct: number;
+        face_count: number;
+        notes: string | null;
+        tasks: Array<{ id: string; name: string; value: boolean | number }>;
+      }>;
     }>(
-      `/api/edu-dept/reports/individual?person_id=${params.person_id}&start=${encodeURIComponent(params.start)}&end=${encodeURIComponent(params.end)}`,
+      `/api/edu-dept/reports/educational-profile?person_id=${params.person_id}`,
     ),
   eduDeptTeacherCompetitionsList: () =>
     request<{
@@ -2088,18 +2092,21 @@ export const api = {
     date_from?: string;
     date_to?: string;
     circle_id?: number;
+    track_id?: number;
   }) => {
     const q = new URLSearchParams();
     if (params?.date) q.set("date", params.date);
     if (params?.date_from) q.set("date_from", params.date_from);
     if (params?.date_to) q.set("date_to", params.date_to);
     if (params?.circle_id != null) q.set("circle_id", String(params.circle_id));
+    if (params?.track_id != null) q.set("track_id", String(params.track_id));
     const qs = q.toString();
     return request<{
       date: string;
       date_from: string;
       date_to: string;
-      semester_start: string;
+      scope_type?: "circle" | "track";
+      scope_id?: number | null;
       summary: {
         avg_quality: number;
         top_circle: { circle_id: number; circle_name: string; avg_quality: number } | null;
@@ -2110,6 +2117,7 @@ export const api = {
         faces_today?: number;
       };
       circles: Array<{ id: number; name_ar: string }>;
+      tracks?: Array<{ id: number; name_ar: string }>;
       items: Array<{
         student_id: number;
         full_name_ar: string;

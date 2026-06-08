@@ -957,6 +957,67 @@ export function resolveDevPreviewMock<T>(
     return { ok: true, fail_threshold_exceeded: false, completed_hizbs: [1, 2, 3] } as T;
   }
 
+  if (
+    (p === "/api/edu-dept/reports/educational-profile" ||
+      p === "/api/edu-dept/reports/individual") &&
+    m === "GET"
+  ) {
+    const personId = Number(url.searchParams.get("person_id") ?? 1);
+    const st = previewStore.findStudent(personId) ?? previewStore.getStudents()[0];
+    return {
+      type: "educational",
+      complex_name: "مجمع تجريبي",
+      person: {
+        id: st?.id ?? personId,
+        full_name_ar: st?.full_name_ar ?? "طالب تجريبي",
+        current_placement: "حلقة تجريبية · مسار حفظ",
+      },
+      criteria: [
+        { id: "listening", name: "السماع", type: "points" },
+        { id: "repeat", name: "التكرار", type: "points" },
+        { id: "revision", name: "المراجعة", type: "points" },
+        { id: "rabt", name: "الربط", type: "points" },
+      ],
+      summary: {
+        total_records: 3,
+        avg_quality_pct: 82.5,
+        total_faces: 9,
+        first_record_date: "2025-09-01",
+        last_record_date: date,
+      },
+      items: [
+        {
+          date: "2025-09-01",
+          circle_name: "حلقة سابقة",
+          track_name: "مسار حفظ",
+          quality_pct: 75,
+          face_count: 2,
+          notes: null,
+          tasks: [
+            { id: "listening", name: "السماع", value: true },
+            { id: "repeat", name: "التكرار", value: true },
+            { id: "revision", name: "المراجعة", value: false },
+            { id: "rabt", name: "الربط", value: false },
+          ],
+        },
+        {
+          date,
+          circle_name: "حلقة تجريبية",
+          track_name: "مسار حفظ",
+          quality_pct: 90,
+          face_count: 4,
+          notes: null,
+          tasks: [
+            { id: "listening", name: "السماع", value: true },
+            { id: "repeat", name: "التكرار", value: true },
+            { id: "revision", name: "المراجعة", value: true },
+            { id: "rabt", name: "الربط", value: true },
+          ],
+        },
+      ],
+    } as T;
+  }
+
   if (p === "/api/edu-dept/reports/progress" && m === "GET") {
     const students = previewStore.getStudents().slice(0, 5);
     const dateFrom = url.searchParams.get("date_from") ?? date;
@@ -965,6 +1026,7 @@ export function resolveDevPreviewMock<T>(
       date: dateTo,
       date_from: dateFrom,
       date_to: dateTo,
+      scope_type: url.searchParams.get("circle_id") ? "circle" : "track",
       summary: {
         avg_quality: 78.5,
         top_circle: { circle_id: 1, circle_name: "حلقة تجريبية", avg_quality: 82 },
@@ -975,6 +1037,7 @@ export function resolveDevPreviewMock<T>(
         faces_today: 24,
       },
       circles: PREVIEW_CIRCLES.slice(0, 3).map((c) => ({ id: c.id, name_ar: c.name_ar })),
+      tracks: [{ id: 1, name_ar: "مسار حفظ" }],
       items: students.map((s, i) => ({
         student_id: s.id,
         full_name_ar: s.full_name_ar,
@@ -1307,7 +1370,9 @@ export function resolveDevPreviewMock<T>(
   }
 
   if (
-    (p === "/api/edu-supervisor/competitions" || p === "/api/edu-dept/competitions") &&
+    (p === "/api/edu-supervisor/competitions" ||
+      p === "/api/edu-dept/competitions" ||
+      p === "/api/competitions") &&
     m === "GET"
   ) {
     return { items: previewStore.getCompetitions() } as T;

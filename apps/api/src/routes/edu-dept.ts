@@ -38,7 +38,7 @@ export async function handleEduDeptRouter(
 
   const auth = await getAuth(request, env);
   if (!requireAuth(auth)) return authUnauthorizedResponse(request);
-  if (!requireRoles(auth, ["edu_supervisor"])) {
+  if (!requireRoles(auth, ["edu_supervisor", "super_admin"])) {
     return json({ error: "forbidden" }, 403);
   }
 

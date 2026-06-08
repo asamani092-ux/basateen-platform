@@ -97,7 +97,10 @@ export async function handleEduCompetitionsRouter(
   env: Env,
   url: URL,
 ): Promise<Response | null> {
-  const path = url.pathname;
+  let path = url.pathname;
+  if (path.startsWith("/api/competitions")) {
+    path = path.replace("/api/competitions", "/api/edu-dept/competitions");
+  }
   if (!path.startsWith("/api/edu-dept/competitions")) return null;
 
   const auth = await getAuth(request, env);

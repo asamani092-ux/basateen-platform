@@ -1,11 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
-import { BarChart3, BookOpen, CalendarRange, Printer, Search, TrendingUp } from "lucide-react";
+import { BarChart3, BookOpen, Printer, Search, Users } from "lucide-react";
 import { AdminStudentSearchCombobox } from "../../components/admin/AdminStudentSearchCombobox";
 import {
-  EduStudentReportModal,
-  type EduStudentReport,
+  EduEducationalProfileReport,
+  type EduEducationalProfile,
 } from "../../components/edu/EduStudentReportModal";
 import { Button } from "../../components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Progress } from "../../components/ui/progress";
@@ -17,7 +24,6 @@ import {
   TableHeader,
   TableRow,
 } from "../../components/ui/table";
-import { EduKpiCard } from "../../components/edu/EduKpiCard";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { cn } from "../../components/ui/utils";
@@ -25,7 +31,7 @@ import { defaultDateRange } from "../../lib/local-iso-date";
 import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import { ds, tajawal } from "../../lib/design-system";
 
-type ReportData = Awaited<ReturnType<typeof api.eduDeptReportsProgress>>;
+type CircleReport = Awaited<ReturnType<typeof api.eduDeptReportsProgress>>;
 
 function qualityBarClass(pct: number): string {
   if (pct >= 75) return "[&>div]:bg-emerald-500";
@@ -33,91 +39,118 @@ function qualityBarClass(pct: number): string {
   return "[&>div]:bg-destructive";
 }
 
+function printWithClass(className: string) {
+  document.body.classList.add(className);
+  window.print();
+  window.setTimeout(() => {
+    document.body.classList.remove(className);
+  }, 500);
+}
+
 export function EduReportsPage() {
   const initial = defaultDateRange(7);
+
+  const [studentId, setStudentId] = useState<number | null>(null);
+  const [profile, setProfile] = useState<EduEducationalProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+
   const [startDate, setStartDate] = useState(initial.start);
   const [endDate, setEndDate] = useState(initial.end);
-  const [circleId, setCircleId] = useState("");
+  const [scopeValue, setScopeValue] = useState("");
   const [circles, setCircles] = useState<Array<{ id: number; name_ar: string }>>([]);
-  const [data, setData] = useState<ReportData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [applied, setApplied] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [studentId, setStudentId] = useState<number | null>(null);
-  const [detailReport, setDetailReport] = useState<EduStudentReport | null>(null);
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
+  const [tracks, setTracks] = useState<Array<{ id: number; name_ar: string }>>([]);
+  const [circleData, setCircleData] = useState<CircleReport | null>(null);
+  const [circleLoading, setCircleLoading] = useState(false);
+  const [circleApplied, setCircleApplied] = useState(false);
 
-  const load = useCallback(async () => {
+  const [error, setError] = useState<string | null>(null);
+
+  const loadScopes = useCallback(async () => {
     if (!canUseApi()) return;
+    try {
+      const [circlesRes, placementsRes] = await Promise.all([
+        api.circles(),
+        api.eduDeptPlacementOptions(""),
+      ]);
+      setCircles(circlesRes.items.map((c) => ({ id: c.id, name_ar: c.name_ar })));
+      const trackMap = new Map<number, string>();
+      for (const p of placementsRes.items) {
+        if (p.track_id != null && p.track_name) {
+          trackMap.set(p.track_id, p.track_name);
+        }
+      }
+      setTracks(
+        [...trackMap.entries()]
+          .map(([id, name_ar]) => ({ id, name_ar }))
+          .sort((a, b) => a.name_ar.localeCompare(b.name_ar, "ar")),
+      );
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadScopes();
+  }, [loadScopes]);
+
+  async function loadStudentProfile() {
+    if (studentId == null) {
+      setError("اختر طالباً من البحث");
+      return;
+    }
+    setProfileLoading(true);
+    setError(null);
+    try {
+      const res = await api.eduDeptEducationalProfile({ person_id: studentId });
+      setProfile(res);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "فشل تحميل الكشف التعليمي");
+      setProfile(null);
+    } finally {
+      setProfileLoading(false);
+    }
+  }
+
+  const loadCircleReport = useCallback(async () => {
+    if (!canUseApi()) return;
+    if (!scopeValue) {
+      setError("اختر حلقة أو مساراً");
+      return;
+    }
     if (startDate > endDate) {
       setError("تاريخ البداية يجب أن يكون قبل النهاية");
       return;
     }
-    setLoading(true);
+    const [kind, idStr] = scopeValue.split(":");
+    const id = Number(idStr);
+    if (!Number.isFinite(id) || id <= 0) {
+      setError("اختيار غير صالح");
+      return;
+    }
+    setCircleLoading(true);
     setError(null);
     try {
       const res = await api.eduDeptReportsProgress({
         date_from: startDate,
         date_to: endDate,
-        circle_id: circleId ? Number(circleId) : undefined,
+        ...(kind === "circle" ? { circle_id: id } : { track_id: id }),
       });
-      setData(res);
-      setApplied(true);
+      setCircleData(res);
+      setCircleApplied(true);
+      if (res.tracks?.length) setTracks(res.tracks);
       if (res.circles?.length) setCircles(res.circles);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل تحميل التقرير");
-      setData(null);
+      setError(e instanceof Error ? e.message : "فشل تحميل تقرير الحلقة");
+      setCircleData(null);
     } finally {
-      setLoading(false);
+      setCircleLoading(false);
     }
-  }, [startDate, endDate, circleId]);
+  }, [startDate, endDate, scopeValue]);
 
-  useEffect(() => {
-    if (!canUseApi()) return;
-    void api.circles().then((res) => {
-      setCircles(res.items.map((c) => ({ id: c.id, name_ar: c.name_ar })));
-    });
-  }, []);
-
-  const facesInRange =
-    data?.summary.total_faces_in_range ??
-    data?.summary.faces_today ??
-    0;
-
-  async function openStudentReport() {
-    if (studentId == null) {
-      setError("اختر طالباً من البحث");
-      return;
-    }
-    if (startDate > endDate) {
-      setError("تاريخ البداية يجب أن يكون قبل النهاية");
-      return;
-    }
-    setDetailLoading(true);
-    setError(null);
-    try {
-      const res = await api.eduDeptIndividualReport({
-        person_id: studentId,
-        start: startDate,
-        end: endDate,
-      });
-      setDetailReport(res);
-      setDetailOpen(true);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل تحميل التقرير التفصيلي");
-    } finally {
-      setDetailLoading(false);
-    }
-  }
-
-  function printGeneralReport() {
-    document.body.classList.add("printing-edu-general-report");
-    window.print();
-    window.setTimeout(() => {
-      document.body.classList.remove("printing-edu-general-report");
-    }, 500);
-  }
+  const scopeLabel =
+    scopeValue.startsWith("circle:")
+      ? circles.find((c) => c.id === Number(scopeValue.split(":")[1]))?.name_ar
+      : tracks.find((t) => t.id === Number(scopeValue.split(":")[1]))?.name_ar;
 
   return (
     <div className="space-y-6 max-w-[1200px] edu-reports-page" dir="rtl">
@@ -127,7 +160,7 @@ export function EduReportsPage() {
           التقارير والمتابعة
         </h2>
         <p className={ds.page.description} style={tajawal}>
-          إنجاز تراكمي بناءً على أوزان السماع والتكرار والمراجعة والربط.
+          كشوف تعليمية قرآنية فقط — رصد الحفظ والسماع والمراجعة والربط عبر كل الحلقات والمسارات.
         </p>
       </div>
 
@@ -137,205 +170,266 @@ export function EduReportsPage() {
         </p>
       )}
 
-      <div className={`${ds.card} p-4 space-y-4 print:hidden`}>
-        <div className="space-y-2">
-          <Label style={tajawal}>بحث عن طالب (تقرير تفصيلي)</Label>
-          <div className="flex flex-col sm:flex-row gap-2">
+      <Card className={ds.card}>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2" style={tajawal}>
+            <Search className="w-5 h-5 text-primary" />
+            البحث التفصيلي عن طالب
+          </CardTitle>
+          <CardDescription style={tajawal}>
+            كشف تاريخي تراكمي يجمع درجات الحفظ والسماع والمراجعة والربط من أول يوم سجل فيه الطالب.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-col sm:flex-row gap-2 print:hidden">
             <div className="flex-1">
               <AdminStudentSearchCombobox
                 id="edu-report-student"
                 value={studentId}
-                onChange={setStudentId}
+                onChange={(id) => {
+                  setStudentId(id);
+                  setProfile(null);
+                }}
               />
             </div>
             <Button
               type="button"
-              variant="secondary"
               className={ds.btnRound}
-              disabled={detailLoading}
-              onClick={() => void openStudentReport()}
+              disabled={profileLoading}
+              onClick={() => void loadStudentProfile()}
               style={tajawal}
             >
-              <Search className="w-4 h-4" />
-              التقرير التفصيلي
+              {profileLoading ? "جاري التحميل…" : "عرض الكشف التعليمي"}
             </Button>
-          </div>
-        </div>
-        <div className={ds.filterRow}>
-          <div className="space-y-1 w-full sm:flex-1 sm:min-w-[200px] sm:max-w-xs">
-            <Label style={tajawal}>من تاريخ</Label>
-            <Input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className={ds.btnRound}
-            />
-          </div>
-          <div className="space-y-1 w-full sm:flex-1 sm:min-w-[200px] sm:max-w-xs">
-            <Label style={tajawal}>إلى تاريخ</Label>
-            <Input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className={ds.btnRound}
-            />
-          </div>
-          <div className="space-y-1 w-full sm:flex-1 sm:min-w-[200px] sm:max-w-xs">
-            <Label style={tajawal}>الحلقة</Label>
-            <select
-              value={circleId}
-              onChange={(e) => setCircleId(e.target.value)}
-              className={ds.select}
-              style={tajawal}
-            >
-              <option value="">كل الحلقات</option>
-              {circles.map((c) => (
-                <option key={c.id} value={String(c.id)}>
-                  {c.name_ar}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="w-full sm:w-auto sm:shrink-0">
-            <Button
-              type="button"
-              className={`w-full sm:w-auto ${ds.btnRound}`}
-              onClick={() => void load()}
-              disabled={loading}
-              style={tajawal}
-            >
-              {loading ? "جاري التحميل…" : "تطبيق الفلتر"}
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {loading ? (
-        <p className="text-muted-foreground text-sm" style={tajawal}>
-          جاري التحميل…
-        </p>
-      ) : !applied ? (
-        <p className={ds.alert.info} style={tajawal}>
-          حدّد النطاق الزمني ثم طبّق الفلتر لعرض التقرير.
-        </p>
-      ) : data ? (
-        <>
-          <div className="flex flex-wrap gap-2 print:hidden">
-            <Button
-              type="button"
-              variant="outline"
-              className={ds.btnRound}
-              onClick={printGeneralReport}
-              style={tajawal}
-            >
-              <Printer className="w-4 h-4" />
-              طباعة التقرير العام
-            </Button>
-          </div>
-          <div
-            id="edu-general-report-print"
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
-          >
-            <EduKpiCard
-              icon={<BookOpen className="w-5 h-5 text-primary" />}
-              label="إجمالي الأوجه في النطاق"
-              value={facesInRange}
-              sub={`${data.date_from} — ${data.date_to}`}
-            />
-            <EduKpiCard
-              icon={<CalendarRange className="w-5 h-5 text-primary" />}
-              label="سجلات الرصد"
-              value={data.summary.total_records}
-              sub={`${data.summary.active_students} طالب نشط`}
-            />
-            <EduKpiCard
-              icon={<TrendingUp className="w-5 h-5 text-primary" />}
-              label="متوسط إنجاز الجودة"
-              value={`${data.summary.avg_quality}%`}
-              sub={
-                data.summary.top_circle
-                  ? `أفضل حلقة: ${data.summary.top_circle.circle_name}`
-                  : undefined
-              }
-            />
           </div>
 
-          <div className={`${ds.card} edu-print-table-wrap`}>
-            <div className="p-4 border-b border-border">
-              <h3 className={ds.page.section} style={tajawal}>
-                تقدم الطلاب — {data.date_from} إلى {data.date_to}
-              </h3>
+          {profileLoading ? (
+            <p className="text-sm text-muted-foreground" style={tajawal}>
+              جاري تحميل السجل التراكمي…
+            </p>
+          ) : profile ? (
+            <EduEducationalProfileReport
+              report={profile}
+              onPrint={() => printWithClass("printing-edu-detail-report")}
+            />
+          ) : (
+            <p className={`${ds.alert.info} print:hidden`} style={tajawal}>
+              ابحث عن طالب ثم اعرض كشفه التعليمي الكامل.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className={ds.card} id="edu-circle-report-print">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2" style={tajawal}>
+            <Users className="w-5 h-5 text-primary" />
+            التقارير العامة للحلقات
+          </CardTitle>
+          <CardDescription style={tajawal}>
+            ملخص أداء طلاب حلقة أو مسار خلال النطاق الزمني المختار.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className={`${ds.filterRow} print:hidden`}>
+            <div className="space-y-1 w-full sm:flex-1 sm:min-w-[200px] sm:max-w-xs">
+              <Label style={tajawal}>الحلقة / المسار</Label>
+              <select
+                value={scopeValue}
+                onChange={(e) => setScopeValue(e.target.value)}
+                className={ds.select}
+                style={tajawal}
+              >
+                <option value="">— اختر —</option>
+                {circles.length > 0 && (
+                  <optgroup label="حلقات">
+                    {circles.map((c) => (
+                      <option key={`c-${c.id}`} value={`circle:${c.id}`}>
+                        {c.name_ar}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {tracks.length > 0 && (
+                  <optgroup label="مسارات">
+                    {tracks.map((t) => (
+                      <option key={`t-${t.id}`} value={`track:${t.id}`}>
+                        {t.name_ar}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
             </div>
-            {data.items.length === 0 ? (
-              <p className={`p-4 m-4 ${ds.alert.info}`} style={tajawal}>
-                لا توجد سجلات رصد في هذه الفترة.
-              </p>
-            ) : (
-              <Table className={`${ds.tableMin} text-right edu-print-table`} dir="rtl">
-                <TableHeader className="print:table-header-group">
-                  <TableRow>
-                    <TableHead className={`${ds.table.head} w-[20%]`} style={tajawal}>
-                      الطالب
-                    </TableHead>
-                    <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
-                      الحلقة
-                    </TableHead>
-                    <TableHead className={`${ds.table.head} w-[32%]`} style={tajawal}>
-                      نسبة الجودة
-                    </TableHead>
-                    <TableHead className={`${ds.table.head} w-[10%] text-center`} style={tajawal}>
-                      أوجه
-                    </TableHead>
-                    <TableHead className={`${ds.table.head} w-[10%] text-center`} style={tajawal}>
-                      أخطاء
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.items.map((row) => (
-                    <TableRow key={row.student_id} className="print:break-inside-avoid">
-                      <TableTruncatedCell style={tajawal}>{row.full_name_ar}</TableTruncatedCell>
-                      <TableTruncatedCell style={tajawal}>{row.circle_name}</TableTruncatedCell>
-                      <TableCell className={ds.table.cell}>
-                        <div className="flex items-center gap-3 min-w-[180px]">
-                          <Progress
-                            value={row.quality_pct}
-                            className={cn("h-2 flex-1", qualityBarClass(row.quality_pct))}
-                          />
-                          <span
-                            className="text-sm font-semibold tabular-nums w-12 text-left"
+            <div className="space-y-1 w-full sm:flex-1 sm:min-w-[160px] sm:max-w-xs">
+              <Label style={tajawal}>من تاريخ</Label>
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className={ds.btnRound}
+              />
+            </div>
+            <div className="space-y-1 w-full sm:flex-1 sm:min-w-[160px] sm:max-w-xs">
+              <Label style={tajawal}>إلى تاريخ</Label>
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className={ds.btnRound}
+              />
+            </div>
+            <div className="w-full sm:w-auto sm:shrink-0">
+              <Button
+                type="button"
+                className={`w-full sm:w-auto ${ds.btnRound}`}
+                onClick={() => void loadCircleReport()}
+                disabled={circleLoading}
+                style={tajawal}
+              >
+                {circleLoading ? "جاري التحميل…" : "تطبيق الفلتر"}
+              </Button>
+            </div>
+          </div>
+
+          {circleLoading ? (
+            <p className="text-sm text-muted-foreground" style={tajawal}>
+              جاري التحميل…
+            </p>
+          ) : !circleApplied ? (
+            <p className={`${ds.alert.info} print:hidden`} style={tajawal}>
+              اختر حلقة أو مساراً وحدّد النطاق الزمني.
+            </p>
+          ) : circleData ? (
+            <>
+              <div className="hidden print:block text-center border-b border-black pb-3 mb-4">
+                <h1 className="text-xl font-bold" style={tajawal}>
+                  تقرير حلقة / مسار — {scopeLabel ?? "—"}
+                </h1>
+                <p className="text-sm" style={tajawal}>
+                  {circleData.date_from} — {circleData.date_to}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 print:break-inside-avoid">
+                <div className={`${ds.card} p-4 flex items-center gap-3`}>
+                  <BookOpen className="w-8 h-8 text-primary shrink-0" />
+                  <div>
+                    <p className="text-sm text-muted-foreground" style={tajawal}>
+                      متوسط الجودة
+                    </p>
+                    <p className="text-2xl font-bold">{circleData.summary.avg_quality}%</p>
+                  </div>
+                </div>
+                <div className={`${ds.card} p-4`}>
+                  <p className="text-sm text-muted-foreground" style={tajawal}>
+                    سجلات الرصد
+                  </p>
+                  <p className="text-2xl font-bold">{circleData.summary.total_records}</p>
+                  <p className="text-xs text-muted-foreground" style={tajawal}>
+                    {circleData.summary.active_students} طالب نشط
+                  </p>
+                </div>
+                <div className={`${ds.card} p-4`}>
+                  <p className="text-sm text-muted-foreground" style={tajawal}>
+                    إجمالي الأوجه
+                  </p>
+                  <p className="text-2xl font-bold">
+                    {circleData.summary.total_faces_in_range ?? 0}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex print:hidden">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={ds.btnRound}
+                  onClick={() => printWithClass("printing-edu-circle-report")}
+                  style={tajawal}
+                >
+                  <Printer className="w-4 h-4" />
+                  طباعة تقرير الحلقة
+                </Button>
+              </div>
+
+              <div className={`${ds.card} edu-print-table-wrap`}>
+                {circleData.items.length === 0 ? (
+                  <p className={`p-4 m-4 ${ds.alert.info}`} style={tajawal}>
+                    لا توجد سجلات رصد في هذه الفترة.
+                  </p>
+                ) : (
+                  <Table className={`${ds.tableMin} text-right edu-print-table`} dir="rtl">
+                    <TableHeader className="print:table-header-group">
+                      <TableRow>
+                        <TableHead className={`${ds.table.head} w-[22%]`} style={tajawal}>
+                          الطالب
+                        </TableHead>
+                        <TableHead className={`${ds.table.head} w-[16%]`} style={tajawal}>
+                          الحلقة
+                        </TableHead>
+                        <TableHead className={`${ds.table.head} w-[34%]`} style={tajawal}>
+                          نسبة الجودة
+                        </TableHead>
+                        <TableHead
+                          className={`${ds.table.head} w-[10%] text-center`}
+                          style={tajawal}
+                        >
+                          أوجه
+                        </TableHead>
+                        <TableHead
+                          className={`${ds.table.head} w-[10%] text-center`}
+                          style={tajawal}
+                        >
+                          أخطاء
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {circleData.items.map((row) => (
+                        <TableRow key={row.student_id} className="print:break-inside-avoid">
+                          <TableTruncatedCell style={tajawal}>
+                            {row.full_name_ar}
+                          </TableTruncatedCell>
+                          <TableTruncatedCell style={tajawal}>
+                            {row.circle_name}
+                          </TableTruncatedCell>
+                          <TableCell className={ds.table.cell}>
+                            <div className="flex items-center gap-3 min-w-[180px]">
+                              <Progress
+                                value={row.quality_pct}
+                                className={cn("h-2 flex-1", qualityBarClass(row.quality_pct))}
+                              />
+                              <span
+                                className="text-sm font-semibold tabular-nums w-12 text-left"
+                                style={tajawal}
+                              >
+                                {row.quality_pct}%
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell
+                            className={`${ds.table.cell} text-center tabular-nums`}
                             style={tajawal}
                           >
-                            {row.quality_pct}%
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell
-                        className={`${ds.table.cell} text-center tabular-nums`}
-                        style={tajawal}
-                      >
-                        {row.face_count ?? 0}
-                      </TableCell>
-                      <TableCell
-                        className={`${ds.table.cell} text-center tabular-nums`}
-                        style={tajawal}
-                      >
-                        {row.error_count}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </div>
-        </>
-      ) : null}
-
-      <EduStudentReportModal
-        open={detailOpen}
-        onOpenChange={setDetailOpen}
-        report={detailReport}
-      />
+                            {row.face_count ?? 0}
+                          </TableCell>
+                          <TableCell
+                            className={`${ds.table.cell} text-center tabular-nums`}
+                            style={tajawal}
+                          >
+                            {row.error_count}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
+            </>
+          ) : null}
+        </CardContent>
+      </Card>
     </div>
   );
 }

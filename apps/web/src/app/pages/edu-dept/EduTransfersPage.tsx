@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeftRight, ChevronDown, Plus } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
 import { AdminStudentSearchCombobox } from "../../components/admin/AdminStudentSearchCombobox";
 import {
   TableActionsCell,
@@ -83,6 +90,11 @@ export function EduTransfersPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  const [approveReqId, setApproveReqId] = useState<number | null>(null);
+  const [approvePlacementQ, setApprovePlacementQ] = useState("");
+  const [approvePlacements, setApprovePlacements] = useState<PlacementOpt[]>([]);
+  const [approvePlacement, setApprovePlacement] = useState<PlacementOpt | null>(null);
+
   const loadPending = useCallback(async () => {
     if (!canUseApi()) {
       setPendingLoading(false);
@@ -141,7 +153,32 @@ export function EduTransfersPage() {
     return () => clearTimeout(t);
   }, [historyOpen, historyQ, loadHistory]);
 
+  useEffect(() => {
+    if (approveReqId == null) return;
+    const t = setTimeout(async () => {
+      if (!canUseApi()) return;
+      try {
+        const res = await api.eduDeptPlacementOptions(approvePlacementQ);
+        setApprovePlacements(res.items);
+      } catch {
+        setApprovePlacements([]);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [approveReqId, approvePlacementQ]);
+
   const filteredPlacements = useMemo(() => placements, [placements]);
+
+  function openApproveDialog(req: TransferReq) {
+    if (req.target_circle_id != null) {
+      void resolveRequest(req.id, "approved", req.target_circle_id);
+      return;
+    }
+    setApproveReqId(req.id);
+    setApprovePlacement(null);
+    setApprovePlacementQ("");
+    setApprovePlacements([]);
+  }
 
   async function resolveRequest(
     id: number,
@@ -273,13 +310,7 @@ export function EduTransfersPage() {
                         kind="accept"
                         label="موافقة"
                         disabled={busyId === r.id}
-                        onClick={() =>
-                          resolveRequest(
-                            r.id,
-                            "approved",
-                            r.target_circle_id ?? undefined,
-                          )
-                        }
+                        onClick={() => openApproveDialog(r)}
                       />
                       <TableIconAction
                         kind="reject"
@@ -362,6 +393,11 @@ export function EduTransfersPage() {
                     </p>
                   )}
                 </div>
+                {selectedPlacement?.teacher_name && (
+                  <Badge variant="secondary" className="rounded-lg" style={tajawal}>
+                    المعلم: {selectedPlacement.teacher_name}
+                  </Badge>
+                )}
               </div>
               <div className="space-y-2">
                 <Label style={tajawal}>سبب النقل *</Label>
@@ -396,6 +432,71 @@ export function EduTransfersPage() {
           </CardContent>
         )}
       </Card>
+
+      <Dialog
+        open={approveReqId != null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setApproveReqId(null);
+            setApprovePlacement(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-md" dir="rtl">
+          <DialogHeader>
+            <DialogTitle style={tajawal}>اعتماد النقل — اختيار الوجهة</DialogTitle>
+            <DialogDescription style={tajawal}>
+              حدّد الحلقة أو المسار المستهدف لإتمام اعتماد الطلب.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              placeholder="ابحث داخل القائمة…"
+              value={approvePlacementQ}
+              onChange={(e) => setApprovePlacementQ(e.target.value)}
+              className={ds.btnRound}
+            />
+            <div className="max-h-48 overflow-y-auto border border-border rounded-xl divide-y">
+              {approvePlacements.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setApprovePlacement(p)}
+                  className={`w-full text-right px-3 py-2 text-sm hover:bg-muted ${
+                    approvePlacement?.id === p.id ? "bg-muted" : ""
+                  }`}
+                  style={tajawal}
+                >
+                  <span className="font-semibold">{p.name_ar}</span>
+                  {p.track_name && (
+                    <span className="text-muted-foreground"> · {p.track_name}</span>
+                  )}
+                  {p.teacher_name && (
+                    <Badge variant="secondary" className="mr-2 rounded-lg text-xs">
+                      {p.teacher_name}
+                    </Badge>
+                  )}
+                </button>
+              ))}
+            </div>
+            <Button
+              type="button"
+              className={ds.btnRound}
+              disabled={approveReqId == null || approvePlacement == null || busyId != null}
+              onClick={() => {
+                if (approveReqId == null || !approvePlacement) return;
+                void resolveRequest(approveReqId, "approved", approvePlacement.id).then(() => {
+                  setApproveReqId(null);
+                  setApprovePlacement(null);
+                });
+              }}
+              style={tajawal}
+            >
+              اعتماد النقل
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
         <Card className={ds.card}>

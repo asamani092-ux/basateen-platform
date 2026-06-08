@@ -200,6 +200,12 @@ async function dispatchDepartmentRouters(
   const eduQuranicMain = await handleEduQuranicDaysRouter(request, env, url);
   if (eduQuranicMain) return eduQuranicMain;
 
+  const compUrl = withPathPrefix(url, "/api/edu-supervisor/", "/api/edu-dept/");
+  const eduCompLegacy = await handleEduCompetitionsRouter(request, env, compUrl);
+  if (eduCompLegacy) return eduCompLegacy;
+  const eduComp = await handleEduCompetitionsRouter(request, env, url);
+  if (eduComp) return eduComp;
+
   const edu = await handleEduDeptRouter(request, env, eduUrl);
   if (edu) return edu;
   const eduDept = await handleEduDeptRouter(request, env, url);
@@ -210,12 +216,6 @@ async function dispatchDepartmentRouters(
 
   const himmaLiveToken = await handleYomHimmaLiveLogToken(request, env, url);
   if (himmaLiveToken) return himmaLiveToken;
-
-  const compUrl = withPathPrefix(url, "/api/edu-supervisor/", "/api/edu-dept/");
-  const eduCompLegacy = await handleEduCompetitionsRouter(request, env, compUrl);
-  if (eduCompLegacy) return eduCompLegacy;
-  const eduComp = await handleEduCompetitionsRouter(request, env, url);
-  if (eduComp) return eduComp;
 
   const progUrl = withPathPrefix(url, "/api/prog-dept/", "/api/prog-supervisor/");
   const prog = await handleProgSupervisorRouter(request, env, progUrl);

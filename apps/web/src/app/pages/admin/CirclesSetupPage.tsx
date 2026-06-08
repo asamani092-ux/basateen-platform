@@ -1,9 +1,22 @@
-import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "react-router";
-import { CircleDot, Route } from "lucide-react";
-import { CircleCapacityBadge } from "../../components/admin/CircleCapacityBadge";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+import { Layers } from "lucide-react";
+import { AdminEntityActionModal } from "../../components/admin/AdminEntityActionModal";
+import {
+  TableActionsCell,
+  TableIconAction,
+} from "../../components/admin/TableIconAction";
+import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
+import { Label } from "../../components/ui/label";
 import {
   Card,
   CardContent,
@@ -21,574 +34,641 @@ import {
 } from "../../components/ui/table";
 import {
   api,
-  type AdminCircleRow,
-  type AdminTrackRow,
-  type StaffTeacherRow,
+  type EducationalGroupRow,
+  type StaffMemberRow,
 } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
-import { EDUCATIONAL_STAGES, stageLabel, type StageId } from "../../lib/stages";
+import { EDUCATIONAL_STAGES, type StageId } from "../../lib/stages";
+import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import { ds, tajawal } from "../../lib/design-system";
+import {
+  adminInvalidateFor,
+  useAdminDataSync,
+  useAdminDataSyncContext,
+} from "../../context/AdminDataSyncContext";
 
-type SetupTab = "circles" | "tracks";
+type EntityKind = "circle" | "track";
+
+const ENTITY_LABEL: Record<EntityKind, string> = {
+  circle: "حلقة قرآنية",
+  track: "مسار تعليمي",
+};
+
+const ENTITY_BADGE: Record<EntityKind, string> = {
+  circle: "حلقة",
+  track: "مسار",
+};
+
+function apiErrorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error ? err.message : fallback;
+}
+
+async function fetchStaffByRole(role: string): Promise<StaffMemberRow[]> {
+  const all: StaffMemberRow[] = [];
+  let p = 1;
+  let hasNext = true;
+  while (hasNext) {
+    const res = await api.adminStaff({ role, page: p });
+    all.push(...(res.items ?? []));
+    hasNext = res.page?.has_next ?? false;
+    p += 1;
+  }
+  return all;
+}
 
 export function CirclesSetupPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const tab: SetupTab = searchParams.get("tab") === "tracks" ? "tracks" : "circles";
+  const [items, setItems] = useState<EducationalGroupRow[]>([]);
+  const [staff, setStaff] = useState<StaffMemberRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editRow, setEditRow] = useState<EducationalGroupRow | null>(null);
+  const [actionRow, setActionRow] = useState<EducationalGroupRow | null>(null);
+  const hasApi = Boolean(getApiToken());
+  const { invalidate } = useAdminDataSyncContext();
 
-  function setTab(next: SetupTab) {
-    const params = new URLSearchParams(searchParams);
-    if (next === "tracks") params.set("tab", "tracks");
-    else params.delete("tab");
-    setSearchParams(params);
+  const teachers = useMemo(
+    () => staff.filter((s) => s.role === "teacher"),
+    [staff],
+  );
+  const trackSupervisors = useMemo(
+    () => staff.filter((s) => s.role === "track_supervisor"),
+    [staff],
+  );
+
+  const load = useCallback(async () => {
+    if (!hasApi) {
+      toast.error("أعد تسجيل الدخول لربط API");
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const [groupsRes, teachersRes, trackSupRes] = await Promise.allSettled([
+      api.adminEducationalGroups(),
+      fetchStaffByRole("teacher"),
+      fetchStaffByRole("track_supervisor"),
+    ]);
+    if (groupsRes.status === "fulfilled") {
+      setItems(groupsRes.value.items ?? []);
+    } else {
+      console.error("[groups] load:", groupsRes.reason);
+      setItems([]);
+      toast.error(apiErrorMessage(groupsRes.reason, "تعذر تحميل الحلقات والمسارات"));
+    }
+    if (teachersRes.status === "fulfilled" && trackSupRes.status === "fulfilled") {
+      setStaff([...teachersRes.value, ...trackSupRes.value]);
+    } else {
+      setStaff([]);
+    }
+    setLoading(false);
+  }, [hasApi]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useAdminDataSync(["groups", "staff"], load);
+
+  function afterGroupMutation() {
+    invalidate(adminInvalidateFor("group"));
+    void load();
+  }
+
+  function openCreate() {
+    setEditRow(null);
+    setModalOpen(true);
+  }
+
+  function openEdit(row: EducationalGroupRow) {
+    setEditRow(row);
+    setModalOpen(true);
   }
 
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto">
+    <div className="space-y-6 max-w-[1600px] mx-auto" dir="rtl">
       <div>
         <h2 className={ds.page.title} style={tajawal}>
-          إدارة الحلقات والمسارات
+          إعداد الحلقات والمسارات
         </h2>
         <p className={ds.page.description} style={tajawal}>
-          هيكل المجمع — السعة الافتراضية إلزامية؛ العدد الحالي = عدد الطلاب النشطين
+          كيان واحد موحّد — الحلقة والمسار يختلفان في المسمى والإسناد فقط
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant={tab === "circles" ? "default" : "outline"}
-          className={ds.btnRound}
-          onClick={() => setTab("circles")}
-          style={tajawal}
-        >
-          الحلقات
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant={tab === "tracks" ? "default" : "outline"}
-          className={ds.btnRound}
-          onClick={() => setTab("tracks")}
-          style={tajawal}
-        >
-          المسارات
-        </Button>
-      </div>
+      <Card className={ds.card}>
+        <CardHeader className="flex flex-row items-start justify-between gap-4 border-b border-border pb-4">
+          <div>
+            <CardTitle className="flex items-center gap-2" style={tajawal}>
+              <Layers className="w-5 h-5 text-primary" />
+              المجموعات التعليمية
+            </CardTitle>
+            <CardDescription style={tajawal}>
+              {items.length} كيان نشط
+            </CardDescription>
+          </div>
+          <Button
+            type="button"
+            className={ds.btnRound}
+            style={tajawal}
+            onClick={openCreate}
+          >
+            إضافة كيان
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <p className="text-muted-foreground" style={tajawal}>
+              جاري التحميل…
+            </p>
+          ) : (
+            <div className={ds.tableWrap}>
+            <Table className={ds.tableMin}>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className={`${ds.table.head} w-[20%]`} style={tajawal}>
+                    اسم الكيان
+                  </TableHead>
+                  <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
+                    النوع
+                  </TableHead>
+                  <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
+                    المعلم / المشرف
+                  </TableHead>
+                  <TableHead className={`${ds.table.head} w-[12%]`} style={tajawal}>
+                    الطلاب
+                  </TableHead>
+                  <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
+                    السعة
+                  </TableHead>
+                  <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
+                    تنبيه
+                  </TableHead>
+                  <TableHead className={ds.table.headActions} style={tajawal}>
+                    إجراءات
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={7}
+                      className={`${ds.table.cell} text-center text-muted-foreground`}
+                      style={tajawal}
+                    >
+                      لا توجد حلقات أو مسارات
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  items.map((row) => (
+                    <TableRow
+                      key={`${row.entity_type}-${row.id}`}
+                      className={row.is_active === 0 ? "opacity-60" : undefined}
+                    >
+                      <TableTruncatedCell style={tajawal}>
+                        {row.name_ar}
+                        {row.is_active === 0 ? (
+                          <Badge
+                            variant="secondary"
+                            className="mr-2 bg-amber-100 text-amber-900 hover:bg-amber-100"
+                            style={tajawal}
+                          >
+                            معلّق
+                          </Badge>
+                        ) : null}
+                      </TableTruncatedCell>
+                      <TableCell className={ds.table.cell}>
+                        <Badge
+                          variant={
+                            row.entity_type === "track" ? "default" : "secondary"
+                          }
+                          className={
+                            row.entity_type === "track"
+                              ? "bg-sky-600 hover:bg-sky-600 text-white"
+                              : "bg-emerald-700 hover:bg-emerald-700 text-white"
+                          }
+                          style={tajawal}
+                        >
+                          {ENTITY_BADGE[row.entity_type]}
+                        </Badge>
+                      </TableCell>
+                      <TableTruncatedCell style={tajawal}>
+                        {row.assignee_id ? (
+                          row.assignee_name ?? "—"
+                        ) : (
+                          <span className="text-destructive font-medium">
+                            غير معين
+                          </span>
+                        )}
+                      </TableTruncatedCell>
+                      <TableCell className={ds.table.cell} style={tajawal}>
+                        {row.student_count}
+                      </TableCell>
+                      <TableCell className={ds.table.cell} style={tajawal}>
+                        {row.student_count}/{row.default_capacity}
+                      </TableCell>
+                      <TableTruncatedCell
+                        className="max-w-[10rem] text-amber-700 dark:text-amber-400"
+                        style={tajawal}
+                      >
+                        {row.entity_type === "circle" && row.capacity_warning
+                          ? row.capacity_warning
+                          : "—"}
+                      </TableTruncatedCell>
+                      <TableActionsCell>
+                        <TableIconAction
+                          kind="edit"
+                          onClick={() => openEdit(row)}
+                        />
+                        <TableIconAction
+                          kind="more"
+                          onClick={() => setActionRow(row)}
+                        />
+                      </TableActionsCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-      {tab === "circles" ? <CirclesPanel /> : <TracksPanel />}
+      {actionRow && (
+        <AdminEntityActionModal
+          open
+          onOpenChange={(o) => {
+            if (!o) setActionRow(null);
+          }}
+          entityTitle={ENTITY_BADGE[actionRow.entity_type]}
+          entityName={actionRow.name_ar}
+          isActive={actionRow.is_active !== 0}
+          onToggleActive={async () => {
+            try {
+            const next = actionRow.is_active !== 0 ? 0 : 1;
+            if (actionRow.entity_type === "circle") {
+              await api.adminCirclesPatch(actionRow.id, { is_active: next });
+            } else {
+              await api.adminTracksPatch(actionRow.id, { is_active: next });
+            }
+            setItems((prev) =>
+              prev.map((x) =>
+                x.id === actionRow.id && x.entity_type === actionRow.entity_type
+                  ? { ...x, is_active: next }
+                  : x,
+              ),
+            );
+            setActionRow(null);
+            afterGroupMutation();
+            toast.success(next ? "تم التنشيط" : "تم التعليق");
+            } catch (err) {
+              toast.error(apiErrorMessage(err, "فشل تحديث الحالة"));
+              throw err;
+            }
+          }}
+          onDelete={async () => {
+            const deleted = actionRow;
+            if (!deleted) return;
+            try {
+              await api.adminEducationalGroupDelete(
+                deleted.entity_type,
+                deleted.id,
+              );
+              setItems((prev) =>
+                prev.filter(
+                  (x) =>
+                    !(
+                      x.id === deleted.id &&
+                      x.entity_type === deleted.entity_type
+                    ),
+                ),
+              );
+              setActionRow(null);
+              afterGroupMutation();
+              toast.success("تم الحذف بنجاح");
+            } catch (err) {
+              toast.error(apiErrorMessage(err, "فشل الحذف"));
+              throw err;
+            }
+          }}
+          deleteHint="سيتم فك ارتباط الطلاب المسجّلين في هذا الكيان."
+        />
+      )}
+
+      <GroupFormDialog
+        open={modalOpen}
+        editRow={editRow}
+        teachers={teachers}
+        trackSupervisors={trackSupervisors}
+        onOpenChange={setModalOpen}
+        onSaved={() => {
+          setModalOpen(false);
+          setEditRow(null);
+          afterGroupMutation();
+          toast.success(editRow ? "تم حفظ التعديلات" : "تمت الإضافة بنجاح");
+        }}
+      />
     </div>
   );
 }
 
-function CirclesPanel() {
-  const [items, setItems] = useState<AdminCircleRow[]>([]);
-  const [teachers, setTeachers] = useState<StaffTeacherRow[]>([]);
-  const [tracks, setTracks] = useState<AdminTrackRow[]>([]);
-  const [showForm, setShowForm] = useState(false);
+function GroupFormDialog({
+  open,
+  editRow,
+  teachers,
+  trackSupervisors,
+  onOpenChange,
+  onSaved,
+}: {
+  open: boolean;
+  editRow: EducationalGroupRow | null;
+  teachers: StaffMemberRow[];
+  trackSupervisors: StaffMemberRow[];
+  onOpenChange: (open: boolean) => void;
+  onSaved: () => void;
+}) {
+  const isEdit = editRow != null;
+  const [entityType, setEntityType] = useState<EntityKind>("circle");
   const [name, setName] = useState("");
+  const [capacity, setCapacity] = useState("20");
   const [stageId, setStageId] = useState<StageId>(2);
-  const [defaultCapacity, setDefaultCapacity] = useState("20");
   const [teacherId, setTeacherId] = useState("");
   const [newTeacherName, setNewTeacherName] = useState("");
   const [newTeacherMobile, setNewTeacherMobile] = useState("");
-  const [trackId, setTrackId] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [supervisorId, setSupervisorId] = useState("");
+  const [newSupervisorName, setNewSupervisorName] = useState("");
+  const [newSupervisorMobile, setNewSupervisorMobile] = useState("");
   const [saving, setSaving] = useState(false);
-  const [editId, setEditId] = useState<number | null>(null);
-  const [editCapacity, setEditCapacity] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const hasApi = Boolean(getApiToken());
-
-  const load = useCallback(async () => {
-    if (!hasApi) {
-      setError("أعد تسجيل الدخول لربط API");
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      const [c, t, tr] = await Promise.all([
-        api.adminCirclesSummary(),
-        api.adminTeachers(),
-        api.adminTracks(),
-      ]);
-      setItems(c.items);
-      setTeachers(t.items);
-      setTracks(tr.items);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل التحميل");
-    } finally {
-      setLoading(false);
-    }
-  }, [hasApi]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (!open) return;
+    if (editRow) {
+      setEntityType(editRow.entity_type);
+      setName(editRow.name_ar);
+      setCapacity(String(editRow.default_capacity));
+      setStageId((editRow.stage_id as StageId) ?? 2);
+      if (editRow.entity_type === "circle") {
+        setTeacherId(editRow.assignee_id ? String(editRow.assignee_id) : "");
+        setSupervisorId("");
+      } else {
+        setSupervisorId(editRow.assignee_id ? String(editRow.assignee_id) : "");
+        setTeacherId("");
+      }
+      setNewTeacherName("");
+      setNewTeacherMobile("");
+      setNewSupervisorName("");
+      setNewSupervisorMobile("");
+    } else {
+      setEntityType("circle");
+      setName("");
+      setCapacity("20");
+      setStageId(2);
+      setTeacherId("");
+      setSupervisorId("");
+      setNewTeacherName("");
+      setNewTeacherMobile("");
+      setNewSupervisorName("");
+      setNewSupervisorMobile("");
+    }
+  }, [open, editRow]);
+
+  const isCircle = entityType === "circle";
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!teacherId && (!newTeacherName.trim() || !newTeacherMobile.trim())) {
-      setError("اختر معلمًا أو أدخل بيانات معلم جديد");
-      return;
-    }
     setSaving(true);
-    setError(null);
     try {
-      await api.adminCirclesCreate({
-        name_ar: name.trim(),
-        stage_id: stageId,
-        default_capacity: Number(defaultCapacity),
-        teacher_user_id: teacherId ? Number(teacherId) : undefined,
-        new_teacher:
-          !teacherId && newTeacherName.trim()
-            ? {
-                full_name_ar: newTeacherName.trim(),
-                mobile: newTeacherMobile.trim(),
-              }
-            : undefined,
-        track_id: trackId ? Number(trackId) : null,
-      });
-      setShowForm(false);
-      setName("");
-      setTeacherId("");
-      await load();
+      if (isEdit && editRow) {
+        if (editRow.entity_type === "circle") {
+          if (!teacherId) {
+            toast.error("اختر معلمًا للحلقة");
+            return;
+          }
+          await api.adminCirclesPatch(editRow.id, {
+            name_ar: name.trim(),
+            stage_id: stageId,
+            default_capacity: Number(capacity),
+            teacher_user_id: Number(teacherId),
+          });
+        } else {
+          await api.adminTracksPatch(editRow.id, {
+            name_ar: name.trim(),
+            default_capacity: Number(capacity),
+          });
+        }
+      } else if (isCircle) {
+        if (!teacherId && (!newTeacherName.trim() || !newTeacherMobile.trim())) {
+          toast.error("اختر معلمًا أو أدخل بيانات معلم جديد");
+          return;
+        }
+        await api.adminCirclesCreate({
+          name_ar: name.trim(),
+          stage_id: stageId,
+          default_capacity: Number(capacity),
+          teacher_user_id: teacherId ? Number(teacherId) : undefined,
+          new_teacher:
+            !teacherId && newTeacherName.trim()
+              ? {
+                  full_name_ar: newTeacherName.trim(),
+                  mobile: newTeacherMobile.trim(),
+                }
+              : undefined,
+        });
+      } else {
+        if (
+          !supervisorId &&
+          (!newSupervisorName.trim() || !newSupervisorMobile.trim())
+        ) {
+          toast.error("اختر مشرفًا أو أدخل بيانات مشرف جديد");
+          return;
+        }
+        await api.adminTracksCreate({
+          name_ar: name.trim(),
+          default_capacity: Number(capacity),
+          supervisor_id: supervisorId ? Number(supervisorId) : undefined,
+          new_supervisor:
+            !supervisorId && newSupervisorName.trim()
+              ? {
+                  full_name_ar: newSupervisorName.trim(),
+                  mobile: newSupervisorMobile.trim(),
+                }
+              : undefined,
+          stage_ids: [stageId],
+          circle_ids: [],
+        });
+      }
+      onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "فشل الحفظ");
+      toast.error(apiErrorMessage(err, "فشل الحفظ"));
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <Card className={ds.card}>
-      <CardHeader className="flex flex-row justify-between items-start gap-4">
-        <div>
-          <CardTitle className="flex items-center gap-2" style={tajawal}>
-            <CircleDot className="w-5 h-5 text-primary" />
-            الحلقات
-          </CardTitle>
-          <CardDescription style={tajawal}>
-            اسم الحلقة · المعلم · المرحلة · عدد الطلاب · السعة (حالي/افتراضي)
-          </CardDescription>
-        </div>
-        <Button
-          className={ds.btnRound}
-          style={tajawal}
-          type="button"
-          onClick={() => setShowForm((v) => !v)}
-        >
-          {showForm ? "إلغاء" : "إضافة حلقة"}
-        </Button>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {error && (
-          <p className="text-sm text-destructive" style={tajawal}>
-            {error}
-          </p>
-        )}
-        {showForm && (
-          <form
-            onSubmit={submit}
-            className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-2xl border border-border bg-muted/30"
-          >
-            <div>
-              <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                اسم الحلقة *
-              </label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} required />
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className={`${ds.dialog} sm:max-w-lg`} dir="rtl">
+        <DialogHeader className="text-right">
+          <DialogTitle style={tajawal}>
+            {isEdit ? "تعديل كيان" : "إضافة كيان"}
+          </DialogTitle>
+          <DialogDescription style={tajawal}>
+            اختر نوع الكيان ثم أكمل البيانات
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="grid gap-4">
+          <fieldset className="space-y-2" disabled={isEdit}>
+            <legend className="text-sm font-semibold mb-2" style={tajawal}>
+              نوع الكيان *
+            </legend>
+            <div className="flex flex-wrap gap-4">
+              {(["circle", "track"] as const).map((kind) => (
+                <label
+                  key={kind}
+                  className="flex items-center gap-2 cursor-pointer"
+                  style={tajawal}
+                >
+                  <input
+                    type="radio"
+                    name="entity_type"
+                    value={kind}
+                    checked={entityType === kind}
+                    onChange={() => setEntityType(kind)}
+                    className="size-4"
+                  />
+                  {ENTITY_LABEL[kind]}
+                </label>
+              ))}
             </div>
-            <div>
-              <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                المرحلة *
-              </label>
-              <select
-                value={stageId}
-                onChange={(e) => setStageId(Number(e.target.value) as StageId)}
-                className="w-full rounded-xl border border-border bg-background px-3 py-2"
-                style={tajawal}
-              >
-                {EDUCATIONAL_STAGES.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name_ar}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                السعة الافتراضية *
-              </label>
+          </fieldset>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1 sm:col-span-2">
+              <Label style={tajawal}>الاسم *</Label>
               <Input
-                type="number"
-                min={1}
-                value={defaultCapacity}
-                onChange={(e) => setDefaultCapacity(e.target.value)}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
                 required
               />
             </div>
-            <div>
-              <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                المعلم *
-              </label>
-              <select
-                value={teacherId}
-                onChange={(e) => setTeacherId(e.target.value)}
-                className="w-full rounded-xl border border-border bg-background px-3 py-2"
-                style={tajawal}
-              >
-                <option value="">— معلم جديد أدناه —</option>
-                {teachers.map((t) => (
-                  <option key={t.id} value={String(t.id)}>
-                    {t.full_name_ar}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {!teacherId && (
-              <>
-                <div>
-                  <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                    اسم المعلم الجديد *
-                  </label>
-                  <Input
-                    value={newTeacherName}
-                    onChange={(e) => setNewTeacherName(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                    جوال المعلم *
-                  </label>
-                  <Input
-                    value={newTeacherMobile}
-                    onChange={(e) => setNewTeacherMobile(e.target.value)}
-                  />
-                </div>
-              </>
-            )}
-            <div className="sm:col-span-2">
-              <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                مسار (اختياري)
-              </label>
-              <select
-                value={trackId}
-                onChange={(e) => setTrackId(e.target.value)}
-                className="w-full rounded-xl border border-border bg-background px-3 py-2"
-                style={tajawal}
-              >
-                <option value="">— بدون مسار —</option>
-                {tracks.map((tr) => (
-                  <option key={tr.id} value={String(tr.id)}>
-                    {tr.name_ar}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
-              {saving ? "جاري الحفظ…" : "حفظ الحلقة"}
-            </Button>
-          </form>
-        )}
-        {loading ? (
-          <p className="text-muted-foreground" style={tajawal}>
-            جاري التحميل…
-          </p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead style={tajawal}>اسم الحلقة</TableHead>
-                <TableHead style={tajawal}>المعلم</TableHead>
-                <TableHead style={tajawal}>المرحلة</TableHead>
-                <TableHead style={tajawal}>عدد الطلاب</TableHead>
-                <TableHead style={tajawal}>السعة</TableHead>
-                <TableHead style={tajawal}>تنبيه</TableHead>
-                <TableHead style={tajawal}>إجراء</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((c) => (
-                <TableRow key={c.id}>
-                  <TableCell style={tajawal}>{c.name_ar}</TableCell>
-                  <TableCell style={tajawal}>{c.teacher_name ?? "—"}</TableCell>
-                  <TableCell style={tajawal}>
-                    {stageLabel(c.stage_id as StageId)}
-                  </TableCell>
-                  <TableCell style={tajawal}>{c.student_count}</TableCell>
-                  <TableCell style={tajawal}>
-                    {c.student_count}/{c.default_capacity}
-                  </TableCell>
-                  <TableCell>
-                    <CircleCapacityBadge circle={c} showFraction={false} />
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className={ds.btnRound}
-                      onClick={() => {
-                        setEditId(c.id);
-                        setEditCapacity(String(c.default_capacity));
-                      }}
-                      style={tajawal}
-                    >
-                      تعديل السعة
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-        {editId != null && (
-          <form
-            className="flex flex-wrap gap-2 items-end p-4 border rounded-2xl"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              await api.adminCirclesPatch(editId, {
-                default_capacity: Number(editCapacity),
-              });
-              setEditId(null);
-              load();
-            }}
-          >
-            <div>
-              <label className="text-sm" style={tajawal}>
-                السعة الافتراضية الجديدة
-              </label>
+            <div className="space-y-1">
+              <Label style={tajawal}>السعة الافتراضية *</Label>
               <Input
                 type="number"
                 min={1}
-                value={editCapacity}
-                onChange={(e) => setEditCapacity(e.target.value)}
+                value={capacity}
+                onChange={(e) => setCapacity(e.target.value)}
+                required
               />
             </div>
-            <Button type="submit" className={ds.btnRound} style={tajawal}>
-              حفظ
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setEditId(null)}
-              style={tajawal}
-            >
-              إلغاء
-            </Button>
-          </form>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function TracksPanel() {
-  const [items, setItems] = useState<AdminTrackRow[]>([]);
-  const [circles, setCircles] = useState<AdminCircleRow[]>([]);
-  const [showForm, setShowForm] = useState(false);
-  const [name, setName] = useState("");
-  const [defaultCapacity, setDefaultCapacity] = useState("20");
-  const [selectedStages, setSelectedStages] = useState<number[]>([3, 4]);
-  const [selectedCircles, setSelectedCircles] = useState<number[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const hasApi = Boolean(getApiToken());
-
-  const load = useCallback(async () => {
-    if (!hasApi) {
-      setError("أعد تسجيل الدخول لربط API");
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      const [tr, c] = await Promise.all([
-        api.adminTracks(),
-        api.adminCirclesSummary(),
-      ]);
-      setItems(tr.items);
-      setCircles(c.items);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل التحميل");
-    } finally {
-      setLoading(false);
-    }
-  }, [hasApi]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  function toggleStage(id: number) {
-    setSelectedStages((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    );
-  }
-
-  function toggleCircle(id: number) {
-    setSelectedCircles((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    );
-  }
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (selectedStages.length === 0) {
-      setError("اختر مرحلة واحدة على الأقل للمسار");
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      await api.adminTracksCreate({
-        name_ar: name.trim(),
-        default_capacity: Number(defaultCapacity),
-        stage_ids: selectedStages,
-        circle_ids: selectedCircles,
-      });
-      setShowForm(false);
-      setName("");
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "فشل الحفظ");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Card className={ds.card}>
-      <CardHeader className="flex flex-row justify-between items-start gap-4">
-        <div>
-          <CardTitle className="flex items-center gap-2" style={tajawal}>
-            <Route className="w-5 h-5 text-primary" />
-            المسارات
-          </CardTitle>
-          <CardDescription style={tajawal}>
-            مسار قد يضم طلاباً من حلقات ومراحل متعددة
-          </CardDescription>
-        </div>
-        <Button
-          className={ds.btnRound}
-          style={tajawal}
-          type="button"
-          onClick={() => setShowForm((v) => !v)}
-        >
-          {showForm ? "إلغاء" : "إضافة مسار"}
-        </Button>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {error && (
-          <p className="text-sm text-destructive" style={tajawal}>
-            {error}
-          </p>
-        )}
-        {showForm && (
-          <form
-            onSubmit={submit}
-            className="space-y-4 p-4 rounded-2xl border border-border bg-muted/30"
-          >
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                  اسم المسار *
-                </label>
-                <Input value={name} onChange={(e) => setName(e.target.value)} required />
+            {isCircle && (
+              <div className="space-y-1">
+                <Label style={tajawal}>المرحلة *</Label>
+                <select
+                  value={stageId}
+                  onChange={(e) => setStageId(Number(e.target.value) as StageId)}
+                  className={ds.select}
+                  style={tajawal}
+                >
+                  {EDUCATIONAL_STAGES.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name_ar}
+                    </option>
+                  ))}
+                </select>
               </div>
-              <div>
-                <label className="block text-sm font-semibold mb-1" style={tajawal}>
-                  السعة الافتراضية *
-                </label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={defaultCapacity}
-                  onChange={(e) => setDefaultCapacity(e.target.value)}
-                  required
-                />
+            )}
+          </div>
+
+          {isCircle ? (
+            <>
+              <div className="space-y-1">
+                <Label style={tajawal}>المعلم *</Label>
+                <select
+                  value={teacherId}
+                  onChange={(e) => setTeacherId(e.target.value)}
+                  className={ds.select}
+                  style={tajawal}
+                  required={isEdit}
+                >
+                  <option value="">
+                    {isEdit ? "— اختر معلمًا —" : "— معلم جديد أدناه —"}
+                  </option>
+                  {teachers.map((t) => (
+                    <option key={t.id} value={String(t.id)}>
+                      {t.full_name_ar}
+                    </option>
+                  ))}
+                </select>
               </div>
-            </div>
-            <div>
-              <p className="text-sm font-semibold mb-2" style={tajawal}>
-                المراحل المشمولة *
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {EDUCATIONAL_STAGES.map((s) => (
-                  <Button
-                    key={s.id}
-                    type="button"
-                    size="sm"
-                    variant={selectedStages.includes(s.id) ? "default" : "outline"}
-                    className={ds.btnRound}
-                    onClick={() => toggleStage(s.id)}
-                    style={tajawal}
-                  >
-                    {s.name_ar}
-                  </Button>
-                ))}
+              {!teacherId && !isEdit && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label style={tajawal}>اسم المعلم الجديد</Label>
+                    <Input
+                      value={newTeacherName}
+                      onChange={(e) => setNewTeacherName(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label style={tajawal}>جوال المعلم</Label>
+                    <Input
+                      value={newTeacherMobile}
+                      onChange={(e) => setNewTeacherMobile(e.target.value)}
+                      dir="ltr"
+                    />
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="space-y-1">
+                <Label style={tajawal}>مشرف المسار *</Label>
+                <select
+                  value={supervisorId}
+                  onChange={(e) => setSupervisorId(e.target.value)}
+                  className={ds.select}
+                  style={tajawal}
+                  required={isEdit}
+                >
+                  <option value="">
+                    {isEdit ? "— اختر المشرف —" : "— مشرف جديد أدناه —"}
+                  </option>
+                  {trackSupervisors.map((s) => (
+                    <option key={s.id} value={String(s.id)}>
+                      {s.full_name_ar}
+                    </option>
+                  ))}
+                </select>
               </div>
-            </div>
-            <div>
-              <p className="text-sm font-semibold mb-2" style={tajawal}>
-                حلقات مرتبطة (اختياري)
-              </p>
-              <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-                {circles.map((c) => (
-                  <Button
-                    key={c.id}
-                    type="button"
-                    size="sm"
-                    variant={selectedCircles.includes(c.id) ? "default" : "outline"}
-                    className={ds.btnRound}
-                    onClick={() => toggleCircle(c.id)}
-                    style={tajawal}
-                  >
-                    {c.name_ar}
-                  </Button>
-                ))}
-              </div>
-            </div>
-            <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
-              {saving ? "جاري الحفظ…" : "حفظ المسار"}
-            </Button>
-          </form>
-        )}
-        {loading ? (
-          <p className="text-muted-foreground" style={tajawal}>
-            جاري التحميل…
-          </p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead style={tajawal}>المسار</TableHead>
-                <TableHead style={tajawal}>المراحل</TableHead>
-                <TableHead style={tajawal}>الحلقات</TableHead>
-                <TableHead style={tajawal}>الطلاب</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((t) => (
-                <TableRow key={t.id}>
-                  <TableCell style={tajawal}>{t.name_ar}</TableCell>
-                  <TableCell style={tajawal}>
-                    {t.stage_ids.map((id) => stageLabel(id as StageId)).join(" · ")}
-                  </TableCell>
-                  <TableCell style={tajawal}>
-                    {t.circles.map((c) => c.name_ar).join("، ") || "—"}
-                  </TableCell>
-                  <TableCell style={tajawal}>{t.student_count}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </CardContent>
-    </Card>
+              {!supervisorId && !isEdit && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label style={tajawal}>اسم المشرف الجديد</Label>
+                    <Input
+                      value={newSupervisorName}
+                      onChange={(e) => setNewSupervisorName(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label style={tajawal}>جوال المشرف</Label>
+                    <Input
+                      value={newSupervisorMobile}
+                      onChange={(e) => setNewSupervisorMobile(e.target.value)}
+                      dir="ltr"
+                    />
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
+            {saving ? "جاري الحفظ…" : isEdit ? "حفظ التعديلات" : "حفظ"}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

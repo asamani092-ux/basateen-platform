@@ -1,7 +1,6 @@
 import type { Env } from "../types";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 import { FIELD_EDU_ROLES } from "../lib/roles";
-import { resolveCompetitionStudents } from "./competitions";
 
 type HimmaRules = {
   hizb_points: number;
@@ -37,6 +36,7 @@ async function resolveLiveSession(env: Env, token: string) {
     }>();
 
   if (himma) {
+    const himmaRules = JSON.parse(himma.rules_json || "{}") as Record<string, unknown>;
     return {
       kind: "yom_himma" as SessionKind,
       id: himma.id,
@@ -44,7 +44,8 @@ async function resolveLiveSession(env: Env, token: string) {
       name_ar: himma.name_ar,
       date: himma.session_date,
       status: himma.status,
-      rules: JSON.parse(himma.rules_json) as HimmaRules,
+      rules: himmaRules as HimmaRules,
+      access_pin: String(himmaRules.access_pin ?? "1234"),
       tv_key: himma.tv_launch_key,
     };
   }
@@ -71,6 +72,7 @@ async function resolveLiveSession(env: Env, token: string) {
     }>();
 
   if (comp) {
+    const compRules = JSON.parse(comp.rules_json || "{}") as Record<string, unknown>;
     return {
       kind: "competition" as SessionKind,
       id: comp.id,
@@ -79,7 +81,8 @@ async function resolveLiveSession(env: Env, token: string) {
       date: comp.start_date,
       status: comp.status,
       telemetry_type: comp.telemetry_type,
-      rules: JSON.parse(comp.rules_json || "{}") as Record<string, unknown>,
+      rules: compRules,
+      access_pin: String(compRules.access_pin ?? "1234"),
       tv_key: comp.tv_launch_key,
       stage_id: comp.stage_id,
     };
@@ -99,16 +102,24 @@ export async function handleLiveLogRouter(
 
   const session = await resolveLiveSession(env, token);
   if (!session) return json({ error: "invalid_token" }, 404);
+  const pin = (request.headers.get("x-live-pin") ?? url.searchParams.get("pin_code") ?? "").trim();
+  if (!pin) return json({ error: "pin_required" }, 401);
+  if (pin !== String(session.access_pin ?? "1234")) {
+    return json({ error: "invalid_pin" }, 401);
+  }
 
   if (request.method === "GET") {
     if (session.kind === "yom_himma") {
       const targets = await env.DB.prepare(
-        `SELECT t.student_id, t.target_juz, t.target_hizb, s.full_name_ar
-         FROM yom_himma_targets t
-         JOIN students s ON s.id = t.student_id
-         WHERE t.session_id = ?`,
+        `SELECT s.id AS student_id, s.full_name_ar,
+                t.target_juz, t.target_hizb
+         FROM students s
+         LEFT JOIN yom_himma_targets t
+           ON t.student_id = s.id AND t.session_id = ?
+         WHERE s.complex_id = ? AND s.is_active = 1
+         ORDER BY s.full_name_ar`,
       )
-        .bind(session.id)
+        .bind(session.id, session.complexId)
         .all();
 
       const audit = await env.DB.prepare(
@@ -134,28 +145,17 @@ export async function handleLiveLogRouter(
       });
     }
 
-    const scope = { type: "global" as const };
-    const studentIds = await resolveCompetitionStudents(
-      env,
-      session.complexId,
-      session.id,
-      scope,
-    );
-
-    const students = [];
-    for (const sid of studentIds.slice(0, 500)) {
-      const row = await env.DB.prepare(
-        `SELECT s.id AS student_id, s.full_name_ar,
-                p.total_target_juz, p.daily_volume_juz, p.distributed_json
-         FROM students s
-         LEFT JOIN competition_student_plans p
-           ON p.student_id = s.id AND p.competition_id = ?
-         WHERE s.id = ?`,
-      )
-        .bind(session.id, sid)
-        .first();
-      if (row) students.push(row);
-    }
+    const students = await env.DB.prepare(
+      `SELECT s.id AS student_id, s.full_name_ar,
+              p.total_target_juz, p.daily_volume_juz, p.distributed_json
+       FROM students s
+       LEFT JOIN competition_student_plans p
+         ON p.student_id = s.id AND p.competition_id = ?
+       WHERE s.complex_id = ? AND s.is_active = 1
+       ORDER BY s.full_name_ar`,
+    )
+      .bind(session.id, session.complexId)
+      .all();
 
     const logs = await env.DB.prepare(
       `SELECT student_id, log_date, metrics_json, recorded_at
@@ -173,7 +173,7 @@ export async function handleLiveLogRouter(
         rules: session.rules,
         tv_key: session.tv_key,
       },
-      students,
+      students: students.results ?? [],
       logs: logs.results ?? [],
     });
   }
@@ -318,5 +318,17 @@ export async function handleYomHimmaLiveLogToken(
     .bind(token, sessionId, auth.complexId)
     .run();
 
-  return json({ ok: true, live_log_token: token, path: `/live-log/${token}` });
+  const row = await env.DB.prepare(
+    `SELECT rules_json FROM yom_himma_sessions WHERE id = ? AND complex_id = ?`,
+  )
+    .bind(sessionId, auth.complexId)
+    .first<{ rules_json: string }>();
+  const rules = JSON.parse(row?.rules_json || "{}") as Record<string, unknown>;
+
+  return json({
+    ok: true,
+    live_log_token: token,
+    access_pin: String(rules.access_pin ?? "1234"),
+    path: `/live-log/${token}`,
+  });
 }

@@ -1,0 +1,3 @@
+-- Deprecated monolithic 039 — use npm run db:remote:039 (runs migrate-039-remote.mjs).
+-- Core only (safe on v25 without teacher_assignments):
+--   ../../apps/api/scripts/migrate-039-remote.mjs → 039_core_tracks_triggers.sql

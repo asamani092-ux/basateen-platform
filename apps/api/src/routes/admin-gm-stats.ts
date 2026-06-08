@@ -1,5 +1,8 @@
 import type { Env } from "../types";
+import { fetchHimmaAuditFromLedger } from "../lib/himma-ledger-view";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
+import { tableHasColumn } from "../lib/db-schema";
+import { fetchSemesterPeriod, semesterQueryRange } from "../lib/semester-period";
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
@@ -31,11 +34,17 @@ export async function handleAdminStats(
 ): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
-  if (!requireRoles(auth, ["general_manager"])) return json({ error: "forbidden" }, 403);
+  if (!requireRoles(auth, ["super_admin"])) return json({ error: "forbidden" }, 403);
 
   const period = url.searchParams.get("period") ?? "semester";
-  const fromDate = periodStart(period);
-  const today = new Date().toISOString().slice(0, 10);
+  let fromDate = periodStart(period);
+  let today = new Date().toISOString().slice(0, 10);
+  if (period === "semester") {
+    const sp = await fetchSemesterPeriod(env, auth.complexId);
+    const range = semesterQueryRange(sp);
+    fromDate = range.start;
+    today = range.end;
+  }
 
   const activeStudents = await env.DB.prepare(
     `SELECT COUNT(DISTINCT student_id) AS c
@@ -69,7 +78,7 @@ export async function handleAdminStats(
 
   const supervisors = await env.DB.prepare(
     `SELECT COUNT(*) AS c FROM users
-     WHERE complex_id = ? AND role IN ('edu_supervisor','prog_supervisor','general_supervisor') AND is_active = 1`,
+     WHERE complex_id = ? AND role IN ('edu_supervisor','programs_supervisor','prog_supervisor','admin_supervisor', 'general_supervisor') AND is_active = 1`,
   )
     .bind(auth.complexId)
     .first<{ c: number }>();
@@ -144,7 +153,7 @@ export async function handleAdminYomHimmaSummary(
 ): Promise<Response> {
   const auth = await getAuth(_request, env);
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
-  if (!requireRoles(auth, ["general_manager"])) return json({ error: "forbidden" }, 403);
+  if (!requireRoles(auth, ["super_admin"])) return json({ error: "forbidden" }, 403);
 
   const sessions = await env.DB.prepare(
     `SELECT id, name_ar, session_date, status
@@ -186,7 +195,7 @@ export async function handleAdminStaffAttendanceList(
 ): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
-  if (!requireRoles(auth, ["general_manager"])) return json({ error: "forbidden" }, 403);
+  if (!requireRoles(auth, ["super_admin"])) return json({ error: "forbidden" }, 403);
 
   const from = url.searchParams.get("from") ?? new Date().toISOString().slice(0, 10);
   const to = url.searchParams.get("to") ?? from;
@@ -211,7 +220,7 @@ export async function handleAdminStaffAttendanceUpsert(
 ): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
-  if (!requireRoles(auth, ["general_manager"])) return json({ error: "forbidden" }, 403);
+  if (!requireRoles(auth, ["super_admin"])) return json({ error: "forbidden" }, 403);
 
   let body: {
     user_id?: number;
@@ -255,7 +264,7 @@ export async function handleAdminComplexSettingsGet(
 ): Promise<Response> {
   const auth = await getAuth(_request, env);
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
-  if (!requireRoles(auth, ["general_manager"])) return json({ error: "forbidden" }, 403);
+  if (!requireRoles(auth, ["super_admin"])) return json({ error: "forbidden" }, 403);
 
   const row = await env.DB.prepare(
     `SELECT semester_weeks, school_days_json, graduates_count, huffadh_count
@@ -276,12 +285,94 @@ export async function handleAdminComplexSettingsGet(
     /* default */
   }
 
+  const hasSemesterCols = await tableHasColumn(env, "complex_settings", "semester_active");
+  const semester = hasSemesterCols
+    ? await fetchSemesterPeriod(env, auth!.complexId)
+    : { active: false, start_date: null, end_date: null };
+
   return json({
     semester_weeks: row?.semester_weeks ?? 16,
     school_days: schoolDays,
     graduates_count: row?.graduates_count ?? 0,
     huffadh_count: row?.huffadh_count ?? 0,
+    semester_active: semester.active,
+    semester_start_date: semester.start_date,
+    semester_end_date: semester.end_date,
   });
+}
+
+const SEMESTER_END_CONFIRM = "إنهاء الفصل";
+
+export async function handleSemesterStart(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
+  if (!requireRoles(auth, ["super_admin"])) return json({ error: "forbidden" }, 403);
+  if (!(await tableHasColumn(env, "complex_settings", "semester_active"))) {
+    return json({ error: "migration_required", migration: "044_semester_period" }, 503);
+  }
+
+  const period = await fetchSemesterPeriod(env, auth.complexId);
+  if (period.active) {
+    return json({ error: "semester_already_active" }, 409);
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  await env.DB.prepare(
+    `UPDATE complex_settings
+     SET semester_active = 1, semester_start_date = ?, semester_end_date = NULL, updated_at = datetime('now')
+     WHERE complex_id = ?`,
+  )
+    .bind(today, auth.complexId)
+    .run();
+
+  return json({ ok: true, semester_start_date: today, semester_active: true });
+}
+
+export async function handleSemesterEnd(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
+  if (!requireRoles(auth, ["super_admin"])) return json({ error: "forbidden" }, 403);
+  if (!(await tableHasColumn(env, "complex_settings", "semester_active"))) {
+    return json({ error: "migration_required", migration: "044_semester_period" }, 503);
+  }
+
+  let body: { confirm_text?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "invalid_json" }, 400);
+  }
+  if (body.confirm_text?.trim() !== SEMESTER_END_CONFIRM) {
+    return json(
+      {
+        error: "confirm_required",
+        message: `اكتب «${SEMESTER_END_CONFIRM}» للتأكيد`,
+      },
+      400,
+    );
+  }
+
+  const period = await fetchSemesterPeriod(env, auth.complexId);
+  if (!period.active) {
+    return json({ error: "no_active_semester" }, 409);
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  await env.DB.prepare(
+    `UPDATE complex_settings
+     SET semester_active = 0, semester_end_date = ?, updated_at = datetime('now')
+     WHERE complex_id = ?`,
+  )
+    .bind(today, auth.complexId)
+    .run();
+
+  return json({ ok: true, semester_end_date: today, semester_active: false });
 }
 
 export async function handleAdminComplexSettingsPatch(
@@ -290,7 +381,7 @@ export async function handleAdminComplexSettingsPatch(
 ): Promise<Response> {
   const auth = await getAuth(request, env);
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
-  if (!requireRoles(auth, ["general_manager"])) return json({ error: "forbidden" }, 403);
+  if (!requireRoles(auth, ["super_admin"])) return json({ error: "forbidden" }, 403);
 
   let body: {
     semester_weeks?: number;

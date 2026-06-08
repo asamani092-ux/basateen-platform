@@ -1,0 +1,58 @@
+{
+  "$schema": "Basateen D1 baseline — derived only from 023_rebuild_v25.sql",
+  "source": "packages/database/schema/023_rebuild_v25.sql",
+  "users": {
+    "staff_flags": [
+      "is_admin",
+      "is_educational",
+      "is_programs",
+      "is_teacher",
+      "is_track_supervisor"
+    ],
+    "scope_column": "stage_scope",
+    "sovereign_user_id": 1,
+    "sovereign_email": "admin@basateen.win"
+  },
+  "circles": {
+    "columns": [
+      "id",
+      "complex_id",
+      "name_ar",
+      "teacher_id",
+      "stage",
+      "capacity",
+      "is_active",
+      "created_at"
+    ],
+    "stage_values": ["tlaqeen", "primary", "middle", "secondary"]
+  },
+  "tracks": {
+    "columns": [
+      "id",
+      "complex_id",
+      "name_ar",
+      "supervisor_id",
+      "default_capacity",
+      "is_active",
+      "created_at"
+    ]
+  },
+  "students": {
+    "required_insert": ["complex_id", "full_name_ar", "national_id", "guardian_phone"],
+    "optional_insert": [
+      "phone",
+      "nationality",
+      "school_name",
+      "school_grade",
+      "stage_id",
+      "age",
+      "guardian_national_id",
+      "guardian_work",
+      "health_notes",
+      "current_circle_id",
+      "current_track_id",
+      "account_status",
+      "is_active"
+    ]
+  }
+}

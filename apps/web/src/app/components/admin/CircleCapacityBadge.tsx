@@ -1,6 +1,6 @@
 import { Badge } from "../ui/badge";
 import type { CircleOption } from "../../lib/api-client";
-import { tajawal } from "../../lib/design-system";
+import { ds, tajawal } from "../../lib/design-system";
 
 type Props = {
   circle: Pick<
@@ -30,7 +30,8 @@ export function CircleCapacityBadge({ circle, showFraction = true }: Props) {
   if (circle.near_capacity || circle.alert_level === "near") {
     return (
       <Badge
-        className="rounded-lg bg-amber-100 text-amber-900 border-amber-300"
+        variant="outline"
+        className={`rounded-lg border-amber-500/40 bg-amber-500/10 text-foreground ${ds.btnRound}`}
         style={tajawal}
       >
         بقي {remaining} مقاعد · {showFraction ? `${sc}/${dc}` : ""}

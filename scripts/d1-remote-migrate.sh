@@ -47,7 +47,17 @@ FILES_UPGRADE=(
   "017_student_edu_plans.sql"
   "019_prog_supervisor.sql"
   "020_teacher_full.sql"
-  "021_fix_users_supervisor_scope.sql"
+  "021_reciter_gate.sql"
+  "024_admin_department.sql"
+  "024_admin_department_alters.sql"
+  "025_admin_tweaks.sql"
+  "026_edu_department_core.sql"
+  "027_edu_mega_update.sql"
+  "028_quranic_day_refactor.sql"
+  "029_edu_hotfixes.sql"
+  "030_programs_and_display_core.sql"
+  "031_quiz_require_student_name.sql"
+  "032_quiz_grading_and_display.sql"
 )
 
 FILES_ALL=(

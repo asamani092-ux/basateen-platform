@@ -1,6 +1,16 @@
 import type { AuthContext, Env, UserRole } from "../types";
+import type { DbUserRow } from "../../../../packages/types/schema";
+import { normalizeUserRole, resolveRoleFromUser } from "../../../../packages/types/schema";
 
 const encoder = new TextEncoder();
+const authFailureFlags = new WeakMap<Request, "legacy_session_detected" | "unauthorized">();
+const VALID_ROLES: UserRole[] = [
+  "super_admin",
+  "edu_supervisor",
+  "programs_supervisor",
+  "track_supervisor",
+  "teacher",
+];
 
 function base64UrlEncode(data: ArrayBuffer | string): string {
   const bytes =
@@ -83,6 +93,58 @@ export async function verifyToken(
   }
 }
 
+async function verifyTokenWithReason(
+  token: string,
+  secret: string,
+): Promise<{ auth: AuthContext | null; reason: "legacy_session_detected" | "unauthorized" | null }> {
+  const parts = token.split(".");
+  if (parts.length !== 3) return { auth: null, reason: "legacy_session_detected" };
+
+  const [header, body, signature] = parts;
+  const expected = await sign(`${header}.${body}`, secret);
+  if (signature !== expected) return { auth: null, reason: "legacy_session_detected" };
+
+  try {
+    const payload = JSON.parse(
+      new TextDecoder().decode(base64UrlDecode(body)),
+    ) as {
+      sub?: number;
+      role?: string;
+      complexId?: number;
+      exp?: number;
+      is_admin?: number;
+    };
+
+    // Reject legacy/contaminated schema explicitly (flat flags inside JWT)
+    if (typeof payload.is_admin !== "undefined") {
+      return { auth: null, reason: "legacy_session_detected" };
+    }
+  const role = normalizeUserRole(String(payload.role ?? ""));
+    if (
+      typeof payload.sub !== "number" ||
+      typeof payload.complexId !== "number" ||
+      typeof payload.exp !== "number" ||
+      typeof payload.role !== "string" ||
+      !VALID_ROLES.includes(role)
+    ) {
+      return { auth: null, reason: "legacy_session_detected" };
+    }
+    if (payload.exp < Math.floor(Date.now() / 1000)) {
+      return { auth: null, reason: "unauthorized" };
+    }
+    return {
+      auth: {
+        userId: payload.sub,
+        role,
+        complexId: payload.complexId,
+      },
+      reason: null,
+    };
+  } catch {
+    return { auth: null, reason: "legacy_session_detected" };
+  }
+}
+
 export async function getAuth(
   request: Request,
   env: Env,
@@ -91,7 +153,74 @@ export async function getAuth(
   if (!header?.startsWith("Bearer ")) return null;
   const token = header.slice(7);
   const secret = env.JWT_SECRET || "dev-only-change-in-production";
-  return verifyToken(token, secret);
+  const verified = await verifyTokenWithReason(token, secret);
+  if (!verified.auth) {
+    authFailureFlags.set(request, verified.reason ?? "unauthorized");
+    return null;
+  }
+
+  const pragma = await env.DB.prepare("PRAGMA table_info(users)").all<{ name: string }>();
+  const hasRole = (pragma.results ?? []).some((c) => c.name === "role");
+
+  const userColumns = await env.DB.prepare("PRAGMA table_info(users)").all<{ name: string }>();
+  const colSet = new Set((userColumns.results ?? []).map((c) => c.name));
+  const hasComplexId = colSet.has("complex_id");
+
+  const userRow = hasRole
+    ? await env.DB.prepare(
+        `SELECT id, is_active, role${hasComplexId ? ", complex_id" : ""}
+         FROM users WHERE id = ? LIMIT 1`,
+      )
+        .bind(verified.auth.userId)
+        .first<{
+          id: number;
+          is_active: number | null;
+          role: string | null;
+          complex_id?: number | null;
+        }>()
+    : await env.DB.prepare(
+        `SELECT id, is_active, is_admin, is_educational, is_programs, is_teacher${
+          hasComplexId ? ", complex_id" : ""
+        }
+         FROM users WHERE id = ? LIMIT 1`,
+      )
+        .bind(verified.auth.userId)
+        .first<DbUserRow & { id: number; is_active: number | null; complex_id?: number | null }>();
+
+  if (!userRow || typeof userRow.is_active === "undefined" || userRow.is_active !== 1) {
+    authFailureFlags.set(request, "legacy_session_detected");
+    return null;
+  }
+  const dbRole = normalizeUserRole(
+    hasRole
+      ? String((userRow as { role: string }).role)
+      : resolveRoleFromUser(userRow as DbUserRow),
+  );
+  if (!VALID_ROLES.includes(dbRole)) {
+    authFailureFlags.set(request, "legacy_session_detected");
+    return null;
+  }
+
+  if (verified.auth.role !== dbRole) {
+    authFailureFlags.set(request, "legacy_session_detected");
+    return null;
+  }
+
+  const complexId =
+    hasComplexId && typeof userRow.complex_id === "number"
+      ? userRow.complex_id
+      : verified.auth.complexId;
+
+  if (complexId !== verified.auth.complexId) {
+    authFailureFlags.set(request, "legacy_session_detected");
+    return null;
+  }
+
+  return {
+    userId: verified.auth.userId,
+    role: dbRole,
+    complexId,
+  };
 }
 
 export function requireAuth(
@@ -105,4 +234,19 @@ export function requireRoles(
   roles: UserRole[],
 ): boolean {
   return roles.includes(auth.role);
+}
+
+export function authUnauthorizedResponse(request: Request): Response {
+  const reason = authFailureFlags.get(request) ?? "unauthorized";
+  if (reason === "legacy_session_detected") {
+    return Response.json(
+      {
+        error: "legacy_session_detected",
+        message: "Legacy or contaminated role context found. Purging browser state.",
+        clear_polluted_session: true,
+      },
+      { status: 401 },
+    );
+  }
+  return Response.json({ error: "unauthorized" }, { status: 401 });
 }

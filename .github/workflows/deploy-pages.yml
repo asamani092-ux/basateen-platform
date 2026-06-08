@@ -1,12 +1,7 @@
-name: Deploy Web (Pages)
+name: Deploy Web (Pages) - Legacy Manual Only
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "apps/web/**"
-      - ".github/workflows/deploy-pages.yml"
 
 jobs:
   deploy:
@@ -35,4 +30,4 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy apps/web/dist --project-name=basateen-web
+          command: pages deploy apps/web/dist --project-name=basateen-platform

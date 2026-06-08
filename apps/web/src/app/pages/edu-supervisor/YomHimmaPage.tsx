@@ -12,17 +12,10 @@ import {
   CardHeader,
   CardTitle,
 } from "../../components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../../components/ui/table";
 import { useAuth } from "../../context/AuthContext";
 import { api } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
+import { EduKpiCard } from "../../components/edu/EduKpiCard";
 import { TargetPicker, type TargetSelection } from "../../components/edu/TargetPicker";
 import { EDUCATIONAL_STAGES } from "../../lib/stages";
 import { ds, tajawal } from "../../lib/design-system";
@@ -39,6 +32,7 @@ type Rules = {
   error_penalty: number;
   alerts_per_error: number;
   fail_threshold_errors: number;
+  access_pin?: string;
 };
 
 type TargetRow = {
@@ -62,6 +56,7 @@ const DEFAULT_RULES: Rules = {
   error_penalty: 2,
   alerts_per_error: 5,
   fail_threshold_errors: 3,
+  access_pin: "1234",
 };
 
 export function YomHimmaPage() {
@@ -90,6 +85,7 @@ export function YomHimmaPage() {
   const [audit, setAudit] = useState<Record<number, AuditState>>({});
   const [error, setError] = useState<string | null>(null);
   const [liveLogUrl, setLiveLogUrl] = useState<string | null>(null);
+  const [liveLogPin, setLiveLogPin] = useState<string | null>(null);
 
   const setTab = (id: string) => setSearchParams({ tab: id });
 
@@ -148,6 +144,25 @@ export function YomHimmaPage() {
   }, [loadSessions]);
 
   useEffect(() => {
+    if (!getApiToken()) return;
+    api.eduDeptSettingsGet().then((res) => {
+      const h = res.settings.himma_defaults;
+      if (h) {
+        setRules((r) => ({
+          ...r,
+          hizb_points: h.hizb_points,
+          alert_penalty: h.alert_penalty,
+          error_penalty: h.error_penalty,
+          alerts_per_error: h.alerts_per_error,
+          fail_threshold_errors: h.fail_threshold_errors,
+        }));
+      }
+    }).catch(() => {
+      /* offline mock */
+    });
+  }, []);
+
+  useEffect(() => {
     if (sessionId) loadDetail(sessionId);
   }, [sessionId, loadDetail]);
 
@@ -158,7 +173,8 @@ export function YomHimmaPage() {
       const res = await api.yomHimmaLiveLogToken(sessionId);
       const url = `${window.location.origin}/live-log/${res.live_log_token}`;
       setLiveLogUrl(url);
-      await navigator.clipboard.writeText(url);
+      setLiveLogPin(res.access_pin);
+      await navigator.clipboard.writeText(`رابط الرصد: ${url}\nرمز الدخول: ${res.access_pin}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل توليد الرابط");
     }
@@ -369,6 +385,7 @@ export function YomHimmaPage() {
                   ["error_penalty", "خصم خطأ/لحن"],
                   ["alerts_per_error", "تنبيهات = خطأ"],
                   ["fail_threshold_errors", "حد الرسوب"],
+                  ["access_pin", "رمز دخول المقرئ (PIN)"],
                 ] as const
               ).map(([key, label]) => (
                 <div key={key}>
@@ -376,13 +393,16 @@ export function YomHimmaPage() {
                     {label}
                   </label>
                   <Input
-                    type="number"
+                    type={key === "access_pin" ? "text" : "number"}
                     value={rules[key]}
                     disabled={readOnly}
                     onChange={(e) =>
                       setRules((r) => ({
                         ...r,
-                        [key]: Number(e.target.value),
+                        [key]:
+                          key === "access_pin"
+                            ? e.target.value
+                            : Number(e.target.value),
                       }))
                     }
                     className={ds.btnRound}
@@ -413,44 +433,37 @@ export function YomHimmaPage() {
             <CardHeader>
               <CardTitle style={tajawal}>مستهدفات الطلاب</CardTitle>
               <CardDescription style={tajawal}>
-                عدد الأحزاب/الأجزاء لكل طالب — إلزامي
+                عدد الأحزاب/الأجزاء لكل طالب — بطاقات مرنة
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead style={tajawal}>الطالب</TableHead>
-                    <TableHead style={tajawal}>أحزاب مستهدفة</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {demoTargets.map((t) => (
-                    <TableRow key={t.student_id}>
-                      <TableCell style={tajawal}>{t.full_name_ar}</TableCell>
-                      <TableCell>
-                        <Input
-                          type="number"
-                          min={0}
-                          disabled={readOnly}
-                          value={t.target_hizb}
-                          onChange={(e) => {
-                            const v = Number(e.target.value);
-                            setTargets((rows) =>
-                              rows.map((r) =>
-                                r.student_id === t.student_id
-                                  ? { ...r, target_hizb: v }
-                                  : r,
-                              ),
-                            );
-                          }}
-                          className="w-24"
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {demoTargets.map((t) => (
+                  <div key={t.student_id} className={`${ds.card} p-4 space-y-2 text-right`}>
+                    <p className="font-semibold" style={tajawal}>
+                      {t.full_name_ar}
+                    </p>
+                    <label className="text-xs text-muted-foreground block" style={tajawal}>
+                      أحزاب مستهدفة
+                    </label>
+                    <Input
+                      type="number"
+                      min={0}
+                      disabled={readOnly}
+                      value={t.target_hizb}
+                      onChange={(e) => {
+                        const v = Number(e.target.value);
+                        setTargets((rows) =>
+                          rows.map((r) =>
+                            r.student_id === t.student_id ? { ...r, target_hizb: v } : r,
+                          ),
+                        );
+                      }}
+                      className="w-full max-w-[120px]"
+                    />
+                  </div>
+                ))}
+              </div>
             </CardContent>
           </Card>
 
@@ -465,7 +478,7 @@ export function YomHimmaPage() {
               <CardHeader>
                 <CardTitle style={tajawal}>الرصد التشاركي الميداني</CardTitle>
                 <CardDescription style={tajawal}>
-                  شارك الرابط مع المعلمين والمقرئين للرصد من الجوال دون كلمة مرور
+                  شارك الرابط مع المقرئين، مع رمز PIN لحماية بوابة الرصد الخارجية
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -483,16 +496,28 @@ export function YomHimmaPage() {
                     <code className="text-xs break-all block mb-2" dir="ltr">
                       {liveLogUrl}
                     </code>
+                    {liveLogPin && (
+                      <p className="text-sm font-semibold mb-2" style={tajawal}>
+                        رمز الدخول (PIN): <span dir="ltr">{liveLogPin}</span>
+                      </p>
+                    )}
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
                       className={ds.btnRound}
-                      onClick={() => navigator.clipboard.writeText(liveLogUrl)}
+                      onClick={() =>
+                        navigator.clipboard.writeText(
+                          liveLogPin
+                            ? `رابط الرصد: ${liveLogUrl}
+رمز الدخول: ${liveLogPin}`
+                            : liveLogUrl,
+                        )
+                      }
                       style={tajawal}
                     >
                       <Copy className="w-4 h-4" />
-                      نسخ الرابط
+                      نسخ الرابط + PIN
                     </Button>
                   </div>
                 )}
@@ -608,29 +633,32 @@ export function YomHimmaPage() {
             <CardTitle style={tajawal}>التقارير والشهادات</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {demoTargets.map((t) => {
-              const a = ensureAudit(t.student_id);
-              const done = a.hizb_done;
-              const target = t.target_hizb || 1;
-              const penalties =
-                a.alerts_count * rules.alert_penalty +
-                a.errors_count * rules.error_penalty;
-              const pct = Math.max(
-                0,
-                Math.min(100, ((done * rules.hizb_points - penalties) / target) * 100),
-              );
-              return (
-                <div
-                  key={t.student_id}
-                  className="flex flex-wrap justify-between items-center border-b border-border py-2"
-                >
-                  <span style={tajawal}>{t.full_name_ar}</span>
-                  <span className="font-bold text-primary" style={tajawal}>
-                    {pct.toFixed(0)}%
-                  </span>
-                </div>
-              );
-            })}
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {demoTargets.map((t) => {
+                const a = ensureAudit(t.student_id);
+                const done = a.hizb_done;
+                const target = t.target_hizb || 1;
+                const penalties =
+                  a.alerts_count * rules.alert_penalty +
+                  a.errors_count * rules.error_penalty;
+                const pct = Math.max(
+                  0,
+                  Math.min(
+                    100,
+                    ((done * rules.hizb_points - penalties) / target) * 100,
+                  ),
+                );
+                const weightedScore = done * rules.hizb_points - penalties;
+                return (
+                  <EduKpiCard
+                    key={t.student_id}
+                    label={t.full_name_ar}
+                    value={`${pct.toFixed(0)}%`}
+                    sub={`أحزاب: ${done} × ${rules.hizb_points} − خصومات = ${weightedScore.toFixed(0)} / ${target}`}
+                  />
+                );
+              })}
+            </div>
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="outline"

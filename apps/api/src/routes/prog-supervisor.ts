@@ -2,39 +2,452 @@ import type { Env } from "../types";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 import { PROG_ROLES } from "../lib/roles";
 import {
-  loadUserScope,
-  parseSupervisorScope,
+  safeLoadUserScope,
+  readSupervisorScopeString,
   stageFilterBinds,
   stageFilterWhere,
   studentsInScopeBinds,
   studentsInScopeWhere,
   STAGE_LABELS,
-} from "../lib/supervisor-scope";
-import { randomToken } from "../lib/quiz-scoring";
+  type ScopeMode,
+} from "../lib/dept-scope";
+import { randomToken, upsertQuizAttemptToken } from "../lib/quiz-scoring";
 import { writeProgAudit } from "../lib/prog-audit";
+import { activePlacementSql, hasTable, tableHasColumn } from "../lib/db-schema";
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
 }
 
-function scopeLabel(scope: Awaited<ReturnType<typeof loadUserScope>>): string {
+function criticalQuizError(err: unknown, context: string): Response {
+  console.error("[CRITICAL QUIZ ERROR]:", context, err);
+  const e = err instanceof Error ? err : new Error(String(err));
+  return json(
+    {
+      error: e.message || String(err),
+      stack: e.stack ?? null,
+      context,
+    },
+    500,
+  );
+}
+
+function asSqliteBool(value: unknown, defaultOne = true): number {
+  if (value === false || value === 0 || value === "0") return 0;
+  if (value === true || value === 1 || value === "1") return 1;
+  return defaultOne ? 1 : 0;
+}
+
+function scopeLabel(scope: ScopeMode): string {
   if (scope.type === "global") return "كل المجمع";
   return scope.stageIds.map((id) => STAGE_LABELS[id]).join("، ");
 }
 
-async function recomputeQuizPoints(env: Env, quizId: number): Promise<number> {
-  const row = await env.DB.prepare(
-    `SELECT COALESCE(SUM(points), 0) AS total FROM quiz_questions WHERE quiz_id = ?`,
+async function safeWriteProgAudit(
+  env: Env,
+  complexId: number,
+  entityType: string,
+  entityId: number,
+  action: string,
+  actorUserId: number | null,
+  payload?: unknown,
+): Promise<void> {
+  try {
+    if (!(await hasTable(env, "prog_audit_trail"))) return;
+    await writeProgAudit(env, complexId, entityType, entityId, action, actorUserId, payload);
+  } catch (err) {
+    console.warn("[CRITICAL QUIZ ERROR] prog audit skipped:", err);
+  }
+}
+
+function coerceOptionsArray(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return raw.map((o) => String(o).trim()).filter(Boolean);
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed.map((o) => String(o).trim()).filter(Boolean);
+      }
+    } catch {
+      return [raw.trim()];
+    }
+  }
+  return [];
+}
+
+type QuizQuestionInput = {
+  question_type?: string;
+  prompt_ar?: string;
+  points?: number;
+  correct_answer?: string;
+  options?: string[];
+  sort_order?: number;
+};
+
+type NormalizedQuizQuestion = {
+  prompt_ar: string;
+  question_type: string;
+  points: number;
+  correct_answer: string;
+  options_json: string;
+  sort_order: number;
+};
+
+function normalizeQuestionInput(
+  q: QuizQuestionInput,
+  index: number,
+): NormalizedQuizQuestion | null {
+  const prompt = String(q.prompt_ar ?? "").trim();
+  if (!prompt) return null;
+  const qType =
+    q.question_type === "true_false"
+      ? "true_false"
+      : q.question_type === "text"
+        ? "text"
+        : "mcq";
+  let correct = String(q.correct_answer ?? "").trim();
+  if (qType === "true_false") {
+    correct = correct === "خطأ" || correct === "false" ? "false" : "true";
+  }
+  const optionList = coerceOptionsArray(q.options);
+  const optionsJson =
+    qType === "mcq"
+      ? JSON.stringify(optionList)
+      : qType === "text"
+        ? "[]"
+        : JSON.stringify(["صح", "خطأ"]);
+  return {
+    prompt_ar: prompt,
+    question_type: qType,
+    points: Number(q.points) > 0 ? Number(q.points) : 1,
+    correct_answer: correct,
+    options_json: optionsJson,
+    sort_order: Number.isFinite(q.sort_order) ? Number(q.sort_order) : index,
+  };
+}
+
+type QuestionInsertSchema = {
+  full: boolean;
+  optsCol: "options_json" | "options" | null;
+};
+
+async function detectQuestionInsertSchema(env: Env): Promise<QuestionInsertSchema> {
+  const hasType = await tableHasColumn(env, "quiz_questions", "question_type");
+  const hasOptsJson = await tableHasColumn(env, "quiz_questions", "options_json");
+  const hasOptsLegacy = await tableHasColumn(env, "quiz_questions", "options");
+  const optsCol = hasOptsJson ? "options_json" : hasOptsLegacy ? "options" : null;
+  const hasSort = await tableHasColumn(env, "quiz_questions", "sort_order");
+  return { full: hasType && !!optsCol && hasSort, optsCol };
+}
+
+function prepareQuestionInsert(
+  env: Env,
+  quizId: number,
+  norm: NormalizedQuizQuestion,
+  schema: QuestionInsertSchema,
+): D1PreparedStatement {
+  if (schema.full && schema.optsCol) {
+    return env.DB.prepare(
+      `INSERT INTO quiz_questions (quiz_id, prompt_ar, points, correct_answer, question_type, ${schema.optsCol}, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      quizId,
+      norm.prompt_ar,
+      norm.points,
+      norm.correct_answer,
+      norm.question_type,
+      norm.options_json,
+      norm.sort_order,
+    );
+  }
+  return env.DB.prepare(
+    `INSERT INTO quiz_questions (quiz_id, prompt_ar, points, correct_answer)
+     VALUES (?, ?, ?, ?)`,
+  ).bind(quizId, norm.prompt_ar, norm.points, norm.correct_answer);
+}
+
+function normalizeQuestionList(
+  questions: QuizQuestionInput[],
+): NormalizedQuizQuestion[] {
+  return questions
+    .map((q, i) => normalizeQuestionInput(q, i))
+    .filter((q): q is NormalizedQuizQuestion => q != null);
+}
+
+async function replaceQuizQuestions(
+  env: Env,
+  quizId: number,
+  questions: QuizQuestionInput[],
+): Promise<number> {
+  const normalized = normalizeQuestionList(questions);
+  if (normalized.length === 0) {
+    throw new Error("no_valid_questions_after_normalize");
+  }
+
+  const totalPoints = normalized.reduce((sum, q) => sum + q.points, 0);
+  const schema = await detectQuestionInsertSchema(env);
+  const stmts: D1PreparedStatement[] = [
+    env.DB.prepare(`DELETE FROM quiz_questions WHERE quiz_id = ?`).bind(quizId),
+    ...normalized.map((norm) => prepareQuestionInsert(env, quizId, norm, schema)),
+    env.DB.prepare(`UPDATE quizzes SET total_points = ? WHERE id = ?`).bind(
+      totalPoints,
+      quizId,
+    ),
+  ];
+
+  await env.DB.batch(stmts);
+  return totalPoints;
+}
+
+function quizListScopeSql(
+  scope: ScopeMode,
+  hasQuizStageId: boolean,
+): { where: string; binds: number[] } {
+  if (!hasQuizStageId) {
+    return { where: "q.complex_id = ?", binds: [] };
+  }
+  const stageWhere = stageFilterWhere(scope, "q.stage_id");
+  return {
+    where: `q.complex_id = ? AND (${stageWhere} OR q.stage_id IS NULL)`,
+    binds: stageFilterBinds(scope),
+  };
+}
+
+async function markQuizPublished(env: Env, quizId: number): Promise<void> {
+  const hasActive = await tableHasColumn(env, "quizzes", "is_active");
+  const hasStatus = await tableHasColumn(env, "quizzes", "status");
+  if (hasActive && hasStatus) {
+    await env.DB.prepare(
+      `UPDATE quizzes SET status = 'published', is_active = 1 WHERE id = ?`,
+    )
+      .bind(quizId)
+      .run();
+  } else if (hasActive) {
+    await env.DB.prepare(`UPDATE quizzes SET is_active = 1 WHERE id = ?`)
+      .bind(quizId)
+      .run();
+  } else if (hasStatus) {
+    await env.DB.prepare(`UPDATE quizzes SET status = 'published' WHERE id = ?`)
+      .bind(quizId)
+      .run();
+  }
+}
+
+async function insertQuizHeader(
+  env: Env,
+  auth: { complexId: number; userId: number },
+  body: {
+    title_ar: string;
+    access_code: string;
+    stage_id?: number | null;
+    show_score_instantly?: boolean;
+    custom_success_message?: string | null;
+    require_student_name?: boolean;
+  },
+): Promise<number> {
+  const showScore = asSqliteBool(body.show_score_instantly, true);
+  const requireName = asSqliteBool(body.require_student_name, false);
+  const customMsg =
+    body.custom_success_message === undefined || body.custom_success_message === null
+      ? null
+      : String(body.custom_success_message).trim() || null;
+
+  const cols = ["complex_id", "title_ar", "total_points", "created_by_user_id"];
+  const vals: (string | number | null)[] = [
+    auth.complexId,
+    body.title_ar,
+    0,
+    auth.userId,
+  ];
+
+  if (await tableHasColumn(env, "quizzes", "access_code")) {
+    cols.push("access_code");
+    vals.push(body.access_code);
+  }
+  if (await tableHasColumn(env, "quizzes", "status")) {
+    cols.push("status");
+    vals.push("published");
+  }
+  if (await tableHasColumn(env, "quizzes", "stage_id")) {
+    cols.push("stage_id");
+    vals.push(body.stage_id ?? null);
+  }
+  if (await tableHasColumn(env, "quizzes", "show_score_instantly")) {
+    cols.push("show_score_instantly");
+    vals.push(showScore);
+  }
+  if (await tableHasColumn(env, "quizzes", "custom_success_message")) {
+    cols.push("custom_success_message");
+    vals.push(customMsg);
+  }
+  if (await tableHasColumn(env, "quizzes", "require_student_name")) {
+    cols.push("require_student_name");
+    vals.push(requireName);
+  }
+  if (await tableHasColumn(env, "quizzes", "is_active")) {
+    cols.push("is_active");
+    vals.push(1);
+  }
+
+  const placeholders = cols.map(() => "?").join(", ");
+  const ins = await env.DB.prepare(
+    `INSERT INTO quizzes (${cols.join(", ")}) VALUES (${placeholders})`,
   )
-    .bind(quizId)
-    .first<{ total: number }>();
-  const total = Number(row?.total ?? 0);
-  await env.DB.prepare(
-    `UPDATE quizzes SET total_points = ?, updated_at = datetime('now') WHERE id = ?`,
-  )
-    .bind(total, quizId)
+    .bind(...vals)
     .run();
-  return total;
+
+  return Number(ins.meta.last_row_id);
+}
+
+async function patchQuizRecord(
+  env: Env,
+  quizId: number,
+  complexId: number,
+  body: {
+    title_ar?: string;
+    access_code?: string | null;
+    show_score_instantly?: boolean;
+    custom_success_message?: string | null;
+    is_active?: number;
+    require_student_name?: boolean;
+  },
+): Promise<void> {
+  const sets: string[] = [];
+  const binds: (string | number | null)[] = [];
+
+  if (body.title_ar !== undefined) {
+    sets.push("title_ar = ?");
+    binds.push(body.title_ar.trim());
+  }
+  if (
+    (await tableHasColumn(env, "quizzes", "access_code")) &&
+    body.access_code !== undefined
+  ) {
+    sets.push("access_code = ?");
+    binds.push(body.access_code?.trim() || null);
+  }
+  if (
+    (await tableHasColumn(env, "quizzes", "show_score_instantly")) &&
+    body.show_score_instantly !== undefined
+  ) {
+    sets.push("show_score_instantly = ?");
+    binds.push(asSqliteBool(body.show_score_instantly, true));
+  }
+  if (
+    (await tableHasColumn(env, "quizzes", "custom_success_message")) &&
+    body.custom_success_message !== undefined
+  ) {
+    sets.push("custom_success_message = ?");
+    binds.push(body.custom_success_message?.trim() || null);
+  }
+  if (
+    (await tableHasColumn(env, "quizzes", "require_student_name")) &&
+    body.require_student_name !== undefined
+  ) {
+    sets.push("require_student_name = ?");
+    binds.push(asSqliteBool(body.require_student_name, false));
+  }
+  if (
+    (await tableHasColumn(env, "quizzes", "is_active")) &&
+    body.is_active !== undefined
+  ) {
+    sets.push("is_active = ?");
+    binds.push(asSqliteBool(body.is_active, true));
+  }
+
+  if (sets.length === 0) return;
+
+  binds.push(quizId, complexId);
+  await env.DB.prepare(
+    `UPDATE quizzes SET ${sets.join(", ")} WHERE id = ? AND complex_id = ?`,
+  )
+    .bind(...binds)
+    .run();
+}
+
+type QuizPatchBody = {
+  title_ar?: string;
+  access_code?: string | null;
+  show_score_instantly?: boolean;
+  custom_success_message?: string | null;
+  is_active?: number;
+  require_student_name?: boolean;
+  questions?: QuizQuestionInput[];
+};
+
+async function patchQuizWithQuestionsBatch(
+  env: Env,
+  quizId: number,
+  complexId: number,
+  body: QuizPatchBody,
+): Promise<number> {
+  const normalized = normalizeQuestionList(body.questions ?? []);
+  if (normalized.length === 0) {
+    throw new Error("questions_required");
+  }
+
+  const totalPoints = normalized.reduce((sum, q) => sum + q.points, 0);
+  const schema = await detectQuestionInsertSchema(env);
+
+  const sets: string[] = ["total_points = ?"];
+  const binds: (string | number | null)[] = [totalPoints];
+
+  if (body.title_ar !== undefined) {
+    sets.push("title_ar = ?");
+    binds.push(body.title_ar.trim());
+  }
+  if (
+    (await tableHasColumn(env, "quizzes", "access_code")) &&
+    body.access_code !== undefined
+  ) {
+    sets.push("access_code = ?");
+    binds.push(body.access_code?.trim() || null);
+  }
+  if (
+    (await tableHasColumn(env, "quizzes", "show_score_instantly")) &&
+    body.show_score_instantly !== undefined
+  ) {
+    sets.push("show_score_instantly = ?");
+    binds.push(asSqliteBool(body.show_score_instantly, true));
+  }
+  if (
+    (await tableHasColumn(env, "quizzes", "custom_success_message")) &&
+    body.custom_success_message !== undefined
+  ) {
+    sets.push("custom_success_message = ?");
+    binds.push(body.custom_success_message?.trim() || null);
+  }
+  if (
+    (await tableHasColumn(env, "quizzes", "require_student_name")) &&
+    body.require_student_name !== undefined
+  ) {
+    sets.push("require_student_name = ?");
+    binds.push(asSqliteBool(body.require_student_name, false));
+  }
+  if (await tableHasColumn(env, "quizzes", "is_active")) {
+    sets.push("is_active = ?");
+    binds.push(
+      body.is_active !== undefined ? asSqliteBool(body.is_active, true) : 1,
+    );
+  }
+  if (await tableHasColumn(env, "quizzes", "status")) {
+    sets.push("status = 'published'");
+  }
+
+  binds.push(quizId, complexId);
+
+  const stmts: D1PreparedStatement[] = [
+    env.DB.prepare(
+      `UPDATE quizzes SET ${sets.join(", ")} WHERE id = ? AND complex_id = ?`,
+    ).bind(...binds),
+    env.DB.prepare(`DELETE FROM quiz_questions WHERE quiz_id = ?`).bind(quizId),
+    ...normalized.map((norm) => prepareQuestionInsert(env, quizId, norm, schema)),
+  ];
+
+  await env.DB.batch(stmts);
+  return totalPoints;
 }
 
 export async function handleProgSupervisorRouter(
@@ -51,21 +464,30 @@ export async function handleProgSupervisorRouter(
     return json({ error: "forbidden" }, 403);
   }
 
-  const scope = await loadUserScope(env, auth.userId);
   const method = request.method;
 
   if (method === "GET" && path === "/api/prog-supervisor/scope") {
-    const row = await env.DB.prepare(
-      `SELECT supervisor_scope FROM users WHERE id = ?`,
-    )
-      .bind(auth.userId)
-      .first<{ supervisor_scope: string | null }>();
-    return json({
-      supervisor_scope: row?.supervisor_scope ?? "global",
-      scope,
-      scope_label: scopeLabel(scope),
-    });
+    try {
+      const scope = await safeLoadUserScope(env, auth.userId);
+      const supervisor_scope = await readSupervisorScopeString(env, auth.userId);
+      return json({
+        supervisor_scope,
+        scope,
+        scope_label: scopeLabel(scope),
+      });
+    } catch (err) {
+      return criticalQuizError(err, "GET /api/prog-supervisor/scope");
+    }
   }
+
+  let scope: ScopeMode = { type: "global" };
+  try {
+    scope = await safeLoadUserScope(env, auth.userId);
+  } catch (err) {
+    console.error("prog-supervisor scope preload:", err);
+  }
+
+  try {
 
   if (method === "GET" && path === "/api/prog-supervisor/target-options") {
     const students = await env.DB.prepare(
@@ -105,47 +527,118 @@ export async function handleProgSupervisorRouter(
   }
 
   if (method === "GET" && path === "/api/prog-supervisor/quizzes") {
-    const stageWhere = stageFilterWhere(scope, "q.stage_id");
+    const hasQuizStage = await tableHasColumn(env, "quizzes", "stage_id");
+    const { where: quizWhere, binds: quizScopeBinds } = quizListScopeSql(scope, hasQuizStage);
+    const hasShow = await tableHasColumn(env, "quizzes", "show_score_instantly");
+    const hasRequireName = await tableHasColumn(env, "quizzes", "require_student_name");
+    const extraCols = hasShow
+      ? `, COALESCE(q.show_score_instantly, 1) AS show_score_instantly,
+         q.custom_success_message,
+         COALESCE(q.is_active, 1) AS is_active${
+           hasRequireName ? ", COALESCE(q.require_student_name, 0) AS require_student_name" : ""
+         }`
+      : hasRequireName
+        ? ", COALESCE(q.require_student_name, 0) AS require_student_name"
+        : "";
+    const hasAttempts = await hasTable(env, "quiz_attempts");
+    const hasResponses = await hasTable(env, "quiz_responses");
+    const hasResponsePending =
+      hasResponses && (await tableHasColumn(env, "quiz_responses", "grading_pending"));
+    const attemptsSql = hasAttempts
+      ? `(SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.quiz_id = q.id AND qa.submitted_at IS NOT NULL)`
+      : `0`;
+    const responsesSql = hasResponses
+      ? `(SELECT COUNT(*) FROM quiz_responses qr WHERE qr.quiz_id = q.id AND qr.submitted_at IS NOT NULL)`
+      : `0`;
+    const pendingReviewSql = hasResponsePending
+      ? `(SELECT COUNT(*) FROM quiz_responses qr WHERE qr.quiz_id = q.id AND qr.submitted_at IS NOT NULL AND qr.grading_pending = 1)`
+      : `0`;
+    const submissionsSql = `(${attemptsSql} + ${responsesSql})`;
+    const hasQuestions = await hasTable(env, "quiz_questions");
+    const questionsSql = hasQuestions
+      ? `(SELECT COUNT(*) FROM quiz_questions qq WHERE qq.quiz_id = q.id)`
+      : `0`;
+
+    const hasStatus = await tableHasColumn(env, "quizzes", "status");
+    const hasAccess = await tableHasColumn(env, "quizzes", "access_code");
+    const statusCol = hasStatus ? "q.status" : `'published' AS status`;
+    const accessCol = hasAccess ? "q.access_code" : `NULL AS access_code`;
+
     const rows = await env.DB.prepare(
-      `SELECT q.id, q.title_ar, q.status, q.access_code, q.total_points, q.created_at,
-              (SELECT COUNT(*) FROM quiz_questions qq WHERE qq.quiz_id = q.id) AS question_count,
-              (SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.quiz_id = q.id AND qa.submitted_at IS NOT NULL) AS attempts_count
+      `SELECT q.id, q.title_ar, ${statusCol}, ${accessCol}, q.total_points, q.created_at${extraCols},
+              ${questionsSql} AS question_count,
+              ${submissionsSql} AS attempts_count,
+              ${pendingReviewSql} AS pending_review_count
        FROM quizzes q
-       WHERE q.complex_id = ? AND (${stageWhere} OR q.stage_id IS NULL)
+       WHERE ${quizWhere}
        ORDER BY q.created_at DESC LIMIT 100`,
     )
-      .bind(auth.complexId, ...stageFilterBinds(scope))
+      .bind(auth.complexId, ...quizScopeBinds)
       .all();
     return json({ items: rows.results ?? [] });
   }
 
   if (method === "POST" && path === "/api/prog-supervisor/quizzes") {
-    let body: { title_ar?: string; access_code?: string | null; stage_id?: number | null };
+    let body: {
+      title_ar?: string;
+      access_code?: string | null;
+      stage_id?: number | null;
+      show_score_instantly?: boolean;
+      custom_success_message?: string | null;
+      require_student_name?: boolean;
+      questions?: QuizQuestionInput[];
+    };
     try {
       body = await request.json();
     } catch {
       return json({ error: "invalid_json" }, 400);
     }
-    if (!body.title_ar?.trim()) {
-      return json({ error: "title_required" }, 400);
+    const title = String(body.title_ar ?? "").trim();
+    const accessCode = String(body.access_code ?? "").trim();
+    if (!title) return json({ error: "title_required" }, 400);
+    if (!accessCode) return json({ error: "access_code_required" }, 400);
+
+    const questionList = Array.isArray(body.questions) ? body.questions : [];
+    const normalized = questionList
+      .map((q, i) => normalizeQuestionInput(q, i))
+      .filter((q): q is NonNullable<typeof q> => q != null);
+    if (normalized.length === 0) {
+      return json({ error: "questions_required" }, 400);
     }
 
-    const ins = await env.DB.prepare(
-      `INSERT INTO quizzes (complex_id, title_ar, access_code, status, stage_id, total_points, created_by_user_id)
-       VALUES (?, ?, ?, 'draft', ?, 0, ?)`,
-    )
-      .bind(
-        auth.complexId,
-        body.title_ar.trim(),
-        body.access_code?.trim() || null,
-        body.stage_id ?? null,
-        auth.userId,
-      )
-      .run();
+    let quizId = 0;
+    try {
+      quizId = await insertQuizHeader(env, auth, {
+        title_ar: title,
+        access_code: accessCode,
+        stage_id: body.stage_id ?? null,
+        show_score_instantly: body.show_score_instantly,
+        custom_success_message: body.custom_success_message,
+        require_student_name: body.require_student_name,
+      });
 
-    const id = ins.meta.last_row_id as number;
-    await writeProgAudit(env, auth.complexId, "quiz", id, "create", auth.userId, body);
-    return json({ ok: true, id });
+      const totalPoints = await replaceQuizQuestions(env, quizId, questionList);
+      if (totalPoints <= 0) {
+        await env.DB.prepare(`DELETE FROM quizzes WHERE id = ?`).bind(quizId).run();
+        return json({ error: "questions_save_failed" }, 500);
+      }
+
+      await markQuizPublished(env, quizId);
+      await safeWriteProgAudit(env, auth.complexId, "quiz", quizId, "create", auth.userId, {
+        title_ar: title,
+        question_count: normalized.length,
+      });
+      return json({ ok: true, id: quizId, total_points: totalPoints });
+    } catch (err) {
+      if (quizId > 0) {
+        try {
+          await env.DB.prepare(`DELETE FROM quizzes WHERE id = ?`).bind(quizId).run();
+        } catch {
+          /* best-effort rollback */
+        }
+      }
+      return criticalQuizError(err, "POST /api/prog-supervisor/quizzes");
+    }
   }
 
   const quizMatch = path.match(/^\/api\/prog-supervisor\/quizzes\/(\d+)$/);
@@ -184,40 +677,162 @@ export async function handleProgSupervisorRouter(
     }
 
     if (method === "PATCH") {
-      let body: {
-        title_ar?: string;
-        access_code?: string | null;
-        status?: string;
-        stage_id?: number | null;
-      };
+      let body: QuizPatchBody;
       try {
         body = await request.json();
       } catch {
         return json({ error: "invalid_json" }, 400);
       }
 
-      await env.DB.prepare(
-        `UPDATE quizzes SET
-           title_ar = COALESCE(?, title_ar),
-           access_code = ?,
-           status = COALESCE(?, status),
-           stage_id = COALESCE(?, stage_id),
-           updated_at = datetime('now')
-         WHERE id = ? AND complex_id = ?`,
-      )
-        .bind(
-          body.title_ar?.trim() ?? null,
-          body.access_code?.trim() ?? quiz.access_code,
-          body.status ?? null,
-          body.stage_id ?? null,
-          quizId,
-          auth.complexId,
-        )
-        .run();
+      try {
+        if (Array.isArray(body.questions)) {
+          const totalPoints = await patchQuizWithQuestionsBatch(
+            env,
+            quizId,
+            auth.complexId,
+            body,
+          );
+          await safeWriteProgAudit(
+            env,
+            auth.complexId,
+            "quiz",
+            quizId,
+            "patch_with_questions",
+            auth.userId,
+            { question_count: body.questions.length, total_points: totalPoints },
+          );
+          return json({ ok: true, total_points: totalPoints });
+        }
+        await patchQuizRecord(env, quizId, auth.complexId, body);
+        await safeWriteProgAudit(env, auth.complexId, "quiz", quizId, "patch", auth.userId, body);
+        return json({ ok: true });
+      } catch (err) {
+        return criticalQuizError(err, "PATCH /api/prog-supervisor/quizzes/:id");
+      }
+    }
 
-      await writeProgAudit(env, auth.complexId, "quiz", quizId, "patch", auth.userId, body);
+    if (method === "DELETE") {
+      await env.DB.prepare(`DELETE FROM quizzes WHERE id = ? AND complex_id = ?`)
+        .bind(quizId, auth.complexId)
+        .run();
+      await safeWriteProgAudit(env, auth.complexId, "quiz", quizId, "delete", auth.userId, {});
       return json({ ok: true });
     }
+  }
+
+  const responsesMatch = path.match(/^\/api\/prog-supervisor\/quizzes\/(\d+)\/responses$/);
+  if (responsesMatch && method === "GET") {
+    const quizId = Number(responsesMatch[1]);
+    const quiz = await env.DB.prepare(
+      `SELECT id FROM quizzes WHERE id = ? AND complex_id = ?`,
+    )
+      .bind(quizId, auth.complexId)
+      .first();
+    if (!quiz) return json({ error: "not_found" }, 404);
+
+    const items: Array<Record<string, unknown>> = [];
+
+    if (await hasTable(env, "quiz_responses")) {
+      const hasGrading = await tableHasColumn(env, "quiz_responses", "grading_pending");
+      const hasAnswers = await tableHasColumn(env, "quiz_responses", "answers_json");
+      const extraCols = [
+        hasGrading ? "grading_pending" : null,
+        hasAnswers ? "answers_json" : null,
+      ]
+        .filter(Boolean)
+        .join(", ");
+      const colPrefix = extraCols ? `, ${extraCols}` : "";
+      const respRows = await env.DB.prepare(
+        `SELECT id, student_name, student_phone, total_score, submitted_at${colPrefix}
+         FROM quiz_responses
+         WHERE quiz_id = ? AND submitted_at IS NOT NULL
+         ORDER BY submitted_at DESC`,
+      )
+        .bind(quizId)
+        .all();
+      for (const r of respRows.results ?? []) {
+        items.push({
+          source: "public",
+          response_id: r.id,
+          student_name: r.student_name,
+          student_phone: r.student_phone,
+          total_score: r.total_score,
+          score_percent: null,
+          submitted_at: r.submitted_at,
+          grading_pending: hasGrading ? Number(r.grading_pending ?? 0) : 0,
+          answers_json: hasAnswers ? r.answers_json : null,
+        });
+      }
+    }
+
+    if (await hasTable(env, "quiz_attempts")) {
+      const attemptRows = await env.DB.prepare(
+        `SELECT s.full_name_ar, s.phone, a.score_percent, a.submitted_at
+       FROM quiz_attempts a
+       JOIN students s ON s.id = a.student_id
+       WHERE a.quiz_id = ? AND a.submitted_at IS NOT NULL
+       ORDER BY a.submitted_at DESC`,
+      )
+        .bind(quizId)
+        .all();
+
+      for (const r of attemptRows.results ?? []) {
+        items.push({
+          source: "student",
+          student_name: r.full_name_ar,
+          student_phone: r.phone,
+          total_score: null,
+          score_percent: r.score_percent,
+          submitted_at: r.submitted_at,
+        });
+      }
+    }
+
+    return json({ items });
+  }
+
+  const gradeMatch = path.match(
+    /^\/api\/prog-supervisor\/quizzes\/(\d+)\/responses\/(\d+)\/grade$/,
+  );
+  if (gradeMatch && method === "PATCH") {
+    const quizId = Number(gradeMatch[1]);
+    const responseId = Number(gradeMatch[2]);
+    const quiz = await env.DB.prepare(
+      `SELECT id FROM quizzes WHERE id = ? AND complex_id = ?`,
+    )
+      .bind(quizId, auth.complexId)
+      .first();
+    if (!quiz) return json({ error: "not_found" }, 404);
+    if (!(await hasTable(env, "quiz_responses"))) {
+      return json({ error: "migration_required" }, 503);
+    }
+
+    let body: { total_score?: number };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+    const totalScore = Number(body.total_score);
+    if (!Number.isFinite(totalScore) || totalScore < 0) {
+      return json({ error: "invalid_score" }, 400);
+    }
+
+    const hasGradingPending = await tableHasColumn(env, "quiz_responses", "grading_pending");
+    if (hasGradingPending) {
+      await env.DB.prepare(
+        `UPDATE quiz_responses SET total_score = ?, grading_pending = 0 WHERE id = ? AND quiz_id = ?`,
+      )
+        .bind(totalScore, responseId, quizId)
+        .run();
+    } else {
+      await env.DB.prepare(
+        `UPDATE quiz_responses SET total_score = ? WHERE id = ? AND quiz_id = ?`,
+      )
+        .bind(totalScore, responseId, quizId)
+        .run();
+    }
+    return json({ ok: true, total_score: totalScore });
   }
 
   const questionsMatch = path.match(/^\/api\/prog-supervisor\/quizzes\/(\d+)\/questions$/);
@@ -230,59 +845,27 @@ export async function handleProgSupervisorRouter(
       .first();
     if (!exists) return json({ error: "not_found" }, 404);
 
-    let body: {
-      questions?: Array<{
-        id?: number;
-        question_type?: string;
-        prompt_ar?: string;
-        points?: number;
-        correct_answer?: string;
-        options?: string[];
-        sort_order?: number;
-      }>;
-    };
+    let body: { questions?: QuizQuestionInput[] };
     try {
       body = await request.json();
     } catch {
       return json({ error: "invalid_json" }, 400);
     }
 
-    await env.DB.prepare(`DELETE FROM quiz_questions WHERE quiz_id = ?`).bind(quizId).run();
-
-    const list = body.questions ?? [];
-    for (let i = 0; i < list.length; i++) {
-      const q = list[i];
-      if (!q.prompt_ar?.trim()) continue;
-      const qType =
-        q.question_type === "true_false" ? "true_false" : "mcq";
-      let correct = (q.correct_answer ?? "").trim();
-      if (qType === "true_false") {
-        correct = correct === "خطأ" || correct === "false" ? "false" : "true";
+    try {
+      const list = body.questions ?? [];
+      const total = await replaceQuizQuestions(env, quizId, list);
+      if (total <= 0) {
+        return json({ error: "questions_required" }, 400);
       }
-      const optionsJson =
-        qType === "mcq" ? JSON.stringify(q.options ?? []) : JSON.stringify(["صح", "خطأ"]);
-
-      await env.DB.prepare(
-        `INSERT INTO quiz_questions (quiz_id, prompt_ar, points, correct_answer, question_type, options_json, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      )
-        .bind(
-          quizId,
-          q.prompt_ar.trim(),
-          Number(q.points) || 1,
-          correct,
-          qType,
-          optionsJson,
-          q.sort_order ?? i,
-        )
-        .run();
+      await markQuizPublished(env, quizId);
+      await safeWriteProgAudit(env, auth.complexId, "quiz", quizId, "questions_save", auth.userId, {
+        count: list.length,
+      });
+      return json({ ok: true, total_points: total });
+    } catch (err) {
+      return criticalQuizError(err, "PUT /api/prog-supervisor/quizzes/:id/questions");
     }
-
-    const total = await recomputeQuizPoints(env, quizId);
-    await writeProgAudit(env, auth.complexId, "quiz", quizId, "questions_save", auth.userId, {
-      count: list.length,
-    });
-    return json({ ok: true, total_points: total });
   }
 
   const publishMatch = path.match(/^\/api\/prog-supervisor\/quizzes\/(\d+)\/publish$/);
@@ -304,11 +887,7 @@ export async function handleProgSupervisorRouter(
       return json({ error: "no_questions" }, 400);
     }
 
-    await env.DB.prepare(
-      `UPDATE quizzes SET status = 'published', updated_at = datetime('now') WHERE id = ?`,
-    )
-      .bind(quizId)
-      .run();
+    await markQuizPublished(env, quizId);
 
     const students = await env.DB.prepare(
       `SELECT s.id FROM students s WHERE ${studentsInScopeWhere(scope)}`,
@@ -331,13 +910,7 @@ export async function handleProgSupervisorRouter(
         .first<{ attempt_token: string }>();
 
       const token = existing?.attempt_token ?? randomToken();
-      await env.DB.prepare(
-        `INSERT INTO quiz_attempts (quiz_id, student_id, attempt_token)
-         VALUES (?, ?, ?)
-         ON CONFLICT(quiz_id, student_id) DO UPDATE SET attempt_token = excluded.attempt_token`,
-      )
-        .bind(quizId, st.id, token)
-        .run();
+      await upsertQuizAttemptToken(env.DB, quizId, st.id, token);
 
       const row = await env.DB.prepare(
         `SELECT full_name_ar FROM students WHERE id = ?`,
@@ -353,13 +926,14 @@ export async function handleProgSupervisorRouter(
       });
     }
 
-    await writeProgAudit(env, auth.complexId, "quiz", quizId, "publish", auth.userId, {
+    await safeWriteProgAudit(env, auth.complexId, "quiz", quizId, "publish", auth.userId, {
       link_count: links.length,
     });
 
     return json({
       ok: true,
-      public_path: `/quiz/${quizId}`,
+      public_path: `/public/quiz/${quizId}`,
+      legacy_path: `/quiz/${quizId}`,
       access_code: quiz.access_code,
       student_links: links,
     });
@@ -477,6 +1051,134 @@ export async function handleProgSupervisorRouter(
     return json({ ok: true });
   }
 
+  if (method === "GET" && path === "/api/prog-supervisor/program-archives") {
+    if (!(await hasTable(env, "program_archives"))) {
+      return json({ error: "migration_required", table: "program_archives" }, 503);
+    }
+    const q = url.searchParams.get("q")?.trim() ?? "";
+    const typeFilter = url.searchParams.get("type")?.trim() ?? "";
+    const tag = url.searchParams.get("tag")?.trim() ?? "";
+    let sql = `SELECT * FROM program_archives WHERE complex_id = ?`;
+    const binds: (string | number)[] = [auth.complexId];
+    if (q) {
+      sql += ` AND (title LIKE ? OR description LIKE ? OR tags LIKE ?)`;
+      const like = `%${q}%`;
+      binds.push(like, like, like);
+    }
+    if (typeFilter === "link" || typeFilter === "file") {
+      sql += ` AND type = ?`;
+      binds.push(typeFilter);
+    }
+    if (tag) {
+      sql += ` AND tags LIKE ?`;
+      binds.push(`%${tag}%`);
+    }
+    sql += ` ORDER BY created_at DESC LIMIT 300`;
+    const rows = await env.DB.prepare(sql).bind(...binds).all();
+    return json({ items: rows.results ?? [] });
+  }
+
+  if (method === "POST" && path === "/api/prog-supervisor/program-archives") {
+    if (!(await hasTable(env, "program_archives"))) {
+      return json({ error: "migration_required", table: "program_archives" }, 503);
+    }
+    let body: {
+      title?: string;
+      type?: string;
+      file_url_or_link?: string;
+      description?: string;
+      tags?: string[];
+    };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+    const title = String(body.title ?? "").trim();
+    const itemType = body.type === "file" ? "file" : "link";
+    const urlValue = String(body.file_url_or_link ?? "").trim();
+    if (!title || !urlValue) return json({ error: "title_and_url_required" }, 400);
+    if (urlValue.length > 10_000_000) return json({ error: "payload_too_large" }, 400);
+
+    const ins = await env.DB.prepare(
+      `INSERT INTO program_archives (complex_id, title, type, file_url_or_link, description, tags, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(
+        auth.complexId,
+        title,
+        itemType,
+        urlValue,
+        body.description?.trim() ?? null,
+        JSON.stringify(body.tags ?? []),
+        auth.userId,
+      )
+      .run();
+    return json({ ok: true, id: ins.meta.last_row_id });
+  }
+
+  const archiveMatch = path.match(/^\/api\/prog-supervisor\/program-archives\/(\d+)$/);
+  if (archiveMatch) {
+    if (!(await hasTable(env, "program_archives"))) {
+      return json({ error: "migration_required", table: "program_archives" }, 503);
+    }
+    const archiveId = Number(archiveMatch[1]);
+    if (method === "DELETE") {
+      await env.DB.prepare(`DELETE FROM program_archives WHERE id = ? AND complex_id = ?`)
+        .bind(archiveId, auth.complexId)
+        .run();
+      return json({ ok: true });
+    }
+    if (method === "PATCH") {
+      let body: {
+        title?: string;
+        type?: string;
+        file_url_or_link?: string;
+        description?: string;
+        tags?: string[];
+      };
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: "invalid_json" }, 400);
+      }
+      const row = await env.DB.prepare(
+        `SELECT title, type, file_url_or_link, description, tags FROM program_archives WHERE id = ? AND complex_id = ?`,
+      )
+        .bind(archiveId, auth.complexId)
+        .first<{
+          title: string;
+          type: string;
+          file_url_or_link: string;
+          description: string | null;
+          tags: string;
+        }>();
+      if (!row) return json({ error: "not_found" }, 404);
+      const urlValue = body.file_url_or_link?.trim() ?? row.file_url_or_link;
+      if (urlValue.length > 10_000_000) return json({ error: "payload_too_large" }, 400);
+      await env.DB.prepare(
+        `UPDATE program_archives SET
+           title = ?,
+           type = ?,
+           file_url_or_link = ?,
+           description = ?,
+           tags = ?
+         WHERE id = ? AND complex_id = ?`,
+      )
+        .bind(
+          body.title?.trim() ?? row.title,
+          body.type === "file" ? "file" : body.type === "link" ? "link" : row.type,
+          urlValue,
+          body.description !== undefined ? body.description?.trim() ?? null : row.description,
+          body.tags ? JSON.stringify(body.tags) : row.tags,
+          archiveId,
+          auth.complexId,
+        )
+        .run();
+      return json({ ok: true });
+    }
+  }
+
   if (method === "GET" && path === "/api/prog-supervisor/vault") {
     const q = url.searchParams.get("q")?.trim() ?? "";
     let sql = `SELECT * FROM knowledge_vault_items WHERE complex_id = ? AND is_active = 1`;
@@ -549,84 +1251,160 @@ export async function handleProgSupervisorRouter(
     return json({ ok: true });
   }
 
-  return json({ error: "Not Found", path }, 404);
+    return json({ error: "Not Found", path }, 404);
+  } catch (err) {
+    return criticalQuizError(err, `prog-supervisor ${method} ${path}`);
+  }
 }
 
 async function handleAnalytics(
   env: Env,
   complexId: number,
-  scope: Awaited<ReturnType<typeof loadUserScope>>,
-  url: URL,
+  scope: ScopeMode,
+  _url: URL,
 ): Promise<Response> {
-  const scopeStudentWhere = studentsInScopeWhere(scope);
-  const scopeBinds = studentsInScopeBinds(complexId, scope);
+  try {
+    const scopeStudentWhere = studentsInScopeWhere(scope);
+    const scopeBinds = studentsInScopeBinds(complexId, scope);
+    const hasStudents = await hasTable(env, "students");
 
-  const pendingQuizzes = await env.DB.prepare(
-    `SELECT COUNT(*) AS c FROM quizzes WHERE complex_id = ? AND status = 'published'`,
-  )
-    .bind(complexId)
-    .first<{ c: number }>();
+  let publishedQuizzes = 0;
+  if (await hasTable(env, "quizzes")) {
+    const hasStatus = await tableHasColumn(env, "quizzes", "status");
+    const row = hasStatus
+      ? await env.DB.prepare(
+          `SELECT COUNT(*) AS c FROM quizzes WHERE complex_id = ? AND status = 'published'`,
+        )
+          .bind(complexId)
+          .first<{ c: number }>()
+      : await env.DB.prepare(
+          `SELECT COUNT(*) AS c FROM quizzes WHERE complex_id = ?`,
+        )
+          .bind(complexId)
+          .first<{ c: number }>();
+    publishedQuizzes = Number(row?.c ?? 0);
+  }
 
-  const attempts = await env.DB.prepare(
-    `SELECT AVG(a.score_percent) AS avg_score, COUNT(*) AS c
-     FROM quiz_attempts a
-     JOIN students s ON s.id = a.student_id
-     WHERE a.submitted_at IS NOT NULL AND ${scopeStudentWhere}`,
-  )
-    .bind(...scopeBinds)
-    .first<{ avg_score: number | null; c: number }>();
+  let attemptsCount = 0;
+  let avgScore = 0;
+  if (await hasTable(env, "quiz_attempts") && hasStudents) {
+    const attempts = await env.DB.prepare(
+      `SELECT AVG(a.score_percent) AS avg_score, COUNT(*) AS c
+       FROM quiz_attempts a
+       JOIN students s ON s.id = a.student_id
+       WHERE a.submitted_at IS NOT NULL AND ${scopeStudentWhere}`,
+    )
+      .bind(...scopeBinds)
+      .first<{ avg_score: number | null; c: number }>();
+    attemptsCount = Number(attempts?.c ?? 0);
+    avgScore = Math.round(Number(attempts?.avg_score ?? 0) * 10) / 10;
+  }
 
-  const topStudents = await env.DB.prepare(
-    `SELECT s.id, s.full_name_ar, AVG(a.score_percent) AS avg_score, COUNT(a.id) AS quiz_count
-     FROM quiz_attempts a
-     JOIN students s ON s.id = a.student_id
-     WHERE a.submitted_at IS NOT NULL AND ${scopeStudentWhere}
-     GROUP BY s.id
-     ORDER BY avg_score DESC, quiz_count DESC
-     LIMIT 10`,
-  )
-    .bind(...scopeBinds)
-    .all();
+  if (await hasTable(env, "quiz_responses") && (await hasTable(env, "quizzes"))) {
+    const publicAttempts = await env.DB.prepare(
+      `SELECT COUNT(*) AS c
+       FROM quiz_responses qr
+       JOIN quizzes q ON q.id = qr.quiz_id
+       WHERE qr.submitted_at IS NOT NULL AND q.complex_id = ?`,
+    )
+      .bind(complexId)
+      .first<{ c: number }>();
+    attemptsCount += Number(publicAttempts?.c ?? 0);
+  }
 
-  const topCircles = await env.DB.prepare(
-    `SELECT c.id, c.name_ar,
-            COUNT(DISTINCT pp.student_id) AS participants,
-            COUNT(pp.id) AS participation_events
-     FROM program_participation pp
-     JOIN students s ON s.id = pp.student_id
-     JOIN student_circle_history h ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL
-     JOIN circles c ON c.id = h.circle_id
-     WHERE ${scopeStudentWhere}
-     GROUP BY c.id
-     ORDER BY participants DESC
-     LIMIT 10`,
-  )
-    .bind(...scopeBinds)
-    .all();
+  let topStudents: Record<string, unknown>[] = [];
+  if (await hasTable(env, "quiz_attempts") && hasStudents) {
+    const rows = await env.DB.prepare(
+      `SELECT s.id, s.full_name_ar, AVG(a.score_percent) AS avg_score, COUNT(a.id) AS quiz_count
+       FROM quiz_attempts a
+       JOIN students s ON s.id = a.student_id
+       WHERE a.submitted_at IS NOT NULL AND ${scopeStudentWhere}
+       GROUP BY s.id
+       ORDER BY avg_score DESC, quiz_count DESC
+       LIMIT 10`,
+    )
+      .bind(...scopeBinds)
+      .all();
+    topStudents = rows.results ?? [];
+  }
 
-  const circleQuizAvg = await env.DB.prepare(
-    `SELECT c.id, c.name_ar, AVG(a.score_percent) AS avg_score, COUNT(a.id) AS attempts
-     FROM quiz_attempts a
-     JOIN students s ON s.id = a.student_id
-     JOIN student_circle_history h ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL
-     JOIN circles c ON c.id = h.circle_id
-     WHERE a.submitted_at IS NOT NULL AND ${scopeStudentWhere}
-     GROUP BY c.id
-     ORDER BY avg_score DESC
-     LIMIT 10`,
-  )
-    .bind(...scopeBinds)
-    .all();
+  let topCircles: Record<string, unknown>[] = [];
+  const hasCircles = await hasTable(env, "circles");
+  const hasHistory = await hasTable(env, "student_circle_history");
+  const hasLegacyHistory = hasHistory && (await tableHasColumn(env, "student_circle_history", "circle_id"));
+  const hasCurrentCircle = hasStudents && (await tableHasColumn(env, "students", "current_circle_id"));
+  const activePlacement = hasLegacyHistory ? await activePlacementSql(env, "h") : "1=0";
+  const circleJoin = hasLegacyHistory
+    ? `JOIN student_circle_history h ON h.student_id = s.id AND ${activePlacement}
+       JOIN circles c ON c.id = h.circle_id`
+    : hasCurrentCircle
+      ? `JOIN circles c ON c.id = s.current_circle_id`
+      : "";
 
-  return json({
-    scope_label: scopeLabel(scope),
-    kpis: {
-      published_quizzes: Number(pendingQuizzes?.c ?? 0),
-      quiz_attempts_submitted: Number(attempts?.c ?? 0),
-      average_quiz_score: Math.round(Number(attempts?.avg_score ?? 0) * 10) / 10,
-    },
-    top_students: topStudents.results ?? [],
-    top_circles_participation: topCircles.results ?? [],
-    circle_quiz_averages: circleQuizAvg.results ?? [],
-  });
+  if (
+    (await hasTable(env, "program_participation")) &&
+    hasStudents &&
+    hasCircles &&
+    circleJoin
+  ) {
+    const rows = await env.DB.prepare(
+      `SELECT c.id, c.name_ar,
+              COUNT(DISTINCT pp.student_id) AS participants,
+              COUNT(pp.id) AS participation_events
+       FROM program_participation pp
+       JOIN students s ON s.id = pp.student_id
+       ${circleJoin}
+       WHERE ${scopeStudentWhere}
+       GROUP BY c.id
+       ORDER BY participants DESC
+       LIMIT 10`,
+    )
+      .bind(...scopeBinds)
+      .all();
+    topCircles = rows.results ?? [];
+  }
+
+  let circleQuizAvg: Record<string, unknown>[] = [];
+  if (
+    (await hasTable(env, "quiz_attempts")) &&
+    hasStudents &&
+    hasCircles &&
+    circleJoin
+  ) {
+    const rows = await env.DB.prepare(
+      `SELECT c.id, c.name_ar, AVG(a.score_percent) AS avg_score, COUNT(a.id) AS attempts
+       FROM quiz_attempts a
+       JOIN students s ON s.id = a.student_id
+       ${circleJoin}
+       WHERE a.submitted_at IS NOT NULL AND ${scopeStudentWhere}
+       GROUP BY c.id
+       ORDER BY avg_score DESC
+       LIMIT 10`,
+    )
+      .bind(...scopeBinds)
+      .all();
+    circleQuizAvg = rows.results ?? [];
+  }
+
+    return json({
+      scope_label: scopeLabel(scope),
+      kpis: {
+        published_quizzes: publishedQuizzes,
+        quiz_attempts_submitted: attemptsCount,
+        average_quiz_score: avgScore,
+      },
+      top_students: topStudents,
+      top_circles_participation: topCircles,
+      circle_quiz_averages: circleQuizAvg,
+    });
+  } catch (err) {
+    console.error("prog_analytics_failed", err);
+    return json(
+      {
+        error: "prog_analytics_failed",
+        message: err instanceof Error ? err.message : String(err),
+      },
+      500,
+    );
+  }
 }

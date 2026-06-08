@@ -20,10 +20,18 @@ export const STAGE_OPTIONS = EDUCATIONAL_STAGES.map((s) => ({
   label: s.name_ar,
 }));
 
+/** خيارات إضافة/تعديل المشرف (تبويب المشرفين) — أربعة أدوار فقط */
 export const SUPERVISOR_TYPES = [
-  { value: "edu_supervisor", label: "مشرف تعليمي" },
-  { value: "prog_supervisor", label: "مشرف برامج" },
   { value: "general_supervisor", label: "مشرف عام" },
+  { value: "edu_supervisor", label: "مشرف تعليمي" },
+  { value: "programs_supervisor", label: "مشرف إدارة البرامج" },
+  { value: "track_supervisor", label: "مشرف مسار" },
+] as const;
+
+/** نوع المنسوب في تبويب المعلمين (معلم = teacher، مشرف مسار = track_supervisor) */
+export const CIRCLE_STAFF_TYPES = [
+  { value: "teacher", label: "معلم" },
+  { value: "track_supervisor", label: "مشرف مسار" },
 ] as const;
 
 export function stageLabel(

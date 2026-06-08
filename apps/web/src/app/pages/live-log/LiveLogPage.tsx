@@ -26,6 +26,8 @@ type AuditRow = {
 
 export function LiveLogPage() {
   const { token } = useParams<{ token: string }>();
+  const [pin, setPin] = useState("");
+  const [pinVerified, setPinVerified] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sessionName, setSessionName] = useState("");
@@ -41,11 +43,11 @@ export function LiveLogPage() {
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
-    if (!token) return;
+    if (!token || !pinVerified) return;
     setLoading(true);
     setError(null);
     try {
-      const data = await api.liveLogSession(token);
+      const data = await api.liveLogSession(token, pin);
       setKind(data.kind);
       setSessionName(String(data.session.name_ar ?? ""));
       if (data.session.rules) {
@@ -72,7 +74,7 @@ export function LiveLogPage() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, pinVerified, pin]);
 
   useEffect(() => {
     load();
@@ -109,7 +111,7 @@ export function LiveLogPage() {
       const res = await api.liveLogUpsert(token, {
         student_id: activeId,
         ...patch,
-      });
+      }, pin);
       setAudit((prev) => ({
         ...prev,
         [activeId]: {
@@ -135,6 +137,50 @@ export function LiveLogPage() {
     if (field === "delta_error") next.errors_count = Number(next.errors_count ?? 0) + d;
     setAudit((p) => ({ ...p, [activeId]: next }));
     void saveAudit({ [field]: d });
+  }
+
+  async function verifyPin() {
+    if (!token) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await api.liveLogSession(token, pin);
+      setPinVerified(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "رمز الدخول غير صحيح");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!pinVerified) {
+    return (
+      <div className="min-h-screen p-4 flex items-center justify-center" dir="rtl">
+        <div className={`${ds.card} w-full max-w-md p-6 space-y-4`}>
+          <h1 className="text-xl font-bold text-primary" style={tajawal}>
+            بطاقة التحقق للمقرئ
+          </h1>
+          <p className="text-sm text-muted-foreground" style={tajawal}>
+            أدخل رمز الدخول (PIN) الممنوح لك لفتح بطاقة الرصد الميداني.
+          </p>
+          <Input
+            value={pin}
+            onChange={(e) => setPin(e.target.value)}
+            placeholder="أدخل رمز PIN"
+            className={ds.btnRound}
+            style={tajawal}
+          />
+          {error && (
+            <p className={ds.alert.error} style={tajawal}>
+              {error}
+            </p>
+          )}
+          <Button type="button" className={ds.btnRound} onClick={verifyPin} disabled={loading || !pin.trim()} style={tajawal}>
+            {loading ? "جارٍ التحقق..." : "دخول الرصد"}
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   return (

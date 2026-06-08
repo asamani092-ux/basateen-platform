@@ -1,50 +1,117 @@
 import type { UserRole } from "../lib/auth-store";
 
 export const ROLE_HOME: Record<UserRole, string> = {
-  teacher: "/teacher",
-  edu_supervisor: "/edu-supervisor/dashboard",
-  prog_supervisor: "/prog-supervisor/quizzes",
-  general_supervisor: "/general-supervisor/student-attendance",
-  general_manager: "/admin/staff",
+  super_admin: "/admin-dept/reports",
+  edu_supervisor: "/edu-dept/dashboard",
+  admin_supervisor: "/admin-dept/staff-attendance",
+  prog_supervisor: "/prog-dept/quizzes",
+  programs_supervisor: "/prog-dept/quizzes",
+  track_supervisor: "/edu-dept/daily-recitation",
+  teacher: "/edu-dept/daily-recitation",
 };
 
+/** مسار البداية الصحيح — يُصحّح الجلسات القديمة (general-supervisor وغيرها) */
+export function roleHomePath(role: UserRole): string {
+  return ROLE_HOME[role];
+}
+
+export function normalizeStoredHomePath(role: UserRole, homePath: string): string {
+  if (
+    homePath.includes("general-supervisor") ||
+    homePath === "/dashboard" ||
+    (homePath.startsWith("/admin/") && !homePath.startsWith("/admin-dept/"))
+  ) {
+    return ROLE_HOME[role];
+  }
+  if (pathAllowedForRole(role, homePath)) return homePath;
+  return ROLE_HOME[role];
+}
+
 export const STAFF_ROLES: UserRole[] = [
+  "super_admin",
   "edu_supervisor",
-  "prog_supervisor",
-  "general_supervisor",
-  "general_manager",
+  "programs_supervisor",
+  "track_supervisor",
+  "teacher",
 ];
 
 const PATH_RULES: Array<{ prefix: string; roles: UserRole[] }> = [
+  { prefix: "/super-admin", roles: ["super_admin"] },
+  { prefix: "/edu-dept", roles: ["edu_supervisor", "super_admin", "teacher", "track_supervisor"] },
+  { prefix: "/admin-dept", roles: ["super_admin"] },
+  { prefix: "/prog-dept", roles: ["programs_supervisor", "super_admin"] },
+  { prefix: "/display-dept", roles: ["super_admin"] },
   { prefix: "/teacher", roles: ["teacher"] },
-  { prefix: "/admin/staff", roles: ["general_manager"] },
-  { prefix: "/admin/circles-setup", roles: ["general_manager"] },
-  { prefix: "/admin/statistics", roles: ["general_manager"] },
-  { prefix: "/edu-supervisor/yom-himma", roles: ["edu_supervisor"] },
-  { prefix: "/edu-supervisor/competitions", roles: ["edu_supervisor"] },
-  { prefix: "/edu-supervisor", roles: ["edu_supervisor"] },
-  { prefix: "/prog-supervisor", roles: ["prog_supervisor"] },
-  { prefix: "/general-supervisor", roles: ["general_supervisor"] },
-  { prefix: "/admin/students", roles: ["edu_supervisor"] },
-  { prefix: "/admin/transfers", roles: ["edu_supervisor"] },
-  { prefix: "/admin/violations", roles: ["general_supervisor"] },
-  { prefix: "/education", roles: ["edu_supervisor"] },
-  { prefix: "/programs", roles: ["prog_supervisor"] },
+  { prefix: "/tv-live", roles: STAFF_ROLES },
+  { prefix: "/live-log", roles: STAFF_ROLES },
   {
     prefix: "/welcome",
-    roles: [
-      "teacher",
-      "edu_supervisor",
-      "prog_supervisor",
-      "general_supervisor",
-      "general_manager",
-    ],
+    roles: ["super_admin", "edu_supervisor", "programs_supervisor", "track_supervisor", "teacher"],
   },
+];
+
+/** Legacy URL redirects (pre–great-purge) */
+export const LEGACY_REDIRECTS: Record<string, string | "home"> = {
+  "/admin/staff": "/super-admin/staff",
+  "/admin/circles-setup": "/super-admin/circles-setup",
+  "/admin/statistics": "/admin-dept/reports",
+  "/super-admin/statistics": "/admin-dept/reports",
+  "/edu-supervisor": "/edu-dept/dashboard",
+  "/edu-supervisor/dashboard": "/edu-dept/dashboard",
+  "/edu-supervisor/master-grid": "/edu-dept/master-grid",
+  "/edu-supervisor/placement": "/edu-dept/master-grid",
+  "/edu-supervisor/students": "/edu-dept/students",
+  "/edu-supervisor/transfers": "/edu-dept/transfers",
+  "/edu-supervisor/circles": "/edu-dept/circles",
+  "/edu-supervisor/events-engine": "/edu-dept/competitions",
+  "/edu-supervisor/yom-himma": "/edu-dept/competitions",
+  "/edu-supervisor/competitions": "/edu-dept/competitions",
+  "/general-supervisor": "/admin-dept/staff-attendance",
+  "/general-supervisor/student-attendance": "/admin-dept/student-attendance",
+  "/general-supervisor/staff": "/admin-dept/staff-attendance",
+  "/general-supervisor/staff-attendance": "/admin-dept/staff-attendance",
+  "/general-supervisor/admissions": "/admin-dept/students",
+  "/admin-dept/admissions": "/admin-dept/students",
+  "/general-supervisor/violations": "/admin-dept/pledges",
+  "/general-supervisor/dashboard": "/admin-dept/reports",
+  "/admin-dept/dashboard": "/admin-dept/reports",
+  "/admin-dept/violations": "/admin-dept/pledges",
+  "/prog-supervisor": "/prog-dept/quizzes",
+  "/dashboard": "home",
+  "/teacher": "/edu-dept/daily-recitation",
+  "/teacher/daily-log": "/edu-dept/daily-recitation",
+};
+
+const TEACHER_ONLY_EDU_PATHS = ["/edu-dept/teacher-competitions"];
+
+const RECITATION_EDU_PATH = "/edu-dept/daily-recitation";
+const RECITATION_ROLES: UserRole[] = [
+  "teacher",
+  "track_supervisor",
+  "edu_supervisor",
+  "super_admin",
+  "programs_supervisor",
 ];
 
 export function pathAllowedForRole(role: UserRole, pathname: string): boolean {
   if (pathname === "/login" || pathname === "/tv-live") return true;
   if (pathname.startsWith("/quiz/")) return true;
+  if (pathname.startsWith("/live-log/")) return true;
+  if (pathname.startsWith("/public/")) return true;
+
+  for (const prefix of TEACHER_ONLY_EDU_PATHS) {
+    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
+      return role === "teacher" || role === "track_supervisor";
+    }
+  }
+
+  if (
+    pathname === RECITATION_EDU_PATH ||
+    pathname.startsWith(`${RECITATION_EDU_PATH}/`)
+  ) {
+    return RECITATION_ROLES.includes(role);
+  }
+
   for (const rule of PATH_RULES) {
     if (pathname === rule.prefix || pathname.startsWith(`${rule.prefix}/`)) {
       return rule.roles.includes(role);
@@ -53,70 +120,25 @@ export function pathAllowedForRole(role: UserRole, pathname: string): boolean {
   return false;
 }
 
-export const LEGACY_REDIRECTS: Record<string, string | "home"> = {
-  "/dashboard": "home",
-  "/admin/staff-management": "/admin/staff",
-  "/admin/students/import": "/edu-supervisor/students?excel=1",
-  "/education/himma": "/edu-supervisor/yom-himma",
-  "/programs": "/prog-supervisor/quizzes",
-  "/prog-supervisor": "/prog-supervisor/quizzes",
-  "/admin/circles": "/edu-supervisor/circles",
-};
-
-/** تحويل ?tab= القديمة للمشرف التعليمي */
-export const EDU_LEGACY_TAB_REDIRECTS: Record<string, string> = {
-  placement: "/edu-supervisor/placement",
-  students: "/edu-supervisor/students",
-  transfers: "/edu-supervisor/transfers",
-  circles: "/edu-supervisor/circles",
-  education: "/edu-supervisor/competitions",
-  attendance: "/edu-supervisor/placement",
-};
-
-export function resolveEduTabRedirect(pathname: string, tab: string | null): string | null {
-  if (pathname !== "/edu-supervisor" || !tab) return null;
-  return EDU_LEGACY_TAB_REDIRECTS[tab] ?? null;
-}
-
-export const GS_LEGACY_TAB_REDIRECTS: Record<string, string> = {
-  staff: "/general-supervisor/staff",
-  admissions: "/general-supervisor/admissions",
-  violations: "/general-supervisor/violations",
-  dashboard: "/general-supervisor/dashboard",
-  attendance: "/general-supervisor/student-attendance",
-  "student-attendance": "/general-supervisor/student-attendance",
-};
-
-export function resolveGsTabRedirect(pathname: string, tab: string | null): string | null {
-  if (pathname !== "/general-supervisor" || !tab) return null;
-  return GS_LEGACY_TAB_REDIRECTS[tab] ?? null;
-}
-
-/** تحويل ?tab= القديمة لمشرف البرامج */
-export const PROG_LEGACY_TAB_REDIRECTS: Record<string, string> = {
-  programs: "/prog-supervisor/quizzes",
-  quizzes: "/prog-supervisor/quizzes",
-  analytics: "/prog-supervisor/analytics",
-  archive: "/prog-supervisor/vault",
-  vault: "/prog-supervisor/vault",
-};
-
-export function resolveProgTabRedirect(pathname: string, tab: string | null): string | null {
-  if (pathname !== "/prog-supervisor" || !tab) return null;
-  return PROG_LEGACY_TAB_REDIRECTS[tab] ?? "/prog-supervisor/quizzes";
-}
-
 export function resolveLegacyRedirect(
   pathname: string,
   role: UserRole,
 ): string | null {
-  const target = LEGACY_REDIRECTS[pathname];
-  if (!target) return null;
-  if (target === "home") return ROLE_HOME[role];
-  return target;
+  const exact = LEGACY_REDIRECTS[pathname];
+  if (exact) return exact === "home" ? ROLE_HOME[role] : exact;
+  if (pathname.startsWith("/edu-supervisor/")) {
+    return pathname.replace("/edu-supervisor", "/edu-dept");
+  }
+  if (pathname.startsWith("/general-supervisor/")) {
+    return pathname.replace("/general-supervisor", "/admin-dept");
+  }
+  if (pathname.startsWith("/prog-supervisor/")) {
+    return pathname.replace("/prog-supervisor", "/prog-dept");
+  }
+  if (pathname.startsWith("/admin/") && !pathname.startsWith("/admin-dept/")) {
+    return pathname.replace(/^\/admin/, "/super-admin");
+  }
+  return null;
 }
 
-export const TV_LAUNCH_ROLES: UserRole[] = [
-  "general_manager",
-  "general_supervisor",
-];
+export const TV_LAUNCH_ROLES: UserRole[] = ["super_admin"];

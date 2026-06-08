@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import { PageLoader } from "../../components/shared/PageLoader";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { ds, tajawal } from "../../lib/design-system";
@@ -8,15 +9,23 @@ export function ProgAnalyticsPage() {
   const [data, setData] = useState<Awaited<ReturnType<typeof api.progAnalytics>> | null>(
     null,
   );
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!canUseApi()) return;
+    if (!canUseApi()) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
     try {
       const res = await api.progAnalytics();
       setData(res);
+      setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل التحميل");
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -27,13 +36,16 @@ export function ProgAnalyticsPage() {
   const kpis = data?.kpis;
 
   return (
-    <div className="space-y-6">
+    <div dir="rtl" className="space-y-6 text-right">
+      {loading && <PageLoader />}
       {error && (
         <p className={ds.alert.error} style={tajawal}>
           {error}
         </p>
       )}
 
+      {!loading && (
+        <>
       <p className="text-sm text-muted-foreground" style={tajawal}>
         {data?.scope_label} — إحصائيات معزولة عن الرصد القرآني اليومي
       </p>
@@ -122,6 +134,8 @@ export function ProgAnalyticsPage() {
           </CardContent>
         </Card>
       </div>
+        </>
+      )}
     </div>
   );
 }

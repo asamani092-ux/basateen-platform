@@ -57,7 +57,9 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euxo pipefail
+          # Cloudflare Pages rejects non-ASCII git commit messages from wrangler auto-detect.
           npx --yes wrangler@3.114.17 pages deploy dist \
             --project-name=basateen-platform \
             --branch=main \
-            --commit-dirty=true
+            --commit-hash "${GITHUB_SHA}" \
+            --commit-message "deploy web ${GITHUB_SHA}"

@@ -33,7 +33,7 @@ export const PREVIEW_USERS: Record<
     id: 3,
     email: "programs@basateen.local",
     full_name_ar: "مشرف البرامج",
-    role: "prog_supervisor",
+    role: "programs_supervisor",
     sections: ["programs"],
   },
   "0500000004": {

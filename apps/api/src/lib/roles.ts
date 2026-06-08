@@ -1,34 +1,35 @@
 import type { UserRole } from "../types";
 
 export const ALL_ROLES: UserRole[] = [
+  "super_admin",
+  "edu_supervisor",
+  "programs_supervisor",
+  "track_supervisor",
   "teacher",
-  "edu_supervisor",
-  "prog_supervisor",
-  "general_supervisor",
-  "general_manager",
 ];
 
-/** Staff who use dashboard shell (not teacher-only) */
 export const STAFF_ROLES: UserRole[] = [
+  "super_admin",
   "edu_supervisor",
-  "prog_supervisor",
-  "general_supervisor",
-  "general_manager",
+  "programs_supervisor",
+  "track_supervisor",
+  "teacher",
 ];
 
-export const EDU_ROLES: UserRole[] = [
-  "edu_supervisor",
-  "general_manager",
-];
+export const EDU_ROLES: UserRole[] = ["edu_supervisor", "super_admin"];
 
-/** تشغيل ميداني — المشرف التعليمي فقط */
 export const FIELD_EDU_ROLES: UserRole[] = ["edu_supervisor"];
 
-export const PROG_ROLES: UserRole[] = ["prog_supervisor", "general_manager"];
+export const PROG_ROLES: UserRole[] = ["programs_supervisor", "super_admin"];
 
-export const ADMIN_DATA_ROLES: UserRole[] = [
+export const ADMIN_DATA_ROLES: UserRole[] = ["edu_supervisor", "super_admin"];
+
+export const ADMIN_SUPERVISOR_ROLES: UserRole[] = ["super_admin"];
+
+export const BROADCAST_ROLES: UserRole[] = [
+  "super_admin",
   "edu_supervisor",
-  "general_manager",
+  "programs_supervisor",
+  "track_supervisor",
+  "teacher",
 ];
-
-export const GENERAL_SUPERVISOR_ROLES: UserRole[] = ["general_supervisor"];

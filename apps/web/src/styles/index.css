@@ -1,3 +1,405 @@
 @import './fonts.css';
 @import './tailwind.css';
 @import './theme.css';
+
+/* Admin reports — print only KPI cards + detail table */
+@media print {
+  body {
+    background: #fff !important;
+  }
+
+  #admin-reports-print,
+  #admin-reports-print * {
+    color: #000 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .print\\:text-black {
+    color: #000 !important;
+  }
+
+  .print\\:bg-white {
+    background: #fff !important;
+  }
+
+  .admin-reports-screen-only {
+    display: none !important;
+  }
+
+  aside,
+  header,
+  .admin-reports-screen-only,
+  [data-dev-preview-banner] {
+    display: none !important;
+  }
+
+  main {
+    padding: 0 !important;
+  }
+
+  #admin-reports-print {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  #admin-reports-print .admin-reports-print-body {
+    display: block !important;
+    visibility: visible !important;
+  }
+
+  /* Staff attendance report modal */
+  body.printing-staff-attendance-report aside,
+  body.printing-staff-attendance-report header,
+  body.printing-staff-attendance-report [data-dev-preview-banner],
+  body.printing-staff-attendance-report main {
+    display: none !important;
+  }
+
+  body.printing-staff-attendance-report [data-slot="dialog-overlay"] {
+    display: none !important;
+  }
+
+  body.printing-staff-attendance-report [data-slot="dialog-content"] {
+    position: absolute !important;
+    top: 0 !important;
+    left: 50% !important;
+    width: 210mm !important;
+    max-width: calc(100% - 16mm) !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    border: none !important;
+    box-shadow: none !important;
+    transform: translateX(-50%) !important;
+    background: #fff !important;
+  }
+
+  body.printing-staff-attendance-report [data-slot="dialog-content"] > button {
+    display: none !important;
+  }
+
+  body.printing-staff-attendance-report [data-slot="table-container"] {
+    overflow: visible !important;
+  }
+
+  body.printing-staff-attendance-report .print\\:hidden {
+    display: none !important;
+  }
+
+  body.printing-staff-attendance-report .staff-attendance-report-print {
+    display: block !important;
+    position: relative !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
+    padding: 10mm !important;
+    visibility: visible !important;
+    overflow: visible !important;
+    color: #000 !important;
+    background: #fff !important;
+  }
+
+  body.printing-staff-attendance-report .staff-attendance-report-print table {
+    table-layout: fixed !important;
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+
+  body.printing-staff-attendance-report .staff-attendance-report-print th,
+  body.printing-staff-attendance-report .staff-attendance-report-print td {
+    white-space: normal !important;
+    word-break: break-word !important;
+    font-size: 0.75rem !important;
+    padding: 0.25rem 0.5rem !important;
+    border: 1px solid #000 !important;
+    vertical-align: top !important;
+  }
+
+  body.printing-staff-attendance-report .staff-attendance-report-print th {
+    font-weight: 600 !important;
+    background: #f5f5f5 !important;
+  }
+
+  body.printing-staff-attendance-report .staff-attendance-report-print th:nth-child(1),
+  body.printing-staff-attendance-report .staff-attendance-report-print td:nth-child(1) {
+    width: 40% !important;
+  }
+
+  body.printing-staff-attendance-report .staff-attendance-report-print th:nth-child(2),
+  body.printing-staff-attendance-report .staff-attendance-report-print td:nth-child(2),
+  body.printing-staff-attendance-report .staff-attendance-report-print th:nth-child(3),
+  body.printing-staff-attendance-report .staff-attendance-report-print td:nth-child(3),
+  body.printing-staff-attendance-report .staff-attendance-report-print th:nth-child(4),
+  body.printing-staff-attendance-report .staff-attendance-report-print td:nth-child(4) {
+    width: 20% !important;
+    text-align: center !important;
+  }
+
+  body.printing-staff-attendance-report tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  body.printing-staff-attendance-report .staff-attendance-report-print * {
+    color: #000 !important;
+  }
+
+  /* Student attendance report modal */
+  body.printing-student-attendance-report aside,
+  body.printing-student-attendance-report header,
+  body.printing-student-attendance-report [data-dev-preview-banner],
+  body.printing-student-attendance-report main {
+    display: none !important;
+  }
+
+  body.printing-student-attendance-report [data-slot="dialog-overlay"] {
+    display: none !important;
+  }
+
+  body.printing-student-attendance-report [data-slot="dialog-content"] {
+    position: absolute !important;
+    top: 0 !important;
+    left: 50% !important;
+    width: 210mm !important;
+    max-width: calc(100% - 16mm) !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    border: none !important;
+    box-shadow: none !important;
+    transform: translateX(-50%) !important;
+    background: #fff !important;
+  }
+
+  body.printing-student-attendance-report [data-slot="dialog-content"] > button {
+    display: none !important;
+  }
+
+  body.printing-student-attendance-report [data-slot="table-container"] {
+    overflow: visible !important;
+  }
+
+  body.printing-student-attendance-report .print\\:hidden {
+    display: none !important;
+  }
+
+  body.printing-student-attendance-report .student-attendance-report-print {
+    display: block !important;
+    position: relative !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
+    padding: 10mm !important;
+    visibility: visible !important;
+    overflow: visible !important;
+    color: #000 !important;
+    background: #fff !important;
+  }
+
+  body.printing-student-attendance-report .student-attendance-report-print table {
+    table-layout: fixed !important;
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+
+  body.printing-student-attendance-report .student-attendance-report-print th,
+  body.printing-student-attendance-report .student-attendance-report-print td {
+    white-space: normal !important;
+    word-break: break-word !important;
+    font-size: 0.75rem !important;
+    padding: 0.25rem 0.5rem !important;
+    border: 1px solid #000 !important;
+    vertical-align: top !important;
+  }
+
+  body.printing-student-attendance-report .student-attendance-report-print th:nth-child(1),
+  body.printing-student-attendance-report .student-attendance-report-print td:nth-child(1) {
+    width: 40% !important;
+  }
+
+  body.printing-student-attendance-report .student-attendance-report-print th:nth-child(2),
+  body.printing-student-attendance-report .student-attendance-report-print td:nth-child(2),
+  body.printing-student-attendance-report .student-attendance-report-print th:nth-child(3),
+  body.printing-student-attendance-report .student-attendance-report-print td:nth-child(3),
+  body.printing-student-attendance-report .student-attendance-report-print th:nth-child(4),
+  body.printing-student-attendance-report .student-attendance-report-print td:nth-child(4) {
+    width: 20% !important;
+    text-align: center !important;
+  }
+
+  body.printing-student-attendance-report tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  body.printing-student-attendance-report .student-attendance-report-print * {
+    color: #000 !important;
+  }
+
+  /* Individual discipline report modal */
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+
+  body.printing-individual-discipline-report {
+    overflow: visible !important;
+  }
+
+  body.printing-individual-discipline-report aside,
+  body.printing-individual-discipline-report header,
+  body.printing-individual-discipline-report [data-dev-preview-banner],
+  body.printing-individual-discipline-report main {
+    display: none !important;
+  }
+
+  body.printing-individual-discipline-report [data-slot="dialog-overlay"] {
+    display: none !important;
+  }
+
+  body.printing-individual-discipline-report [data-slot="dialog-portal"],
+  body.printing-individual-discipline-report [data-slot="dialog"] {
+    position: static !important;
+    overflow: visible !important;
+  }
+
+  body.printing-individual-discipline-report [data-slot="dialog-content"] {
+    position: fixed !important;
+    top: 0 !important;
+    right: 0 !important;
+    left: 0 !important;
+    bottom: auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    border: none !important;
+    box-shadow: none !important;
+    transform: none !important;
+    translate: none !important;
+    background: #fff !important;
+    box-sizing: border-box !important;
+    direction: rtl !important;
+  }
+
+  body.printing-individual-discipline-report [data-slot="dialog-content"] > button {
+    display: none !important;
+  }
+
+  body.printing-individual-discipline-report [data-slot="table-container"] {
+    width: 100% !important;
+    max-width: none !important;
+    overflow: visible !important;
+  }
+
+  body.printing-individual-discipline-report .print\\:hidden {
+    display: none !important;
+  }
+
+  body.printing-individual-discipline-report .individual-discipline-report-print {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    visibility: visible !important;
+    overflow: visible !important;
+    color: #000 !important;
+    background: #fff !important;
+    box-sizing: border-box !important;
+    direction: rtl !important;
+  }
+
+  body.printing-individual-discipline-report .individual-discipline-summary-grid {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 6px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  body.printing-individual-discipline-report .individual-discipline-table-section {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
+    box-sizing: border-box !important;
+    margin: 0 !important;
+  }
+
+  body.printing-individual-discipline-report .individual-discipline-table-section > div {
+    overflow: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  body.printing-individual-discipline-report .individual-discipline-detail-table {
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+    font-size: 11pt !important;
+    box-sizing: border-box !important;
+    margin: 0 !important;
+  }
+
+  body.printing-individual-discipline-report .individual-discipline-detail-table colgroup,
+  body.printing-individual-discipline-report .individual-discipline-detail-table th:nth-child(1),
+  body.printing-individual-discipline-report .individual-discipline-detail-table td:nth-child(1) {
+    width: 28% !important;
+  }
+
+  body.printing-individual-discipline-report .individual-discipline-detail-table th:nth-child(2),
+  body.printing-individual-discipline-report .individual-discipline-detail-table td:nth-child(2) {
+    width: 32% !important;
+  }
+
+  body.printing-individual-discipline-report .individual-discipline-detail-table th:nth-child(3),
+  body.printing-individual-discipline-report .individual-discipline-detail-table td:nth-child(3) {
+    width: 40% !important;
+  }
+
+  body.printing-individual-discipline-report .individual-discipline-detail-table th,
+  body.printing-individual-discipline-report .individual-discipline-detail-table td {
+    text-align: right !important;
+    vertical-align: middle !important;
+    border: 1px solid #000 !important;
+    padding: 6px 8px !important;
+    background: #fff !important;
+    color: #000 !important;
+    white-space: normal !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  body.printing-individual-discipline-report .individual-discipline-detail-table thead th {
+    background: #e8e8e8 !important;
+    font-weight: 700 !important;
+  }
+
+  body.printing-individual-discipline-report .individual-discipline-detail-table tbody tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  body.printing-individual-discipline-report tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  body.printing-individual-discipline-report .individual-discipline-report-print * {
+    color: #000 !important;
+  }
+}

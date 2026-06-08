@@ -1,61 +1,120 @@
-import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Card, CardContent, CardHeader } from "../../components/ui/card";
 import { useAuth } from "../../context/AuthContext";
-import { normalizeMobile } from "../../lib/auth-store";
 import {
-  apiTokenSyncErrorMessage,
-  syncApiTokenForMobile,
-} from "../../lib/api-token";
+  loginWithApiUser,
+  loginWithMobile,
+  normalizeClientRole,
+  normalizeMobile,
+  type UserRole,
+} from "../../lib/auth-store";
+import { setApiToken } from "../../lib/api-token";
+import { api } from "../../lib/api-client";
+import { roleHomePath } from "../../config/role-access";
 import { isUiDevPreview } from "../../lib/dev-preview";
+import { ThemeToggle } from "../../components/ThemeToggle";
 import { ds, tajawal } from "../../lib/design-system";
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { login, logout, isAuthenticated, user } = useAuth();
+  const { login, logout } = useAuth();
   const [mobile, setMobile] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [useEmail, setUseEmail] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const normalized = useMemo(() => normalizeMobile(mobile), [mobile]);
-  const canSubmit = Boolean(normalized) && !loading;
+  const [searchParams] = useSearchParams();
 
-  function handleLogout() {
+  useEffect(() => {
+    if (searchParams.get("reason") !== "session_reset") return;
     logout();
-    setError(null);
-    setMobile("");
+    navigate("/login", { replace: true });
+  }, [searchParams, navigate, logout]);
+
+  const normalized = useMemo(() => normalizeMobile(mobile), [mobile]);
+  const canSubmitMobile = Boolean(normalized) && !loading;
+  const canSubmitEmail =
+    Boolean(email.trim() && password) && !loading && !isUiDevPreview();
+
+  function finishLogin(
+    res: { token: string; user: { id: number; full_name_ar: string; role: string; sections: string[] } },
+    rawMobile: string,
+  ) {
+    setApiToken(res.token);
+    const role = normalizeClientRole(res.user.role);
+    const authUser = loginWithApiUser(
+      {
+        id: res.user.id,
+        full_name_ar: res.user.full_name_ar,
+        role,
+        sections: res.user.sections,
+      },
+      rawMobile || res.user.id.toString(),
+      roleHomePath(role),
+    );
+    if (!authUser) {
+      setError("تعذّر إنشاء الجلسة");
+      return;
+    }
+    window.dispatchEvent(new Event("basateen-auth"));
+    navigate(authUser.homePath, { replace: true });
   }
 
-  async function onSubmit(e: React.FormEvent) {
+  async function onSubmitMobile(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     if (!normalized) {
-      setError("أدخل رقم جوال سعودي صحيح (مثال: 0500000001)");
+      setError("أدخل رقم جوال سعودي صحيح (مثال: 0500000000)");
       return;
     }
     setLoading(true);
-    const authUser = login(mobile);
-    if (!authUser) {
+    try {
+      const res = await api.loginMobile(mobile);
+      finishLogin(res, mobile);
+      return;
+    } catch {
+      if (isUiDevPreview()) {
+        const mockUser = loginWithMobile(mobile) ?? login(mobile);
+        if (mockUser) {
+          navigate(mockUser.homePath, { replace: true });
+          return;
+        }
+      }
+      setError(
+        "رقم الجوال غير مسجّل أو غير متطابق مع D1 — جرّب 0500000000 أو 966500000000، أو الدخول بالإيميل",
+      );
+    } finally {
       setLoading(false);
-      setError("رقم الجوال غير مسجّل في النظام");
-      return;
     }
-    const apiSync = await syncApiTokenForMobile(mobile);
-    setLoading(false);
-    if (!apiSync.ok && !isUiDevPreview() && authUser.role !== "teacher") {
-      setError(apiTokenSyncErrorMessage(apiSync));
-      return;
+  }
+
+  async function onSubmitEmail(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await api.login(email.trim().toLowerCase(), password);
+      finishLogin(res, mobile || "0500000000");
+    } catch {
+      setError("بيانات الدخول غير صحيحة — تحقق من الإيميل وكلمة المرور");
+    } finally {
+      setLoading(false);
     }
-    navigate(authUser.homePath, { replace: true });
   }
 
   return (
     <div
-      className="min-h-screen min-h-[100dvh] bg-background flex items-center justify-center p-4 sm:p-6"
+      className="min-h-screen min-h-[100dvh] bg-background text-foreground flex items-center justify-center p-4 sm:p-6 relative"
       dir="rtl"
     >
+      <div className="absolute top-4 left-4 sm:top-6 sm:left-6">
+        <ThemeToggle />
+      </div>
       <Card className={`w-full max-w-md ${ds.card}`}>
         <CardHeader className="text-center pb-2">
           <img
@@ -75,96 +134,113 @@ export function LoginPage() {
             منصة بساتين
           </h1>
           <p className="text-sm text-muted-foreground mt-2" style={tajawal}>
-            أدخل رقم الجوال المسجّل
+            {useEmail ? "دخول المشرف العام بالإيميل" : "أدخل رقم الجوال المسجّل في D1"}
           </p>
         </CardHeader>
         <CardContent>
-          {isAuthenticated && user && (
-            <div className={`mb-4 ${ds.alert.info}`}>
-              <p style={tajawal}>
-                أنت مسجّل كـ <strong>{user.full_name_ar}</strong>
-              </p>
-              <div className="flex flex-wrap gap-2 mt-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={ds.btnRound}
+          {!useEmail ? (
+            <form onSubmit={onSubmitMobile} className="space-y-4">
+              <div>
+                <label
+                  className="block text-sm font-semibold mb-2 text-foreground"
                   style={tajawal}
-                  onClick={() => navigate(user.homePath)}
                 >
-                  الذهاب للوحة العمل
-                </Button>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  className={ds.btnRound}
+                  رقم الجوال
+                </label>
+                <Input
+                  type="tel"
+                  inputMode="numeric"
+                  autoComplete="tel"
+                  placeholder="05xxxxxxxx أو 9665xxxxxxxx"
+                  value={mobile}
+                  onChange={(e) => setMobile(e.target.value)}
+                  className={`${ds.btnRound} text-foreground`}
                   style={tajawal}
-                  onClick={handleLogout}
-                >
-                  تسجيل خروج
-                </Button>
+                  dir="ltr"
+                  required
+                />
               </div>
-            </div>
-          )}
-
-          <form onSubmit={onSubmit} className="space-y-4">
-            <div>
-              <label
-                className="block text-sm font-semibold mb-2 text-foreground"
+              {error && (
+                <p className={`text-sm ${ds.alert.error}`} style={tajawal}>
+                  {error}
+                </p>
+              )}
+              <Button
+                type="submit"
+                disabled={!canSubmitMobile}
+                className={`w-full ${ds.btnRound} disabled:opacity-50`}
                 style={tajawal}
               >
-                رقم الجوال
-              </label>
-              <Input
-                type="tel"
-                inputMode="numeric"
-                autoComplete="tel"
-                placeholder="05xxxxxxxx"
-                value={mobile}
-                onChange={(e) => setMobile(e.target.value)}
-                className={`${ds.btnRound} text-foreground`}
+                {loading ? "جاري الدخول..." : "دخول"}
+              </Button>
+            </form>
+          ) : (
+            <form onSubmit={onSubmitEmail} className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold mb-2" style={tajawal}>
+                  الإيميل
+                </label>
+                <Input
+                  type="email"
+                  autoComplete="email"
+                  placeholder="admin@basateen.win"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className={ds.btnRound}
+                  dir="ltr"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-2" style={tajawal}>
+                  كلمة المرور
+                </label>
+                <Input
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className={ds.btnRound}
+                  dir="ltr"
+                  required
+                />
+              </div>
+              {error && (
+                <p className={`text-sm ${ds.alert.error}`} style={tajawal}>
+                  {error}
+                </p>
+              )}
+              <Button
+                type="submit"
+                disabled={!canSubmitEmail}
+                className={`w-full ${ds.btnRound}`}
                 style={tajawal}
-                dir="ltr"
-                required
-              />
-            </div>
-            {error && (
-              <p className={`text-sm ${ds.alert.error}`} style={tajawal}>
-                {error}
-              </p>
-            )}
-            <Button
-              type="submit"
-              disabled={!canSubmit}
-              className={`w-full ${ds.btnRound} disabled:opacity-50`}
-              style={tajawal}
-            >
-              {loading ? "جاري الدخول..." : "دخول"}
-            </Button>
-            <p
-              className="text-xs text-muted-foreground text-center leading-relaxed"
-              style={tajawal}
-            >
-              تجريبي: 0500000001 مدير · 0500000002 تعليمي · 0500000003 برامج
-              (اختبارات) · 0500000004 مشرف عام · 0500000005 معلم
-            </p>
-            {isUiDevPreview() && (
-              <p className={`text-xs text-center ${ds.alert.info}`} style={tajawal}>
-                معاينة UI: أمثلة تسكين، خطط، منافسات، يوم همة، رصد مشارك —
-                راجع docs/DEV-EXAMPLES.md
-              </p>
-            )}
-          </form>
+              >
+                {loading ? "جاري الدخول..." : "دخول بالإيميل"}
+              </Button>
+            </form>
+          )}
 
-          <p className="text-center mt-4">
-            <Link
-              to="/tv-live"
-              className="text-sm text-primary hover:underline"
-              style={tajawal}
-            >
-              شاشة التلفاز (بدون دخول)
-            </Link>
-          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full mt-3 text-sm"
+            style={tajawal}
+            onClick={() => {
+              setUseEmail((v) => !v);
+              setError(null);
+            }}
+          >
+            {useEmail ? "العودة لدخول الجوال" : "دخول بالإيميل (المشرف العام)"}
+          </Button>
+
+          {isUiDevPreview() && (
+            <p className={`text-xs text-center mt-3 ${ds.alert.info}`} style={tajawal}>
+              وضع معاينة UI — الجوال التجريبي: 0500000001 … 0500000005
+            </p>
+          )}
+
+
         </CardContent>
       </Card>
     </div>

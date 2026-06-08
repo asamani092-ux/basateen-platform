@@ -16,9 +16,10 @@ import {
   TableHeader,
   TableRow,
 } from "../ui/table";
+import { TableTruncatedCell } from "../shared/TableTruncatedCell";
+import { ds, tajawal } from "../../lib/design-system";
 import { api } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
-import { ds, tajawal } from "../../lib/design-system";
 
 type StaffOption = { id: number; full_name_ar: string; role: string };
 
@@ -99,7 +100,7 @@ export function StaffAttendancePanel({
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="block rounded-xl border border-border px-3 py-2"
+              className={ds.field}
             />
           </div>
           <div>
@@ -109,7 +110,7 @@ export function StaffAttendancePanel({
             <select
               value={userId}
               onChange={(e) => setUserId(e.target.value)}
-              className="block rounded-xl border border-border px-3 py-2 min-w-[200px]"
+              className={`${ds.select} min-w-[200px]`}
               style={tajawal}
             >
               <option value="">— اختر —</option>
@@ -127,7 +128,7 @@ export function StaffAttendancePanel({
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value)}
-              className="block rounded-xl border border-border px-3 py-2"
+              className={ds.select}
               style={tajawal}
             >
               <option value="present">حاضر</option>
@@ -145,20 +146,33 @@ export function StaffAttendancePanel({
             جاري التحميل…
           </p>
         ) : (
-          <Table>
+          <Table className={ds.tableMin}>
             <TableHeader>
               <TableRow>
-                <TableHead style={tajawal}>الاسم</TableHead>
-                <TableHead style={tajawal}>الدور</TableHead>
-                <TableHead style={tajawal}>الحالة</TableHead>
+                <TableHead className={`${ds.table.head} ${ds.table.colName}`} style={tajawal}>
+                  الاسم
+                </TableHead>
+                <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
+                  الدور
+                </TableHead>
+                <TableHead className={`${ds.table.head} ${ds.table.colStatusBtns}`} style={tajawal}>
+                  الحالة
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {items.map((r) => (
                 <TableRow key={r.id}>
-                  <TableCell style={tajawal}>{r.full_name_ar}</TableCell>
-                  <TableCell style={tajawal}>{r.role}</TableCell>
-                  <TableCell style={tajawal}>{r.status}</TableCell>
+                  <TableTruncatedCell className={ds.table.colName} style={tajawal}>
+                    {r.full_name_ar}
+                  </TableTruncatedCell>
+                  <TableTruncatedCell style={tajawal}>{r.role}</TableTruncatedCell>
+                  <TableCell
+                    className={`${ds.table.cell} ${ds.table.colStatusBtns} whitespace-nowrap`}
+                    style={tajawal}
+                  >
+                    {r.status}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

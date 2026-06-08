@@ -1,3 +1,5 @@
+import { normalizeStoredHomePath } from "../config/role-access";
+
 const SESSION_KEY = "basateen_session";
 
 const LEGACY_TOKEN_KEY = "basateen_token";
@@ -5,16 +7,23 @@ const LEGACY_TOKEN_KEY = "basateen_token";
 
 
 export type UserRole =
-
-  | "teacher"
-
+  | "super_admin"
   | "edu_supervisor"
+  | "admin_supervisor"
+  | "programs_supervisor"
+  | "track_supervisor"
+  | "teacher";
 
-  | "prog_supervisor"
+const LEGACY_ROLE_MAP: Record<string, UserRole> = {
+  general_manager: "super_admin",
+  general_supervisor: "super_admin",
+  admin_supervisor: "super_admin",
+  prog_supervisor: "programs_supervisor",
+};
 
-  | "general_supervisor"
-
-  | "general_manager";
+export function normalizeClientRole(role: string): UserRole {
+  return LEGACY_ROLE_MAP[role] ?? (role as UserRole);
+}
 
 
 
@@ -40,7 +49,7 @@ export type AuthSession = {
 
   user: AuthUser;
 
-  mock: true;
+  mock: boolean;
 
 };
 
@@ -49,6 +58,13 @@ export type AuthSession = {
 /** Mock users — mobile only (MASTER-SPEC) */
 
 const MOCK_BY_MOBILE: Record<string, Omit<AuthUser, "mobile">> = {
+  "0500000000": {
+    id: 1,
+    full_name_ar: "المشرف العام",
+    role: "super_admin",
+    sections: ["admin", "education", "programs"],
+    homePath: "/admin-dept/reports",
+  },
 
   "0500000001": {
 
@@ -56,11 +72,11 @@ const MOCK_BY_MOBILE: Record<string, Omit<AuthUser, "mobile">> = {
 
     full_name_ar: "عبدالله — مدير عام",
 
-    role: "general_manager",
+    role: "super_admin",
 
     sections: ["admin"],
 
-    homePath: "/admin/staff",
+    homePath: "/admin-dept/reports",
 
   },
 
@@ -74,7 +90,7 @@ const MOCK_BY_MOBILE: Record<string, Omit<AuthUser, "mobile">> = {
 
     sections: ["admin", "education"],
 
-    homePath: "/edu-supervisor/dashboard",
+    homePath: "/edu-dept/dashboard",
 
   },
 
@@ -84,11 +100,11 @@ const MOCK_BY_MOBILE: Record<string, Omit<AuthUser, "mobile">> = {
 
     full_name_ar: "مشرف البرامج",
 
-    role: "prog_supervisor",
+    role: "programs_supervisor",
 
     sections: ["programs"],
 
-    homePath: "/prog-supervisor",
+    homePath: "/prog-dept/quizzes",
 
   },
 
@@ -98,11 +114,11 @@ const MOCK_BY_MOBILE: Record<string, Omit<AuthUser, "mobile">> = {
 
     full_name_ar: "مشرف عام",
 
-    role: "general_supervisor",
+    role: "super_admin",
 
     sections: ["admin", "education", "programs"],
 
-    homePath: "/general-supervisor/student-attendance",
+    homePath: "/admin-dept/staff-attendance",
 
   },
 
@@ -116,7 +132,7 @@ const MOCK_BY_MOBILE: Record<string, Omit<AuthUser, "mobile">> = {
 
     sections: ["education"],
 
-    homePath: "/teacher",
+    homePath: "/edu-dept/daily-recitation",
 
   },
 
@@ -152,15 +168,16 @@ function isValidSession(data: unknown): data is AuthSession {
 
     "edu_supervisor",
 
-    "prog_supervisor",
+    "programs_supervisor",
 
-    "general_supervisor",
+    "track_supervisor",
 
-    "general_manager",
+    "super_admin",
 
   ];
 
-  return Boolean(u?.homePath && u?.role && u?.full_name_ar && u?.mobile) && roles.includes(u.role);
+  const role = normalizeClientRole(String(u.role));
+  return Boolean(u?.homePath && role && u?.full_name_ar && u?.mobile) && roles.includes(role);
 
 }
 
@@ -232,6 +249,32 @@ export function loginWithMobile(rawMobile: string): AuthUser | null {
 
 }
 
+/** Session from real API login (D1 user — not mock whitelist) */
+export function loginWithApiUser(
+  apiUser: {
+    id: number;
+    full_name_ar: string;
+    role: UserRole;
+    sections?: string[];
+  },
+  rawMobile: string,
+  homePath: string,
+): AuthUser | null {
+  const mobile = normalizeMobile(rawMobile);
+  if (!mobile) return null;
+  const user: AuthUser = {
+    id: apiUser.id,
+    mobile,
+    full_name_ar: apiUser.full_name_ar,
+    role: normalizeClientRole(String(apiUser.role)),
+    sections: apiUser.sections ?? [],
+    homePath,
+  };
+  const session: AuthSession = { user, mock: false };
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  return user;
+}
+
 
 
 export function getSession(): AuthSession | null {
@@ -246,7 +289,13 @@ export function getSession(): AuthSession | null {
 
     if (!isValidSession(parsed)) return null;
 
-    return parsed;
+    const session = parsed as AuthSession;
+    const fixed = normalizeStoredHomePath(session.user.role, session.user.homePath);
+    if (fixed !== session.user.homePath) {
+      session.user.homePath = fixed;
+      localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    }
+    return session;
 
   } catch {
 

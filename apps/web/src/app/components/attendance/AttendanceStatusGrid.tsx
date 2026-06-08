@@ -1,6 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 import { CheckCircle2 } from "lucide-react";
 import { Button } from "../ui/button";
+import { AttendanceStatusButtons } from "./AttendanceStatusButtons";
 import { ds, tajawal } from "../../lib/design-system";
 
 export type AttendanceRow = {
@@ -8,27 +9,6 @@ export type AttendanceRow = {
   title: string;
   subtitle?: string;
   status: string;
-};
-
-const STATUS_UI: Record<
-  string,
-  { label: string; active: string; idle: string }
-> = {
-  present: {
-    label: "حاضر",
-    active: "bg-primary text-primary-foreground ring-2 ring-primary",
-    idle: "bg-primary/15 text-primary border border-primary/30",
-  },
-  absent: {
-    label: "غائب",
-    active: "bg-destructive text-destructive-foreground ring-2 ring-destructive",
-    idle: "bg-destructive/10 text-destructive border border-destructive/30",
-  },
-  excused: {
-    label: "معتذر",
-    active: "bg-amber-600 text-white ring-2 ring-amber-600",
-    idle: "bg-amber-50 text-amber-900 border border-amber-300",
-  },
 };
 
 type Props = {
@@ -126,24 +106,11 @@ export function AttendanceStatusGrid({
                   </p>
                 )}
               </div>
-              <div className="flex flex-wrap gap-2">
-                {(["present", "absent", "excused"] as const).map((st) => {
-                  const ui = STATUS_UI[st];
-                  const isActive = r.status === st;
-                  return (
-                    <button
-                      key={st}
-                      type="button"
-                      disabled={committing}
-                      onClick={() => onStatusPick(r.id, st)}
-                      className={`min-w-[4.5rem] h-11 px-4 rounded-full text-sm font-medium transition touch-manipulation ${isActive ? ui.active : ui.idle}`}
-                      style={tajawal}
-                    >
-                      {ui.label}
-                    </button>
-                  );
-                })}
-              </div>
+              <AttendanceStatusButtons
+                value={r.status}
+                disabled={committing}
+                onChange={(st) => onStatusPick(r.id, st)}
+              />
             </div>
           ))}
         </div>

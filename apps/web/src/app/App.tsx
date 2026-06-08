@@ -1,6 +1,5 @@
 import { Navigate, Route, Routes } from "react-router";
 import { RoleShellLayout } from "./layouts/RoleShellLayout";
-import { TeacherLayout } from "./layouts/TeacherLayout";
 import { EduSupervisorLayout } from "./layouts/EduSupervisorLayout";
 import { RequireAuth } from "./components/RequireAuth";
 import { RequireRole } from "./components/RequireRole";
@@ -10,31 +9,39 @@ import { LoginPage } from "./pages/auth/LoginPage";
 import { WelcomePage } from "./pages/WelcomePage";
 import { TvLivePage } from "./pages/tv/TvLivePage";
 import { LiveLogPage } from "./pages/live-log/LiveLogPage";
-import { TeacherHubPage } from "./pages/teacher/TeacherHubPage";
-import { PlacementQueueTab } from "./pages/edu-supervisor/PlacementQueueTab";
+import { EduSettingsPage } from "./pages/edu-dept/EduSettingsPage";
+import { DailyRecitationPage } from "./pages/edu-dept/DailyRecitationPage";
+import { StudentTransferPage } from "./pages/edu-dept/StudentTransferPage";
+import { TeacherCompetitionsPage } from "./pages/edu-dept/TeacherCompetitionsPage";
+import { EduReportsPage } from "./pages/edu-dept/EduReportsPage";
+import { PublicQuranicDayPage } from "./pages/public/PublicQuranicDayPage";
+import { MasterGridConsole } from "./pages/edu-supervisor/MasterGridConsole";
+import { CompetitionsPage } from "./pages/edu-supervisor/CompetitionsPage";
 import { StudentsPage } from "./pages/admin/StudentsPage";
 import { TransfersPage } from "./pages/admin/TransfersPage";
 import { AdminCirclesPage } from "./pages/admin/AdminCirclesPage";
 import { EduDashboardPage } from "./pages/edu-supervisor/EduDashboardPage";
-import { YomHimmaPage } from "./pages/edu-supervisor/YomHimmaPage";
-import { CompetitionsPage } from "./pages/edu-supervisor/CompetitionsPage";
 import { CompetitionDetailPage } from "./pages/edu-supervisor/CompetitionDetailPage";
 import { StudentProfilePage } from "./pages/edu-supervisor/StudentProfilePage";
 import { ProgSupervisorLayout } from "./layouts/ProgSupervisorLayout";
-import { ProgQuizzesPage } from "./pages/prog-supervisor/ProgQuizzesPage";
+import { QuizBuilderPage } from "./pages/prog-dept/QuizBuilderPage";
+import { ProgramsArchivePage } from "./pages/prog-dept/ProgramsArchivePage";
 import { QuizEditorPage } from "./pages/prog-supervisor/QuizEditorPage";
 import { QuizPrintPage } from "./pages/prog-supervisor/QuizPrintPage";
 import { ProgAnalyticsPage } from "./pages/prog-supervisor/ProgAnalyticsPage";
-import { ProgVaultPage } from "./pages/prog-supervisor/ProgVaultPage";
+import { DisplayManagerPage } from "./pages/display-dept/DisplayManagerPage";
+import { PublicQuizPage } from "./pages/public/PublicQuizPage";
+import { PublicLiveDisplayPage } from "./pages/public/PublicLiveDisplayPage";
 import { QuizPublicPage } from "./pages/quiz/QuizPublicPage";
-import { AdmissionFunnelTab } from "./pages/general-supervisor/AdmissionFunnelTab";
-import { ViolationsPledgesTab } from "./pages/general-supervisor/ViolationsPledgesTab";
-import { SupervisorDashboardTab } from "./pages/general-supervisor/SupervisorDashboardTab";
-import { StaffAttendanceGridTab } from "./pages/general-supervisor/StaffAttendanceGridTab";
-import { GsStudentAttendancePage } from "./pages/general-supervisor/GsStudentAttendancePage";
+import { PublicMagicLinkPage } from "./pages/public/PublicMagicLinkPage";
+import { StaffAttendancePage } from "./pages/admin-dept/StaffAttendancePage";
+import { StudentDailyAttendancePage } from "./pages/admin-dept/StudentDailyAttendancePage";
+import { AbsentWhatsappPage } from "./pages/admin-dept/AbsentWhatsappPage";
+import { PledgesPage } from "./pages/admin-dept/PledgesPage";
+import { AdminReportsPage } from "./pages/admin-dept/AdminReportsPage";
 import { StaffManagementPage } from "./pages/admin/StaffManagementPage";
 import { CirclesSetupPage } from "./pages/admin/CirclesSetupPage";
-import { StatisticsPage } from "./pages/admin/StatisticsPage";
+import { AdminGeneralSettingsPage } from "./pages/admin/AdminGeneralSettingsPage";
 import { STAFF_ROLES } from "./config/role-access";
 
 export default function App() {
@@ -45,124 +52,96 @@ export default function App() {
       <Route path="/tv-live" element={<TvLivePage />} />
       <Route path="/live-log/:token" element={<LiveLogPage />} />
       <Route path="/quiz/:quizId" element={<QuizPublicPage />} />
+      <Route path="/public/quiz/:id" element={<PublicQuizPage />} />
+      <Route path="/public/live-display" element={<PublicLiveDisplayPage />} />
+      <Route path="/public/attendance/:token" element={<PublicMagicLinkPage />} />
+      <Route path="/public/quranic-day/:token" element={<PublicQuranicDayPage />} />
 
       <Route element={<RequireAuth />}>
         <Route path="welcome" element={<WelcomePage />} />
         <Route index element={<AuthHomeRedirect />} />
 
-        <Route element={<RequireRole roles={["teacher"]} />}>
-          <Route element={<TeacherLayout />}>
-            <Route path="teacher" element={<TeacherHubPage />} />
-            <Route
-              path="teacher/daily-log"
-              element={<Navigate to="/teacher" replace />}
-            />
-          </Route>
-        </Route>
-
-        <Route element={<RequireRole roles={STAFF_ROLES} />}>
+        <Route element={<RequireRole roles={[...STAFF_ROLES, "teacher"]} />}>
           <Route element={<RequirePathAccess />}>
             <Route element={<RoleShellLayout />}>
-              <Route path="admin/staff" element={<StaffManagementPage />} />
+              <Route path="super-admin/staff" element={<StaffManagementPage />} />
               <Route
-                path="admin/staff-management"
-                element={<Navigate to="/admin/staff" replace />}
+                path="super-admin/staff-management"
+                element={<Navigate to="/super-admin/staff" replace />}
               />
-              <Route path="admin/circles-setup" element={<CirclesSetupPage />} />
-              <Route path="admin/statistics" element={<StatisticsPage />} />
+              <Route path="super-admin/circles-setup" element={<CirclesSetupPage />} />
+              <Route path="super-admin/settings" element={<AdminGeneralSettingsPage />} />
+              <Route
+                path="super-admin/statistics"
+                element={<Navigate to="/admin-dept/reports" replace />}
+              />
 
-              <Route path="edu-supervisor" element={<EduSupervisorLayout />}>
+              <Route path="edu-dept" element={<EduSupervisorLayout />}>
                 <Route index element={<Navigate to="dashboard" replace />} />
+                <Route path="settings" element={<EduSettingsPage />} />
+                <Route path="daily-recitation" element={<DailyRecitationPage />} />
+                <Route path="teacher-competitions" element={<TeacherCompetitionsPage />} />
+                <Route
+                  path="quranic-days"
+                  element={<Navigate to="/edu-dept/competitions" replace />}
+                />
+                <Route path="reports" element={<EduReportsPage />} />
+                <Route path="transfer-requests" element={<StudentTransferPage />} />
                 <Route path="dashboard" element={<EduDashboardPage />} />
-                <Route
-                  path="attendance"
-                  element={<Navigate to="/edu-supervisor/dashboard" replace />}
-                />
-                <Route
-                  path="education"
-                  element={<Navigate to="/edu-supervisor/competitions" replace />}
-                />
-                <Route path="placement" element={<PlacementQueueTab />} />
+                <Route path="master-grid" element={<MasterGridConsole />} />
                 <Route path="students" element={<StudentsPage />} />
                 <Route path="students/:studentId" element={<StudentProfilePage />} />
                 <Route path="transfers" element={<TransfersPage />} />
                 <Route path="circles" element={<AdminCirclesPage />} />
-                <Route path="yom-himma" element={<YomHimmaPage />} />
                 <Route path="competitions" element={<CompetitionsPage />} />
+                <Route
+                  path="events-engine"
+                  element={<Navigate to="/edu-dept/competitions" replace />}
+                />
                 <Route
                   path="competitions/:competitionId"
                   element={<CompetitionDetailPage />}
                 />
               </Route>
 
-              <Route path="prog-supervisor" element={<ProgSupervisorLayout />}>
+              <Route path="teacher" element={<Navigate to="/edu-dept/daily-recitation" replace />} />
+              <Route path="teacher/*" element={<Navigate to="/edu-dept/daily-recitation" replace />} />
+
+              <Route path="admin-dept/students" element={<StudentsPage />} />
+              <Route path="admin-dept/staff-attendance" element={<StaffAttendancePage />} />
+              <Route path="admin-dept/student-attendance" element={<StudentDailyAttendancePage />} />
+              <Route path="admin-dept/absent-whatsapp" element={<AbsentWhatsappPage />} />
+              <Route
+                path="admin-dept/admissions"
+                element={<Navigate to="/admin-dept/students" replace />}
+              />
+              <Route path="admin-dept/pledges" element={<PledgesPage />} />
+              <Route path="admin-dept/reports" element={<AdminReportsPage />} />
+              <Route
+                path="admin-dept/magic-links"
+                element={<Navigate to="/admin-dept/student-attendance" replace />}
+              />
+
+              <Route path="prog-dept" element={<ProgSupervisorLayout />}>
                 <Route index element={<Navigate to="quizzes" replace />} />
-                <Route path="quizzes" element={<ProgQuizzesPage />} />
+                <Route path="quizzes" element={<QuizBuilderPage />} />
                 <Route path="quizzes/:quizId" element={<QuizEditorPage />} />
                 <Route path="quizzes/:quizId/print" element={<QuizPrintPage />} />
+                <Route path="archive" element={<ProgramsArchivePage />} />
+                <Route path="vault" element={<Navigate to="/prog-dept/archive" replace />} />
                 <Route path="analytics" element={<ProgAnalyticsPage />} />
-                <Route path="vault" element={<ProgVaultPage />} />
               </Route>
 
-              <Route
-                path="general-supervisor"
-                element={<Navigate to="/general-supervisor/student-attendance" replace />}
-              />
-              <Route
-                path="general-supervisor/student-attendance"
-                element={<GsStudentAttendancePage />}
-              />
-              <Route
-                path="general-supervisor/staff"
-                element={<StaffAttendanceGridTab />}
-              />
-              <Route
-                path="general-supervisor/admissions"
-                element={<AdmissionFunnelTab />}
-              />
-              <Route
-                path="general-supervisor/violations"
-                element={<ViolationsPledgesTab />}
-              />
-              <Route
-                path="general-supervisor/dashboard"
-                element={<SupervisorDashboardTab />}
-              />
+              <Route path="display-dept/manager" element={<DisplayManagerPage />} />
 
-              <Route
-                path="admin/students"
-                element={<Navigate to="/edu-supervisor/students" replace />}
-              />
-              <Route
-                path="admin/students/import"
-                element={
-                  <Navigate to="/edu-supervisor/students?excel=1" replace />
-                }
-              />
-              <Route
-                path="admin/transfers"
-                element={<Navigate to="/edu-supervisor/transfers" replace />}
-              />
-              <Route
-                path="admin/circles"
-                element={<Navigate to="/edu-supervisor/circles" replace />}
-              />
-              <Route
-                path="admin/violations"
-                element={<Navigate to="/general-supervisor/violations" replace />}
-              />
-              <Route
-                path="education/himma"
-                element={<Navigate to="/edu-supervisor/yom-himma" replace />}
-              />
-              <Route
-                path="education/*"
-                element={<Navigate to="/edu-supervisor/competitions" replace />}
-              />
-              <Route
-                path="programs/*"
-                element={<Navigate to="/prog-supervisor/quizzes" replace />}
-              />
+              <Route path="admin/staff" element={<Navigate to="/super-admin/staff" replace />} />
+              <Route path="admin/circles-setup" element={<Navigate to="/super-admin/circles-setup" replace />} />
+              <Route path="admin/statistics" element={<Navigate to="/admin-dept/reports" replace />} />
+              <Route path="edu-supervisor/*" element={<Navigate to="/edu-dept/dashboard" replace />} />
+              <Route path="general-supervisor/*" element={<Navigate to="/admin-dept/staff-attendance" replace />} />
+              <Route path="prog-supervisor/*" element={<Navigate to="/prog-dept/quizzes" replace />} />
+              <Route path="admin-dept/dashboard" element={<Navigate to="/admin-dept/reports" replace />} />
+              <Route path="admin-dept/violations" element={<Navigate to="/admin-dept/pledges" replace />} />
               <Route path="dashboard" element={<AuthHomeRedirect />} />
             </Route>
           </Route>

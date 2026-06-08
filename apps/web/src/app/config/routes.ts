@@ -1,90 +1,285 @@
 import type { UserRole } from "../lib/auth-store";
-import { GS_NAV_ITEMS } from "./gs-nav";
-import { EDU_NAV_ITEMS } from "./edu-nav";
-import { PROG_NAV_ITEMS, isProgNavActive } from "./prog-nav";
 
 export type NavItem = {
+  id: string;
   label: string;
   path: string;
   roles: UserRole[];
 };
 
-const GM_NAV: NavItem[] = [
-  { label: "إدارة الموظفين", path: "/admin/staff", roles: ["general_manager"] },
+export type NavGroup = {
+  id: string;
+  label: string;
+  roles: UserRole[];
+  children: NavItem[];
+};
+
+export type NavEntry = NavItem | NavGroup;
+
+export function isNavGroup(entry: NavEntry): entry is NavGroup {
+  return "children" in entry;
+}
+
+const ADMIN_DEPT_ROLES: UserRole[] = ["super_admin"];
+
+const EDU_SUPERVISOR_ROLES: UserRole[] = ["edu_supervisor", "super_admin"];
+
+/** مرحلة 1 — أساسيات القسم التعليمي */
+const EDU_DEPT_CORE_NAV: NavItem[] = [
   {
-    label: "إدارة الحلقات",
-    path: "/admin/circles-setup",
-    roles: ["general_manager"],
+    id: "edu-settings",
+    label: "إعدادات التعليم",
+    path: "/edu-dept/settings",
+    roles: EDU_SUPERVISOR_ROLES,
   },
-  { label: "الإحصائيات", path: "/admin/statistics", roles: ["general_manager"] },
+  {
+    id: "daily-recitation",
+    label: "الرصد اليومي",
+    path: "/edu-dept/daily-recitation",
+    roles: ["teacher", "edu_supervisor", "programs_supervisor", "track_supervisor"],
+  },
+  {
+    id: "teacher-competitions",
+    label: "منافسات الحلقة",
+    path: "/edu-dept/teacher-competitions",
+    roles: ["teacher", "track_supervisor"],
+  },
+  {
+    id: "edu-reports",
+    label: "التقارير والمتابعة",
+    path: "/edu-dept/reports",
+    roles: EDU_SUPERVISOR_ROLES,
+  },
+  {
+    id: "transfer-requests",
+    label: "متابعة النقل",
+    path: "/edu-dept/transfer-requests",
+    roles: EDU_SUPERVISOR_ROLES,
+  },
 ];
 
-const GS_NAV: NavItem[] = GS_NAV_ITEMS.map((item) => ({
-  label: item.label,
-  path: item.path,
-  roles: ["general_supervisor"] as UserRole[],
-}));
+/** القسم التعليمي — لوحات المشرف التعليمي */
+export const EDU_DEPT_NAV: NavItem[] = [
+  { id: "dashboard", label: "لوحة المتابعة", path: "/edu-dept/dashboard", roles: ["edu_supervisor"] },
+  {
+    id: "master-grid",
+    label: "انتظار القبول والتوزيع",
+    path: "/edu-dept/master-grid",
+    roles: ["edu_supervisor"],
+  },
+  { id: "students", label: "الطلاب و Excel", path: "/edu-dept/students", roles: ["edu_supervisor"] },
+  { id: "transfers", label: "نقل الطلاب", path: "/edu-dept/transfers", roles: ["edu_supervisor"] },
+  { id: "circles", label: "الحلقات التشغيلية", path: "/edu-dept/circles", roles: ["edu_supervisor"] },
+  {
+    id: "competitions",
+    label: "المنافسات",
+    path: "/edu-dept/competitions",
+    roles: ["edu_supervisor"],
+  },
+];
 
-const EDU_NAV: NavItem[] = EDU_NAV_ITEMS.map((item) => ({
-  label: item.label,
-  path: item.path,
-  roles: ["edu_supervisor"] as UserRole[],
-}));
+export const EDU_DEPT_GROUP: NavGroup = {
+  id: "edu-dept",
+  label: "القسم التعليمي",
+  roles: ["edu_supervisor", "super_admin", "teacher", "track_supervisor"],
+  children: [...EDU_DEPT_CORE_NAV, ...EDU_DEPT_NAV],
+};
 
-const PROG_NAV: NavItem[] = PROG_NAV_ITEMS.map((item) => ({
-  label: item.label,
-  path: item.path,
-  roles: ["prog_supervisor"] as UserRole[],
-}));
+/** القسم الإداري — مسارات v2.6 (كل التبويبات داخل القائمة المنسدلة) */
+export const ADMIN_DEPT_NAV: NavItem[] = [
+  {
+    id: "staff",
+    label: "إدارة المنسوبين",
+    path: "/super-admin/staff",
+    roles: ["super_admin"],
+  },
+  {
+    id: "circles-setup",
+    label: "إعداد الحلقات والمسارات",
+    path: "/super-admin/circles-setup",
+    roles: ["super_admin"],
+  },
+  {
+    id: "general-settings",
+    label: "الإعدادات العامة",
+    path: "/super-admin/settings",
+    roles: ["super_admin"],
+  },
+  {
+    id: "students-admin",
+    label: "بيانات الطلاب",
+    path: "/admin-dept/students",
+    roles: ADMIN_DEPT_ROLES,
+  },
+  {
+    id: "staff-attendance",
+    label: "تحضير المنسوبين",
+    path: "/admin-dept/staff-attendance",
+    roles: ADMIN_DEPT_ROLES,
+  },
+  {
+    id: "student-attendance",
+    label: "تحضير الطلاب",
+    path: "/admin-dept/student-attendance",
+    roles: ADMIN_DEPT_ROLES,
+  },
+  {
+    id: "absent-whatsapp",
+    label: "واتساب الغياب",
+    path: "/admin-dept/absent-whatsapp",
+    roles: ADMIN_DEPT_ROLES,
+  },
+  {
+    id: "pledges",
+    label: "التعهدات والإجراءات",
+    path: "/admin-dept/pledges",
+    roles: ADMIN_DEPT_ROLES,
+  },
+  {
+    id: "reports",
+    label: "المؤشرات والتقارير",
+    path: "/admin-dept/reports",
+    roles: ADMIN_DEPT_ROLES,
+  },
+];
+
+/** @deprecated — استخدم ADMIN_DEPT_NAV داخل ADMIN_DEPT_GROUP */
+export const SUPER_ADMIN_NAV: NavItem[] = [];
+
+const PROG_DEPT_ROLES: UserRole[] = ["programs_supervisor", "super_admin"];
+
+/** قسم إشراف البرامج */
+export const PROG_DEPT_NAV: NavItem[] = [
+  {
+    id: "quizzes",
+    label: "إختبارات إشراف البرامج",
+    path: "/prog-dept/quizzes",
+    roles: PROG_DEPT_ROLES,
+  },
+  {
+    id: "archive",
+    label: "أرشيف البرامج",
+    path: "/prog-dept/archive",
+    roles: PROG_DEPT_ROLES,
+  },
+  { id: "analytics", label: "التحليلات", path: "/prog-dept/analytics", roles: PROG_DEPT_ROLES },
+];
+
+export const PROG_DEPT_GROUP: NavGroup = {
+  id: "prog-dept",
+  label: "إشراف البرامج",
+  roles: PROG_DEPT_ROLES,
+  children: PROG_DEPT_NAV,
+};
+
+export const DISPLAY_DEPT_NAV: NavItem[] = [
+  {
+    id: "display-manager",
+    label: "إدارة الشاشات",
+    path: "/display-dept/manager",
+    roles: ["super_admin"],
+  },
+];
+
+export const DISPLAY_DEPT_GROUP: NavGroup = {
+  id: "display-dept",
+  label: "شاشات العرض",
+  roles: ["super_admin"],
+  children: DISPLAY_DEPT_NAV,
+};
+
+/** @deprecated — المعلم يستخدم EDU_DEPT_GROUP */
+export const TEACHER_NAV: NavItem[] = [
+  { id: "daily", label: "الرصد اليومي", path: "/edu-dept/daily-recitation", roles: ["teacher"] },
+];
+
+export const ADMIN_DEPT_GROUP: NavGroup = {
+  id: "admin-dept",
+  label: "القسم الإداري",
+  roles: ADMIN_DEPT_ROLES,
+  children: ADMIN_DEPT_NAV,
+};
 
 export const navItems: NavItem[] = [
-  ...GM_NAV,
-  ...GS_NAV,
-  ...EDU_NAV,
-  ...PROG_NAV,
+  ...EDU_DEPT_CORE_NAV,
+  ...EDU_DEPT_NAV,
+  ...ADMIN_DEPT_NAV,
+  ...PROG_DEPT_NAV,
+  ...TEACHER_NAV,
 ];
 
-export function navForRole(role: UserRole): NavItem[] {
+export function navForRole(role: UserRole): NavEntry[] {
+  const entries: NavEntry[] = [];
+  if (role === "super_admin") {
+    entries.push(ADMIN_DEPT_GROUP, EDU_DEPT_GROUP, PROG_DEPT_GROUP, DISPLAY_DEPT_GROUP);
+    return entries;
+  }
+  if (role === "edu_supervisor") {
+    entries.push(EDU_DEPT_GROUP);
+    return entries;
+  }
+  if (role === "programs_supervisor") {
+    entries.push(PROG_DEPT_GROUP);
+    return entries;
+  }
+  if (role === "teacher" || role === "track_supervisor") {
+    entries.push(EDU_DEPT_GROUP);
+    return entries;
+  }
   return navItems.filter((item) => item.roles.includes(role));
 }
 
+export function navGroupIsActive(group: NavGroup, pathname: string): boolean {
+  return group.children.some((c) => isNavActive(c.path, pathname));
+}
+
 export function isNavActive(path: string, pathname: string): boolean {
-  if (path.startsWith("/general-supervisor/")) {
-    if (pathname === "/general-supervisor") {
-      return path === "/general-supervisor/student-attendance";
-    }
-    return pathname === path || pathname.startsWith(`${path}/`);
+  if (path === "/teacher" || path === "/edu-dept/daily-recitation") {
+    return (
+      pathname === "/teacher" ||
+      pathname.startsWith("/teacher/") ||
+      pathname === "/edu-dept/daily-recitation" ||
+      pathname.startsWith("/edu-dept/daily-recitation/")
+    );
   }
-  if (path.startsWith("/edu-supervisor/")) {
-    if (pathname === "/edu-supervisor") {
-      return path === "/edu-supervisor/dashboard";
-    }
-    if (path === "/edu-supervisor/students") {
-      return (
-        pathname === "/edu-supervisor/students" ||
-        pathname.startsWith("/edu-supervisor/students/")
-      );
-    }
-    if (path === "/edu-supervisor/competitions") {
-      return (
-        pathname === "/edu-supervisor/competitions" ||
-        pathname.startsWith("/edu-supervisor/competitions/")
-      );
-    }
-    return pathname === path || pathname.startsWith(`${path}/`);
+  if (path === "/edu-dept/competitions") {
+    return (
+      pathname === "/edu-dept/competitions" ||
+      pathname.startsWith("/edu-dept/competitions/") ||
+      pathname === "/edu-dept/events-engine" ||
+      pathname === "/edu-dept/quranic-days" ||
+      pathname === "/edu-dept/yom-himma"
+    );
   }
-  if (path.startsWith("/prog-supervisor/")) {
-    return isProgNavActive(path, pathname);
+  if (path === "/edu-dept/students") {
+    return pathname === "/edu-dept/students" || pathname.startsWith("/edu-dept/students/");
   }
-  if (path === "/prog-supervisor") {
-    return pathname.startsWith("/prog-supervisor");
+  if (path === "/prog-dept/quizzes") {
+    return (
+      pathname === "/prog-dept" ||
+      pathname.startsWith("/prog-dept/quizzes") ||
+      pathname.startsWith("/prog-dept/archive")
+    );
   }
-  if (path === "/admin/staff") return pathname.startsWith("/admin/staff");
-  if (path === "/admin/circles-setup") {
-    return pathname.startsWith("/admin/circles-setup");
+  if (path === "/prog-dept/archive") {
+    return pathname === "/prog-dept/archive" || pathname.startsWith("/prog-dept/archive/");
   }
-  if (path === "/admin/statistics") {
-    return pathname.startsWith("/admin/statistics");
+  if (path === "/display-dept/manager") {
+    return pathname === "/display-dept/manager" || pathname.startsWith("/display-dept/");
   }
-  return pathname === path;
+  if (path === "/super-admin/staff") {
+    return (
+      pathname === "/super-admin/staff" ||
+      pathname.startsWith("/super-admin/staff") ||
+      pathname === "/admin/staff"
+    );
+  }
+  if (path === "/super-admin/circles-setup") {
+    return (
+      pathname === "/super-admin/circles-setup" ||
+      pathname.startsWith("/super-admin/circles-setup") ||
+      pathname === "/admin/circles-setup"
+    );
+  }
+  return pathname === path || pathname.startsWith(`${path}/`);
 }

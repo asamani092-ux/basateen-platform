@@ -5,7 +5,7 @@ import {
   scoreFromMetrics,
 } from "../lib/plan-estimator";
 import { recordTeacherAutoAttendance } from "../lib/teacher-attendance";
-import { teacherCanAccessStudent } from "../lib/teacher-scope";
+import { teacherCanAccessStudent } from "../lib/dept-scope";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 
 const TEACHER_ROLES = ["teacher"] as const;

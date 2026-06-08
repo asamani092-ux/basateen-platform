@@ -1,0 +1,298 @@
+import { useMemo, useState } from "react";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { Label } from "../ui/label";
+import { STAGE_OPTIONS } from "../../lib/stages";
+import type { EducationalGroupRow } from "../../lib/api-client";
+import { ds, tajawal } from "../../lib/design-system";
+
+export type StudentUnifiedFormValues = {
+  full_name_ar: string;
+  national_id: string;
+  nationality: string;
+  phone: string;
+  guardian_phone: string;
+  school_name: string;
+  school_grade: string;
+  memorization_amount: string;
+  guardian_national_id: string;
+  guardian_work: string;
+  health_notes: string;
+  stage_id: string;
+  age: string;
+  placement: string;
+};
+
+const EMPTY: StudentUnifiedFormValues = {
+  full_name_ar: "",
+  national_id: "",
+  nationality: "سعودي",
+  phone: "",
+  guardian_phone: "",
+  school_name: "",
+  school_grade: "",
+  memorization_amount: "",
+  guardian_national_id: "",
+  guardian_work: "",
+  health_notes: "",
+  stage_id: "",
+  age: "",
+  placement: "",
+};
+
+type Props = {
+  groups: EducationalGroupRow[];
+  onSubmit: (values: StudentUnifiedFormValues) => Promise<void>;
+  submitting?: boolean;
+  /** وضع التعديل — يملأ الحقول من الطالب الحالي */
+  initialValues?: Partial<StudentUnifiedFormValues>;
+  submitLabel?: string;
+  /** إلزامية الإسناد (افتراضي: نعم للإضافة) */
+  requirePlacement?: boolean;
+  resetOnSubmit?: boolean;
+};
+
+export function StudentUnifiedSingleForm({
+  groups,
+  onSubmit,
+  submitting,
+  initialValues,
+  submitLabel,
+  requirePlacement = true,
+  resetOnSubmit = true,
+}: Props) {
+  const [values, setValues] = useState<StudentUnifiedFormValues>({
+    ...EMPTY,
+    ...initialValues,
+  });
+  const [stageFilter, setStageFilter] = useState(initialValues?.stage_id ?? "");
+
+  const groupOptions = useMemo(() => {
+    let list = groups;
+    if (stageFilter) {
+      const sid = Number(stageFilter);
+      list = list.filter(
+        (g) =>
+          g.stage_id === sid ||
+          (g.stage_ids?.includes(sid) ?? false),
+      );
+    }
+    return list.map((g) => ({
+      value: `${g.entity_type}:${g.id}`,
+      label: `${g.name_ar} (${g.entity_type === "circle" ? "حلقة" : "مسار"})`,
+    }));
+  }, [groups, stageFilter]);
+
+  const missingRequired = useMemo(() => {
+    const req: (keyof StudentUnifiedFormValues)[] = [
+      "full_name_ar",
+      "national_id",
+      "nationality",
+      "phone",
+      "guardian_phone",
+    ];
+    if (requirePlacement) req.push("placement");
+    return req.filter((k) => !String(values[k]).trim());
+  }, [values, requirePlacement]);
+
+  const canSubmit = missingRequired.length === 0 && !submitting;
+
+  function set<K extends keyof StudentUnifiedFormValues>(key: K, v: string) {
+    setValues((prev) => ({ ...prev, [key]: v }));
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSubmit) return;
+    await onSubmit(values);
+    if (resetOnSubmit) {
+      setValues(EMPTY);
+      setStageFilter("");
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {missingRequired.length > 0 && (
+        <p className={ds.alert.error} style={tajawal}>
+          أكمل الحقول الإلزامية المحددة بالنجمة (*)
+        </p>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Field label="الاسم الرباعي *" required>
+          <Input
+            value={values.full_name_ar}
+            onChange={(e) => set("full_name_ar", e.target.value)}
+            className={ds.btnRound}
+            style={tajawal}
+          />
+        </Field>
+        <Field label="الهوية الوطنية *" required>
+          <Input
+            value={values.national_id}
+            onChange={(e) => set("national_id", e.target.value)}
+            dir="ltr"
+            className={ds.btnRound}
+          />
+        </Field>
+        <Field label="الجنسية *" required>
+          <Input
+            value={values.nationality}
+            onChange={(e) => set("nationality", e.target.value)}
+            className={ds.btnRound}
+            style={tajawal}
+          />
+        </Field>
+        <Field label="جوال الطالب *" required>
+          <Input
+            value={values.phone}
+            onChange={(e) => set("phone", e.target.value)}
+            dir="ltr"
+            className={ds.btnRound}
+          />
+        </Field>
+        <Field label="جوال ولي الأمر *" required>
+          <Input
+            value={values.guardian_phone}
+            onChange={(e) => set("guardian_phone", e.target.value)}
+            dir="ltr"
+            className={ds.btnRound}
+          />
+        </Field>
+        <Field label="المرحلة (اختياري — لفلترة الحلقات)">
+          <select
+            value={values.stage_id}
+            onChange={(e) => {
+              set("stage_id", e.target.value);
+              setStageFilter(e.target.value);
+              set("placement", "");
+            }}
+            className={ds.select}
+            style={tajawal}
+          >
+            <option value="">— اختر —</option>
+            {STAGE_OPTIONS.map((s) => (
+              <option key={s.id} value={String(s.id)}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field
+          label={requirePlacement ? "الحلقة / المسار *" : "الحلقة / المسار (للإسناد)"}
+          required={requirePlacement}
+          className="sm:col-span-2"
+        >
+          <select
+            value={values.placement}
+            onChange={(e) => set("placement", e.target.value)}
+            className={ds.select}
+            style={tajawal}
+            required={requirePlacement}
+          >
+            <option value="">
+              {requirePlacement ? "— اختر الحلقة أو المسار —" : "— بدون تغيير —"}
+            </option>
+            {groupOptions.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="المدرسة">
+          <Input
+            value={values.school_name}
+            onChange={(e) => set("school_name", e.target.value)}
+            className={ds.btnRound}
+            style={tajawal}
+          />
+        </Field>
+        <Field label="الصف الدراسي">
+          <Input
+            value={values.school_grade}
+            onChange={(e) => set("school_grade", e.target.value)}
+            className={ds.btnRound}
+            style={tajawal}
+          />
+        </Field>
+        <Field label="مقدار الحفظ">
+          <Input
+            value={values.memorization_amount}
+            onChange={(e) => set("memorization_amount", e.target.value)}
+            className={ds.btnRound}
+            style={tajawal}
+          />
+        </Field>
+        <Field label="العمر (اختياري)">
+          <Input
+            type="number"
+            min={4}
+            max={25}
+            value={values.age}
+            onChange={(e) => set("age", e.target.value)}
+            className={ds.btnRound}
+          />
+        </Field>
+        <Field label="هوية ولي الأمر (اختياري)">
+          <Input
+            value={values.guardian_national_id}
+            onChange={(e) => set("guardian_national_id", e.target.value)}
+            dir="ltr"
+            className={ds.btnRound}
+          />
+        </Field>
+        <Field label="عمل ولي الأمر (اختياري)">
+          <Input
+            value={values.guardian_work}
+            onChange={(e) => set("guardian_work", e.target.value)}
+            className={ds.btnRound}
+            style={tajawal}
+          />
+        </Field>
+        <Field label="أعراض صحية (اختياري)" className="sm:col-span-2">
+          <Input
+            value={values.health_notes}
+            onChange={(e) => set("health_notes", e.target.value)}
+            className={ds.btnRound}
+            style={tajawal}
+          />
+        </Field>
+      </div>
+
+      <Button
+        type="submit"
+        disabled={!canSubmit}
+        className={ds.btnRound}
+        style={tajawal}
+      >
+        {submitting ? "جاري الحفظ…" : (submitLabel ?? "حفظ الطالب ➕")}
+      </Button>
+    </form>
+  );
+}
+
+function Field({
+  label,
+  children,
+  required,
+  className,
+}: {
+  label: string;
+  children: React.ReactNode;
+  required?: boolean;
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      <Label
+        className={`text-xs block mb-1 ${required ? "text-destructive font-medium" : "text-muted-foreground"}`}
+        style={tajawal}
+      >
+        {label}
+      </Label>
+      {children}
+    </div>
+  );
+}

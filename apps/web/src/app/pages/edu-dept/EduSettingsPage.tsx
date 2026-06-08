@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { Settings2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Pencil, Plus, Settings2, Trash2 } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import {
   Dialog,
@@ -9,64 +9,66 @@ import {
 } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
+import { Progress } from "../../components/ui/progress";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "../../components/ui/accordion";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
+import {
+  totalMaxScore,
+  totalPositiveWeight,
+  type EvalCriterion,
+} from "../../lib/evaluation-criteria";
 import { ds, tajawal } from "../../lib/design-system";
 
+function newTaskId(): string {
+  return `task_${Date.now().toString(36)}`;
+}
+
+type TaskForm = {
+  id: string;
+  name: string;
+  type: "points" | "penalty";
+  max_weight: number;
+  input: "boolean" | "number";
+};
+
+const emptyForm = (): TaskForm => ({
+  id: newTaskId(),
+  name: "",
+  type: "points",
+  max_weight: 1,
+  input: "boolean",
+});
+
 export function EduSettingsPage() {
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [weights, setWeights] = useState({
-    weight_listening: 1,
-    weight_revision: 1,
-    weight_repeat: 1,
-    rabt_weight: 1,
-    penalty_per_error: 0.5,
-    hizb_points: 1,
-    alert_penalty: 1,
-    error_penalty: 2,
-    alerts_per_error: 5,
-    fail_threshold_errors: 3,
-    mistake_penalty: 1,
-    comp_alert_penalty: 0.5,
-    lahn_penalty: 0.5,
-    default_task_weight: 1,
-  });
-  const [loading, setLoading] = useState(false);
+  const [criteria, setCriteria] = useState<EvalCriterion[]>([]);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<TaskForm>(emptyForm());
+
+  const totalScore = useMemo(() => totalMaxScore(criteria), [criteria]);
+  const positiveScore = useMemo(() => totalPositiveWeight(criteria), [criteria]);
 
   const load = useCallback(async () => {
     if (!canUseApi()) {
       setError("أعد تسجيل الدخول");
+      setLoading(false);
       return;
     }
     setLoading(true);
     setError(null);
     try {
       const res = await api.eduDeptSettingsGet();
-      setWeights({
-        weight_listening: Number(res.settings.weight_listening ?? 1),
-        weight_revision: Number(res.settings.weight_revision ?? 1),
-        weight_repeat: Number(res.settings.weight_repeat ?? 1),
-        rabt_weight: Number(res.settings.rabt_weight ?? 1),
-        penalty_per_error: Number(res.settings.penalty_per_error ?? 0.5),
-        hizb_points: Number(res.settings.himma_defaults?.hizb_points ?? 1),
-        alert_penalty: Number(res.settings.himma_defaults?.alert_penalty ?? 1),
-        error_penalty: Number(res.settings.himma_defaults?.error_penalty ?? 2),
-        alerts_per_error: Number(res.settings.himma_defaults?.alerts_per_error ?? 5),
-        fail_threshold_errors: Number(
-          res.settings.himma_defaults?.fail_threshold_errors ?? 3,
-        ),
-        mistake_penalty: Number(res.settings.competition_defaults?.mistake_penalty ?? 1),
-        comp_alert_penalty: Number(
-          res.settings.competition_defaults?.alert_penalty ?? 0.5,
-        ),
-        lahn_penalty: Number(res.settings.competition_defaults?.lahn_penalty ?? 0.5),
-        default_task_weight: Number(
-          res.settings.competition_defaults?.default_task_weight ?? 1,
-        ),
-      });
+      setCriteria(res.settings.evaluation_criteria ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل التحميل");
     } finally {
@@ -75,37 +77,17 @@ export function EduSettingsPage() {
   }, []);
 
   useEffect(() => {
-    if (dialogOpen) void load();
-  }, [dialogOpen, load]);
+    void load();
+  }, [load]);
 
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
+  async function persist(next: EvalCriterion[]) {
     setSaving(true);
     setError(null);
     setSuccess(null);
     try {
-      await api.eduDeptSettingsPatch({
-        weight_listening: weights.weight_listening,
-        weight_revision: weights.weight_revision,
-        weight_repeat: weights.weight_repeat,
-        rabt_weight: weights.rabt_weight,
-        penalty_per_error: weights.penalty_per_error,
-        himma_defaults: {
-          hizb_points: weights.hizb_points,
-          alert_penalty: weights.alert_penalty,
-          error_penalty: weights.error_penalty,
-          alerts_per_error: weights.alerts_per_error,
-          fail_threshold_errors: weights.fail_threshold_errors,
-        },
-        competition_defaults: {
-          mistake_penalty: weights.mistake_penalty,
-          alert_penalty: weights.comp_alert_penalty,
-          lahn_penalty: weights.lahn_penalty,
-          default_task_weight: weights.default_task_weight,
-        },
-      });
-      setSuccess("تم حفظ أوزان التقييم.");
-      setDialogOpen(false);
+      await api.eduDeptSettingsPatch({ evaluation_criteria: next });
+      setCriteria(next);
+      setSuccess("تم حفظ مهام التقييم.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "فشل الحفظ");
     } finally {
@@ -113,15 +95,54 @@ export function EduSettingsPage() {
     }
   }
 
+  function openAdd() {
+    setEditingId(null);
+    setForm(emptyForm());
+    setModalOpen(true);
+  }
+
+  function openEdit(task: EvalCriterion) {
+    setEditingId(task.id);
+    setForm({
+      id: task.id,
+      name: task.name,
+      type: task.type,
+      max_weight: task.max_weight,
+      input: task.input ?? (task.type === "penalty" ? "number" : "boolean"),
+    });
+    setModalOpen(true);
+  }
+
+  async function saveTask() {
+    if (!form.name.trim()) return;
+    const entry: EvalCriterion = {
+      id: form.id,
+      name: form.name.trim(),
+      type: form.type,
+      max_weight: form.max_weight,
+      input: form.type === "penalty" ? "number" : form.input,
+    };
+    const next = editingId
+      ? criteria.map((c) => (c.id === editingId ? entry : c))
+      : [...criteria, entry];
+    await persist(next);
+    setModalOpen(false);
+  }
+
+  async function deleteTask(id: string) {
+    const next = criteria.filter((c) => c.id !== id);
+    await persist(next);
+  }
+
   return (
-    <div className="space-y-6 max-w-lg">
+    <div className="space-y-6 max-w-2xl">
       <div>
         <h2 className={`${ds.page.title} flex items-center gap-2`} style={tajawal}>
           <Settings2 className="w-7 h-7 text-primary" />
-          إعدادات التعليم
+          إعدادات التعليم العامة
         </h2>
         <p className={ds.page.description} style={tajawal}>
-          ضبط أوزان تقييم المهام اليومية للمعلمين والتقارير.
+          محرك تقييم ديناميكي — أضف مهاماً بلا حدود مع أوزان مخصصة لكل مهمة.
         </p>
       </div>
 
@@ -136,129 +157,181 @@ export function EduSettingsPage() {
         </p>
       )}
 
-      <div className={`${ds.card} p-12 flex flex-col items-center justify-center text-center gap-4 min-h-[280px]`}>
-        <Settings2 className="w-12 h-12 text-muted-foreground/60" />
-        <p className="text-sm text-muted-foreground max-w-sm" style={tajawal}>
-          أوزان السماع والتكرار والمراجعة والربط وخصم الأخطاء — تُعدّل من نموذج واحد.
-        </p>
-        <Button
-          type="button"
-          variant="default"
-          className={ds.btnRound}
-          onClick={() => setDialogOpen(true)}
-          style={tajawal}
-        >
-          تعديل أوزان التقييم
-        </Button>
+      <div className={`${ds.card} p-5 space-y-3 border-primary/20`}>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm text-muted-foreground" style={tajawal}>
+              إجمالي درجة التقييم اليومي
+            </p>
+            <p className="text-3xl font-bold tabular-nums" style={tajawal}>
+              {totalScore} نقطة
+            </p>
+            <p className="text-xs text-muted-foreground mt-1" style={tajawal}>
+              نقاط إيجابية أساسية: {positiveScore} · خصومات منفصلة
+            </p>
+          </div>
+          <Button
+            type="button"
+            className={ds.btnRound}
+            onClick={openAdd}
+            disabled={saving}
+            style={tajawal}
+          >
+            <Plus className="w-4 h-4" />
+            إضافة مهمة تقييم جديدة
+          </Button>
+        </div>
+        <Progress value={Math.min(100, totalScore)} className="h-2" />
       </div>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className={`${ds.card} max-w-md rounded-2xl max-h-[90vh] overflow-y-auto`} dir="rtl">
-          <DialogHeader>
-            <DialogTitle style={tajawal}>أوزان التقييم</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={save} className="space-y-4">
+      <Accordion type="single" collapsible defaultValue="tasks" className={ds.card}>
+        <AccordionItem value="tasks" className="border-0">
+          <AccordionTrigger className="px-5 py-4 hover:no-underline" style={tajawal}>
+            <span className="font-semibold">
+              مهام التقييم الحالية ({criteria.length})
+            </span>
+          </AccordionTrigger>
+          <AccordionContent className="px-5 pb-4">
             {loading ? (
-              <p className="text-muted-foreground text-sm" style={tajawal}>
+              <p className="text-sm text-muted-foreground" style={tajawal}>
                 جاري التحميل…
               </p>
+            ) : criteria.length === 0 ? (
+              <p className="text-sm text-muted-foreground" style={tajawal}>
+                لا توجد مهام بعد. أضف أول مهمة تقييم.
+              </p>
             ) : (
-              <>
-                <Field
-                  label="درجة السماع"
-                  value={weights.weight_listening}
-                  onChange={(v) => setWeights((w) => ({ ...w, weight_listening: v }))}
-                />
-                <Field
-                  label="درجة التكرار"
-                  value={weights.weight_repeat}
-                  onChange={(v) => setWeights((w) => ({ ...w, weight_repeat: v }))}
-                />
-                <Field
-                  label="درجة المراجعة"
-                  value={weights.weight_revision}
-                  onChange={(v) => setWeights((w) => ({ ...w, weight_revision: v }))}
-                />
-                <Field
-                  label="درجة الربط"
-                  value={weights.rabt_weight}
-                  onChange={(v) => setWeights((w) => ({ ...w, rabt_weight: v }))}
-                />
-                <Field
-                  label="خصم لكل خطأ / لحن"
-                  value={weights.penalty_per_error}
-                  onChange={(v) => setWeights((w) => ({ ...w, penalty_per_error: v }))}
-                />
-                <p className="text-sm font-semibold pt-2 border-t border-border" style={tajawal}>
-                  يوم الهمة
-                </p>
-                <Field
-                  label="درجة الحزب"
-                  value={weights.hizb_points}
-                  onChange={(v) => setWeights((w) => ({ ...w, hizb_points: v }))}
-                />
-                <Field
-                  label="خصم تنبيه"
-                  value={weights.alert_penalty}
-                  onChange={(v) => setWeights((w) => ({ ...w, alert_penalty: v }))}
-                />
-                <Field
-                  label="خصم خطأ/لحن"
-                  value={weights.error_penalty}
-                  onChange={(v) => setWeights((w) => ({ ...w, error_penalty: v }))}
-                />
-                <p className="text-sm font-semibold pt-2 border-t border-border" style={tajawal}>
-                  المنافسات
-                </p>
-                <Field
-                  label="وزن المهمة الافتراضي"
-                  value={weights.default_task_weight}
-                  onChange={(v) => setWeights((w) => ({ ...w, default_task_weight: v }))}
-                />
-                <Field
-                  label="خصم الخطأ"
-                  value={weights.mistake_penalty}
-                  onChange={(v) => setWeights((w) => ({ ...w, mistake_penalty: v }))}
-                />
-                <Button
-                  type="submit"
-                  variant="default"
-                  disabled={saving}
-                  className={`w-full ${ds.btnRound}`}
+              <ul className="space-y-2">
+                {criteria.map((task) => (
+                  <li
+                    key={task.id}
+                    className="flex items-center justify-between gap-3 py-3 border-b last:border-0"
+                  >
+                    <div className="min-w-0" style={tajawal}>
+                      <p className="font-semibold truncate">{task.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {task.type === "points" ? "إضافة نقاط" : "خصم / عقوبة"} ·{" "}
+                        {task.max_weight} ·{" "}
+                        {task.input === "number" || task.type === "penalty"
+                          ? "رقمي"
+                          : "منجز / غير منجز"}
+                        {task.requires_all?.length
+                          ? ` · يتطلب: ${task.requires_all.join(" + ")}`
+                          : ""}
+                      </p>
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={ds.btnRound}
+                        onClick={() => openEdit(task)}
+                        title="تعديل"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={`${ds.btnRound} text-destructive`}
+                        onClick={() => void deleteTask(task.id)}
+                        disabled={saving}
+                        title="حذف"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className={`${ds.card} max-w-md rounded-2xl`} dir="rtl">
+          <DialogHeader>
+            <DialogTitle style={tajawal}>
+              {editingId ? "تعديل مهمة التقييم" : "إضافة مهمة تقييم جديدة"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label style={tajawal}>اسم المهمة</Label>
+              <Input
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                className={ds.btnRound}
+                placeholder="مثال: الحفظ، الربط، الحضور"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label style={tajawal}>نوع المهمة</Label>
+              <select
+                value={form.type}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    type: e.target.value as "points" | "penalty",
+                    input: e.target.value === "penalty" ? "number" : f.input,
+                  }))
+                }
+                className="w-full rounded-xl border border-border px-3 py-2"
+                style={tajawal}
+              >
+                <option value="points">إضافة نقاط</option>
+                <option value="penalty">خصم / عقوبة</option>
+              </select>
+            </div>
+            {form.type === "points" && (
+              <div className="space-y-2">
+                <Label style={tajawal}>طريقة الإدخال</Label>
+                <select
+                  value={form.input}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      input: e.target.value as "boolean" | "number",
+                    }))
+                  }
+                  className="w-full rounded-xl border border-border px-3 py-2"
                   style={tajawal}
                 >
-                  {saving ? "جاري الحفظ…" : "حفظ الإعدادات"}
-                </Button>
-              </>
+                  <option value="boolean">منجز / غير منجز</option>
+                  <option value="number">قيمة رقمية</option>
+                </select>
+              </div>
             )}
-          </form>
+            <div className="space-y-2">
+              <Label style={tajawal}>
+                {form.type === "points" ? "الدرجة / الوزن" : "قيمة الخصم لكل وحدة"}
+              </Label>
+              <Input
+                type="number"
+                step="0.1"
+                min={0}
+                value={form.max_weight}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, max_weight: Number(e.target.value) }))
+                }
+                className={ds.btnRound}
+              />
+            </div>
+            <Button
+              type="button"
+              className={`w-full ${ds.btnRound}`}
+              disabled={!form.name.trim() || saving}
+              onClick={() => void saveTask()}
+              style={tajawal}
+            >
+              {saving ? "جاري الحفظ…" : editingId ? "حفظ التعديل" : "إضافة المهمة"}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <div className="space-y-2">
-      <Label style={tajawal}>{label}</Label>
-      <Input
-        type="number"
-        step="0.1"
-        min={0}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className={ds.btnRound}
-        style={tajawal}
-      />
     </div>
   );
 }

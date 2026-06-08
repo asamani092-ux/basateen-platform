@@ -1229,45 +1229,26 @@ export const api = {
   eduDeptSettingsGet: () =>
     request<{
       settings: {
-        weight_listening: number;
-        weight_revision: number;
-        weight_repeat: number;
-        rabt_weight: number;
-        penalty_per_error: number;
-        himma_defaults?: {
-          hizb_points: number;
-          alert_penalty: number;
-          error_penalty: number;
-          alerts_per_error: number;
-          fail_threshold_errors: number;
-        };
-        competition_defaults?: {
-          mistake_penalty: number;
-          alert_penalty: number;
-          lahn_penalty: number;
-          default_task_weight: number;
-        };
+        evaluation_criteria: Array<{
+          id: string;
+          name: string;
+          type: "points" | "penalty";
+          max_weight: number;
+          input?: "boolean" | "number";
+          requires_all?: string[];
+        }>;
+        updated_at?: string | null;
       };
     }>("/api/edu-dept/settings"),
   eduDeptSettingsPatch: (body: {
-    weight_listening: number;
-    weight_revision: number;
-    weight_repeat: number;
-    rabt_weight: number;
-    penalty_per_error: number;
-    himma_defaults?: {
-      hizb_points: number;
-      alert_penalty: number;
-      error_penalty: number;
-      alerts_per_error: number;
-      fail_threshold_errors: number;
-    };
-    competition_defaults?: {
-      mistake_penalty: number;
-      alert_penalty: number;
-      lahn_penalty: number;
-      default_task_weight: number;
-    };
+    evaluation_criteria: Array<{
+      id: string;
+      name: string;
+      type: "points" | "penalty";
+      max_weight: number;
+      input?: "boolean" | "number";
+      requires_all?: string[];
+    }>;
   }) =>
     request<{ ok: boolean }>("/api/edu-dept/settings", {
       method: "PATCH",
@@ -1288,15 +1269,24 @@ export const api = {
       circle_name: string | null;
       needs_circle_selection: boolean;
       circles: Array<{ id: number; name_ar: string }>;
+      evaluation_criteria: Array<{
+        id: string;
+        name: string;
+        type: "points" | "penalty";
+        max_weight: number;
+        input?: "boolean" | "number";
+        requires_all?: string[];
+      }>;
       items: Array<{
         student_id: number;
         full_name_ar: string;
-        listened: boolean;
-        repeated: boolean;
-        revised: boolean;
-        error_count: number;
-        tune_errors: number;
-        face_count: number;
+        task_scores?: Record<string, boolean | number>;
+        listened?: boolean;
+        repeated?: boolean;
+        revised?: boolean;
+        error_count?: number;
+        tune_errors?: number;
+        face_count?: number;
         notes: string;
       }>;
     }>(`/api/edu-dept/my-students${qs ? `?${qs}` : ""}`);
@@ -1324,6 +1314,7 @@ export const api = {
     recitation_date: string;
     rows: Array<{
       student_id: number;
+      task_scores?: Record<string, boolean | number>;
       listened?: boolean;
       repeated?: boolean;
       revised?: boolean;

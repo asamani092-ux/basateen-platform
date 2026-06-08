@@ -14,11 +14,15 @@ import {
 } from "../lib/dept-scope";
 import { transferStudentCircle } from "../lib/edu-transfer";
 import {
-  loadEventDefaults,
-  upsertEventDefaults,
-  type CompetitionDefaults,
-  type HimmaDefaults,
-} from "../lib/edu-settings-defaults";
+  computeQualityFromCriteria,
+  legacyRowToTaskScores,
+  loadEvaluationCriteria,
+  parseEvaluationCriteria,
+  parseTaskScoresJson,
+  taskScoresToLegacyColumns,
+  type EvalCriterion,
+  type TaskScores,
+} from "../lib/evaluation-criteria";
 
 const EDU_SETTINGS_ROLES = ["edu_supervisor", "super_admin"] as const;
 const EDU_SUPERVISOR_ROLES = ["edu_supervisor", "super_admin"] as const;
@@ -46,35 +50,6 @@ function semesterStartIso(ref = new Date()): string {
   const m = ref.getMonth() + 1;
   if (m >= 9) return `${y}-09-01`;
   return `${y - 1}-09-01`;
-}
-
-function computeQualityPct(
-  row: {
-    listened: number | boolean;
-    repeated: number | boolean;
-    revised: number | boolean;
-    error_count: number;
-    tune_errors: number;
-  },
-  wL: number,
-  wRev: number,
-  wRep: number,
-  wRabt: number,
-  pen: number,
-  maxScore: number,
-): number {
-  const listened = Boolean(row.listened);
-  const repeated = Boolean(row.repeated);
-  const revised = Boolean(row.revised);
-  const rabtBonus = listened && repeated && revised ? wRabt : 0;
-  const earned =
-    (listened ? wL : 0) +
-    (repeated ? wRep : 0) +
-    (revised ? wRev : 0) +
-    rabtBonus;
-  const penalties = pen * (Number(row.error_count) + Number(row.tune_errors));
-  const raw = maxScore > 0 ? ((earned - penalties) / maxScore) * 100 : 0;
-  return Math.round(Math.max(0, Math.min(100, raw)) * 10) / 10;
 }
 
 function migrationRequired(): Response {
@@ -237,9 +212,16 @@ async function loadDailyRecitationItems(
 ) {
   const students = await studentsInCircle(env, complexId, circleId);
   const hasFace = await tableHasColumn(env, "edu_daily_recitation", "face_count");
-  const markCols = hasFace
-    ? `student_id, listened, repeated, revised, error_count, tune_errors, notes, face_count`
-    : `student_id, listened, repeated, revised, error_count, tune_errors, notes`;
+  const hasTaskScores = await tableHasColumn(env, "edu_daily_recitation", "task_scores_json");
+  const extraCols = [
+    hasTaskScores ? "task_scores_json" : null,
+    hasFace ? "face_count" : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const markCols = `student_id, listened, repeated, revised, error_count, tune_errors, notes${
+    extraCols ? `, ${extraCols}` : ""
+  }`;
   const marks = await env.DB.prepare(
     `SELECT ${markCols}
      FROM edu_daily_recitation
@@ -255,13 +237,24 @@ async function loadDailyRecitationItems(
       tune_errors: number;
       notes: string | null;
       face_count?: number;
+      task_scores_json?: string | null;
     }>();
   const byStudent = new Map((marks.results ?? []).map((m) => [m.student_id, m]));
   return students.map((s) => {
     const m = byStudent.get(s.id);
+    const legacy = {
+      listened: m?.listened,
+      repeated: m?.repeated,
+      revised: m?.revised,
+      error_count: m?.error_count,
+      tune_errors: m?.tune_errors,
+      face_count: hasFace ? m?.face_count : 0,
+    };
+    const task_scores = parseTaskScoresJson(m?.task_scores_json, legacy);
     return {
       student_id: s.id,
       full_name_ar: s.full_name_ar,
+      task_scores,
       listened: Boolean(m?.listened),
       repeated: Boolean(m?.repeated),
       revised: Boolean(m?.revised),
@@ -303,46 +296,92 @@ export async function handleEduDeptCoreRouter(
     if (!(await hasTable(env, "edu_settings"))) return migrationRequired();
 
     const hasRabt = await tableHasColumn(env, "edu_settings", "rabt_weight");
+    const hasEvalJson = await tableHasColumn(env, "edu_settings", "evaluation_criteria_json");
 
     if (request.method === "GET") {
+      const criteria = await loadEvaluationCriteria(env, auth.complexId);
       const row = await env.DB.prepare(
-        hasRabt
-          ? `SELECT weight_listening, weight_revision, weight_repeat, rabt_weight, penalty_per_error, updated_at
-             FROM edu_settings WHERE complex_id = ?`
-          : `SELECT weight_listening, weight_revision, weight_repeat, penalty_per_error, updated_at
-             FROM edu_settings WHERE complex_id = ?`,
+        `SELECT updated_at FROM edu_settings WHERE complex_id = ?`,
       )
         .bind(auth.complexId)
-        .first<Record<string, number>>();
-      const eventDefaults = await loadEventDefaults(env, auth.complexId);
+        .first<{ updated_at?: string }>();
       return json({
         settings: {
-          weight_listening: row?.weight_listening ?? 1,
-          weight_revision: row?.weight_revision ?? 1,
-          weight_repeat: row?.weight_repeat ?? 1,
-          rabt_weight: hasRabt ? (row?.rabt_weight ?? 1) : 1,
-          penalty_per_error: row?.penalty_per_error ?? 0.5,
-          himma_defaults: eventDefaults.himma,
-          competition_defaults: eventDefaults.competition,
+          evaluation_criteria: criteria,
+          updated_at: row?.updated_at ?? null,
         },
       });
     }
 
     if (request.method === "PATCH") {
-      let body: Record<string, number | Partial<HimmaDefaults> | Partial<CompetitionDefaults>>;
+      let body: { evaluation_criteria?: EvalCriterion[] };
       try {
         body = await request.json();
       } catch {
         return json({ error: "invalid_json" }, 400);
       }
-      const wL = Number(body.weight_listening ?? 1);
-      const wR = Number(body.weight_revision ?? 1);
-      const wRep = Number(body.weight_repeat ?? 1);
-      const wRabt = Number(body.rabt_weight ?? 1);
-      const pen = Number(body.penalty_per_error ?? 0.5);
-      const himmaBody = body.himma_defaults as Partial<HimmaDefaults> | undefined;
-      const compBody = body.competition_defaults as Partial<CompetitionDefaults> | undefined;
-      if (hasRabt) {
+      const criteria = parseEvaluationCriteria(
+        JSON.stringify(body.evaluation_criteria ?? []),
+      );
+      if (!criteria.length) {
+        return json({ error: "evaluation_criteria_required" }, 400);
+      }
+
+      const legacy = taskScoresToLegacyColumns({}, criteria);
+      const wL = criteria.find((c) => c.id === "listening")?.max_weight ?? 1;
+      const wRev = criteria.find((c) => c.id === "revision")?.max_weight ?? 1;
+      const wRep = criteria.find((c) => c.id === "repeat")?.max_weight ?? 1;
+      const wRabt = criteria.find((c) => c.id === "rabt")?.max_weight ?? 1;
+      const pen =
+        criteria.find((c) => c.id === "error")?.max_weight ??
+        criteria.find((c) => c.type === "penalty")?.max_weight ??
+        0.5;
+      void legacy;
+
+      if (hasEvalJson && hasRabt) {
+        await env.DB.prepare(
+          `INSERT INTO edu_settings (
+             complex_id, weight_listening, weight_revision, weight_repeat,
+             rabt_weight, penalty_per_error, evaluation_criteria_json, updated_at
+           )
+           VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(complex_id) DO UPDATE SET
+             weight_listening = excluded.weight_listening,
+             weight_revision = excluded.weight_revision,
+             weight_repeat = excluded.weight_repeat,
+             rabt_weight = excluded.rabt_weight,
+             penalty_per_error = excluded.penalty_per_error,
+             evaluation_criteria_json = excluded.evaluation_criteria_json,
+             updated_at = datetime('now')`,
+        )
+          .bind(
+            auth.complexId,
+            wL,
+            wRev,
+            wRep,
+            wRabt,
+            pen,
+            JSON.stringify(criteria),
+          )
+          .run();
+      } else if (hasEvalJson) {
+        await env.DB.prepare(
+          `INSERT INTO edu_settings (
+             complex_id, weight_listening, weight_revision, weight_repeat,
+             penalty_per_error, evaluation_criteria_json, updated_at
+           )
+           VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(complex_id) DO UPDATE SET
+             weight_listening = excluded.weight_listening,
+             weight_revision = excluded.weight_revision,
+             weight_repeat = excluded.weight_repeat,
+             penalty_per_error = excluded.penalty_per_error,
+             evaluation_criteria_json = excluded.evaluation_criteria_json,
+             updated_at = datetime('now')`,
+        )
+          .bind(auth.complexId, wL, wRev, wRep, pen, JSON.stringify(criteria))
+          .run();
+      } else if (hasRabt) {
         await env.DB.prepare(
           `INSERT INTO edu_settings (complex_id, weight_listening, weight_revision, weight_repeat, rabt_weight, penalty_per_error, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
@@ -354,7 +393,7 @@ export async function handleEduDeptCoreRouter(
              penalty_per_error = excluded.penalty_per_error,
              updated_at = datetime('now')`,
         )
-          .bind(auth.complexId, wL, wR, wRep, wRabt, pen)
+          .bind(auth.complexId, wL, wRev, wRep, wRabt, pen)
           .run();
       } else {
         await env.DB.prepare(
@@ -367,11 +406,8 @@ export async function handleEduDeptCoreRouter(
              penalty_per_error = excluded.penalty_per_error,
              updated_at = datetime('now')`,
         )
-          .bind(auth.complexId, wL, wR, wRep, pen)
+          .bind(auth.complexId, wL, wRev, wRep, pen)
           .run();
-      }
-      if (himmaBody || compBody) {
-        await upsertEventDefaults(env, auth.complexId, himmaBody, compBody);
       }
       return json({ ok: true });
     }
@@ -458,13 +494,17 @@ export async function handleEduDeptCoreRouter(
         circleName = circles.find((c) => c.id === circleId)?.name_ar ?? "";
       }
 
-      const items = await loadDailyRecitationItems(env, auth.complexId, circleId, date);
+      const [items, evaluation_criteria] = await Promise.all([
+        loadDailyRecitationItems(env, auth.complexId, circleId, date),
+        loadEvaluationCriteria(env, auth.complexId),
+      ]);
       return json({
         date,
         circle_id: circleId,
         circle_name: circleName,
         circles,
         needs_circle_selection: false,
+        evaluation_criteria,
         items,
       });
     } catch (err) {
@@ -502,8 +542,11 @@ export async function handleEduDeptCoreRouter(
         if (!(await canAccessRecitationCircle(env, auth, circleId))) {
           return json({ error: "forbidden" }, 403);
         }
-        const items = await loadDailyRecitationItems(env, auth.complexId, circleId, date);
-        return json({ items, date, circle_id: circleId });
+        const [items, evaluation_criteria] = await Promise.all([
+          loadDailyRecitationItems(env, auth.complexId, circleId, date),
+          loadEvaluationCriteria(env, auth.complexId),
+        ]);
+        return json({ items, date, circle_id: circleId, evaluation_criteria });
       } catch (err) {
         return serverError("daily-recitation-get", err);
       }
@@ -516,6 +559,7 @@ export async function handleEduDeptCoreRouter(
           recitation_date?: string;
           rows?: Array<{
             student_id: number;
+            task_scores?: TaskScores;
             listened?: boolean;
             repeated?: boolean;
             revised?: boolean;
@@ -560,9 +604,64 @@ export async function handleEduDeptCoreRouter(
         const studentIds = new Set(students.map((s) => s.id));
 
         const hasFace = await tableHasColumn(env, "edu_daily_recitation", "face_count");
+        const hasTaskScores = await tableHasColumn(
+          env,
+          "edu_daily_recitation",
+          "task_scores_json",
+        );
+        const criteria = await loadEvaluationCriteria(env, auth.complexId);
         const stmts = rows
           .filter((r) => studentIds.has(Number(r.student_id)))
           .map((r) => {
+            const taskScores: TaskScores =
+              r.task_scores ??
+              legacyRowToTaskScores({
+                listened: r.listened,
+                repeated: r.repeated,
+                revised: r.revised,
+                error_count: r.error_count,
+                tune_errors: r.tune_errors,
+                face_count: r.face_count,
+              });
+            const legacy = taskScoresToLegacyColumns(taskScores, criteria);
+            const taskJson = JSON.stringify(taskScores);
+            const notes =
+              typeof r.notes === "string" ? r.notes.slice(0, 500) : null;
+
+            if (hasTaskScores && hasFace) {
+              return env.DB.prepare(
+                `INSERT INTO edu_daily_recitation
+                  (student_id, teacher_user_id, circle_id, recitation_date,
+                   listened, repeated, revised, error_count, tune_errors, face_count,
+                   task_scores_json, notes, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                 ON CONFLICT(student_id, recitation_date) DO UPDATE SET
+                   teacher_user_id = excluded.teacher_user_id,
+                   circle_id = excluded.circle_id,
+                   listened = excluded.listened,
+                   repeated = excluded.repeated,
+                   revised = excluded.revised,
+                   error_count = excluded.error_count,
+                   tune_errors = excluded.tune_errors,
+                   face_count = excluded.face_count,
+                   task_scores_json = excluded.task_scores_json,
+                   notes = excluded.notes,
+                   updated_at = datetime('now')`,
+              ).bind(
+                r.student_id,
+                auth.userId,
+                cid,
+                recDate,
+                legacy.listened,
+                legacy.repeated,
+                legacy.revised,
+                legacy.error_count,
+                legacy.tune_errors,
+                legacy.face_count,
+                taskJson,
+                notes,
+              );
+            }
             if (hasFace) {
               return env.DB.prepare(
                 `INSERT INTO edu_daily_recitation
@@ -584,13 +683,13 @@ export async function handleEduDeptCoreRouter(
                 auth.userId,
                 cid,
                 recDate,
-                r.listened ? 1 : 0,
-                r.repeated ? 1 : 0,
-                r.revised ? 1 : 0,
-                Number(r.error_count ?? 0),
-                Number(r.tune_errors ?? 0),
-                Math.max(0, Math.floor(Number(r.face_count ?? 0))),
-                typeof r.notes === "string" ? r.notes.slice(0, 500) : null,
+                legacy.listened,
+                legacy.repeated,
+                legacy.revised,
+                legacy.error_count,
+                legacy.tune_errors,
+                legacy.face_count,
+                notes,
               );
             }
             return env.DB.prepare(
@@ -612,12 +711,12 @@ export async function handleEduDeptCoreRouter(
               auth.userId,
               cid,
               recDate,
-              r.listened ? 1 : 0,
-              r.repeated ? 1 : 0,
-              r.revised ? 1 : 0,
-              Number(r.error_count ?? 0),
-              Number(r.tune_errors ?? 0),
-              typeof r.notes === "string" ? r.notes.slice(0, 500) : null,
+              legacy.listened,
+              legacy.repeated,
+              legacy.revised,
+              legacy.error_count,
+              legacy.tune_errors,
+              notes,
             );
           });
 
@@ -849,32 +948,23 @@ export async function handleEduDeptCoreRouter(
         ? Number(circleIdParam)
         : null;
 
-    const hasRabt = await tableHasColumn(env, "edu_settings", "rabt_weight");
     const hasFace = await tableHasColumn(env, "edu_daily_recitation", "face_count");
-    const settingsRow = await env.DB.prepare(
-      hasRabt
-        ? `SELECT weight_listening, weight_revision, weight_repeat, rabt_weight, penalty_per_error
-           FROM edu_settings WHERE complex_id = ?`
-        : `SELECT weight_listening, weight_revision, weight_repeat, penalty_per_error
-           FROM edu_settings WHERE complex_id = ?`,
-    )
-      .bind(auth.complexId)
-      .first<Record<string, number>>();
+    const hasTaskScores = await tableHasColumn(
+      env,
+      "edu_daily_recitation",
+      "task_scores_json",
+    );
+    const evaluation_criteria = await loadEvaluationCriteria(env, auth.complexId);
 
-    const wL = Number(settingsRow?.weight_listening ?? 1);
-    const wRev = Number(settingsRow?.weight_revision ?? 1);
-    const wRep = Number(settingsRow?.weight_repeat ?? 1);
-    const wRabt = hasRabt ? Number(settingsRow?.rabt_weight ?? 1) : 1;
-    const pen = Number(settingsRow?.penalty_per_error ?? 0.5);
-    const maxScore = wL + wRev + wRep + wRabt;
-
-    const selectCols = hasFace
-      ? `dr.student_id, dr.listened, dr.repeated, dr.revised,
-         dr.error_count, dr.tune_errors, dr.face_count, dr.circle_id, dr.recitation_date,
-         s.full_name_ar, c.name_ar AS circle_name`
-      : `dr.student_id, dr.listened, dr.repeated, dr.revised,
+    const extraCols = [
+      hasTaskScores ? "dr.task_scores_json" : null,
+      hasFace ? "dr.face_count" : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
+    const selectCols = `dr.student_id, dr.listened, dr.repeated, dr.revised,
          dr.error_count, dr.tune_errors, dr.circle_id, dr.recitation_date,
-         s.full_name_ar, c.name_ar AS circle_name`;
+         s.full_name_ar, c.name_ar AS circle_name${extraCols ? `, ${extraCols}` : ""}`;
 
     let sql = `
       SELECT ${selectCols}
@@ -899,6 +989,7 @@ export async function handleEduDeptCoreRouter(
         error_count: number;
         tune_errors: number;
         face_count?: number;
+        task_scores_json?: string | null;
         circle_id: number;
         recitation_date: string;
         full_name_ar: string;
@@ -927,13 +1018,26 @@ export async function handleEduDeptCoreRouter(
     let rowCount = 0;
 
     for (const r of rows.results ?? []) {
-      const quality_pct = computeQualityPct(r, wL, wRev, wRep, wRabt, pen, maxScore);
+      const taskScores = parseTaskScoresJson(r.task_scores_json, {
+        listened: r.listened,
+        repeated: r.repeated,
+        revised: r.revised,
+        error_count: r.error_count,
+        tune_errors: r.tune_errors,
+        face_count: hasFace ? r.face_count : 0,
+      });
+      const quality_pct = computeQualityFromCriteria(taskScores, evaluation_criteria);
       const listened = Boolean(r.listened);
       const repeated = Boolean(r.repeated);
       const revised = Boolean(r.revised);
       const faces = hasFace ? Number(r.face_count ?? 0) : 0;
+      const hasActivity = evaluation_criteria.some((c) => {
+        if (c.type !== "points" || c.requires_all?.length) return false;
+        const v = taskScores[c.id];
+        return c.input === "number" ? Number(v ?? 0) > 0 : Boolean(v);
+      });
 
-      if (listened || repeated || revised) activeCount += 1;
+      if (hasActivity || listened || repeated || revised) activeCount += 1;
       qualitySum += quality_pct;
       rowCount += 1;
 

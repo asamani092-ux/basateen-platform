@@ -1,8 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ClipboardList, Grid3X3, LayoutGrid, MoreHorizontal } from "lucide-react";
-import {
-  TableActionsCell,
-} from "../../components/admin/TableIconAction";
+import { TableActionsCell } from "../../components/admin/TableIconAction";
 import { Button } from "../../components/ui/button";
 import {
   Dialog,
@@ -25,23 +23,70 @@ import { ToggleGroup, ToggleGroupItem } from "../../components/ui/toggle-group";
 import { useAuth } from "../../context/AuthContext";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
+import {
+  emptyTaskScores,
+  type EvalCriterion,
+} from "../../lib/evaluation-criteria";
 import { ds, tajawal } from "../../lib/design-system";
 
 type Row = {
   student_id: number;
   full_name_ar: string;
-  listened: boolean;
-  repeated: boolean;
-  revised: boolean;
-  error_count: number;
-  tune_errors: number;
-  face_count: number;
+  task_scores: Record<string, boolean | number>;
   notes: string;
 };
 
 type ViewMode = "grid" | "cards";
 
 const SUPERVISOR_ROLES = new Set(["edu_supervisor", "super_admin", "programs_supervisor"]);
+
+function applyDependentScores(
+  taskScores: Record<string, boolean | number>,
+  criteria: EvalCriterion[],
+): Record<string, boolean | number> {
+  const next = { ...taskScores };
+  for (const c of criteria) {
+    if (c.requires_all?.length) {
+      next[c.id] = c.requires_all.every((id) => Boolean(next[id]));
+    }
+  }
+  return next;
+}
+
+function normalizeRow(
+  item: {
+    student_id: number;
+    full_name_ar: string;
+    task_scores?: Record<string, boolean | number>;
+    notes?: string;
+    listened?: boolean;
+    repeated?: boolean;
+    revised?: boolean;
+    error_count?: number;
+    tune_errors?: number;
+    face_count?: number;
+  },
+  criteria: EvalCriterion[],
+): Row {
+  const base = emptyTaskScores(criteria);
+  const legacyScores: Record<string, boolean | number> = {};
+  if (item.task_scores) {
+    Object.assign(legacyScores, item.task_scores);
+  } else {
+    if (item.listened != null) legacyScores.listening = Boolean(item.listened);
+    if (item.repeated != null) legacyScores.repeat = Boolean(item.repeated);
+    if (item.revised != null) legacyScores.revision = Boolean(item.revised);
+    if (item.error_count != null) legacyScores.error = Number(item.error_count);
+    if (item.tune_errors != null) legacyScores.tune = Number(item.tune_errors);
+    if (item.face_count != null) legacyScores.faces = Number(item.face_count);
+  }
+  return {
+    student_id: item.student_id,
+    full_name_ar: item.full_name_ar,
+    task_scores: applyDependentScores({ ...base, ...legacyScores }, criteria),
+    notes: item.notes ?? "",
+  };
+}
 
 export function DailyRecitationPage() {
   const { user } = useAuth();
@@ -51,6 +96,7 @@ export function DailyRecitationPage() {
   const [circleId, setCircleId] = useState<number | null>(null);
   const [circleName, setCircleName] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [criteria, setCriteria] = useState<EvalCriterion[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [loading, setLoading] = useState(true);
@@ -63,6 +109,15 @@ export function DailyRecitationPage() {
   const [reqType, setReqType] = useState<"transfer" | "escalation">("escalation");
   const [reqNotes, setReqNotes] = useState("");
   const [reqSubmitting, setReqSubmitting] = useState(false);
+
+  const editableCriteria = useMemo(
+    () => criteria.filter((c) => !c.requires_all?.length),
+    [criteria],
+  );
+  const bonusCriteria = useMemo(
+    () => criteria.filter((c) => c.requires_all?.length),
+    [criteria],
+  );
 
   const load = useCallback(async () => {
     if (!canUseApi()) {
@@ -79,6 +134,8 @@ export function DailyRecitationPage() {
           })
         : await api.eduDeptMyStudents({ date });
 
+      const evalCriteria = res.evaluation_criteria ?? [];
+      setCriteria(evalCriteria);
       setCircles(res.circles ?? []);
       if (res.needs_circle_selection && isSupervisor) {
         setRows([]);
@@ -86,7 +143,7 @@ export function DailyRecitationPage() {
       }
       setCircleId(res.circle_id);
       setCircleName(res.circle_name ?? "");
-      setRows(res.items ?? []);
+      setRows((res.items ?? []).map((item) => normalizeRow(item, evalCriteria)));
     } catch (e) {
       const msg = e instanceof Error ? e.message : "فشل التحميل";
       setError(msg.includes("لم يتم ربط حلقة") ? msg : msg);
@@ -100,9 +157,16 @@ export function DailyRecitationPage() {
     void load();
   }, [load]);
 
-  function patchRow(studentId: number, patch: Partial<Row>) {
+  function patchTaskScore(studentId: number, taskId: string, value: boolean | number) {
     setRows((prev) =>
-      prev.map((r) => (r.student_id === studentId ? { ...r, ...patch } : r)),
+      prev.map((r) => {
+        if (r.student_id !== studentId) return r;
+        const nextScores = applyDependentScores(
+          { ...r.task_scores, [taskId]: value },
+          criteria,
+        );
+        return { ...r, task_scores: nextScores };
+      }),
     );
   }
 
@@ -118,12 +182,7 @@ export function DailyRecitationPage() {
         recitation_date: date,
         rows: rows.map((r) => ({
           student_id: r.student_id,
-          listened: r.listened,
-          repeated: r.repeated,
-          revised: r.revised,
-          error_count: r.error_count,
-          tune_errors: r.tune_errors,
-          face_count: r.face_count,
+          task_scores: r.task_scores,
           notes: r.notes,
         })),
       });
@@ -172,8 +231,8 @@ export function DailyRecitationPage() {
           </h2>
           <p className={ds.page.description} style={tajawal}>
             {isSupervisor
-              ? "متابعة أو رصد حلقات المسار — اختر الحلقة ثم سجّل الإنجاز."
-              : "سماع، تكرار، مراجعة، وأوجه — حلقتك تُحمّل تلقائياً."}
+              ? "متابعة أو رصد حلقات المسار — المهام تُولَّد تلقائياً من إعدادات التقييم."
+              : "سجّل إنجاز الطلاب وفق مهام التقييم المحددة من المشرف."}
           </p>
           {!isSupervisor && circleName && (
             <p className="text-sm font-semibold text-primary mt-1" style={tajawal}>
@@ -257,141 +316,90 @@ export function DailyRecitationPage() {
             لا يوجد طلاب في هذه الحلقة.
           </p>
         ) : viewMode === "grid" ? (
-          <Table className={`${ds.tableMin} text-right`}>
-            <TableHeader>
-              <TableRow>
-                <TableHead className={`${ds.table.head} w-[16%]`} style={tajawal}>
-                  الطالب
-                </TableHead>
-                <TableHead className={`${ds.table.head} text-center w-[7%]`} style={tajawal}>
-                  سماع
-                </TableHead>
-                <TableHead className={`${ds.table.head} text-center w-[7%]`} style={tajawal}>
-                  تكرار
-                </TableHead>
-                <TableHead className={`${ds.table.head} text-center w-[7%]`} style={tajawal}>
-                  مراجعة
-                </TableHead>
-                <TableHead className={`${ds.table.head} text-center w-[9%]`} style={tajawal}>
-                  أوجه
-                </TableHead>
-                <TableHead className={`${ds.table.head} text-center w-[9%]`} style={tajawal}>
-                  أخطاء
-                </TableHead>
-                <TableHead className={`${ds.table.head} text-center w-[9%]`} style={tajawal}>
-                  لحن
-                </TableHead>
-                {!isSupervisor && (
-                  <TableHead className={ds.table.headActions} style={tajawal}>
-                    إجراء
+          <div className="overflow-x-auto">
+            <Table className={`${ds.tableMin} text-right`}>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
+                    الطالب
                   </TableHead>
-                )}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((r) => (
-                <TableRow key={r.student_id}>
-                  <TableCell className={ds.table.cell} style={tajawal}>
-                    {r.full_name_ar}
-                  </TableCell>
-                  <TableCell className="text-center align-middle">
-                    <input
-                      type="checkbox"
-                      checked={r.listened}
-                      tabIndex={0}
-                      onChange={(e) =>
-                        patchRow(r.student_id, { listened: e.target.checked })
-                      }
-                      className="size-4 rounded border-border"
-                    />
-                  </TableCell>
-                  <TableCell className="text-center align-middle">
-                    <input
-                      type="checkbox"
-                      checked={r.repeated}
-                      tabIndex={0}
-                      onChange={(e) =>
-                        patchRow(r.student_id, { repeated: e.target.checked })
-                      }
-                      className="size-4 rounded border-border"
-                    />
-                  </TableCell>
-                  <TableCell className="text-center align-middle">
-                    <input
-                      type="checkbox"
-                      checked={r.revised}
-                      tabIndex={0}
-                      onChange={(e) =>
-                        patchRow(r.student_id, { revised: e.target.checked })
-                      }
-                      className="size-4 rounded border-border"
-                    />
-                  </TableCell>
-                  <TableCell className="text-center align-middle">
-                    <Input
-                      type="number"
-                      min={0}
-                      tabIndex={0}
-                      value={r.face_count}
-                      onChange={(e) =>
-                        patchRow(r.student_id, {
-                          face_count: Number(e.target.value),
-                        })
-                      }
-                      className={`${ds.btnRound} w-16 mx-auto h-8 text-center`}
-                    />
-                  </TableCell>
-                  <TableCell className="text-center align-middle">
-                    <Input
-                      type="number"
-                      min={0}
-                      tabIndex={0}
-                      value={r.error_count}
-                      onChange={(e) =>
-                        patchRow(r.student_id, {
-                          error_count: Number(e.target.value),
-                        })
-                      }
-                      className={`${ds.btnRound} w-16 mx-auto h-8 text-center`}
-                    />
-                  </TableCell>
-                  <TableCell className="text-center align-middle">
-                    <Input
-                      type="number"
-                      min={0}
-                      tabIndex={0}
-                      value={r.tune_errors}
-                      onChange={(e) =>
-                        patchRow(r.student_id, {
-                          tune_errors: Number(e.target.value),
-                        })
-                      }
-                      className={`${ds.btnRound} w-16 mx-auto h-8 text-center`}
-                    />
-                  </TableCell>
+                  {editableCriteria.map((c) => (
+                    <TableHead
+                      key={c.id}
+                      className={`${ds.table.head} text-center`}
+                      style={tajawal}
+                    >
+                      {c.name}
+                    </TableHead>
+                  ))}
+                  {bonusCriteria.map((c) => (
+                    <TableHead
+                      key={c.id}
+                      className={`${ds.table.head} text-center text-muted-foreground`}
+                      style={tajawal}
+                    >
+                      {c.name}
+                    </TableHead>
+                  ))}
                   {!isSupervisor && (
-                    <TableActionsCell>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className={ds.btnRound}
-                        title="إجراء / طلب"
-                        onClick={() => {
-                          setReqStudent(r);
-                          setReqType("escalation");
-                          setReqNotes("");
-                          setReqOpen(true);
-                        }}
-                      >
-                        <MoreHorizontal className="w-4 h-4" />
-                      </Button>
-                    </TableActionsCell>
+                    <TableHead className={ds.table.headActions} style={tajawal}>
+                      إجراء
+                    </TableHead>
                   )}
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {rows.map((r) => (
+                  <TableRow key={r.student_id}>
+                    <TableCell className={ds.table.cell} style={tajawal}>
+                      {r.full_name_ar}
+                    </TableCell>
+                    {editableCriteria.map((c) => (
+                      <TableCell key={c.id} className="text-center align-middle">
+                        <TaskInput
+                          criterion={c}
+                          value={r.task_scores[c.id]}
+                          onChange={(v) => patchTaskScore(r.student_id, c.id, v)}
+                        />
+                      </TableCell>
+                    ))}
+                    {bonusCriteria.map((c) => (
+                      <TableCell key={c.id} className="text-center align-middle">
+                        <span
+                          className={`text-xs px-2 py-1 rounded-full ${
+                            r.task_scores[c.id]
+                              ? "bg-emerald-500/15 text-emerald-700"
+                              : "bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          {r.task_scores[c.id] ? "نعم" : "—"}
+                        </span>
+                      </TableCell>
+                    ))}
+                    {!isSupervisor && (
+                      <TableActionsCell>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className={ds.btnRound}
+                          title="إجراء / طلب"
+                          onClick={() => {
+                            setReqStudent(r);
+                            setReqType("escalation");
+                            setReqNotes("");
+                            setReqOpen(true);
+                          }}
+                        >
+                          <MoreHorizontal className="w-4 h-4" />
+                        </Button>
+                      </TableActionsCell>
+                    )}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         ) : (
           <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {rows.map((r) => (
@@ -402,57 +410,26 @@ export function DailyRecitationPage() {
                 <p className="font-bold text-sm" style={tajawal}>
                   {r.full_name_ar}
                 </p>
-                <div className="flex flex-wrap gap-3 text-sm" style={tajawal}>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={r.listened}
-                      onChange={(e) =>
-                        patchRow(r.student_id, { listened: e.target.checked })
-                      }
-                      className="size-4 rounded border-border"
-                    />
-                    سماع
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={r.repeated}
-                      onChange={(e) =>
-                        patchRow(r.student_id, { repeated: e.target.checked })
-                      }
-                      className="size-4 rounded border-border"
-                    />
-                    تكرار
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={r.revised}
-                      onChange={(e) =>
-                        patchRow(r.student_id, { revised: e.target.checked })
-                      }
-                      className="size-4 rounded border-border"
-                    />
-                    مراجعة
-                  </label>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <NumField
-                    label="أوجه"
-                    value={r.face_count}
-                    onChange={(v) => patchRow(r.student_id, { face_count: v })}
-                  />
-                  <NumField
-                    label="أخطاء"
-                    value={r.error_count}
-                    onChange={(v) => patchRow(r.student_id, { error_count: v })}
-                  />
-                  <NumField
-                    label="لحن"
-                    value={r.tune_errors}
-                    onChange={(v) => patchRow(r.student_id, { tune_errors: v })}
-                  />
+                <div className="space-y-2 text-sm" style={tajawal}>
+                  {editableCriteria.map((c) => (
+                    <div key={c.id} className="flex items-center justify-between gap-2">
+                      <span>{c.name}</span>
+                      <TaskInput
+                        criterion={c}
+                        value={r.task_scores[c.id]}
+                        onChange={(v) => patchTaskScore(r.student_id, c.id, v)}
+                        compact
+                      />
+                    </div>
+                  ))}
+                  {bonusCriteria.map((c) => (
+                    <div key={c.id} className="flex items-center justify-between gap-2">
+                      <span className="text-muted-foreground">{c.name}</span>
+                      <span className="text-xs">
+                        {r.task_scores[c.id] ? "مكتمل" : "—"}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
@@ -532,27 +509,37 @@ export function DailyRecitationPage() {
   );
 }
 
-function NumField({
-  label,
+function TaskInput({
+  criterion,
   value,
   onChange,
+  compact,
 }: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
+  criterion: EvalCriterion;
+  value: boolean | number | undefined;
+  onChange: (v: boolean | number) => void;
+  compact?: boolean;
 }) {
-  return (
-    <div className="space-y-1">
-      <Label className="text-xs text-muted-foreground" style={tajawal}>
-        {label}
-      </Label>
+  const isNumber = criterion.type === "penalty" || criterion.input === "number";
+
+  if (isNumber) {
+    return (
       <Input
         type="number"
         min={0}
-        value={value}
+        value={Number(value ?? 0)}
         onChange={(e) => onChange(Number(e.target.value))}
-        className={`${ds.btnRound} h-8 text-center text-sm`}
+        className={`${ds.btnRound} ${compact ? "h-8 w-20 text-center text-sm" : "w-16 mx-auto h-8 text-center"}`}
       />
-    </div>
+    );
+  }
+
+  return (
+    <input
+      type="checkbox"
+      checked={Boolean(value)}
+      onChange={(e) => onChange(e.target.checked)}
+      className="size-4 rounded border-border"
+    />
   );
 }

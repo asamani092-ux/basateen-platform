@@ -142,24 +142,6 @@ export function YomHimmaPage() {
     loadSessions();
   }, [loadSessions]);
 
-  useEffect(() => {
-    if (!getApiToken()) return;
-    api.eduDeptSettingsGet().then((res) => {
-      const h = res.settings.himma_defaults;
-      if (h) {
-        setRules((r) => ({
-          ...r,
-          hizb_points: h.hizb_points,
-          alert_penalty: h.alert_penalty,
-          error_penalty: h.error_penalty,
-          alerts_per_error: h.alerts_per_error,
-          fail_threshold_errors: h.fail_threshold_errors,
-        }));
-      }
-    }).catch(() => {
-      /* offline mock */
-    });
-  }, []);
 
   useEffect(() => {
     if (sessionId) loadDetail(sessionId);

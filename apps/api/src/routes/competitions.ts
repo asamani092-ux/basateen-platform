@@ -7,6 +7,7 @@ import {
   stageFilterWhere,
   studentsInScopeBinds,
   studentsInScopeWhere,
+  type ScopeMode,
 } from "../lib/dept-scope";
 import { DEFAULT_COMPETITION } from "../lib/edu-settings-defaults";
 
@@ -45,6 +46,21 @@ function defaultRules(): Record<string, unknown> {
   return {
     scoring: { ...DEFAULT_COMPETITION },
     plan_mode: "juz_distribution",
+  };
+}
+
+/** v25 competitions table may omit stage_id — avoid referencing missing column. */
+function competitionsScopeClause(
+  scope: ScopeMode,
+  hasStageId: boolean,
+): { where: string; binds: number[] } {
+  if (!hasStageId || scope.type === "global") {
+    return { where: "1=1", binds: [] };
+  }
+  const stageWhere = stageFilterWhere(scope, "c.stage_id");
+  return {
+    where: `(${stageWhere} OR c.stage_id IS NULL)`,
+    binds: stageFilterBinds(scope),
   };
 }
 
@@ -114,16 +130,17 @@ export async function handleEduCompetitionsRouter(
   const hasCompAttendance = await hasTable(env, "competition_attendance");
 
   if (request.method === "GET" && path === "/api/edu-dept/competitions") {
-    const stageWhere = stageFilterWhere(scope, "c.stage_id");
+    const hasStageId = await tableHasColumn(env, "competitions", "stage_id");
+    const scopeClause = competitionsScopeClause(scope, hasStageId);
     const descCol = hasDescription ? ", c.description" : "";
     const rows = await env.DB.prepare(
       `SELECT c.id, c.name_ar${descCol}, c.start_date, c.end_date, c.status,
               c.live_log_token, c.tv_launch_key
        FROM competitions c
-       WHERE c.complex_id = ? AND (${stageWhere} OR c.stage_id IS NULL)
+       WHERE c.complex_id = ? AND ${scopeClause.where}
        ORDER BY c.start_date DESC LIMIT 100`,
     )
-      .bind(auth.complexId, ...stageFilterBinds(scope))
+      .bind(auth.complexId, ...scopeClause.binds)
       .all();
     return json({ items: rows.results ?? [] });
   }

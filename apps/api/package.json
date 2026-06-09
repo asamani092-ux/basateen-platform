@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "npx wrangler dev --ip 127.0.0.1 --port 8787",
     "deploy": "npx wrangler deploy",
-    "deploy:prod": "npx wrangler deploy --env production",
+    "deploy:prod": "node scripts/deploy-prod-remote.mjs",
     "db:local:001": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/001_core.sql",
     "db:local:002": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/002_admin.sql",
     "db:local:003": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/003_education.sql",

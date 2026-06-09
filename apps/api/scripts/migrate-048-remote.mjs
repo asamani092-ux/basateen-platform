@@ -15,72 +15,62 @@ const apiRoot = path.resolve(apiDir, "..");
 const schemaDir = path.resolve(apiRoot, "../../packages/database/schema");
 const remote = "--remote";
 
-if (!process.env.CLOUDFLARE_API_TOKEN?.trim()) {
+const token = process.env.CLOUDFLARE_API_TOKEN?.replace(/\s+/g, "").trim();
+if (!token) {
   console.error(`
 ❌ CLOUDFLARE_API_TOKEN غير مضبوط — لا يمكن تنفيذ ترحيل D1 البعيد.
 
-من جهازك أو Codespace (بعد إضافة السر في GitHub):
-  export CLOUDFLARE_API_TOKEN="your-token"
+  export CLOUDFLARE_API_TOKEN='your-token-on-one-line'
   cd apps/api && npm run db:remote:048
 
-للتطوير المحلي فقط (بدون إعادة تسمية مهام المعلم):
-  cd apps/api && npm run db:local:048
-
-Token: https://developers.cloudflare.com/fundamentals/api/get-started/create-token/
+Token: https://developers.cloudflare.com/profile/api-tokens
 `);
   process.exit(1);
 }
 
-function run(args, label) {
+// Normalize token (wrangler fails if pasted with line breaks)
+process.env.CLOUDFLARE_API_TOKEN = token;
+
+function wrangler(args, label) {
   console.log(`\n>>> ${label}`);
   execSync(`npx wrangler d1 execute basateen ${remote} ${args}`, {
     cwd: apiRoot,
     stdio: "inherit",
+    env: process.env,
   });
 }
 
-function queryJson(sql) {
-  const out = execSync(
-    `npx wrangler d1 execute basateen ${remote} --command "${sql.replace(/"/g, '\\"')}" --json`,
-    { cwd: apiRoot, encoding: "utf8" },
-  );
-  const parsed = JSON.parse(out);
-  const block = Array.isArray(parsed) ? parsed[0] : parsed;
-  return block?.results ?? [];
-}
-
-function tableColumns(table) {
+function wranglerTry(args, label) {
   try {
-    return queryJson(`PRAGMA table_info(${table})`).map((r) => r.name);
+    wrangler(args, label);
+    return true;
   } catch {
-    return [];
+    console.log(`>>> skipped: ${label} (already applied or not applicable)`);
+    return false;
   }
 }
 
-function tableExists(table) {
-  const rows = queryJson(
-    `SELECT name FROM sqlite_master WHERE type='table' AND name='${table}'`,
-  );
-  return rows.length > 0;
+console.log(">>> verifying token…");
+try {
+  execSync("npx wrangler whoami", { cwd: apiRoot, stdio: "inherit", env: process.env });
+} catch {
+  console.error(`
+❌ فشل التحقق من التوكن (wrangler whoami).
+
+- الصق التوكن في سطر واحد بدون أسطر جديدة
+- تأكد من صلاحية D1 → Edit على الحساب
+- إن انتهت صلاحية التوكن أنشئ واحداً جديداً من لوحة Cloudflare
+`);
+  process.exit(1);
 }
 
-const compTasksCols = tableColumns("competition_tasks");
-const teacherTasksExists = tableExists("teacher_competition_tasks");
+// Best-effort rename: legacy teacher tasks table (027) before platform competition_tasks (048)
+wranglerTry(
+  `--command "ALTER TABLE competition_tasks RENAME TO teacher_competition_tasks"`,
+  "rename legacy teacher competition_tasks → teacher_competition_tasks",
+);
 
-if (compTasksCols.includes("title_ar") && !compTasksCols.includes("type")) {
-  if (!teacherTasksExists) {
-    run(
-      `--command "ALTER TABLE competition_tasks RENAME TO teacher_competition_tasks"`,
-      "rename legacy teacher competition_tasks → teacher_competition_tasks",
-    );
-  } else {
-    console.log(
-      "\n>>> skip rename: teacher_competition_tasks already exists (legacy competition_tasks kept as-is if present)",
-    );
-  }
-}
-
-run(
+wrangler(
   `--file="${path.join(schemaDir, "048_competition_engine.sql")}"`,
   "048 competition engine schema",
 );

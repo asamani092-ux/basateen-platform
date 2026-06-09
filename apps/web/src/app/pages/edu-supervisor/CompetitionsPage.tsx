@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { Calendar, Pencil, Plus, Trash2, Trophy } from "lucide-react";
+import { Calendar, Loader2, Pencil, Plus, Trash2, Trophy } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../../components/ui/button";
 import {
@@ -55,14 +55,19 @@ export function CompetitionsPage() {
   const [error, setError] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     if (!canUseApi()) return;
+    setLoading(true);
+    setError(null);
     try {
       const res = await api.competitionsList();
       setItems(res.items as CompetitionRow[]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل التحميل");
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -126,7 +131,12 @@ export function CompetitionsPage() {
         </p>
       )}
 
-      {items.length === 0 ? (
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <p style={tajawal}>جاري جلب المنافسات…</p>
+        </div>
+      ) : items.length === 0 ? (
         <div className={`${ds.card} p-12 text-center text-muted-foreground`} style={tajawal}>
           لا توجد منافسات بعد. أنشئ أول منافسة للبدء.
         </div>

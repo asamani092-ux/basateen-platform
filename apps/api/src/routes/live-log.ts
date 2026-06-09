@@ -1,6 +1,7 @@
 import type { Env } from "../types";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
-import { tableHasColumn } from "../lib/db-schema";
+import { hasTable, tableHasColumn } from "../lib/db-schema";
+import { hasEngineTargets, hasEngineTasks } from "../lib/competition-engine";
 import { FIELD_EDU_ROLES } from "../lib/roles";
 
 type HimmaRules = {
@@ -51,9 +52,14 @@ async function resolveLiveSession(env: Env, token: string) {
     };
   }
 
+  const hasCategory = await tableHasColumn(env, "competitions", "category");
+  const hasAccessPinCol = await tableHasColumn(env, "competitions", "access_pin");
+  const categoryCol = hasCategory ? ", category, custom_category" : "";
+  const accessPinCol = hasAccessPinCol ? ", access_pin" : "";
+
   const comp = await env.DB.prepare(
     `SELECT id, complex_id, name_ar, start_date, end_date, status, telemetry_type,
-            rules_json, live_log_token, tv_launch_key, stage_id
+            rules_json, live_log_token, tv_launch_key, stage_id${categoryCol}${accessPinCol}
      FROM competitions
      WHERE live_log_token = ? OR tv_launch_key = ?
      LIMIT 1`,
@@ -70,10 +76,14 @@ async function resolveLiveSession(env: Env, token: string) {
       rules_json: string;
       tv_launch_key: string;
       stage_id: number | null;
+      category?: string;
+      custom_category?: string;
+      access_pin?: string;
     }>();
 
   if (comp) {
     const compRules = JSON.parse(comp.rules_json || "{}") as Record<string, unknown>;
+    const pinFromCol = hasAccessPinCol ? String(comp.access_pin ?? "") : "";
     return {
       kind: "competition" as SessionKind,
       id: comp.id,
@@ -83,9 +93,11 @@ async function resolveLiveSession(env: Env, token: string) {
       status: comp.status,
       telemetry_type: comp.telemetry_type,
       rules: compRules,
-      access_pin: String(compRules.access_pin ?? "1234"),
+      access_pin: pinFromCol || String(compRules.access_pin ?? "1234"),
       tv_key: comp.tv_launch_key,
       stage_id: comp.stage_id,
+      category: hasCategory ? String(comp.category ?? "recitation") : "recitation",
+      custom_category: hasCategory ? String(comp.custom_category ?? "") : "",
     };
   }
 
@@ -146,24 +158,74 @@ export async function handleLiveLogRouter(
       });
     }
 
-    const students = await env.DB.prepare(
-      `SELECT s.id AS student_id, s.full_name_ar,
-              p.total_target_juz, p.daily_volume_juz, p.distributed_json
-       FROM students s
-       LEFT JOIN competition_student_plans p
-         ON p.student_id = s.id AND p.competition_id = ?
-       WHERE s.complex_id = ? AND s.is_active = 1
-       ORDER BY s.full_name_ar`,
-    )
-      .bind(session.id, session.complexId)
-      .all();
+    const logDate = new Date().toISOString().slice(0, 10);
+    const engineTargets = await hasEngineTargets(env);
+    const engineTasks = await hasEngineTasks(env);
 
-    const logs = await env.DB.prepare(
-      `SELECT student_id, log_date, metrics_json, recorded_at
-       FROM competition_logs WHERE competition_id = ? AND log_date = ?`,
-    )
-      .bind(session.id, new Date().toISOString().slice(0, 10))
-      .all();
+    let students: { results?: unknown[] };
+    if (engineTargets) {
+      students = await env.DB.prepare(
+        `SELECT s.id AS student_id, s.full_name_ar,
+                ct.current_memorization, ct.target_amount, ct.achieved_amount
+         FROM competition_targets ct
+         INNER JOIN students s ON s.id = ct.student_id
+         WHERE ct.competition_id = ? AND s.is_active = 1
+         ORDER BY s.full_name_ar`,
+      )
+        .bind(session.id)
+        .all();
+    } else {
+      students = await env.DB.prepare(
+        `SELECT s.id AS student_id, s.full_name_ar,
+                p.total_target_juz, p.daily_volume_juz, p.distributed_json
+         FROM students s
+         LEFT JOIN competition_student_plans p
+           ON p.student_id = s.id AND p.competition_id = ?
+         WHERE s.complex_id = ? AND s.is_active = 1
+         ORDER BY s.full_name_ar`,
+      )
+        .bind(session.id, session.complexId)
+        .all();
+    }
+
+    const tasks = engineTasks
+      ? await env.DB.prepare(
+          `SELECT id, name_ar, weight, type, sort_order
+           FROM competition_tasks WHERE competition_id = ?
+           ORDER BY sort_order, id`,
+        )
+          .bind(session.id)
+          .all()
+      : { results: [] };
+
+    const hasMetricsJson = await tableHasColumn(env, "competition_logs", "metrics_json");
+    const hasPoints = await tableHasColumn(env, "competition_logs", "points");
+    let logs: { results?: unknown[] };
+    if (hasMetricsJson) {
+      logs = await env.DB.prepare(
+        `SELECT student_id, log_date, metrics_json, recorded_at
+         FROM competition_logs WHERE competition_id = ? AND log_date = ?`,
+      )
+        .bind(session.id, logDate)
+        .all();
+    } else if (hasPoints) {
+      logs = await env.DB.prepare(
+        `SELECT cl.student_id, cl.log_date, cl.points, cl.notes, cl.task_id,
+                ct.name_ar AS task_name, cl.recorded_at
+         FROM competition_logs cl
+         LEFT JOIN competition_tasks ct ON ct.id = cl.task_id
+         WHERE cl.competition_id = ? AND cl.log_date = ?`,
+      )
+        .bind(session.id, logDate)
+        .all();
+    } else {
+      logs = { results: [] };
+    }
+
+    const sess = session as {
+      category?: string;
+      custom_category?: string;
+    };
 
     return json({
       kind: session.kind,
@@ -171,10 +233,13 @@ export async function handleLiveLogRouter(
         id: session.id,
         name_ar: session.name_ar,
         telemetry_type: session.telemetry_type,
+        category: sess.category ?? "recitation",
+        custom_category: sess.custom_category ?? "",
         rules: session.rules,
         tv_key: session.tv_key,
       },
       students: students.results ?? [],
+      tasks: tasks.results ?? [],
       logs: logs.results ?? [],
     });
   }
@@ -265,26 +330,51 @@ export async function handleLiveLogRouter(
       hizb_done: body.hizb_done,
       alerts: body.delta_alert,
       errors: body.delta_error,
+      category: (session as { category?: string }).category,
     };
 
-    await env.DB.prepare(
-      `INSERT INTO competition_logs
-       (competition_id, student_id, log_date, metrics_json, source, recorded_by_user_id)
-       VALUES (?, ?, ?, ?, 'live_log', NULL)
-       ON CONFLICT(competition_id, student_id, log_date) DO UPDATE SET
-         metrics_json = excluded.metrics_json,
-         recorded_at = datetime('now')`,
-    )
-      .bind(session.id, studentId, logDate, JSON.stringify(metrics))
-      .run();
+    const hasMetricsJson = await tableHasColumn(env, "competition_logs", "metrics_json");
+    const hasPoints = await tableHasColumn(env, "competition_logs", "points");
 
-    await env.DB.prepare(
-      `INSERT INTO competition_audit_trail
-       (competition_id, student_id, action, payload_json, source, recorded_at)
-       VALUES (?, ?, 'live_upsert', ?, 'live_log', datetime('now'))`,
-    )
-      .bind(session.id, studentId, JSON.stringify(metrics))
-      .run();
+    if (hasMetricsJson) {
+      await env.DB.prepare(
+        `INSERT INTO competition_logs
+         (competition_id, student_id, log_date, metrics_json, source, recorded_by_user_id)
+         VALUES (?, ?, ?, ?, 'live_log', NULL)
+         ON CONFLICT(competition_id, student_id, log_date) DO UPDATE SET
+           metrics_json = excluded.metrics_json,
+           recorded_at = datetime('now')`,
+      )
+        .bind(session.id, studentId, logDate, JSON.stringify(metrics))
+        .run();
+    } else if (hasPoints) {
+      const taskId = body.metrics?.task_id != null ? Number(body.metrics.task_id) : null;
+      const points = Number(body.metrics?.points ?? body.juz_done ?? body.hizb_done ?? 0);
+      await env.DB.prepare(
+        `INSERT INTO competition_logs
+         (competition_id, student_id, task_id, log_date, points, notes, recorded_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, NULL)`,
+      )
+        .bind(
+          session.id,
+          studentId,
+          taskId,
+          logDate,
+          points,
+          JSON.stringify(metrics),
+        )
+        .run();
+    }
+
+    if (await hasTable(env, "competition_audit_trail")) {
+      await env.DB.prepare(
+        `INSERT INTO competition_audit_trail
+         (competition_id, student_id, action, payload_json, source, recorded_at)
+         VALUES (?, ?, 'live_upsert', ?, 'live_log', datetime('now'))`,
+      )
+        .bind(session.id, studentId, JSON.stringify(metrics))
+        .run();
+    }
 
     return json({ ok: true, tv_key: session.tv_key });
   }

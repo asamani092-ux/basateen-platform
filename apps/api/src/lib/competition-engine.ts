@@ -1,8 +1,14 @@
 import type { Env } from "../types";
-import { hasTable, tableHasColumn } from "./db-schema";
 import {
+  activePlacementSql,
+  hasTable,
+  historyCircleColumn,
+  historyTrackColumn,
+  tableHasColumn,
+} from "./db-schema";
+import {
+  buildStudentsInScopeWhere,
   studentsInScopeBinds,
-  studentsInScopeWhere,
   type ScopeMode,
 } from "./dept-scope";
 
@@ -93,7 +99,7 @@ export async function hasCompetitionCategory(env: Env): Promise<boolean> {
 }
 
 /**
- * O(S) time, O(S) space — S ≤ 500; single indexed JOIN query (no N+1).
+ * O(S) time, O(S) space — S ≤ 500; single query, schema-aware (v25 flat + legacy history).
  * Always excludes talqeen (stage_id = 1).
  */
 export async function queryPreviewStudents(
@@ -102,7 +108,7 @@ export async function queryPreviewStudents(
   scope: ScopeMode,
   targetScope: TargetScope,
 ): Promise<PreviewStudentRow[]> {
-  const scopeWhere = studentsInScopeWhere(scope);
+  const scopeWhere = await buildStudentsInScopeWhere(env, scope);
   const binds: (string | number)[] = [...studentsInScopeBinds(complexId, scope)];
   const filters: string[] = [];
 
@@ -119,21 +125,41 @@ export async function queryPreviewStudents(
     );
   }
 
-  const needsActivePlacement = circleIds.length > 0 || trackIds.length > 0;
-  const historyJoin = needsActivePlacement
-    ? `INNER JOIN student_circle_history h
-         ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL`
-    : `LEFT JOIN student_circle_history h
-         ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL`;
+  const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
+  const hasCurrentTrack = await tableHasColumn(env, "students", "current_track_id");
+  const circleHistCol = await historyCircleColumn(env, "h");
+  const trackHistCol = await historyTrackColumn(env, "h");
+  const hasLegacyPlacement =
+    circleHistCol !== null &&
+    (await tableHasColumn(env, "student_circle_history", "to_at"));
 
-  if (circleIds.length) {
-    filters.push(`h.circle_id IN (${circleIds.map(() => "?").join(",")})`);
-    binds.push(...circleIds);
-  }
+  const useFlatPlacement = hasCurrentCircle || hasCurrentTrack;
+  let fromJoin = "";
 
-  if (trackIds.length) {
-    filters.push(`h.track_id IN (${trackIds.map(() => "?").join(",")})`);
-    binds.push(...trackIds);
+  if (useFlatPlacement) {
+    fromJoin = "LEFT JOIN circles c ON c.id = s.current_circle_id";
+    if (circleIds.length && hasCurrentCircle) {
+      filters.push(`s.current_circle_id IN (${circleIds.map(() => "?").join(",")})`);
+      binds.push(...circleIds);
+    }
+    if (trackIds.length && hasCurrentTrack) {
+      filters.push(`s.current_track_id IN (${trackIds.map(() => "?").join(",")})`);
+      binds.push(...trackIds);
+    }
+  } else if (hasLegacyPlacement && circleHistCol) {
+    const active = await activePlacementSql(env, "h");
+    fromJoin = `INNER JOIN student_circle_history h ON h.student_id = s.id AND ${active}
+                LEFT JOIN circles c ON c.id = ${circleHistCol}`;
+    if (circleIds.length) {
+      filters.push(`${circleHistCol} IN (${circleIds.map(() => "?").join(",")})`);
+      binds.push(...circleIds);
+    }
+    if (trackIds.length && trackHistCol) {
+      filters.push(`${trackHistCol} IN (${trackIds.map(() => "?").join(",")})`);
+      binds.push(...trackIds);
+    }
+  } else if (hasCurrentCircle) {
+    fromJoin = "LEFT JOIN circles c ON c.id = s.current_circle_id";
   }
 
   if (stageIds.length && hasStageCol) {
@@ -151,8 +177,7 @@ export async function queryPreviewStudents(
     `SELECT DISTINCT s.id AS student_id, s.full_name_ar, ${memCol}, ${stageCol},
             c.name_ar AS circle_name
      FROM students s
-     ${historyJoin}
-     LEFT JOIN circles c ON c.id = h.circle_id
+     ${fromJoin}
      WHERE ${scopeWhere}${filterSql}
      ORDER BY s.full_name_ar
      LIMIT 500`,

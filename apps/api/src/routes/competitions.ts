@@ -3,11 +3,14 @@ import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 import { hasTable, tableHasColumn } from "../lib/db-schema";
 import {
   computeAchievedByStudent,
+  deleteCompetitionCascade,
   formatMemorizationJuz,
   hasCompetitionCategory,
   hasEngineLogs,
   hasEngineTargets,
   hasEngineTasks,
+  loadCompetitionDetailBundle,
+  loadCompetitionTargetRows,
   parseMemorizationJuz,
   parseTargetScope,
   queryPreviewStudents,
@@ -505,24 +508,14 @@ export async function handleEduCompetitionsRouter(
     }
 
     const achievedMap = await computeAchievedByStudent(env, competitionId);
-    const targets = await env.DB.prepare(
-      `SELECT id, student_id, current_memorization, target_amount, achieved_amount, synced_at
-       FROM competition_targets WHERE competition_id = ?`,
-    )
-      .bind(competitionId)
-      .all<{
-        id: number;
-        student_id: number;
-        current_memorization: number;
-        target_amount: number;
-        achieved_amount: number;
-        synced_at: string | null;
-      }>();
+    const targetRows = await loadCompetitionTargetRows(env, competitionId);
 
     const hasMemCol = await tableHasColumn(env, "students", "memorization_amount");
     const updated: Array<{ student_id: number; new_memorization: number }> = [];
+    const targetUpdates: ReturnType<typeof env.DB.prepare>[] = [];
+    const studentUpdates: ReturnType<typeof env.DB.prepare>[] = [];
 
-    for (const t of targets.results ?? []) {
+    for (const t of targetRows) {
       const fromLogs = achievedMap.get(t.student_id) ?? 0;
       const achieved = Math.min(
         Number(t.target_amount) || 0,
@@ -530,24 +523,31 @@ export async function handleEduCompetitionsRouter(
       );
       if (achieved <= 0) continue;
 
-      const newJuz = Math.round((Number(t.current_memorization) + achieved) * 100) / 100;
+      const newJuz =
+        Math.round((Number(t.current_memorization ?? 0) + achieved) * 100) / 100;
+
       if (hasMemCol) {
-        await env.DB.prepare(
-          `UPDATE students SET memorization_amount = ? WHERE id = ? AND complex_id = ?`,
-        )
-          .bind(formatMemorizationJuz(newJuz), t.student_id, auth.complexId)
-          .run();
+        studentUpdates.push(
+          env.DB.prepare(
+            `UPDATE students SET memorization_amount = ? WHERE id = ? AND complex_id = ?`,
+          ).bind(formatMemorizationJuz(newJuz), t.student_id, auth.complexId),
+        );
       }
 
-      await env.DB.prepare(
-        `UPDATE competition_targets
-         SET achieved_amount = ?, synced_at = datetime('now')
-         WHERE id = ?`,
-      )
-        .bind(achieved, t.id)
-        .run();
+      targetUpdates.push(
+        env.DB.prepare(
+          `UPDATE competition_targets
+           SET achieved_amount = ?, synced_at = datetime('now')
+           WHERE competition_id = ? AND student_id = ?`,
+        ).bind(achieved, competitionId, t.student_id),
+      );
 
       updated.push({ student_id: t.student_id, new_memorization: newJuz });
+    }
+
+    const allStmts = [...studentUpdates, ...targetUpdates];
+    for (let i = 0; i < allStmts.length; i += 50) {
+      await env.DB.batch(allStmts.slice(i, i + 50));
     }
 
     await setCompetitionStatus(env, schema, competitionId, auth.complexId, "closed");
@@ -561,64 +561,24 @@ export async function handleEduCompetitionsRouter(
     const row = await competitionExists(env, id, auth.complexId);
     if (!row) return json({ error: "not_found" }, 404);
 
+    if (request.method === "DELETE") {
+      const deleted = await deleteCompetitionCascade(env, id, auth.complexId);
+      if (!deleted) return json({ error: "not_found" }, 404);
+      return json({ ok: true });
+    }
+
     if (request.method === "GET") {
-      let targets: Array<Record<string, unknown>> = [];
-      if (engineTargets) {
-        const tRows = await env.DB.prepare(
-          `SELECT ct.*, s.full_name_ar
-           FROM competition_targets ct
-           JOIN students s ON s.id = ct.student_id
-           WHERE ct.competition_id = ?
-           ORDER BY s.full_name_ar`,
-        )
-          .bind(id)
-          .all();
-        targets = (tRows.results ?? []) as Array<Record<string, unknown>>;
-      }
-
-      let tasks: Array<Record<string, unknown>> = [];
-      if (engineTasks) {
-        const taskRows = await env.DB.prepare(
-          `SELECT id, name_ar, weight, type, sort_order FROM competition_tasks
-           WHERE competition_id = ? ORDER BY sort_order, id`,
-        )
-          .bind(id)
-          .all();
-        tasks = (taskRows.results ?? []) as Array<Record<string, unknown>>;
-      }
-
-      let logs: Array<Record<string, unknown>> = [];
-      if (engineLogs) {
-        const logRows = await env.DB.prepare(
-          `SELECT cl.*, s.full_name_ar, ct.name_ar AS task_name
-           FROM competition_logs cl
-           JOIN students s ON s.id = cl.student_id
-           LEFT JOIN competition_tasks ct ON ct.id = cl.task_id
-           WHERE cl.competition_id = ?
-           ORDER BY cl.log_date DESC, cl.recorded_at DESC LIMIT 200`,
-        )
-          .bind(id)
-          .all();
-        logs = (logRows.results ?? []) as Array<Record<string, unknown>>;
-      } else if (await hasTable(env, "quran_daily_ledger")) {
-        const logRows = await env.DB.prepare(
-          `SELECT l.student_id, l.mark_date AS log_date, l.notes AS metrics_json,
-                  'ledger' AS source, l.recorded_at, s.full_name_ar
-           FROM quran_daily_ledger l
-           JOIN students s ON s.id = l.student_id
-           WHERE l.context_type = 'competition' AND l.context_id = ?
-           ORDER BY l.mark_date DESC, l.recorded_at DESC`,
-        )
-          .bind(id)
-          .all();
-        logs = (logRows.results ?? []) as Array<Record<string, unknown>>;
-      }
+      const bundle = await loadCompetitionDetailBundle(env, id, {
+        engineTargets,
+        engineTasks,
+        engineLogs,
+      });
 
       return json({
         competition: serializeCompetition(row, schema),
-        targets,
-        tasks,
-        logs,
+        targets: bundle.targets,
+        tasks: bundle.tasks,
+        logs: bundle.logs,
       });
     }
 
@@ -745,8 +705,9 @@ export async function handleEduCompetitionsRouter(
         return json({ error: "invalid_json" }, 400);
       }
       const date = body.date ?? new Date().toISOString().slice(0, 10);
-      for (const rec of body.records ?? []) {
-        await env.DB.prepare(
+      const records = body.records ?? [];
+      const stmts = records.map((rec) =>
+        env.DB.prepare(
           `INSERT INTO competition_attendance
            (competition_id, student_id, attendance_date, present, recorded_by_user_id)
            VALUES (?, ?, ?, ?, ?)
@@ -754,9 +715,10 @@ export async function handleEduCompetitionsRouter(
              present = excluded.present,
              recorded_by_user_id = excluded.recorded_by_user_id,
              recorded_at = datetime('now')`,
-        )
-          .bind(id, rec.student_id, date, rec.present ? 1 : 0, auth.userId)
-          .run();
+        ).bind(id, rec.student_id, date, rec.present ? 1 : 0, auth.userId),
+      );
+      for (let i = 0; i < stmts.length; i += 50) {
+        await env.DB.batch(stmts.slice(i, i + 50));
       }
       return json({ ok: true });
     }
@@ -800,20 +762,12 @@ export async function handleEduCompetitionsRouter(
     const achievedByStudent = await computeAchievedByStudent(env, id);
     let targetSum = 0;
     let achievedSum = 0;
+    let targetRows: Awaited<ReturnType<typeof loadCompetitionTargetRows>> = [];
 
     if (engineTargets) {
-      const targets = await env.DB.prepare(
-        `SELECT student_id, target_amount, achieved_amount
-         FROM competition_targets WHERE competition_id = ?`,
-      )
-        .bind(id)
-        .all<{
-          student_id: number;
-          target_amount: number;
-          achieved_amount: number;
-        }>();
+      targetRows = await loadCompetitionTargetRows(env, id);
 
-      for (const t of targets.results ?? []) {
+      for (const t of targetRows) {
         targetSum += Number(t.target_amount) || 0;
         const achieved = Math.max(
           Number(t.achieved_amount) || 0,
@@ -836,15 +790,9 @@ export async function handleEduCompetitionsRouter(
       .slice(0, 5)
       .map(([student_id, score]) => ({ student_id, score }));
 
-    if (leaders.length) {
-      const placeholders = leaders.map(() => "?").join(",");
-      const names = await env.DB.prepare(
-        `SELECT id, full_name_ar FROM students WHERE id IN (${placeholders})`,
-      )
-        .bind(...leaders.map((l) => l.student_id))
-        .all<{ id: number; full_name_ar: string }>();
+    if (leaders.length && targetRows.length) {
       const nameMap = new Map(
-        (names.results ?? []).map((n) => [n.id, n.full_name_ar]),
+        targetRows.map((t) => [t.student_id, t.full_name_ar]),
       );
       for (const l of leaders) {
         (l as { full_name_ar?: string }).full_name_ar = nameMap.get(l.student_id);

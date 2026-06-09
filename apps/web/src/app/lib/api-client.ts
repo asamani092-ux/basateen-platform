@@ -520,6 +520,10 @@ export const api = {
       updated_count: number;
       updated: Array<{ student_id: number; new_memorization: number }>;
     }>(`/api/edu-dept/competitions/${id}/sync-memorization`, { method: "POST" }),
+  competitionsDelete: (id: number) =>
+    request<{ ok: boolean }>(`/api/edu-dept/competitions/${id}`, {
+      method: "DELETE",
+    }),
   competitionsPatch: (id: number, body: Record<string, unknown>) =>
     request<{ ok: boolean }>(`/api/edu-dept/competitions/${id}`, {
       method: "PATCH",

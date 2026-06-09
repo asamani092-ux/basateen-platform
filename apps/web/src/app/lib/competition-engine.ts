@@ -16,6 +16,7 @@ export type PreviewStudent = {
   circle_name: string | null;
   stage_id: number | null;
   current_memorization: number;
+  target_amount: number;
   memorization_amount: string | null;
 };
 

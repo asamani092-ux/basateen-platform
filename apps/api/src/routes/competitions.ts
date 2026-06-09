@@ -11,6 +11,7 @@ import {
   hasEngineTargets,
   hasEngineTasks,
   loadCompetitionDetailBundle,
+  loadCompetitionFilterOptions,
   loadCompetitionTargetRows,
   parseMemorizationJuz,
   parseTargetScope,
@@ -31,8 +32,16 @@ import {
 import { DEFAULT_COMPETITION } from "../lib/edu-settings-defaults";
 import { COMPETITION_MANAGER_ROLES } from "../lib/roles";
 
-function json(data: unknown, status = 200): Response {
-  return Response.json(data, { status });
+function json(
+  data: unknown,
+  status = 200,
+  extraHeaders?: Record<string, string>,
+): Response {
+  const headers = new Headers({ "Content-Type": "application/json" });
+  if (extraHeaders) {
+    for (const [k, v] of Object.entries(extraHeaders)) headers.set(k, v);
+  }
+  return new Response(JSON.stringify(data), { status, headers });
 }
 
 function randomKey(): string {
@@ -342,6 +351,15 @@ export async function handleEduCompetitionsRouter(
   const engineTasks = await hasEngineTasks(env);
   const engineLogs = await hasEngineLogs(env);
 
+  if (request.method === "GET" && path === "/api/edu-dept/competitions/filter-options") {
+    const options = await loadCompetitionFilterOptions(env, auth.complexId);
+    return json(
+      { circles: options.circles, tracks: options.tracks },
+      200,
+      { "Cache-Control": "no-cache, no-store, must-revalidate" },
+    );
+  }
+
   if (request.method === "GET" && path === "/api/edu-dept/competitions") {
     const scopeClause = competitionsScopeClause(scope, schema.stage_id);
     const descCol = schema.description ? ", c.description" : "";
@@ -375,14 +393,31 @@ export async function handleEduCompetitionsRouter(
       body.competition_id != null && Number(body.competition_id) > 0
         ? Number(body.competition_id)
         : undefined;
-    const students = await queryPreviewStudents(
-      env,
-      auth.complexId,
-      scope,
-      body.target_scope ?? {},
-      competitionId,
-    );
-    return json({ items: students });
+    try {
+      const students = await queryPreviewStudents(
+        env,
+        auth.complexId,
+        scope,
+        body.target_scope ?? {},
+        competitionId,
+      );
+      return json(
+        { items: Array.isArray(students) ? students : [] },
+        200,
+        { "Cache-Control": "no-cache, no-store, must-revalidate" },
+      );
+    } catch (err) {
+      console.error("preview-targets failed:", err);
+      return json(
+        {
+          error: "preview_failed",
+          message: err instanceof Error ? err.message : "preview_query_error",
+          items: [],
+        },
+        500,
+        { "Cache-Control": "no-cache, no-store, must-revalidate" },
+      );
+    }
   }
 
   if (request.method === "POST" && path === "/api/edu-dept/competitions") {

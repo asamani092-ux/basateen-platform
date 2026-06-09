@@ -98,6 +98,68 @@ export async function hasCompetitionCategory(env: Env): Promise<boolean> {
   return await tableHasColumn(env, "competitions", "category");
 }
 
+export type CompetitionFilterOptions = {
+  circles: Array<{ id: number; name_ar: string; stage_id: number | null }>;
+  tracks: Array<{ id: number; name_ar: string }>;
+};
+
+/**
+ * O(C + T) — circles/tracks only; independent of competition_targets.
+ * Never throws — returns empty arrays on missing tables/columns.
+ */
+export async function loadCompetitionFilterOptions(
+  env: Env,
+  complexId: number,
+): Promise<CompetitionFilterOptions> {
+  const out: CompetitionFilterOptions = { circles: [], tracks: [] };
+
+  if (await hasTable(env, "circles")) {
+    const hasActive = await tableHasColumn(env, "circles", "is_active");
+    const hasStage = await tableHasColumn(env, "circles", "stage_id");
+    const activeClause = hasActive ? " AND COALESCE(CAST(c.is_active AS INTEGER), 1) = 1" : "";
+    const stageCol = hasStage ? ", c.stage_id" : ", NULL AS stage_id";
+    try {
+      const rows = await env.DB.prepare(
+        `SELECT c.id, c.name_ar${stageCol}
+         FROM circles c
+         WHERE c.complex_id = ?${activeClause}
+         ORDER BY c.name_ar`,
+      )
+        .bind(complexId)
+        .all<{ id: number; name_ar: string; stage_id: number | null }>();
+      out.circles = (rows.results ?? []).map((r) => ({
+        id: Number(r.id),
+        name_ar: String(r.name_ar ?? ""),
+        stage_id: r.stage_id != null ? Number(r.stage_id) : null,
+      }));
+    } catch (err) {
+      console.error("loadCompetitionFilterOptions circles failed:", err);
+    }
+  }
+
+  if (await hasTable(env, "tracks")) {
+    const hasActive = await tableHasColumn(env, "tracks", "is_active");
+    const activeClause = hasActive ? " AND COALESCE(CAST(t.is_active AS INTEGER), 1) = 1" : "";
+    try {
+      const rows = await env.DB.prepare(
+        `SELECT t.id, t.name_ar FROM tracks t
+         WHERE t.complex_id = ?${activeClause}
+         ORDER BY t.name_ar`,
+      )
+        .bind(complexId)
+        .all<{ id: number; name_ar: string }>();
+      out.tracks = (rows.results ?? []).map((r) => ({
+        id: Number(r.id),
+        name_ar: String(r.name_ar ?? ""),
+      }));
+    } catch (err) {
+      console.error("loadCompetitionFilterOptions tracks failed:", err);
+    }
+  }
+
+  return out;
+}
+
 /**
  * O(S) time, O(S) space — S ≤ 500; single query with LEFT JOINs only.
  * Students always listed from `students`; optional competition_targets LEFT JOIN

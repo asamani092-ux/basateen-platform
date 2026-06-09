@@ -235,6 +235,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+const COMPETITION_NO_CACHE: Record<string, string> = {
+  "Cache-Control": "no-cache, no-store, must-revalidate",
+  Pragma: "no-cache",
+};
+
+async function competitionRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  return request<T>(path, {
+    ...init,
+    headers: {
+      ...COMPETITION_NO_CACHE,
+      ...(init?.headers as Record<string, string> | undefined),
+    },
+  });
+}
+
 export const api = {
   health: () => request<{ ok: boolean; service?: string }>("/api/health"),
   tvSummary: () => request<TvSummary>("/api/tv/summary"),
@@ -477,55 +492,63 @@ export const api = {
       },
     ),
   competitionsList: () =>
-    request<{ items: Array<Record<string, unknown>> }>(
+    competitionRequest<{ items: Array<Record<string, unknown>> }>(
       "/api/edu-dept/competitions",
     ),
-  competitionsPreviewTargets: (body: { target_scope: Record<string, unknown> }) =>
-    request<{ items: Array<Record<string, unknown>> }>(
+  competitionsFilterOptions: () =>
+    competitionRequest<{
+      circles: Array<{ id: number; name_ar: string; stage_id?: number | null }>;
+      tracks: Array<{ id: number; name_ar: string }>;
+    }>("/api/edu-dept/competitions/filter-options"),
+  competitionsPreviewTargets: (body: {
+    target_scope: Record<string, unknown>;
+    competition_id?: number;
+  }) =>
+    competitionRequest<{ items: Array<Record<string, unknown>>; error?: string }>(
       "/api/edu-dept/competitions/preview-targets",
       { method: "POST", body: JSON.stringify(body) },
     ),
   competitionsCreate: (body: Record<string, unknown>) =>
-    request<{ ok: boolean; id: number; tv_launch_key: string }>(
+    competitionRequest<{ ok: boolean; id: number; tv_launch_key: string }>(
       "/api/edu-dept/competitions",
       { method: "POST", body: JSON.stringify(body) },
     ),
   competitionsDetail: (id: number) =>
-    request<{
+    competitionRequest<{
       competition: Record<string, unknown>;
       targets: Array<Record<string, unknown>>;
       tasks: Array<Record<string, unknown>>;
       logs: Array<Record<string, unknown>>;
     }>(`/api/edu-dept/competitions/${id}`),
   competitionsTasksList: (id: number) =>
-    request<{ items: Array<Record<string, unknown>> }>(
+    competitionRequest<{ items: Array<Record<string, unknown>> }>(
       `/api/edu-dept/competitions/${id}/tasks`,
     ),
   competitionsAddTask: (
     id: number,
     body: { name_ar: string; weight: number; type: "addition" | "deduction" },
   ) =>
-    request<{ ok: boolean; id: number }>(`/api/edu-dept/competitions/${id}/tasks`, {
+    competitionRequest<{ ok: boolean; id: number }>(`/api/edu-dept/competitions/${id}/tasks`, {
       method: "POST",
       body: JSON.stringify(body),
     }),
   competitionsDeleteTask: (competitionId: number, taskId: number) =>
-    request<{ ok: boolean }>(
+    competitionRequest<{ ok: boolean }>(
       `/api/edu-dept/competitions/${competitionId}/tasks/${taskId}`,
       { method: "DELETE" },
     ),
   competitionsSyncMemorization: (id: number) =>
-    request<{
+    competitionRequest<{
       ok: boolean;
       updated_count: number;
       updated: Array<{ student_id: number; new_memorization: number }>;
     }>(`/api/edu-dept/competitions/${id}/sync-memorization`, { method: "POST" }),
   competitionsDelete: (id: number) =>
-    request<{ ok: boolean }>(`/api/edu-dept/competitions/${id}`, {
+    competitionRequest<{ ok: boolean }>(`/api/edu-dept/competitions/${id}`, {
       method: "DELETE",
     }),
   competitionsPatch: (id: number, body: Record<string, unknown>) =>
-    request<{ ok: boolean }>(`/api/edu-dept/competitions/${id}`, {
+    competitionRequest<{ ok: boolean }>(`/api/edu-dept/competitions/${id}`, {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
@@ -533,7 +556,7 @@ export const api = {
     id: number,
     params: { date_from: string; date_to: string },
   ) =>
-    request<{
+    competitionRequest<{
       date_from: string;
       date_to: string;
       kpis: {

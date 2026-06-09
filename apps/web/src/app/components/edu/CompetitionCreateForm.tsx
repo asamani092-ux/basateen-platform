@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Copy, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
@@ -71,6 +72,7 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
   const [circles, setCircles] = useState<CircleOption[]>([]);
   const [tracks, setTracks] = useState<TrackOption[]>([]);
   const [targets, setTargets] = useState<StudentTargetRow[]>([]);
+  const [loadingOptions, setLoadingOptions] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,28 +80,48 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
   categoryRef.current = category;
 
   useEffect(() => {
-    if (!canUseApi()) {
-      setCircles([
-        { id: 1, name_ar: "حلقة النور" },
-        { id: 2, name_ar: "حلقة الإتقان" },
-      ]);
-      setTracks([{ id: 1, name_ar: "مسار الحفظ" }]);
-      return;
+    async function loadFilterOptions() {
+      if (!canUseApi()) {
+        setCircles([
+          { id: 1, name_ar: "حلقة النور" },
+          { id: 2, name_ar: "حلقة الإتقان" },
+        ]);
+        setTracks([{ id: 1, name_ar: "مسار الحفظ" }]);
+        return;
+      }
+      setLoadingOptions(true);
+      setError(null);
+      try {
+        const res = await api.competitionsFilterOptions();
+        const circleRows = Array.isArray(res.circles) ? res.circles : [];
+        const trackRows = Array.isArray(res.tracks) ? res.tracks : [];
+        setCircles(
+          circleRows.map((c) => ({
+            id: Number(c.id),
+            name_ar: String(c.name_ar ?? ""),
+          })),
+        );
+        setTracks(
+          trackRows.map((t) => ({
+            id: Number(t.id),
+            name_ar: String(t.name_ar ?? ""),
+          })),
+        );
+        if (circleRows.length === 0 && trackRows.length === 0) {
+          toast.warning("لا توجد حلقات أو مسارات مسجّلة في المجمع");
+        }
+      } catch (e) {
+        const msg =
+          e instanceof Error ? e.message : "فشل تحميل الحلقات والمسارات";
+        setError(`خطأ في البيانات الأساسية: ${msg}`);
+        toast.error(`تعذّر جلب الحلقات والمسارات — ${msg}`);
+        setCircles([]);
+        setTracks([]);
+      } finally {
+        setLoadingOptions(false);
+      }
     }
-    api.eduTargetOptions().then((res) => {
-      setCircles(
-        (res.circles as Array<Record<string, unknown>>).map((c) => ({
-          id: Number(c.id),
-          name_ar: String(c.name_ar),
-        })),
-      );
-      setTracks(
-        (res.tracks as Array<Record<string, unknown>>).map((t) => ({
-          id: Number(t.id),
-          name_ar: String(t.name_ar),
-        })),
-      );
-    });
+    void loadFilterOptions();
   }, []);
 
   const fetchPreview = useCallback(async (scope: TargetScope) => {
@@ -128,10 +150,19 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
     setError(null);
     try {
       const res = await api.competitionsPreviewTargets({ target_scope: scope });
-      const items = res.items as PreviewStudent[];
+      const rawItems = res?.items;
+      const items = Array.isArray(rawItems) ? (rawItems as PreviewStudent[]) : [];
+      if (res?.error) {
+        toast.error(`خطأ في جلب الطلاب: ${res.error}`);
+      }
       setTargets(mapPreviewToTargets(items, categoryRef.current));
+      if (items.length === 0 && scopeHasFilter(scope)) {
+        toast.info("لا يوجد طلاب مطابقون للفلتر المحدد");
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل تحميل المستهدفين");
+      const msg = e instanceof Error ? e.message : "فشل تحميل المستهدفين";
+      setError(msg);
+      toast.error(`تعذّر جلب الطلاب — ${msg}`);
       setTargets([]);
     } finally {
       setLoadingPreview(false);
@@ -304,6 +335,19 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
         <h3 className="font-semibold text-sm border-b pb-2" style={tajawal}>
           القسم الثاني — الاستهداف الذكي
         </h3>
+
+        {loadingOptions && (
+          <p className="text-sm text-muted-foreground flex items-center gap-2" style={tajawal}>
+            <Loader2 className="w-4 h-4 animate-spin" />
+            جاري تحميل الحلقات والمسارات…
+          </p>
+        )}
+
+        {!loadingOptions && circles.length === 0 && tracks.length === 0 && (
+          <p className="text-sm text-amber-700" style={tajawal}>
+            لم تُحمّل الحلقات أو المسارات. تحقق من الاتصال أو صلاحيات الحساب.
+          </p>
+        )}
 
         <div>
           <p className="text-xs text-muted-foreground mb-2" style={tajawal}>

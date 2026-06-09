@@ -5,36 +5,39 @@ import {
   ClipboardCheck,
   Copy,
   Link2,
-  Target,
+  ListChecks,
+  Minus,
+  Plus,
+  RefreshCw,
+  Trash2,
+  Users,
 } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import {
-  TargetPicker,
-  type TargetSelection,
-} from "../../components/edu/TargetPicker";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../components/ui/select";
 import { EduKpiCard } from "../../components/edu/EduKpiCard";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
+import { categoryLabel } from "../../lib/competition-engine";
 import { defaultDateRange } from "../../lib/local-iso-date";
 import { ds, tajawal } from "../../lib/design-system";
 
-type TabId = "dashboard" | "targeting" | "live" | "attendance";
+type TabId = "dashboard" | "targets" | "tasks" | "live" | "attendance";
 
-type ScoringRules = {
-  mistake_penalty?: number;
-  alert_penalty?: number;
-  lahn_penalty?: number;
-  default_task_weight?: number;
+type TaskRow = {
+  id: number;
+  name_ar: string;
+  weight: number;
+  type: "addition" | "deduction";
 };
-
-const emptyTargets = (): TargetSelection => ({
-  student_ids: [],
-  circle_ids: [],
-  track_ids: [],
-});
 
 export function CompetitionDetailPage() {
   const { competitionId } = useParams<{ competitionId: string }>();
@@ -49,16 +52,10 @@ export function CompetitionDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [liveLink, setLiveLink] = useState<string | null>(null);
-
-  const [targets, setTargets] = useState<TargetSelection>(emptyTargets());
-  const [defaultJuz, setDefaultJuz] = useState(1);
-  const [dailyJuz, setDailyJuz] = useState(0.5);
-  const [scoring, setScoring] = useState<ScoringRules>({
-    mistake_penalty: 1,
-    alert_penalty: 0.5,
-    lahn_penalty: 0.5,
-    default_task_weight: 1,
-  });
+  const [tasks, setTasks] = useState<TaskRow[]>([]);
+  const [newTaskName, setNewTaskName] = useState("");
+  const [newTaskWeight, setNewTaskWeight] = useState(1);
+  const [newTaskType, setNewTaskType] = useState<"addition" | "deduction">("addition");
   const [attDate, setAttDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [dashRange, setDashRange] = useState(defaultDateRange(7));
 
@@ -67,15 +64,17 @@ export function CompetitionDetailPage() {
     try {
       const res = await api.competitionsDetail(id);
       setData(res);
+      setTasks(
+        (res.tasks as Array<Record<string, unknown>>).map((t) => ({
+          id: Number(t.id),
+          name_ar: String(t.name_ar),
+          weight: Number(t.weight ?? 1),
+          type: (t.type === "deduction" ? "deduction" : "addition") as
+            | "addition"
+            | "deduction",
+        })),
+      );
       const comp = res.competition as Record<string, unknown>;
-      const scope = (comp.scope ?? {}) as TargetSelection;
-      setTargets({
-        student_ids: scope.student_ids ?? [],
-        circle_ids: scope.circle_ids ?? [],
-        track_ids: scope.track_ids ?? [],
-      });
-      const rules = (comp.rules ?? {}) as { scoring?: ScoringRules };
-      if (rules.scoring) setScoring((prev) => ({ ...prev, ...rules.scoring }));
       setDashRange({
         start: String(comp.start_date),
         end: String(comp.end_date),
@@ -128,7 +127,7 @@ export function CompetitionDetailPage() {
   }, [tab, loadAttendance]);
 
   const comp = data?.competition as Record<string, unknown> | undefined;
-  const plans = (data?.plans as Array<Record<string, unknown>>) ?? [];
+  const targets = (data?.targets as Array<Record<string, unknown>>) ?? [];
   const logs = (data?.logs as Array<Record<string, unknown>>) ?? [];
   const kpis = (dashboard?.kpis ?? {}) as Record<string, number>;
   const leaders = (dashboard?.leaders ?? []) as Array<{
@@ -136,25 +135,60 @@ export function CompetitionDetailPage() {
     score: number;
     full_name_ar?: string;
   }>;
+  const category = String(comp?.category ?? "recitation");
+  const isNewMemorization = category === "new_memorization";
 
-  async function saveTargeting() {
-    if (!id) return;
+  async function addTask() {
+    if (!id || !newTaskName.trim()) return;
     setSaving(true);
     setError(null);
     try {
-      const plansPayload = targets.student_ids.map((sid) => ({
-        student_id: sid,
-        total_target_juz: defaultJuz,
-        daily_volume_juz: dailyJuz,
-      }));
-      await api.competitionsPatch(id, {
-        scope: targets,
-        plans: plansPayload,
-        rules: { scoring },
+      await api.competitionsAddTask(id, {
+        name_ar: newTaskName.trim(),
+        weight: newTaskWeight,
+        type: newTaskType,
       });
+      setNewTaskName("");
+      setNewTaskWeight(1);
+      setNewTaskType("addition");
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل الحفظ");
+      setError(e instanceof Error ? e.message : "فشل إضافة المهمة");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeTask(taskId: number) {
+    if (!id) return;
+    setSaving(true);
+    try {
+      await api.competitionsDeleteTask(id, taskId);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "فشل حذف المهمة");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function syncMemorization() {
+    if (!id) return;
+    if (
+      !window.confirm(
+        "سيتم إنهاء المنافسة وتحديث مقدار الحفظ في سجل الطلاب للحفظ الجديد فقط. متابعة؟",
+      )
+    ) {
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await api.competitionsSyncMemorization(id);
+      await load();
+      alert(`تم التحديث لـ ${res.updated_count} طالب.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "فشل التزامن");
     } finally {
       setSaving(false);
     }
@@ -192,7 +226,8 @@ export function CompetitionDetailPage() {
 
   const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
     { id: "dashboard", label: "مؤشرات المنافسة", icon: <BarChart3 className="w-4 h-4" /> },
-    { id: "targeting", label: "الاستهداف والتخطيط", icon: <Target className="w-4 h-4" /> },
+    { id: "targets", label: "المستهدفون", icon: <Users className="w-4 h-4" /> },
+    { id: "tasks", label: "المهام والأوزان", icon: <ListChecks className="w-4 h-4" /> },
     { id: "live", label: "الرصد والروابط", icon: <Link2 className="w-4 h-4" /> },
     { id: "attendance", label: "تحضير المنافسة", icon: <ClipboardCheck className="w-4 h-4" /> },
   ];
@@ -211,18 +246,31 @@ export function CompetitionDetailPage() {
 
       {comp && (
         <>
-          <div>
-            <h2 className={ds.page.title} style={tajawal}>
-              {String(comp.name_ar)}
-            </h2>
-            {comp.description ? (
-              <p className="text-muted-foreground mt-1" style={tajawal}>
-                {String(comp.description)}
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 className={ds.page.title} style={tajawal}>
+                {String(comp.name_ar)}
+              </h2>
+              <p className="text-sm text-primary/80 mt-1" style={tajawal}>
+                {categoryLabel(String(comp.category), comp.custom_category as string)}
               </p>
-            ) : null}
-            <p className={ds.page.description} style={tajawal}>
-              {String(comp.start_date)} → {String(comp.end_date)} · {String(comp.status)}
-            </p>
+              <p className={ds.page.description} style={tajawal}>
+                {String(comp.start_date)} → {String(comp.end_date)} · {String(comp.status)}
+              </p>
+            </div>
+            {isNewMemorization && comp.status !== "closed" && (
+              <Button
+                type="button"
+                variant="default"
+                className={ds.btnRound}
+                disabled={saving}
+                onClick={() => void syncMemorization()}
+                style={tajawal}
+              >
+                <RefreshCw className="w-4 h-4" />
+                إنهاء المنافسة وتحديث المحفوظ
+              </Button>
+            )}
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -283,7 +331,7 @@ export function CompetitionDetailPage() {
                   sub="حضور المنافسة فقط"
                 />
                 <EduKpiCard
-                  icon={<Target className="w-4 h-4" />}
+                  icon={<Users className="w-4 h-4" />}
                   label="الإنجاز مقابل المستهدف"
                   value={`${kpis.achievement_pct ?? 0}%`}
                   sub={`${kpis.achieved_juz ?? 0} / ${kpis.target_juz ?? 0} جزء`}
@@ -321,87 +369,144 @@ export function CompetitionDetailPage() {
             </div>
           )}
 
-          {tab === "targeting" && (
+          {tab === "targets" && (
+            <Card className={ds.card}>
+              <CardHeader>
+                <CardTitle style={tajawal}>المستهدفون الفرديون</CardTitle>
+              </CardHeader>
+              <CardContent className="overflow-x-auto">
+                {targets.length === 0 ? (
+                  <p className="text-muted-foreground text-sm" style={tajawal}>
+                    لا مستهدفين — أُنشئت المنافسة بدون طلاب.
+                  </p>
+                ) : (
+                  <table className="w-full text-sm" style={tajawal}>
+                    <thead className="bg-muted/40">
+                      <tr>
+                        <th className="text-right p-2">الطالب</th>
+                        <th className="text-right p-2">الحفظ عند البدء</th>
+                        <th className="text-right p-2">المستهدف</th>
+                        <th className="text-right p-2">المُنجَز</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {targets.map((t) => (
+                        <tr key={String(t.student_id)} className="border-t">
+                          <td className="p-2">{String(t.full_name_ar)}</td>
+                          <td className="p-2 tabular-nums">
+                            {String(t.current_memorization)}
+                          </td>
+                          <td className="p-2 tabular-nums">{String(t.target_amount)}</td>
+                          <td className="p-2 tabular-nums">
+                            {String(t.achieved_amount ?? 0)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {tab === "tasks" && (
             <div className="space-y-4">
-              <TargetPicker value={targets} onChange={setTargets} />
               <Card className={ds.card}>
                 <CardHeader>
-                  <CardTitle style={tajawal}>خطة الحفظ المستهدفة</CardTitle>
+                  <CardTitle style={tajawal}>إضافة مهمة جديدة</CardTitle>
                 </CardHeader>
-                <CardContent className="grid sm:grid-cols-2 gap-4">
+                <CardContent className="grid sm:grid-cols-4 gap-3 items-end">
+                  <div className="sm:col-span-2 space-y-2">
+                    <Label style={tajawal}>اسم المهمة</Label>
+                    <Input
+                      value={newTaskName}
+                      onChange={(e) => setNewTaskName(e.target.value)}
+                      className={ds.btnRound}
+                      placeholder="مثال: سرد، حضور، خطأ"
+                    />
+                  </div>
                   <div className="space-y-2">
-                    <Label style={tajawal}>أجزاء مستهدفة (لكل طالب)</Label>
+                    <Label style={tajawal}>الوزن</Label>
                     <Input
                       type="number"
-                      value={defaultJuz}
-                      onChange={(e) => setDefaultJuz(Number(e.target.value))}
+                      min={0}
+                      step={0.1}
+                      value={newTaskWeight}
+                      onChange={(e) => setNewTaskWeight(Number(e.target.value))}
                       className={ds.btnRound}
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label style={tajawal}>جزء يومي</Label>
-                    <Input
-                      type="number"
-                      step="0.1"
-                      value={dailyJuz}
-                      onChange={(e) => setDailyJuz(Number(e.target.value))}
-                      className={ds.btnRound}
-                    />
+                    <Label style={tajawal}>نوع المهمة</Label>
+                    <Select
+                      value={newTaskType}
+                      onValueChange={(v) =>
+                        setNewTaskType(v as "addition" | "deduction")
+                      }
+                    >
+                      <SelectTrigger className={ds.btnRound}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="addition">إضافة نقاط ➕</SelectItem>
+                        <SelectItem value="deduction">خصم نقاط ➖</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
+                  <Button
+                    type="button"
+                    className={`${ds.btnRound} sm:col-span-4`}
+                    disabled={saving || !newTaskName.trim()}
+                    onClick={() => void addTask()}
+                    style={tajawal}
+                  >
+                    <Plus className="w-4 h-4" />
+                    إضافة مهمة
+                  </Button>
                 </CardContent>
               </Card>
+
               <Card className={ds.card}>
                 <CardHeader>
-                  <CardTitle style={tajawal}>إعدادات التقييم (خاصة بهذه المنافسة)</CardTitle>
+                  <CardTitle style={tajawal}>مهام المنافسة</CardTitle>
                 </CardHeader>
-                <CardContent className="grid sm:grid-cols-2 gap-4">
-                  <ScoreField
-                    label="خصم الخطأ"
-                    value={scoring.mistake_penalty ?? 1}
-                    onChange={(v) => setScoring((s) => ({ ...s, mistake_penalty: v }))}
-                  />
-                  <ScoreField
-                    label="خصم التنبيه"
-                    value={scoring.alert_penalty ?? 0.5}
-                    onChange={(v) => setScoring((s) => ({ ...s, alert_penalty: v }))}
-                  />
-                  <ScoreField
-                    label="خصم اللحن"
-                    value={scoring.lahn_penalty ?? 0.5}
-                    onChange={(v) => setScoring((s) => ({ ...s, lahn_penalty: v }))}
-                  />
-                  <ScoreField
-                    label="وزن المهمة"
-                    value={scoring.default_task_weight ?? 1}
-                    onChange={(v) =>
-                      setScoring((s) => ({ ...s, default_task_weight: v }))
-                    }
-                  />
+                <CardContent className="space-y-2">
+                  {tasks.length === 0 ? (
+                    <p className="text-sm text-muted-foreground" style={tajawal}>
+                      لا مهام بعد. أضف مهام الرصد والتقييم.
+                    </p>
+                  ) : (
+                    tasks.map((task) => (
+                      <div
+                        key={task.id}
+                        className="flex items-center justify-between border-b py-2 text-sm"
+                        style={tajawal}
+                      >
+                        <div className="flex items-center gap-2">
+                          {task.type === "addition" ? (
+                            <Plus className="w-4 h-4 text-emerald-600" />
+                          ) : (
+                            <Minus className="w-4 h-4 text-destructive" />
+                          )}
+                          <span>{task.name_ar}</span>
+                          <span className="text-muted-foreground tabular-nums">
+                            وزن {task.weight}
+                          </span>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={saving}
+                          onClick={() => void removeTask(task.id)}
+                        >
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
+                      </div>
+                    ))
+                  )}
                 </CardContent>
               </Card>
-              {plans.length > 0 && (
-                <Card className={ds.card}>
-                  <CardHeader>
-                    <CardTitle style={tajawal}>الخطط المحفوظة</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2 text-sm" style={tajawal}>
-                    {plans.map((p) => (
-                      <p key={String(p.student_id)}>
-                        {String(p.full_name_ar)} — هدف {String(p.total_target_juz)} جزء
-                      </p>
-                    ))}
-                  </CardContent>
-                </Card>
-              )}
-              <Button
-                type="button"
-                className={ds.btnRound}
-                disabled={saving}
-                onClick={() => void saveTargeting()}
-                style={tajawal}
-              >
-                {saving ? "جاري الحفظ…" : "حفظ الاستهداف والإعدادات"}
-              </Button>
             </div>
           )}
 
@@ -412,8 +517,7 @@ export function CompetitionDetailPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <p className="text-sm text-muted-foreground" style={tajawal}>
-                  رابط مستقل للمُختبِر/المعلم لرصد الإنجاز والأخطاء فوراً — معزول عن الرصد
-                  اليومي.
+                  رابط مستقل للمُختبِر/المعلم لرصد الإنجاز — معزول عن الرصد اليومي للحلقة.
                 </p>
                 {comp.live_log_token ? (
                   <code className="text-xs break-all block p-3 bg-muted rounded-xl" dir="ltr">
@@ -454,13 +558,15 @@ export function CompetitionDetailPage() {
                 {logs.length > 0 && (
                   <div className="pt-4 border-t space-y-2 text-sm" style={tajawal}>
                     <p className="font-semibold">آخر سجلات الرصد</p>
-                    {logs.slice(0, 10).map((row) => (
+                    {logs.slice(0, 10).map((row, idx) => (
                       <div
-                        key={`${row.student_id}-${row.log_date}`}
+                        key={`${row.student_id}-${row.log_date}-${idx}`}
                         className="flex justify-between border-b py-1"
                       >
-                        <span>{String(row.full_name_ar)}</span>
-                        <span className="text-muted-foreground">{String(row.log_date)}</span>
+                        <span>{String(row.full_name_ar ?? row.student_id)}</span>
+                        <span className="text-muted-foreground">
+                          {String(row.log_date ?? row.recorded_at ?? "")}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -545,30 +651,6 @@ export function CompetitionDetailPage() {
           )}
         </>
       )}
-    </div>
-  );
-}
-
-function ScoreField({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <div className="space-y-2">
-      <Label style={tajawal}>{label}</Label>
-      <Input
-        type="number"
-        step="0.1"
-        min={0}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className={ds.btnRound}
-      />
     </div>
   );
 }

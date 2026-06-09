@@ -480,6 +480,11 @@ export const api = {
     request<{ items: Array<Record<string, unknown>> }>(
       "/api/edu-dept/competitions",
     ),
+  competitionsPreviewTargets: (body: { target_scope: Record<string, unknown> }) =>
+    request<{ items: Array<Record<string, unknown>> }>(
+      "/api/edu-dept/competitions/preview-targets",
+      { method: "POST", body: JSON.stringify(body) },
+    ),
   competitionsCreate: (body: Record<string, unknown>) =>
     request<{ ok: boolean; id: number; tv_launch_key: string }>(
       "/api/edu-dept/competitions",
@@ -489,9 +494,32 @@ export const api = {
     request<{
       competition: Record<string, unknown>;
       targets: Array<Record<string, unknown>>;
-      plans: Array<Record<string, unknown>>;
+      tasks: Array<Record<string, unknown>>;
       logs: Array<Record<string, unknown>>;
     }>(`/api/edu-dept/competitions/${id}`),
+  competitionsTasksList: (id: number) =>
+    request<{ items: Array<Record<string, unknown>> }>(
+      `/api/edu-dept/competitions/${id}/tasks`,
+    ),
+  competitionsAddTask: (
+    id: number,
+    body: { name_ar: string; weight: number; type: "addition" | "deduction" },
+  ) =>
+    request<{ ok: boolean; id: number }>(`/api/edu-dept/competitions/${id}/tasks`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  competitionsDeleteTask: (competitionId: number, taskId: number) =>
+    request<{ ok: boolean }>(
+      `/api/edu-dept/competitions/${competitionId}/tasks/${taskId}`,
+      { method: "DELETE" },
+    ),
+  competitionsSyncMemorization: (id: number) =>
+    request<{
+      ok: boolean;
+      updated_count: number;
+      updated: Array<{ student_id: number; new_memorization: number }>;
+    }>(`/api/edu-dept/competitions/${id}/sync-memorization`, { method: "POST" }),
   competitionsPatch: (id: number, body: Record<string, unknown>) =>
     request<{ ok: boolean }>(`/api/edu-dept/competitions/${id}`, {
       method: "PATCH",

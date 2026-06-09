@@ -42,6 +42,19 @@ function serverError(scope: string, err: unknown): Response {
   );
 }
 
+/** Teacher sandbox tasks — renamed in migration 048 to avoid platform competition_tasks. */
+async function teacherTasksTable(env: Env): Promise<string | null> {
+  if (await hasTable(env, "teacher_competition_tasks")) {
+    return "teacher_competition_tasks";
+  }
+  if (await hasTable(env, "competition_tasks")) {
+    const hasTitle = await tableHasColumn(env, "competition_tasks", "title_ar");
+    const hasType = await tableHasColumn(env, "competition_tasks", "type");
+    if (hasTitle && !hasType) return "competition_tasks";
+  }
+  return null;
+}
+
 async function assertTeacherOwnsCompetition(
   env: Env,
   competitionId: number,
@@ -58,21 +71,22 @@ async function assertTeacherOwnsCompetition(
 }
 
 async function seedDefaultTasks(env: Env, compId: number): Promise<void> {
-  if (!(await hasTable(env, "competition_tasks"))) return;
-  const hasSort = await tableHasColumn(env, "competition_tasks", "sort_order");
+  const tasksTable = await teacherTasksTable(env);
+  if (!tasksTable) return;
+  const hasSort = await tableHasColumn(env, tasksTable, "sort_order");
   for (let i = 0; i < DEFAULT_COMPETITION_TASKS.length; i++) {
     const t = DEFAULT_COMPETITION_TASKS[i];
     try {
       if (hasSort) {
         await env.DB.prepare(
-          `INSERT INTO competition_tasks (competition_id, title_ar, weight_points, sort_order)
+          `INSERT INTO ${tasksTable} (competition_id, title_ar, weight_points, sort_order)
            VALUES (?, ?, ?, ?)`,
         )
           .bind(compId, t.title_ar, t.weight_points, i + 1)
           .run();
       } else {
         await env.DB.prepare(
-          `INSERT INTO competition_tasks (competition_id, title_ar, weight_points)
+          `INSERT INTO ${tasksTable} (competition_id, title_ar, weight_points)
            VALUES (?, ?, ?)`,
         )
           .bind(compId, t.title_ar, t.weight_points)
@@ -248,12 +262,13 @@ export async function handleEduDeptMegaRouter(
 
       let tasks: { results?: Array<{ id: number; title_ar: string; weight_points: number; sort_order?: number }> } =
         { results: [] };
-      if (await hasTable(env, "competition_tasks")) {
-        const hasSort = await tableHasColumn(env, "competition_tasks", "sort_order");
+      const tasksTable = await teacherTasksTable(env);
+      if (tasksTable) {
+        const hasSort = await tableHasColumn(env, tasksTable, "sort_order");
         const orderCol = hasSort ? "sort_order, id" : "id";
         tasks = await env.DB.prepare(
           `SELECT id, title_ar, weight_points${hasSort ? ", sort_order" : ""}
-           FROM competition_tasks WHERE competition_id = ? ORDER BY ${orderCol}`,
+           FROM ${tasksTable} WHERE competition_id = ? ORDER BY ${orderCol}`,
         )
           .bind(compId)
           .all();
@@ -302,15 +317,13 @@ export async function handleEduDeptMegaRouter(
       const { students } = loaded;
 
       const scoreMap = new Map<number, number>();
-      if (
-        (await hasTable(env, "competition_tasks")) &&
-        (await hasTable(env, "student_comp_scores"))
-      ) {
+      const tasksTableLb = await teacherTasksTable(env);
+      if (tasksTableLb && (await hasTable(env, "student_comp_scores"))) {
         const rows = await env.DB.prepare(
           `SELECT scs.student_id,
                   SUM(scs.points * COALESCE(ct.weight_points, 1)) AS total_points
            FROM student_comp_scores scs
-           INNER JOIN competition_tasks ct ON ct.id = scs.task_id
+           INNER JOIN ${tasksTableLb} ct ON ct.id = scs.task_id
            WHERE ct.competition_id = ?
            GROUP BY scs.student_id`,
         )
@@ -340,7 +353,8 @@ export async function handleEduDeptMegaRouter(
 
     const taskMatch = path.match(/^\/api\/edu-dept\/teacher-competitions\/(\d+)\/tasks$/);
     if (taskMatch && request.method === "POST") {
-      if (!(await hasTable(env, "competition_tasks"))) return migrationRequired();
+      const tasksTable = await teacherTasksTable(env);
+      if (!tasksTable) return migrationRequired();
       const compId = Number(taskMatch[1]);
       if (!(await assertTeacherOwnsCompetition(env, compId, auth.userId, auth.complexId))) {
         return json({ error: "not_found" }, 404);
@@ -364,11 +378,11 @@ export async function handleEduDeptMegaRouter(
       const title = String(body.title_ar ?? "").trim();
       if (!title) return json({ error: "title_required" }, 400);
       const w = Number(body.weight_points ?? 1);
-      const hasSort = await tableHasColumn(env, "competition_tasks", "sort_order");
+      const hasSort = await tableHasColumn(env, tasksTable, "sort_order");
       let sortOrder = 1;
       if (hasSort) {
         const maxRow = await env.DB.prepare(
-          `SELECT COALESCE(MAX(sort_order), 0) AS m FROM competition_tasks WHERE competition_id = ?`,
+          `SELECT COALESCE(MAX(sort_order), 0) AS m FROM ${tasksTable} WHERE competition_id = ?`,
         )
           .bind(compId)
           .first<{ m: number }>();
@@ -376,13 +390,13 @@ export async function handleEduDeptMegaRouter(
       }
       const ins = hasSort
         ? await env.DB.prepare(
-            `INSERT INTO competition_tasks (competition_id, title_ar, weight_points, sort_order)
+            `INSERT INTO ${tasksTable} (competition_id, title_ar, weight_points, sort_order)
              VALUES (?, ?, ?, ?)`,
           )
             .bind(compId, title, Number.isFinite(w) ? w : 1, sortOrder)
             .run()
         : await env.DB.prepare(
-            `INSERT INTO competition_tasks (competition_id, title_ar, weight_points)
+            `INSERT INTO ${tasksTable} (competition_id, title_ar, weight_points)
              VALUES (?, ?, ?)`,
           )
             .bind(compId, title, Number.isFinite(w) ? w : 1)
@@ -394,14 +408,15 @@ export async function handleEduDeptMegaRouter(
       /^\/api\/edu-dept\/teacher-competitions\/(\d+)\/tasks\/(\d+)$/,
     );
     if (taskDelMatch && request.method === "DELETE") {
-      if (!(await hasTable(env, "competition_tasks"))) return migrationRequired();
+      const tasksTable = await teacherTasksTable(env);
+      if (!tasksTable) return migrationRequired();
       const compId = Number(taskDelMatch[1]);
       const taskId = Number(taskDelMatch[2]);
       if (!(await assertTeacherOwnsCompetition(env, compId, auth.userId, auth.complexId))) {
         return json({ error: "not_found" }, 404);
       }
       const owned = await env.DB.prepare(
-        `SELECT id FROM competition_tasks WHERE id = ? AND competition_id = ?`,
+        `SELECT id FROM ${tasksTable} WHERE id = ? AND competition_id = ?`,
       )
         .bind(taskId, compId)
         .first();
@@ -411,7 +426,7 @@ export async function handleEduDeptMegaRouter(
           .bind(taskId)
           .run();
       }
-      await env.DB.prepare(`DELETE FROM competition_tasks WHERE id = ?`).bind(taskId).run();
+      await env.DB.prepare(`DELETE FROM ${tasksTable} WHERE id = ?`).bind(taskId).run();
       return json({ ok: true });
     }
 
@@ -443,8 +458,10 @@ export async function handleEduDeptMegaRouter(
       }
       const list = Array.isArray(rawList) ? rawList : [];
 
+      const scoresTasksTable = await teacherTasksTable(env);
+      if (!scoresTasksTable) return migrationRequired();
       const taskRows = await env.DB.prepare(
-        `SELECT id FROM competition_tasks WHERE competition_id = ?`,
+        `SELECT id FROM ${scoresTasksTable} WHERE competition_id = ?`,
       )
         .bind(compId)
         .all<{ id: number }>();

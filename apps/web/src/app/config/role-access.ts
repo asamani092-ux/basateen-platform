@@ -89,6 +89,9 @@ export const LEGACY_REDIRECTS: Record<string, string | "home"> = {
 
 const TEACHER_ONLY_EDU_PATHS = ["/edu-dept/teacher-competitions"];
 
+/** محرك المنافسات — مشرف تعليمي ومدير عام فقط */
+const SUPERVISOR_ONLY_EDU_PATHS = ["/edu-dept/competitions"];
+
 const RECITATION_EDU_PATH = "/edu-dept/daily-recitation";
 const RECITATION_ROLES: UserRole[] = ["teacher", "track_supervisor"];
 
@@ -101,6 +104,12 @@ export function pathAllowedForRole(role: UserRole, pathname: string): boolean {
   for (const prefix of TEACHER_ONLY_EDU_PATHS) {
     if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
       return role === "teacher" || role === "track_supervisor";
+    }
+  }
+
+  for (const prefix of SUPERVISOR_ONLY_EDU_PATHS) {
+    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
+      return role === "edu_supervisor" || role === "super_admin";
     }
   }
 

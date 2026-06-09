@@ -2,6 +2,7 @@ import type { Env } from "../types";
 import { tableHasColumn } from "../lib/db-schema";
 import type { ScopeMode } from "../lib/dept-scope";
 import {
+  buildStudentsInScopeWhere,
   loadUserScope,
   parseStageScope,
   stageFilterBinds,
@@ -298,13 +299,19 @@ export async function handleEduDeptExtendedRoutes(
   }
 
   if (method === "GET" && path === "/api/edu-dept/target-options") {
+    const scopeWhere = await buildStudentsInScopeWhere(env, scope);
+    const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
+    const circleJoin = hasCurrentCircle
+      ? "LEFT JOIN circles c ON c.id = s.current_circle_id"
+      : `LEFT JOIN student_circle_history h
+           ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL
+         LEFT JOIN circles c ON c.id = h.circle_id`;
+
     const students = await env.DB.prepare(
       `SELECT s.id, s.full_name_ar, s.stage_id, c.name_ar AS circle_name
        FROM students s
-       LEFT JOIN student_circle_history h
-         ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL
-       LEFT JOIN circles c ON c.id = h.circle_id
-       WHERE ${studentsInScopeWhere(scope)}
+       ${circleJoin}
+       WHERE ${scopeWhere}
        ORDER BY s.full_name_ar LIMIT 200`,
     )
       .bind(...studentsInScopeBinds(auth.complexId, scope))

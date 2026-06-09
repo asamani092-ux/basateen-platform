@@ -623,6 +623,36 @@ export type DashboardTargetRow = {
   achieved_amount: number;
 };
 
+/** O(1) — update single student target_amount */
+export async function updateStudentTargetAmount(
+  env: Env,
+  competitionId: number,
+  studentId: number,
+  targetAmount: number,
+): Promise<boolean> {
+  const res = await env.DB.prepare(
+    `UPDATE competition_targets SET target_amount = ?
+     WHERE competition_id = ? AND student_id = ?`,
+  )
+    .bind(targetAmount, competitionId, studentId)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+/** O(1) — remove one student from competition targets */
+export async function deleteStudentTarget(
+  env: Env,
+  competitionId: number,
+  studentId: number,
+): Promise<boolean> {
+  const res = await env.DB.prepare(
+    `DELETE FROM competition_targets WHERE competition_id = ? AND student_id = ?`,
+  )
+    .bind(competitionId, studentId)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
 /** O(T) — single JOIN for targets + student names (feeds dashboard KPIs) */
 export async function loadCompetitionTargetRows(
   env: Env,

@@ -471,8 +471,12 @@ export const api = {
   liveLogSession: (token: string, pin: string) =>
     request<{
       kind: "yom_himma" | "competition";
-      session: Record<string, unknown>;
+      session: Record<string, unknown> & {
+        category?: string;
+        custom_category?: string;
+      };
       students: Array<Record<string, unknown>>;
+      tasks?: Array<Record<string, unknown>>;
       audit?: Array<Record<string, unknown>>;
       logs?: Array<Record<string, unknown>>;
     }>(`/api/live-log/${encodeURIComponent(token)}`, {
@@ -552,6 +556,20 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
+  competitionsUpdateTarget: (
+    competitionId: number,
+    studentId: number,
+    target_amount: number,
+  ) =>
+    competitionRequest<{ ok: boolean }>(
+      `/api/edu-dept/competitions/${competitionId}/targets/${studentId}`,
+      { method: "PATCH", body: JSON.stringify({ target_amount }) },
+    ),
+  competitionsDeleteTarget: (competitionId: number, studentId: number) =>
+    competitionRequest<{ ok: boolean }>(
+      `/api/edu-dept/competitions/${competitionId}/targets/${studentId}`,
+      { method: "DELETE" },
+    ),
   competitionsDashboard: (
     id: number,
     params: { date_from: string; date_to: string },
@@ -573,7 +591,12 @@ export const api = {
   competitionsAttendanceGet: (id: number, date: string) =>
     request<{
       date: string;
-      items: Array<{ student_id: number; full_name_ar: string; present: boolean }>;
+      items: Array<{
+        student_id: number;
+        full_name_ar: string;
+        present: boolean;
+        status?: "present" | "excused" | "absent";
+      }>;
       present_count: number;
       total: number;
     }>(
@@ -581,16 +604,31 @@ export const api = {
     ),
   competitionsAttendanceSave: (
     id: number,
-    body: { date: string; records: Array<{ student_id: number; present: boolean }> },
+    body: {
+      date: string;
+      records: Array<{
+        student_id: number;
+        present?: boolean;
+        status?: "present" | "excused" | "absent";
+      }>;
+    },
   ) =>
     request<{ ok: boolean }>(`/api/edu-dept/competitions/${id}/attendance`, {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  competitionsLiveLogToken: (id: number) =>
-    request<{ ok: boolean; live_log_token: string; path: string }>(
+  competitionsLiveLogToken: (id: number, access_pin?: string) =>
+    request<{ ok: boolean; live_log_token: string; access_pin?: string; path: string }>(
       `/api/edu-dept/competitions/${id}/live-log-token`,
-      { method: "POST", body: "{}" },
+      {
+        method: "POST",
+        body: JSON.stringify(access_pin ? { access_pin } : {}),
+      },
+    ),
+  competitionsDeleteLiveLogToken: (id: number) =>
+    request<{ ok: boolean; deleted: boolean }>(
+      `/api/edu-dept/competitions/${id}/live-log-token`,
+      { method: "DELETE" },
     ),
   competitionsActivate: (id: number) =>
     request<{ ok: boolean }>(

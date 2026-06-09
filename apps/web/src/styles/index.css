@@ -454,4 +454,32 @@
   .edu-print-table thead {
     display: table-header-group;
   }
+
+  /* Competition dashboard print */
+  body.printing-competition-dashboard aside,
+  body.printing-competition-dashboard header,
+  body.printing-competition-dashboard [data-dev-preview-banner],
+  body.printing-competition-dashboard .print\\:hidden {
+    display: none !important;
+  }
+
+  body.printing-competition-dashboard main {
+    padding: 0 !important;
+  }
+
+  body.printing-competition-dashboard #competition-dashboard-print {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  body.printing-competition-dashboard .competition-print-header {
+    display: block !important;
+  }
+
+  body.printing-competition-dashboard #competition-dashboard-print * {
+    color: #000 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
 }

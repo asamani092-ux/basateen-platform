@@ -5,6 +5,7 @@ import {
   computeAchievedByStudent,
   deleteCompetitionCascade,
   deleteCompetitionTask,
+  deleteStudentTarget,
   formatMemorizationJuz,
   hasCompetitionCategory,
   hasEngineLogs,
@@ -21,6 +22,7 @@ import {
   type StudentTargetInput,
   type TargetScope,
   upsertStudentTargets,
+  updateStudentTargetAmount,
 } from "../lib/competition-engine";
 import {
   loadUserScope,
@@ -326,6 +328,17 @@ function serializeCompetition(
     rules: JSON.parse(String(row.rules_json ?? "{}")),
     scope: schema.scope_json ? JSON.parse(String(row.scope_json ?? "{}")) : {},
   };
+}
+
+function normalizeCompAttendanceStatus(raw: string | undefined): "present" | "excused" | "absent" {
+  const t = String(raw ?? "").trim().toLowerCase();
+  if (t === "excused" || t === "مستأذن" || t === "معتذر") return "excused";
+  if (t === "absent" || t === "غائب") return "absent";
+  return "present";
+}
+
+function presentFromStatus(status: string): number {
+  return status === "present" ? 1 : 0;
 }
 
 export async function handleEduCompetitionsRouter(
@@ -662,13 +675,95 @@ export async function handleEduCompetitionsRouter(
   const liveTokenMatch = path.match(
     /^\/api\/edu-dept\/competitions\/(\d+)\/live-log-token$/,
   );
-  if (request.method === "POST" && liveTokenMatch) {
+  if (liveTokenMatch) {
     const id = Number(liveTokenMatch[1]);
     const row = await competitionExists(env, id, auth.complexId);
     if (!row) return json({ error: "not_found" }, 404);
-    const token = randomKey();
-    await setCompetitionStatus(env, schema, id, auth.complexId, "active", token);
-    return json({ ok: true, live_log_token: token, path: `/live-log/${token}` });
+
+    if (request.method === "DELETE") {
+      await env.DB.prepare(
+        `UPDATE competitions SET live_log_token = NULL WHERE id = ? AND complex_id = ?`,
+      )
+        .bind(id, auth.complexId)
+        .run();
+      return json({ ok: true, deleted: true });
+    }
+
+    if (request.method === "POST") {
+      let body: { access_pin?: string };
+      try {
+        body = await request.json().catch(() => ({}));
+      } catch {
+        body = {};
+      }
+      const token = randomKey();
+      const pin = String(body.access_pin ?? "").trim() || "1234";
+      const currentRules = JSON.parse(String(row.rules_json ?? "{}")) as Record<
+        string,
+        unknown
+      >;
+      const nextRules = { ...currentRules, access_pin: pin };
+
+      const hasAccessPinCol = await tableHasColumn(env, "competitions", "access_pin");
+      const hasUpdatedAt = schema.updated_at;
+      const sets = ["live_log_token = ?", "status = 'active'", "rules_json = ?"];
+      const binds: (string | number)[] = [token, JSON.stringify(nextRules)];
+      if (hasAccessPinCol) {
+        sets.push("access_pin = ?");
+        binds.push(pin);
+      }
+      if (hasUpdatedAt) sets.push("updated_at = datetime('now')");
+      binds.push(id, auth.complexId);
+      await env.DB.prepare(
+        `UPDATE competitions SET ${sets.join(", ")} WHERE id = ? AND complex_id = ?`,
+      )
+        .bind(...binds)
+        .run();
+
+      return json({
+        ok: true,
+        live_log_token: token,
+        access_pin: pin,
+        path: `/live-log/${token}`,
+      });
+    }
+  }
+
+  const targetStudentMatch = path.match(
+    /^\/api\/edu-dept\/competitions\/(\d+)\/targets\/(\d+)$/,
+  );
+  if (targetStudentMatch && engineTargets) {
+    const competitionId = Number(targetStudentMatch[1]);
+    const studentId = Number(targetStudentMatch[2]);
+    const row = await competitionExists(env, competitionId, auth.complexId);
+    if (!row) return json({ error: "not_found" }, 404);
+
+    if (request.method === "PATCH") {
+      let body: { target_amount?: number };
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: "invalid_json" }, 400);
+      }
+      const amount = Number(body.target_amount);
+      if (!Number.isFinite(amount) || amount < 0) {
+        return json({ error: "invalid_target_amount" }, 400);
+      }
+      const ok = await updateStudentTargetAmount(
+        env,
+        competitionId,
+        studentId,
+        amount,
+      );
+      if (!ok) return json({ error: "target_not_found" }, 404);
+      return json({ ok: true });
+    }
+
+    if (request.method === "DELETE") {
+      const ok = await deleteStudentTarget(env, competitionId, studentId);
+      if (!ok) return json({ error: "target_not_found" }, 404);
+      return json({ ok: true, deleted: true });
+    }
   }
 
   const activateMatch = path.match(
@@ -710,22 +805,34 @@ export async function handleEduCompetitionsRouter(
         .bind(...studentIds)
         .all<{ student_id: number; full_name_ar: string }>();
 
+      const hasAttStatus = await tableHasColumn(env, "competition_attendance", "status");
       const attRows = await env.DB.prepare(
-        `SELECT student_id, present FROM competition_attendance
-         WHERE competition_id = ? AND attendance_date = ?`,
+        hasAttStatus
+          ? `SELECT student_id, present, status FROM competition_attendance
+             WHERE competition_id = ? AND attendance_date = ?`
+          : `SELECT student_id, present FROM competition_attendance
+             WHERE competition_id = ? AND attendance_date = ?`,
       )
         .bind(id, date)
-        .all<{ student_id: number; present: number }>();
+        .all<{ student_id: number; present: number; status?: string }>();
       const attMap = new Map(
-        (attRows.results ?? []).map((r) => [r.student_id, r.present === 1]),
+        (attRows.results ?? []).map((r) => [
+          r.student_id,
+          hasAttStatus
+            ? normalizeCompAttendanceStatus(r.status ?? (r.present === 1 ? "present" : "absent"))
+            : r.present === 1
+              ? "present"
+              : "absent",
+        ]),
       );
 
       const items = (students.results ?? []).map((s) => ({
         student_id: s.student_id,
         full_name_ar: s.full_name_ar,
-        present: attMap.has(s.student_id) ? attMap.get(s.student_id)! : true,
+        status: attMap.get(s.student_id) ?? "present",
+        present: (attMap.get(s.student_id) ?? "present") === "present",
       }));
-      const presentCount = items.filter((i) => i.present).length;
+      const presentCount = items.filter((i) => i.status === "present").length;
       return json({
         date,
         items,
@@ -737,7 +844,11 @@ export async function handleEduCompetitionsRouter(
     if (request.method === "POST") {
       let body: {
         date?: string;
-        records?: Array<{ student_id: number; present: boolean }>;
+        records?: Array<{
+          student_id: number;
+          present?: boolean;
+          status?: string;
+        }>;
       };
       try {
         body = await request.json();
@@ -746,8 +857,28 @@ export async function handleEduCompetitionsRouter(
       }
       const date = body.date ?? new Date().toISOString().slice(0, 10);
       const records = body.records ?? [];
-      const stmts = records.map((rec) =>
-        env.DB.prepare(
+      const hasAttStatus = await tableHasColumn(env, "competition_attendance", "status");
+      const stmts = records.map((rec) => {
+        const status =
+          rec.status != null
+            ? normalizeCompAttendanceStatus(rec.status)
+            : rec.present === false
+              ? "absent"
+              : "present";
+        const presentVal = presentFromStatus(status);
+        if (hasAttStatus) {
+          return env.DB.prepare(
+            `INSERT INTO competition_attendance
+             (competition_id, student_id, attendance_date, present, status, recorded_by_user_id)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(competition_id, student_id, attendance_date) DO UPDATE SET
+               present = excluded.present,
+               status = excluded.status,
+               recorded_by_user_id = excluded.recorded_by_user_id,
+               recorded_at = datetime('now')`,
+          ).bind(id, rec.student_id, date, presentVal, status, auth.userId);
+        }
+        return env.DB.prepare(
           `INSERT INTO competition_attendance
            (competition_id, student_id, attendance_date, present, recorded_by_user_id)
            VALUES (?, ?, ?, ?, ?)
@@ -755,8 +886,8 @@ export async function handleEduCompetitionsRouter(
              present = excluded.present,
              recorded_by_user_id = excluded.recorded_by_user_id,
              recorded_at = datetime('now')`,
-        ).bind(id, rec.student_id, date, rec.present ? 1 : 0, auth.userId),
-      );
+        ).bind(id, rec.student_id, date, presentVal, auth.userId);
+      });
       for (let i = 0; i < stmts.length; i += 50) {
         await env.DB.batch(stmts.slice(i, i + 50));
       }
@@ -785,11 +916,18 @@ export async function handleEduCompetitionsRouter(
 
     let disciplinePct = 0;
     if (hasCompAttendance && totalStudents > 0) {
+      const hasAttStatus = await tableHasColumn(env, "competition_attendance", "status");
       const att = await env.DB.prepare(
-        `SELECT COUNT(*) AS total_marks,
-                SUM(CASE WHEN present = 1 THEN 1 ELSE 0 END) AS present_marks
-         FROM competition_attendance
-         WHERE competition_id = ? AND attendance_date BETWEEN ? AND ?`,
+        hasAttStatus
+          ? `SELECT COUNT(*) AS total_marks,
+                    SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) AS present_marks
+             FROM competition_attendance
+             WHERE competition_id = ? AND attendance_date BETWEEN ? AND ?
+               AND status IN ('present', 'absent')`
+          : `SELECT COUNT(*) AS total_marks,
+                    SUM(CASE WHEN present = 1 THEN 1 ELSE 0 END) AS present_marks
+             FROM competition_attendance
+             WHERE competition_id = ? AND attendance_date BETWEEN ? AND ?`,
       )
         .bind(id, dateFrom, dateTo)
         .first<{ total_marks: number; present_marks: number }>();

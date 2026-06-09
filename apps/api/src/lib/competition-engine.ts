@@ -8,6 +8,7 @@ import {
 } from "./db-schema";
 import {
   buildStudentsInScopeWhere,
+  STAGE_LABELS,
   studentsInScopeBinds,
   type ScopeMode,
 } from "./dept-scope";
@@ -43,6 +44,13 @@ export type PreviewStudentRow = {
 /** مرحلة التلقين — مستبعدة من استهداف المنافسات */
 export const EXCLUDED_COMPETITION_STAGE_ID = 1;
 
+/** كلمات البحث الجزئي في school_grade لكل stage_id */
+export const STAGE_GRADE_KEYWORDS: Record<number, string[]> = {
+  2: ["ابتدائي", "إبتدائي", "ابتدائية"],
+  3: ["متوسط", "متوسطة", "متوسطه"],
+  4: ["ثانوي", "ثانوية", "ثانويه"],
+};
+
 const AR_DIGITS = "٠١٢٣٤٥٦٧٨٩";
 
 /** O(n) on string length — n is short memorization text */
@@ -64,16 +72,25 @@ export function parseTargetScope(raw: string | null | undefined): TargetScope {
   if (!raw?.trim()) return {};
   try {
     const parsed = JSON.parse(raw) as TargetScope;
-    return {
-      circle_ids: (parsed.circle_ids ?? []).map(Number).filter((n) => n > 0),
-      track_ids: (parsed.track_ids ?? []).map(Number).filter((n) => n > 0),
-      stage_ids: (parsed.stage_ids ?? [])
-        .map(Number)
-        .filter((n) => n > 0 && n !== EXCLUDED_COMPETITION_STAGE_ID),
-    };
+    return normalizeTargetScope(parsed);
   } catch {
     return {};
   }
+}
+
+/** O(n) — يطبّع المعرفات إلى أرقام؛ مصفوفة فارغة = «الكل» (تجاوز الفلتر) */
+export function normalizeTargetScope(scope: TargetScope): TargetScope {
+  const normIds = (arr?: number[]) =>
+    (arr ?? [])
+      .map((v) => Number(v))
+      .filter((n) => Number.isFinite(n) && n > 0);
+  return {
+    circle_ids: normIds(scope.circle_ids),
+    track_ids: normIds(scope.track_ids),
+    stage_ids: normIds(scope.stage_ids).filter(
+      (n) => n !== EXCLUDED_COMPETITION_STAGE_ID,
+    ),
+  };
 }
 
 export async function hasEngineTargets(env: Env): Promise<boolean> {
@@ -161,6 +178,39 @@ export async function loadCompetitionFilterOptions(
 }
 
 /**
+ * O(K) — K = عدد المراحل × كلمات البحث; يبني شرط OR للـ stage_id و school_grade LIKE.
+ * Time O(K) binds; Space O(K).
+ */
+function appendStageFilterSql(
+  stageIds: number[],
+  hasStageCol: boolean,
+  hasSchoolGrade: boolean,
+  filters: string[],
+  binds: (string | number)[],
+): void {
+  if (!stageIds.length || !hasStageCol) return;
+
+  const parts: string[] = [];
+  const idPh = stageIds.map(() => "?").join(",");
+  parts.push(`s.stage_id IN (${idPh})`);
+  parts.push(`c.stage_id IN (${idPh})`);
+  binds.push(...stageIds, ...stageIds);
+
+  if (hasSchoolGrade) {
+    for (const sid of stageIds) {
+      const keywords = STAGE_GRADE_KEYWORDS[sid] ?? [STAGE_LABELS[sid] ?? ""];
+      for (const kw of keywords) {
+        if (!kw) continue;
+        parts.push(`s.school_grade LIKE ?`);
+        binds.push(`%${kw}%`);
+      }
+    }
+  }
+
+  filters.push(`(${parts.join(" OR ")})`);
+}
+
+/**
  * O(S) time, O(S) space — S ≤ 500; single query with LEFT JOINs only.
  * Students always listed from `students`; optional competition_targets LEFT JOIN
  * pre-fills saved targets when editing (never filters rows out).
@@ -173,17 +223,17 @@ export async function queryPreviewStudents(
   targetScope: TargetScope,
   competitionId?: number,
 ): Promise<PreviewStudentRow[]> {
+  const normalized = normalizeTargetScope(targetScope);
   const scopeWhere = await buildStudentsInScopeWhere(env, scope);
   const binds: (string | number)[] = [...studentsInScopeBinds(complexId, scope)];
   const filters: string[] = [];
 
-  const circleIds = targetScope.circle_ids ?? [];
-  const trackIds = targetScope.track_ids ?? [];
-  const stageIds = (targetScope.stage_ids ?? []).filter(
-    (id) => id !== EXCLUDED_COMPETITION_STAGE_ID,
-  );
+  const circleIds = normalized.circle_ids ?? [];
+  const trackIds = normalized.track_ids ?? [];
+  const stageIds = normalized.stage_ids ?? [];
 
   const hasStageCol = await tableHasColumn(env, "students", "stage_id");
+  const hasSchoolGrade = await tableHasColumn(env, "students", "school_grade");
   const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
   const hasCurrentTrack = await tableHasColumn(env, "students", "current_track_id");
   const circleHistCol = await historyCircleColumn(env, "h");
@@ -198,16 +248,17 @@ export async function queryPreviewStudents(
     ? await hasEngineTargets(env)
     : false;
 
-  let fromJoin = "";
+  let fromJoin = "LEFT JOIN circles c ON c.id = s.current_circle_id";
 
   if (hasCurrentCircle) {
-    fromJoin = "LEFT JOIN circles c ON c.id = s.current_circle_id";
     if (circleIds.length) {
-      filters.push(`s.current_circle_id IN (${circleIds.map(() => "?").join(",")})`);
+      const ph = circleIds.map(() => "?").join(",");
+      filters.push(`CAST(s.current_circle_id AS INTEGER) IN (${ph})`);
       binds.push(...circleIds);
     }
     if (trackIds.length && hasCurrentTrack) {
-      filters.push(`s.current_track_id IN (${trackIds.map(() => "?").join(",")})`);
+      const ph = trackIds.map(() => "?").join(",");
+      filters.push(`CAST(s.current_track_id AS INTEGER) IN (${ph})`);
       binds.push(...trackIds);
     }
   } else if (hasLegacyPlacement && circleHistCol) {
@@ -215,17 +266,17 @@ export async function queryPreviewStudents(
     fromJoin = `LEFT JOIN student_circle_history h ON h.student_id = s.id AND ${active}
                 LEFT JOIN circles c ON c.id = ${circleHistCol}`;
     if (circleIds.length) {
-      filters.push(`${circleHistCol} IN (${circleIds.map(() => "?").join(",")})`);
+      const ph = circleIds.map(() => "?").join(",");
+      filters.push(`CAST(${circleHistCol} AS INTEGER) IN (${ph})`);
       binds.push(...circleIds);
     }
     if (trackIds.length && trackHistCol) {
-      filters.push(`${trackHistCol} IN (${trackIds.map(() => "?").join(",")})`);
+      const ph = trackIds.map(() => "?").join(",");
+      filters.push(`CAST(${trackHistCol} AS INTEGER) IN (${ph})`);
       binds.push(...trackIds);
     }
-  } else {
-    fromJoin = hasCurrentCircle
-      ? "LEFT JOIN circles c ON c.id = s.current_circle_id"
-      : "LEFT JOIN circles c ON 1=0";
+  } else if (!hasCurrentCircle) {
+    fromJoin = "LEFT JOIN circles c ON 1=0";
   }
 
   if (engineTargets && competitionId) {
@@ -239,13 +290,14 @@ export async function queryPreviewStudents(
       `(COALESCE(s.stage_id, 0) != ${EXCLUDED_COMPETITION_STAGE_ID})`,
       `(c.stage_id IS NULL OR c.stage_id != ${EXCLUDED_COMPETITION_STAGE_ID})`,
     );
+    if (hasSchoolGrade) {
+      filters.push(
+        `(s.school_grade IS NULL OR s.school_grade NOT LIKE '%تلقين%')`,
+      );
+    }
   }
 
-  if (stageIds.length && hasStageCol) {
-    const ph = stageIds.map(() => "?").join(",");
-    filters.push(`(s.stage_id IN (${ph}) OR c.stage_id IN (${ph}))`);
-    binds.push(...stageIds, ...stageIds);
-  }
+  appendStageFilterSql(stageIds, hasStageCol, hasSchoolGrade, filters, binds);
 
   const filterSql = filters.length ? ` AND ${filters.join(" AND ")}` : "";
   const memCol = (await tableHasColumn(env, "students", "memorization_amount"))

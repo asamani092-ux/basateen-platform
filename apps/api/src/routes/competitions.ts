@@ -15,6 +15,7 @@ import {
   loadCompetitionTargetRows,
   parseMemorizationJuz,
   parseTargetScope,
+  normalizeTargetScope,
   queryPreviewStudents,
   type CompetitionCategory,
   type StudentTargetInput,
@@ -394,11 +395,12 @@ export async function handleEduCompetitionsRouter(
         ? Number(body.competition_id)
         : undefined;
     try {
+      const targetScope = normalizeTargetScope(body.target_scope ?? {});
       const students = await queryPreviewStudents(
         env,
         auth.complexId,
         scope,
-        body.target_scope ?? {},
+        targetScope,
         competitionId,
       );
       return json(

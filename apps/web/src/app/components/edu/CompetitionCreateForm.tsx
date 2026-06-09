@@ -39,12 +39,19 @@ const emptyScope = (): TargetScope => ({
   stage_ids: [],
 });
 
-function scopeHasFilter(scope: TargetScope): boolean {
-  return (
-    scope.circle_ids.length > 0 ||
-    scope.track_ids.length > 0 ||
-    scope.stage_ids.length > 0
-  );
+/** يطبّع المعرفات إلى أرقام — مصفوفة فارغة = «الكل» */
+function normalizeScopeForApi(scope: TargetScope): TargetScope {
+  const ids = (arr: number[]) =>
+    arr.map((v) => Number(v)).filter((n) => Number.isFinite(n) && n > 0);
+  return {
+    circle_ids: ids(scope.circle_ids),
+    track_ids: ids(scope.track_ids),
+    stage_ids: ids(scope.stage_ids),
+  };
+}
+
+function clearScopeKey(key: keyof TargetScope) {
+  return (prev: TargetScope): TargetScope => ({ ...prev, [key]: [] });
 }
 
 function mapPreviewToTargets(
@@ -125,11 +132,6 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
   }, []);
 
   const fetchPreview = useCallback(async (scope: TargetScope) => {
-    if (!scopeHasFilter(scope)) {
-      setTargets([]);
-      return;
-    }
-
     if (!canUseApi()) {
       const mock: PreviewStudent[] = [
         {
@@ -149,14 +151,15 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
     setLoadingPreview(true);
     setError(null);
     try {
-      const res = await api.competitionsPreviewTargets({ target_scope: scope });
+      const targetScope = normalizeScopeForApi(scope);
+      const res = await api.competitionsPreviewTargets({ target_scope: targetScope });
       const rawItems = res?.items;
       const items = Array.isArray(rawItems) ? (rawItems as PreviewStudent[]) : [];
       if (res?.error) {
         toast.error(`خطأ في جلب الطلاب: ${res.error}`);
       }
       setTargets(mapPreviewToTargets(items, categoryRef.current));
-      if (items.length === 0 && scopeHasFilter(scope)) {
+      if (items.length === 0) {
         toast.info("لا يوجد طلاب مطابقون للفلتر المحدد");
       }
     } catch (e) {
@@ -193,10 +196,12 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
   }, [category]);
 
   function toggleScopeId(key: keyof TargetScope, id: number) {
+    const numId = Number(id);
+    if (!Number.isFinite(numId) || numId <= 0) return;
     setTargetScope((prev) => {
-      const set = new Set(prev[key]);
-      if (set.has(id)) set.delete(id);
-      else set.add(id);
+      const set = new Set(prev[key].map(Number));
+      if (set.has(numId)) set.delete(numId);
+      else set.add(numId);
       return { ...prev, [key]: [...set] };
     });
   }
@@ -239,7 +244,7 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
         end_date: endDate,
         category,
         custom_category: category === "other" ? customCategory.trim() : null,
-        target_scope: targetScope,
+        target_scope: normalizeScopeForApi(targetScope),
         targets: targets.map((t) => ({
           student_id: t.student_id,
           current_memorization: t.current_memorization,
@@ -354,6 +359,18 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
             حلقات
           </p>
           <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setTargetScope(clearScopeKey("circle_ids"))}
+              className={`px-3 py-1 rounded-full text-sm border ${
+                targetScope.circle_ids.length === 0
+                  ? "bg-primary text-primary-foreground"
+                  : "border-border"
+              }`}
+              style={tajawal}
+            >
+              الكل
+            </button>
             {circles.map((c) => (
               <button
                 key={c.id}
@@ -377,6 +394,18 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
             مسارات
           </p>
           <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setTargetScope(clearScopeKey("track_ids"))}
+              className={`px-3 py-1 rounded-full text-sm border ${
+                targetScope.track_ids.length === 0
+                  ? "bg-primary text-primary-foreground"
+                  : "border-border"
+              }`}
+              style={tajawal}
+            >
+              الكل
+            </button>
             {tracks.map((t) => (
               <button
                 key={t.id}
@@ -400,6 +429,18 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
             المرحلة الدراسية (بدون تلقين)
           </p>
           <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setTargetScope(clearScopeKey("stage_ids"))}
+              className={`px-3 py-1 rounded-full text-sm border ${
+                targetScope.stage_ids.length === 0
+                  ? "bg-primary text-primary-foreground"
+                  : "border-border"
+              }`}
+              style={tajawal}
+            >
+              الكل
+            </button>
             {COMPETITION_STAGE_OPTIONS.map((s) => (
               <button
                 key={s.id}
@@ -483,9 +524,9 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
           </div>
         )}
 
-        {!loadingPreview && scopeHasFilter(targetScope) && targets.length === 0 && (
+        {!loadingPreview && targets.length === 0 && (
           <p className="text-sm text-muted-foreground" style={tajawal}>
-            لا يوجد طلاب مطابقون للفلتر المحدد.
+            لا يوجد طلاب مطابقون للفلتر المحدد. جرّب «الكل» أو فلتراً أوسع.
           </p>
         )}
       </section>

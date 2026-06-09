@@ -2,6 +2,21 @@ import type { Env } from "../types";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 import { hasTable, tableHasColumn } from "../lib/db-schema";
 import {
+  computeAchievedByStudent,
+  formatMemorizationJuz,
+  hasCompetitionCategory,
+  hasEngineLogs,
+  hasEngineTargets,
+  hasEngineTasks,
+  parseMemorizationJuz,
+  parseTargetScope,
+  queryPreviewStudents,
+  type CompetitionCategory,
+  type StudentTargetInput,
+  type TargetScope,
+  upsertStudentTargets,
+} from "../lib/competition-engine";
+import {
   loadUserScope,
   stageFilterBinds,
   stageFilterWhere,
@@ -21,33 +36,16 @@ function randomKey(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function distributeDaily(
-  totalJuz: number,
-  dailyJuz: number,
-  startDate: string,
-  endDate: string,
-): Record<string, number> {
-  const out: Record<string, number> = {};
-  if (dailyJuz <= 0 || totalJuz <= 0) return out;
-  const start = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T00:00:00`);
-  let remaining = totalJuz;
-  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    const key = d.toISOString().slice(0, 10);
-    const chunk = Math.min(dailyJuz, remaining);
-    out[key] = Math.round(chunk * 100) / 100;
-    remaining -= chunk;
-    if (remaining <= 0) break;
-  }
-  return out;
+function defaultRules(): Record<string, unknown> {
+  return { scoring: { ...DEFAULT_COMPETITION } };
 }
 
-function defaultRules(): Record<string, unknown> {
-  return {
-    scoring: { ...DEFAULT_COMPETITION },
-    plan_mode: "juz_distribution",
-  };
-}
+const VALID_CATEGORIES: CompetitionCategory[] = [
+  "recitation",
+  "review",
+  "new_memorization",
+  "other",
+];
 
 type CompetitionSchema = {
   description: boolean;
@@ -56,19 +54,34 @@ type CompetitionSchema = {
   created_by_user_id: boolean;
   updated_at: boolean;
   stage_id: boolean;
+  category: boolean;
+  custom_category: boolean;
+  target_scope: boolean;
 };
 
 async function competitionSchema(env: Env): Promise<CompetitionSchema> {
   const t = "competitions";
-  const [description, telemetry_type, scope_json, created_by_user_id, updated_at, stage_id] =
-    await Promise.all([
-      tableHasColumn(env, t, "description"),
-      tableHasColumn(env, t, "telemetry_type"),
-      tableHasColumn(env, t, "scope_json"),
-      tableHasColumn(env, t, "created_by_user_id"),
-      tableHasColumn(env, t, "updated_at"),
-      tableHasColumn(env, t, "stage_id"),
-    ]);
+  const [
+    description,
+    telemetry_type,
+    scope_json,
+    created_by_user_id,
+    updated_at,
+    stage_id,
+    category,
+    custom_category,
+    target_scope,
+  ] = await Promise.all([
+    tableHasColumn(env, t, "description"),
+    tableHasColumn(env, t, "telemetry_type"),
+    tableHasColumn(env, t, "scope_json"),
+    tableHasColumn(env, t, "created_by_user_id"),
+    tableHasColumn(env, t, "updated_at"),
+    tableHasColumn(env, t, "stage_id"),
+    tableHasColumn(env, t, "category"),
+    tableHasColumn(env, t, "custom_category"),
+    tableHasColumn(env, t, "target_scope"),
+  ]);
   return {
     description,
     telemetry_type,
@@ -76,10 +89,12 @@ async function competitionSchema(env: Env): Promise<CompetitionSchema> {
     created_by_user_id,
     updated_at,
     stage_id,
+    category,
+    custom_category,
+    target_scope,
   };
 }
 
-/** v25 competitions table may omit stage_id — avoid referencing missing column. */
 function competitionsScopeClause(
   scope: ScopeMode,
   hasStageId: boolean,
@@ -94,6 +109,20 @@ function competitionsScopeClause(
   };
 }
 
+function validateCategoryBody(
+  category: string | undefined,
+  customCategory: string | undefined,
+): CompetitionCategory | Response {
+  const cat = (category ?? "recitation") as CompetitionCategory;
+  if (!VALID_CATEGORIES.includes(cat)) {
+    return json({ error: "invalid_category" }, 400);
+  }
+  if (cat === "other" && !customCategory?.trim()) {
+    return json({ error: "custom_category_required" }, 400);
+  }
+  return cat;
+}
+
 async function insertCompetitionRow(
   env: Env,
   schema: CompetitionSchema,
@@ -106,6 +135,9 @@ async function insertCompetitionRow(
     rules_json: string;
     tv_launch_key: string;
     userId: number;
+    category?: CompetitionCategory;
+    custom_category?: string;
+    target_scope?: TargetScope;
   },
 ) {
   const cols = [
@@ -131,6 +163,21 @@ async function insertCompetitionRow(
     cols.splice(2, 0, "description");
     placeholders.splice(2, 0, "?");
     binds.splice(2, 0, params.description ?? "");
+  }
+  if (schema.category) {
+    cols.push("category");
+    placeholders.push("?");
+    binds.push(params.category ?? "recitation");
+  }
+  if (schema.custom_category) {
+    cols.push("custom_category");
+    placeholders.push("?");
+    binds.push(params.custom_category ?? "");
+  }
+  if (schema.target_scope) {
+    cols.push("target_scope");
+    placeholders.push("?");
+    binds.push(JSON.stringify(params.target_scope ?? {}));
   }
   if (schema.telemetry_type) {
     cols.push("telemetry_type");
@@ -164,7 +211,9 @@ async function patchCompetitionRow(
     start_date?: string;
     end_date?: string;
     status?: string;
-    scope?: { student_ids?: number[]; circle_ids?: number[]; track_ids?: number[] };
+    category?: CompetitionCategory;
+    custom_category?: string;
+    target_scope?: TargetScope;
   },
   rulesJson: string,
 ) {
@@ -187,9 +236,17 @@ async function patchCompetitionRow(
     sets.splice(1, 0, "description = COALESCE(?, description)");
     binds.splice(1, 0, body.description ?? null);
   }
-  if (schema.scope_json) {
-    sets.push("scope_json = COALESCE(?, scope_json)");
-    binds.push(body.scope ? JSON.stringify(body.scope) : null);
+  if (schema.category) {
+    sets.push("category = COALESCE(?, category)");
+    binds.push(body.category ?? null);
+  }
+  if (schema.custom_category) {
+    sets.push("custom_category = COALESCE(?, custom_category)");
+    binds.push(body.custom_category ?? null);
+  }
+  if (schema.target_scope) {
+    sets.push("target_scope = COALESCE(?, target_scope)");
+    binds.push(body.target_scope ? JSON.stringify(body.target_scope) : null);
   }
   if (schema.updated_at) {
     sets.push("updated_at = datetime('now')");
@@ -236,38 +293,24 @@ async function competitionExists(
     .first<Record<string, unknown>>();
 }
 
-async function syncTargets(
-  env: Env,
-  competitionId: number,
-  scope: { student_ids?: number[]; circle_ids?: number[]; track_ids?: number[] },
-): Promise<void> {
-  await env.DB.prepare(`DELETE FROM competition_targets WHERE competition_id = ?`)
-    .bind(competitionId)
-    .run();
-  for (const sid of scope.student_ids ?? []) {
-    await env.DB.prepare(
-      `INSERT INTO competition_targets (competition_id, target_type, student_id)
-       VALUES (?, 'student', ?)`,
-    )
-      .bind(competitionId, sid)
-      .run();
-  }
-  for (const cid of scope.circle_ids ?? []) {
-    await env.DB.prepare(
-      `INSERT INTO competition_targets (competition_id, target_type, circle_id)
-       VALUES (?, 'circle', ?)`,
-    )
-      .bind(competitionId, cid)
-      .run();
-  }
-  for (const tid of scope.track_ids ?? []) {
-    await env.DB.prepare(
-      `INSERT INTO competition_targets (competition_id, target_type, track_id)
-       VALUES (?, 'track', ?)`,
-    )
-      .bind(competitionId, tid)
-      .run();
-  }
+function serializeCompetition(
+  row: Record<string, unknown>,
+  schema: CompetitionSchema,
+): Record<string, unknown> {
+  return {
+    ...row,
+    description: schema.description ? row.description ?? "" : "",
+    category: schema.category ? row.category ?? "recitation" : "recitation",
+    custom_category: schema.custom_category ? row.custom_category ?? "" : "",
+    target_scope: schema.target_scope
+      ? parseTargetScope(String(row.target_scope ?? "{}"))
+      : {},
+    telemetry_type: schema.telemetry_type
+      ? row.telemetry_type ?? "intensive_routine"
+      : "intensive_routine",
+    rules: JSON.parse(String(row.rules_json ?? "{}")),
+    scope: schema.scope_json ? JSON.parse(String(row.scope_json ?? "{}")) : {},
+  };
 }
 
 export async function handleEduCompetitionsRouter(
@@ -290,12 +333,16 @@ export async function handleEduCompetitionsRouter(
   const scope = await loadUserScope(env, auth.userId);
   const schema = await competitionSchema(env);
   const hasCompAttendance = await hasTable(env, "competition_attendance");
+  const engineTargets = await hasEngineTargets(env);
+  const engineTasks = await hasEngineTasks(env);
+  const engineLogs = await hasEngineLogs(env);
 
   if (request.method === "GET" && path === "/api/edu-dept/competitions") {
     const scopeClause = competitionsScopeClause(scope, schema.stage_id);
     const descCol = schema.description ? ", c.description" : "";
+    const catCol = schema.category ? ", c.category, c.custom_category" : "";
     const rows = await env.DB.prepare(
-      `SELECT c.id, c.name_ar${descCol}, c.start_date, c.end_date, c.status,
+      `SELECT c.id, c.name_ar${descCol}${catCol}, c.start_date, c.end_date, c.status,
               c.live_log_token, c.tv_launch_key
        FROM competitions c
        WHERE c.complex_id = ? AND ${scopeClause.where}
@@ -306,12 +353,38 @@ export async function handleEduCompetitionsRouter(
     return json({ items: rows.results ?? [] });
   }
 
+  if (
+    request.method === "POST" &&
+    path === "/api/edu-dept/competitions/preview-targets"
+  ) {
+    if (!(await hasCompetitionCategory(env))) {
+      return json({ error: "migration_required", hint: "db:remote:048" }, 503);
+    }
+    let body: { target_scope?: TargetScope };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+    const students = await queryPreviewStudents(
+      env,
+      auth.complexId,
+      scope,
+      body.target_scope ?? {},
+    );
+    return json({ items: students });
+  }
+
   if (request.method === "POST" && path === "/api/edu-dept/competitions") {
     let body: {
       name_ar?: string;
       description?: string;
       start_date?: string;
       end_date?: string;
+      category?: CompetitionCategory;
+      custom_category?: string;
+      target_scope?: TargetScope;
+      targets?: StudentTargetInput[];
       rules?: Record<string, unknown>;
     };
     try {
@@ -322,6 +395,13 @@ export async function handleEduCompetitionsRouter(
 
     if (!body.name_ar?.trim() || !body.start_date || !body.end_date) {
       return json({ error: "name_and_dates_required" }, 400);
+    }
+
+    const catResult = validateCategoryBody(body.category, body.custom_category);
+    if (catResult instanceof Response) return catResult;
+
+    if (engineTargets && (!body.targets?.length)) {
+      return json({ error: "targets_required" }, 400);
     }
 
     const tvKey = randomKey();
@@ -335,9 +415,144 @@ export async function handleEduCompetitionsRouter(
       rules_json: JSON.stringify(rules),
       tv_launch_key: tvKey,
       userId: auth.userId,
+      category: catResult,
+      custom_category: body.custom_category?.trim(),
+      target_scope: body.target_scope ?? {},
     });
 
-    return json({ ok: true, id: ins.meta.last_row_id as number, tv_launch_key: tvKey });
+    const competitionId = ins.meta.last_row_id as number;
+    if (engineTargets && body.targets?.length) {
+      await upsertStudentTargets(env, competitionId, body.targets);
+    }
+
+    return json({ ok: true, id: competitionId, tv_launch_key: tvKey });
+  }
+
+  const taskDeleteMatch = path.match(
+    /^\/api\/edu-dept\/competitions\/(\d+)\/tasks\/(\d+)$/,
+  );
+  if (request.method === "DELETE" && taskDeleteMatch && engineTasks) {
+    const competitionId = Number(taskDeleteMatch[1]);
+    const taskId = Number(taskDeleteMatch[2]);
+    const row = await competitionExists(env, competitionId, auth.complexId);
+    if (!row) return json({ error: "not_found" }, 404);
+    await env.DB.prepare(
+      `DELETE FROM competition_tasks WHERE id = ? AND competition_id = ?`,
+    )
+      .bind(taskId, competitionId)
+      .run();
+    return json({ ok: true });
+  }
+
+  const tasksMatch = path.match(/^\/api\/edu-dept\/competitions\/(\d+)\/tasks$/);
+  if (tasksMatch && engineTasks) {
+    const competitionId = Number(tasksMatch[1]);
+    const row = await competitionExists(env, competitionId, auth.complexId);
+    if (!row) return json({ error: "not_found" }, 404);
+
+    if (request.method === "GET") {
+      const tasks = await env.DB.prepare(
+        `SELECT id, name_ar, weight, type, sort_order, created_at
+         FROM competition_tasks WHERE competition_id = ?
+         ORDER BY sort_order, id`,
+      )
+        .bind(competitionId)
+        .all();
+      return json({ items: tasks.results ?? [] });
+    }
+
+    if (request.method === "POST") {
+      let body: { name_ar?: string; weight?: number; type?: string };
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: "invalid_json" }, 400);
+      }
+      if (!body.name_ar?.trim()) return json({ error: "name_required" }, 400);
+      const taskType = body.type === "deduction" ? "deduction" : "addition";
+      const maxSort = await env.DB.prepare(
+        `SELECT COALESCE(MAX(sort_order), 0) AS m FROM competition_tasks WHERE competition_id = ?`,
+      )
+        .bind(competitionId)
+        .first<{ m: number }>();
+      const ins = await env.DB.prepare(
+        `INSERT INTO competition_tasks (competition_id, name_ar, weight, type, sort_order)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+        .bind(
+          competitionId,
+          body.name_ar.trim(),
+          Number(body.weight ?? 1) || 1,
+          taskType,
+          Number(maxSort?.m ?? 0) + 1,
+        )
+        .run();
+      return json({ ok: true, id: ins.meta.last_row_id });
+    }
+  }
+
+  const syncMatch = path.match(
+    /^\/api\/edu-dept\/competitions\/(\d+)\/sync-memorization$/,
+  );
+  if (request.method === "POST" && syncMatch && engineTargets) {
+    const competitionId = Number(syncMatch[1]);
+    const row = await competitionExists(env, competitionId, auth.complexId);
+    if (!row) return json({ error: "not_found" }, 404);
+
+    const category = String(row.category ?? "recitation");
+    if (category !== "new_memorization") {
+      return json({ error: "sync_only_for_new_memorization" }, 400);
+    }
+
+    const achievedMap = await computeAchievedByStudent(env, competitionId);
+    const targets = await env.DB.prepare(
+      `SELECT id, student_id, current_memorization, target_amount, achieved_amount, synced_at
+       FROM competition_targets WHERE competition_id = ?`,
+    )
+      .bind(competitionId)
+      .all<{
+        id: number;
+        student_id: number;
+        current_memorization: number;
+        target_amount: number;
+        achieved_amount: number;
+        synced_at: string | null;
+      }>();
+
+    const hasMemCol = await tableHasColumn(env, "students", "memorization_amount");
+    const updated: Array<{ student_id: number; new_memorization: number }> = [];
+
+    for (const t of targets.results ?? []) {
+      const fromLogs = achievedMap.get(t.student_id) ?? 0;
+      const achieved = Math.min(
+        Number(t.target_amount) || 0,
+        Math.max(Number(t.achieved_amount) || 0, fromLogs),
+      );
+      if (achieved <= 0) continue;
+
+      const newJuz = Math.round((Number(t.current_memorization) + achieved) * 100) / 100;
+      if (hasMemCol) {
+        await env.DB.prepare(
+          `UPDATE students SET memorization_amount = ? WHERE id = ? AND complex_id = ?`,
+        )
+          .bind(formatMemorizationJuz(newJuz), t.student_id, auth.complexId)
+          .run();
+      }
+
+      await env.DB.prepare(
+        `UPDATE competition_targets
+         SET achieved_amount = ?, synced_at = datetime('now')
+         WHERE id = ?`,
+      )
+        .bind(achieved, t.id)
+        .run();
+
+      updated.push({ student_id: t.student_id, new_memorization: newJuz });
+    }
+
+    await setCompetitionStatus(env, schema, competitionId, auth.complexId, "closed");
+
+    return json({ ok: true, updated_count: updated.length, updated });
   }
 
   const detailMatch = path.match(/^\/api\/edu-dept\/competitions\/(\d+)$/);
@@ -347,44 +562,63 @@ export async function handleEduCompetitionsRouter(
     if (!row) return json({ error: "not_found" }, 404);
 
     if (request.method === "GET") {
-      const targets = await env.DB.prepare(
-        `SELECT * FROM competition_targets WHERE competition_id = ?`,
-      )
-        .bind(id)
-        .all();
+      let targets: Array<Record<string, unknown>> = [];
+      if (engineTargets) {
+        const tRows = await env.DB.prepare(
+          `SELECT ct.*, s.full_name_ar
+           FROM competition_targets ct
+           JOIN students s ON s.id = ct.student_id
+           WHERE ct.competition_id = ?
+           ORDER BY s.full_name_ar`,
+        )
+          .bind(id)
+          .all();
+        targets = (tRows.results ?? []) as Array<Record<string, unknown>>;
+      }
 
-      const plans = await env.DB.prepare(
-        `SELECT p.*, s.full_name_ar FROM competition_student_plans p
-         JOIN students s ON s.id = p.student_id
-         WHERE p.competition_id = ?`,
-      )
-        .bind(id)
-        .all();
+      let tasks: Array<Record<string, unknown>> = [];
+      if (engineTasks) {
+        const taskRows = await env.DB.prepare(
+          `SELECT id, name_ar, weight, type, sort_order FROM competition_tasks
+           WHERE competition_id = ? ORDER BY sort_order, id`,
+        )
+          .bind(id)
+          .all();
+        tasks = (taskRows.results ?? []) as Array<Record<string, unknown>>;
+      }
 
-      const logs = await env.DB.prepare(
-        `SELECT l.student_id, l.mark_date AS log_date, l.notes AS metrics_json,
-                'ledger' AS source, l.recorded_at, s.full_name_ar
-         FROM quran_daily_ledger l
-         JOIN students s ON s.id = l.student_id
-         WHERE l.context_type = 'competition' AND l.context_id = ?
-         ORDER BY l.mark_date DESC, l.recorded_at DESC`,
-      )
-        .bind(id)
-        .all();
+      let logs: Array<Record<string, unknown>> = [];
+      if (engineLogs) {
+        const logRows = await env.DB.prepare(
+          `SELECT cl.*, s.full_name_ar, ct.name_ar AS task_name
+           FROM competition_logs cl
+           JOIN students s ON s.id = cl.student_id
+           LEFT JOIN competition_tasks ct ON ct.id = cl.task_id
+           WHERE cl.competition_id = ?
+           ORDER BY cl.log_date DESC, cl.recorded_at DESC LIMIT 200`,
+        )
+          .bind(id)
+          .all();
+        logs = (logRows.results ?? []) as Array<Record<string, unknown>>;
+      } else if (await hasTable(env, "quran_daily_ledger")) {
+        const logRows = await env.DB.prepare(
+          `SELECT l.student_id, l.mark_date AS log_date, l.notes AS metrics_json,
+                  'ledger' AS source, l.recorded_at, s.full_name_ar
+           FROM quran_daily_ledger l
+           JOIN students s ON s.id = l.student_id
+           WHERE l.context_type = 'competition' AND l.context_id = ?
+           ORDER BY l.mark_date DESC, l.recorded_at DESC`,
+        )
+          .bind(id)
+          .all();
+        logs = (logRows.results ?? []) as Array<Record<string, unknown>>;
+      }
 
       return json({
-        competition: {
-          ...row,
-          description: schema.description ? row.description ?? "" : "",
-          telemetry_type: schema.telemetry_type ? row.telemetry_type ?? "intensive_routine" : "intensive_routine",
-          rules: JSON.parse(String(row.rules_json ?? "{}")),
-          scope: schema.scope_json
-            ? JSON.parse(String(row.scope_json ?? "{}"))
-            : {},
-        },
-        targets: targets.results ?? [],
-        plans: plans.results ?? [],
-        logs: logs.results ?? [],
+        competition: serializeCompetition(row, schema),
+        targets,
+        tasks,
+        logs,
       });
     }
 
@@ -395,13 +629,11 @@ export async function handleEduCompetitionsRouter(
         start_date?: string;
         end_date?: string;
         status?: string;
+        category?: CompetitionCategory;
+        custom_category?: string;
+        target_scope?: TargetScope;
+        targets?: StudentTargetInput[];
         rules?: Record<string, unknown>;
-        scope?: { student_ids?: number[]; circle_ids?: number[]; track_ids?: number[] };
-        plans?: Array<{
-          student_id: number;
-          total_target_juz?: number;
-          daily_volume_juz?: number;
-        }>;
       };
       try {
         body = await request.json();
@@ -409,35 +641,18 @@ export async function handleEduCompetitionsRouter(
         return json({ error: "invalid_json" }, 400);
       }
 
+      if (body.category) {
+        const catResult = validateCategoryBody(body.category, body.custom_category);
+        if (catResult instanceof Response) return catResult;
+      }
+
       const currentRules = JSON.parse(String(row.rules_json ?? "{}"));
       const nextRules = body.rules ? { ...currentRules, ...body.rules } : currentRules;
-      const startDate = body.start_date ?? String(row.start_date);
-      const endDate = body.end_date ?? String(row.end_date);
 
       await patchCompetitionRow(env, schema, id, auth.complexId, body, JSON.stringify(nextRules));
 
-      if (body.scope) {
-        await syncTargets(env, id, body.scope);
-      }
-
-      if (body.plans?.length) {
-        for (const p of body.plans) {
-          if (!p.student_id) continue;
-          const total = Number(p.total_target_juz ?? 0);
-          const daily = Number(p.daily_volume_juz ?? 0);
-          const distributed = distributeDaily(total, daily, startDate, endDate);
-          await env.DB.prepare(
-            `INSERT INTO competition_student_plans
-             (competition_id, student_id, total_target_juz, daily_volume_juz, distributed_json)
-             VALUES (?, ?, ?, ?, ?)
-             ON CONFLICT(competition_id, student_id) DO UPDATE SET
-               total_target_juz = excluded.total_target_juz,
-               daily_volume_juz = excluded.daily_volume_juz,
-               distributed_json = excluded.distributed_json`,
-          )
-            .bind(id, p.student_id, total, daily, JSON.stringify(distributed))
-            .run();
-        }
+      if (engineTargets && body.targets?.length) {
+        await upsertStudentTargets(env, id, body.targets);
       }
 
       return json({ ok: true });
@@ -582,62 +797,36 @@ export async function handleEduCompetitionsRouter(
         totalMarks > 0 ? Math.round((presentMarks / totalMarks) * 100) : 0;
     }
 
-    const plans = await env.DB.prepare(
-      `SELECT student_id, total_target_juz, daily_volume_juz, distributed_json
-       FROM competition_student_plans WHERE competition_id = ?`,
-    )
-      .bind(id)
-      .all<{
-        student_id: number;
-        total_target_juz: number;
-        daily_volume_juz: number;
-        distributed_json: string;
-      }>();
-
-    const logs = await env.DB.prepare(
-      `SELECT student_id, mark_date, notes
-       FROM quran_daily_ledger
-       WHERE context_type = 'competition' AND context_id = ?
-         AND mark_date BETWEEN ? AND ?`,
-    )
-      .bind(id, dateFrom, dateTo)
-      .all<{ student_id: number; mark_date: string; notes: string }>();
-
+    const achievedByStudent = await computeAchievedByStudent(env, id);
+    let targetSum = 0;
     let achievedSum = 0;
-    const achievedByStudent = new Map<number, number>();
-    for (const log of logs.results ?? []) {
-      let metrics: Record<string, unknown> = {};
-      try {
-        metrics = JSON.parse(log.notes ?? "{}");
-      } catch {
-        metrics = {};
+
+    if (engineTargets) {
+      const targets = await env.DB.prepare(
+        `SELECT student_id, target_amount, achieved_amount
+         FROM competition_targets WHERE competition_id = ?`,
+      )
+        .bind(id)
+        .all<{
+          student_id: number;
+          target_amount: number;
+          achieved_amount: number;
+        }>();
+
+      for (const t of targets.results ?? []) {
+        targetSum += Number(t.target_amount) || 0;
+        const achieved = Math.max(
+          Number(t.achieved_amount) || 0,
+          achievedByStudent.get(t.student_id) ?? 0,
+        );
+        achievedSum += achieved;
+        achievedByStudent.set(t.student_id, achieved);
       }
-      const juz =
-        Number(metrics.juz_completed ?? 0) ||
-        Number(metrics.hifz_pages ?? 0) / 20 ||
-        0;
-      achievedByStudent.set(
-        log.student_id,
-        (achievedByStudent.get(log.student_id) ?? 0) + juz,
-      );
-      achievedSum += juz;
     }
 
-    let planTargetInRange = 0;
-    for (const p of plans.results ?? []) {
-      let dist: Record<string, number> = {};
-      try {
-        dist = JSON.parse(p.distributed_json ?? "{}");
-      } catch {
-        dist = {};
-      }
-      for (const [d, v] of Object.entries(dist)) {
-        if (d >= dateFrom && d <= dateTo) planTargetInRange += Number(v);
-      }
-    }
     const achievementPct =
-      planTargetInRange > 0
-        ? Math.min(100, Math.round((achievedSum / planTargetInRange) * 100))
+      targetSum > 0
+        ? Math.min(100, Math.round((achievedSum / targetSum) * 100))
         : achievedSum > 0
           ? 100
           : 0;
@@ -669,7 +858,7 @@ export async function handleEduCompetitionsRouter(
         discipline_pct: disciplinePct,
         achievement_pct: achievementPct,
         participants: totalStudents,
-        target_juz: Math.round(planTargetInRange * 100) / 100,
+        target_juz: Math.round(targetSum * 100) / 100,
         achieved_juz: Math.round(achievedSum * 100) / 100,
       },
       leaders,
@@ -683,58 +872,24 @@ export async function resolveCompetitionStudents(
   env: Env,
   complexId: number,
   competitionId: number,
-  scope: Awaited<ReturnType<typeof loadUserScope>>,
+  scope: ScopeMode,
 ): Promise<number[]> {
-  const scopeWhere = studentsInScopeWhere(scope);
-  const targets = await env.DB.prepare(
-    `SELECT target_type, student_id, circle_id, track_id
-     FROM competition_targets WHERE competition_id = ?`,
-  )
-    .bind(competitionId)
-    .all<{
-      target_type: string;
-      student_id: number | null;
-      circle_id: number | null;
-      track_id: number | null;
-    }>();
-
-  const ids = new Set<number>();
-
-  if (!targets.results?.length) {
-    const all = await env.DB.prepare(
-      `SELECT s.id FROM students s WHERE ${scopeWhere}`,
+  if (await hasEngineTargets(env)) {
+    const rows = await env.DB.prepare(
+      `SELECT student_id FROM competition_targets WHERE competition_id = ?`,
     )
-      .bind(...studentsInScopeBinds(complexId, scope))
-      .all<{ id: number }>();
-    for (const r of all.results ?? []) ids.add(r.id);
-    return [...ids];
-  }
-
-  for (const t of targets.results ?? []) {
-    if (t.target_type === "student" && t.student_id) {
-      ids.add(t.student_id);
-    } else if (t.target_type === "circle" && t.circle_id) {
-      const rows = await env.DB.prepare(
-        `SELECT DISTINCT s.id FROM students s
-         JOIN student_circle_history h ON h.student_id = s.id
-         WHERE h.circle_id = ? AND h.to_at IS NULL AND h.frozen_at IS NULL
-           AND ${scopeWhere}`,
-      )
-        .bind(t.circle_id, ...studentsInScopeBinds(complexId, scope))
-        .all<{ id: number }>();
-      for (const r of rows.results ?? []) ids.add(r.id);
-    } else if (t.target_type === "track" && t.track_id) {
-      const rows = await env.DB.prepare(
-        `SELECT DISTINCT s.id FROM students s
-         JOIN student_circle_history h ON h.student_id = s.id
-         WHERE h.track_id = ? AND h.to_at IS NULL AND h.frozen_at IS NULL
-           AND ${scopeWhere}`,
-      )
-        .bind(t.track_id, ...studentsInScopeBinds(complexId, scope))
-        .all<{ id: number }>();
-      for (const r of rows.results ?? []) ids.add(r.id);
+      .bind(competitionId)
+      .all<{ student_id: number }>();
+    if (rows.results?.length) {
+      return rows.results.map((r) => r.student_id);
     }
   }
 
-  return [...ids];
+  const scopeWhere = studentsInScopeWhere(scope);
+  const all = await env.DB.prepare(
+    `SELECT s.id FROM students s WHERE ${scopeWhere}`,
+  )
+    .bind(...studentsInScopeBinds(complexId, scope))
+    .all<{ id: number }>();
+  return (all.results ?? []).map((r) => r.id);
 }

@@ -2,16 +2,16 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { Calendar, Plus, Trophy } from "lucide-react";
 import { Button } from "../../components/ui/button";
-import { Input } from "../../components/ui/input";
-import { Label } from "../../components/ui/label";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
+import { CompetitionCreateForm } from "../../components/edu/CompetitionCreateForm";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
+import { categoryLabel } from "../../lib/competition-engine";
 import { ds, tajawal } from "../../lib/design-system";
 
 type CompetitionRow = {
@@ -21,6 +21,8 @@ type CompetitionRow = {
   start_date: string;
   end_date: string;
   status: string;
+  category?: string;
+  custom_category?: string;
 };
 
 function statusLabel(status: string): string {
@@ -39,11 +41,6 @@ export function CompetitionsPage() {
   const navigate = useNavigate();
   const [items, setItems] = useState<CompetitionRow[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
-  const [nameAr, setNameAr] = useState("");
-  const [description, setDescription] = useState("");
-  const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -60,29 +57,6 @@ export function CompetitionsPage() {
     void load();
   }, [load]);
 
-  async function createCompetition() {
-    if (!nameAr.trim()) return;
-    setCreating(true);
-    setError(null);
-    try {
-      const res = await api.competitionsCreate({
-        name_ar: nameAr.trim(),
-        description: description.trim(),
-        start_date: startDate,
-        end_date: endDate,
-      });
-      setCreateOpen(false);
-      setNameAr("");
-      setDescription("");
-      await load();
-      if (res.id) navigate(`/edu-dept/competitions/${res.id}`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل الإنشاء");
-    } finally {
-      setCreating(false);
-    }
-  }
-
   const today = new Date().toISOString().slice(0, 10);
 
   return (
@@ -94,7 +68,7 @@ export function CompetitionsPage() {
             المنافسات
           </h2>
           <p className={ds.page.description} style={tajawal}>
-            محرك منافسات ديناميكي — أنشئ أي فعالية بأي اسم مع أدوات موحّدة لكل منافسة.
+            محرك منافسات ديناميكي — أنشئ منافسة واستهدف الطلاب في نموذج موحّد.
           </p>
         </div>
         <Button
@@ -139,6 +113,9 @@ export function CompetitionsPage() {
                     {isCurrent && c.status === "active" ? "حالية" : statusLabel(c.status)}
                   </span>
                 </div>
+                <p className="text-xs text-primary/80 mb-2" style={tajawal}>
+                  {categoryLabel(c.category, c.custom_category)}
+                </p>
                 {c.description ? (
                   <p className="text-sm text-muted-foreground line-clamp-2 mb-3" style={tajawal}>
                     {c.description}
@@ -155,59 +132,18 @@ export function CompetitionsPage() {
       )}
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className={`${ds.card} max-w-md rounded-2xl`} dir="rtl">
+        <DialogContent className={`${ds.card} max-w-2xl rounded-2xl`} dir="rtl">
           <DialogHeader>
             <DialogTitle style={tajawal}>إنشاء منافسة جديدة</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label style={tajawal}>اسم المنافسة</Label>
-              <Input
-                value={nameAr}
-                onChange={(e) => setNameAr(e.target.value)}
-                className={ds.btnRound}
-                placeholder="مثال: مسابقة الحفظ الشهرية"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label style={tajawal}>الوصف</Label>
-              <Input
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                className={ds.btnRound}
-                placeholder="وصف مختصر للفعالية"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label style={tajawal}>تاريخ البداية</Label>
-                <Input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className={ds.btnRound}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label style={tajawal}>تاريخ النهاية</Label>
-                <Input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className={ds.btnRound}
-                />
-              </div>
-            </div>
-            <Button
-              type="button"
-              className={`w-full ${ds.btnRound}`}
-              disabled={!nameAr.trim() || creating}
-              onClick={() => void createCompetition()}
-              style={tajawal}
-            >
-              {creating ? "جاري الإنشاء…" : "إنشاء المنافسة"}
-            </Button>
-          </div>
+          <CompetitionCreateForm
+            onCancel={() => setCreateOpen(false)}
+            onCreated={async (id) => {
+              setCreateOpen(false);
+              await load();
+              navigate(`/edu-dept/competitions/${id}`);
+            }}
+          />
         </DialogContent>
       </Dialog>
     </div>

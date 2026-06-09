@@ -1259,33 +1259,35 @@ async function handleAdminDeptRouterImpl(
       Boolean(body.end_date?.trim()) ||
       (body.attendance_ids?.length ?? 0) > 0;
 
-    const result = hasRange
-      ? await bulkClearAttendanceRange(env, admin.complexId, {
-          beneficiary_type: beneficiaryType,
-          attendance_date: body.attendance_date,
-          start_date: body.start_date,
-          end_date: body.end_date,
-          circle_id: body.circle_id,
-          track_id: body.track_id,
-          attendance_ids: body.attendance_ids,
-        })
-      : await bulkClearAttendanceDay(env, admin.complexId, {
-          beneficiary_type: beneficiaryType,
-          attendance_date: body.attendance_date?.trim() || todayIso(),
-          circle_id: body.circle_id,
-          track_id: body.track_id,
-        });
-
-    if ("error" in result) {
-      return json(result, 400);
-    }
-    if ("start_date" in result) {
+    if (hasRange) {
+      const result = await bulkClearAttendanceRange(env, admin.complexId, {
+        beneficiary_type: beneficiaryType,
+        attendance_date: body.attendance_date,
+        start_date: body.start_date,
+        end_date: body.end_date,
+        circle_id: body.circle_id,
+        track_id: body.track_id,
+        attendance_ids: body.attendance_ids,
+      });
+      if ("error" in result) {
+        return json(result, 400);
+      }
       return json({
         ok: true,
         deleted: result.deleted,
         start_date: result.start_date,
         end_date: result.end_date,
       });
+    }
+
+    const result = await bulkClearAttendanceDay(env, admin.complexId, {
+      beneficiary_type: beneficiaryType,
+      attendance_date: body.attendance_date?.trim() || todayIso(),
+      circle_id: body.circle_id,
+      track_id: body.track_id,
+    });
+    if ("error" in result) {
+      return json(result, 400);
     }
     return json({
       ok: true,

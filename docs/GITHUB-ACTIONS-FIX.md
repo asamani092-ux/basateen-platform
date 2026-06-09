@@ -13,23 +13,25 @@
 
 ## الأسباب الأشهر
 
-### 1) أسرار GitHub غير مضافة (الأكثر شيوعاً)
+### 1) أسرار GitHub غير مضافة أو التوكن منتهي (الأكثر شيوعاً)
 
 في: https://github.com/asamani092-ux/basateen-platform/settings/secrets/actions
 
-| Secret | من أين |
+| Secret | القيمة |
 |--------|--------|
-| `CLOUDFLARE_API_TOKEN` | Cloudflare → Profile → **API Tokens** → Create Token |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare Dashboard → يمين الصفحة (Account ID) |
+| `CLOUDFLARE_API_TOKEN` | توكن API جديد (انظر أدناه) |
+| `CLOUDFLARE_ACCOUNT_ID` | `01f5b1526aa792441a4b9ca33a156327` |
 
 **صلاحيات التوكن (كلها مطلوبة):**
 
-| المورد | الصلاحية |
-|--------|----------|
-| Account → Cloudflare Workers Scripts | **Edit** |
-| Account → **Cloudflare Pages** | **Edit** ← سبب `Authentication error [10000]` عند `pages deploy` |
-| Account → D1 | **Edit** |
-| Account → Account Settings | **Read** |
+| المورد | الصلاحية | مطلوب لـ |
+|--------|----------|----------|
+| Account → **Workers Scripts** | **Edit** | `wrangler deploy` ← **سبب `Authentication error [10000]` على `/workers/services/...`** |
+| Account → **Cloudflare Pages** | **Edit** | `pages deploy` |
+| Account → **D1** | **Edit** | `d1 execute --remote` |
+| Account → Account Settings | **Read** | `wrangler whoami` |
+
+> إذا ظهر `whoami` بنجاح لكن `deploy` يفشل بـ `[10000]` — التوكن يفتقر **Workers Scripts → Edit** أو مربوط بحساب آخر.
 
 ### إنشاء توكن جديد (موصى به)
 

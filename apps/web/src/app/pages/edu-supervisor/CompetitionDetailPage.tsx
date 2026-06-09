@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
+import { toast } from "sonner";
 import {
   BarChart3,
   ClipboardCheck,
@@ -161,12 +162,22 @@ export function CompetitionDetailPage() {
 
   async function removeTask(taskId: number) {
     if (!id) return;
+    const removed = tasks.find((t) => t.id === taskId);
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
     setSaving(true);
+    setError(null);
     try {
       await api.competitionsDeleteTask(id, taskId);
-      await load();
+      toast.success("تم حذف المهمة");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل حذف المهمة");
+      if (removed) {
+        setTasks((prev) =>
+          prev.some((t) => t.id === taskId) ? prev : [...prev, removed],
+        );
+      }
+      const msg = e instanceof Error ? e.message : "فشل حذف المهمة";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setSaving(false);
     }

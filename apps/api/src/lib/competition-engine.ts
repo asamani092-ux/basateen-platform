@@ -99,7 +99,9 @@ export async function hasCompetitionCategory(env: Env): Promise<boolean> {
 }
 
 /**
- * O(S) time, O(S) space — S ≤ 500; single query, schema-aware (v25 flat + legacy history).
+ * O(S) time, O(S) space — S ≤ 500; single query with LEFT JOINs only.
+ * Students always listed from `students`; optional competition_targets LEFT JOIN
+ * pre-fills saved targets when editing (never filters rows out).
  * Always excludes talqeen (stage_id = 1).
  */
 export async function queryPreviewStudents(
@@ -107,6 +109,7 @@ export async function queryPreviewStudents(
   complexId: number,
   scope: ScopeMode,
   targetScope: TargetScope,
+  competitionId?: number,
 ): Promise<PreviewStudentRow[]> {
   const scopeWhere = await buildStudentsInScopeWhere(env, scope);
   const binds: (string | number)[] = [...studentsInScopeBinds(complexId, scope)];
@@ -119,26 +122,25 @@ export async function queryPreviewStudents(
   );
 
   const hasStageCol = await tableHasColumn(env, "students", "stage_id");
-  if (hasStageCol) {
-    filters.push(
-      `(s.stage_id IS NULL OR s.stage_id != ${EXCLUDED_COMPETITION_STAGE_ID})`,
-    );
-  }
-
   const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
   const hasCurrentTrack = await tableHasColumn(env, "students", "current_track_id");
   const circleHistCol = await historyCircleColumn(env, "h");
   const trackHistCol = await historyTrackColumn(env, "h");
+  const hasLegacyHistory = await hasTable(env, "student_circle_history");
   const hasLegacyPlacement =
+    hasLegacyHistory &&
     circleHistCol !== null &&
     (await tableHasColumn(env, "student_circle_history", "to_at"));
 
-  const useFlatPlacement = hasCurrentCircle || hasCurrentTrack;
+  const engineTargets = competitionId
+    ? await hasEngineTargets(env)
+    : false;
+
   let fromJoin = "";
 
-  if (useFlatPlacement) {
+  if (hasCurrentCircle) {
     fromJoin = "LEFT JOIN circles c ON c.id = s.current_circle_id";
-    if (circleIds.length && hasCurrentCircle) {
+    if (circleIds.length) {
       filters.push(`s.current_circle_id IN (${circleIds.map(() => "?").join(",")})`);
       binds.push(...circleIds);
     }
@@ -148,7 +150,7 @@ export async function queryPreviewStudents(
     }
   } else if (hasLegacyPlacement && circleHistCol) {
     const active = await activePlacementSql(env, "h");
-    fromJoin = `INNER JOIN student_circle_history h ON h.student_id = s.id AND ${active}
+    fromJoin = `LEFT JOIN student_circle_history h ON h.student_id = s.id AND ${active}
                 LEFT JOIN circles c ON c.id = ${circleHistCol}`;
     if (circleIds.length) {
       filters.push(`${circleHistCol} IN (${circleIds.map(() => "?").join(",")})`);
@@ -158,13 +160,29 @@ export async function queryPreviewStudents(
       filters.push(`${trackHistCol} IN (${trackIds.map(() => "?").join(",")})`);
       binds.push(...trackIds);
     }
-  } else if (hasCurrentCircle) {
-    fromJoin = "LEFT JOIN circles c ON c.id = s.current_circle_id";
+  } else {
+    fromJoin = hasCurrentCircle
+      ? "LEFT JOIN circles c ON c.id = s.current_circle_id"
+      : "LEFT JOIN circles c ON 1=0";
+  }
+
+  if (engineTargets && competitionId) {
+    fromJoin += `
+     LEFT JOIN competition_targets ct
+       ON ct.student_id = s.id AND ct.competition_id = ${competitionId}`;
+  }
+
+  if (hasStageCol) {
+    filters.push(
+      `(COALESCE(s.stage_id, 0) != ${EXCLUDED_COMPETITION_STAGE_ID})`,
+      `(c.stage_id IS NULL OR c.stage_id != ${EXCLUDED_COMPETITION_STAGE_ID})`,
+    );
   }
 
   if (stageIds.length && hasStageCol) {
-    filters.push(`s.stage_id IN (${stageIds.map(() => "?").join(",")})`);
-    binds.push(...stageIds);
+    const ph = stageIds.map(() => "?").join(",");
+    filters.push(`(s.stage_id IN (${ph}) OR c.stage_id IN (${ph}))`);
+    binds.push(...stageIds, ...stageIds);
   }
 
   const filterSql = filters.length ? ` AND ${filters.join(" AND ")}` : "";
@@ -172,10 +190,14 @@ export async function queryPreviewStudents(
     ? "s.memorization_amount"
     : "NULL AS memorization_amount";
   const stageCol = hasStageCol ? "s.stage_id" : "NULL AS stage_id";
+  const targetCurrentCol =
+    engineTargets && competitionId
+      ? "ct.current_memorization AS saved_current_memorization, ct.target_amount AS saved_target_amount"
+      : "NULL AS saved_current_memorization, NULL AS saved_target_amount";
 
   const rows = await env.DB.prepare(
     `SELECT DISTINCT s.id AS student_id, s.full_name_ar, ${memCol}, ${stageCol},
-            c.name_ar AS circle_name
+            c.name_ar AS circle_name, ${targetCurrentCol}
      FROM students s
      ${fromJoin}
      WHERE ${scopeWhere}${filterSql}
@@ -189,10 +211,18 @@ export async function queryPreviewStudents(
       memorization_amount: string | null;
       stage_id: number | null;
       circle_name: string | null;
+      saved_current_memorization: number | null;
+      saved_target_amount: number | null;
     }>();
 
   return (rows.results ?? []).map((r) => {
-    const current = parseMemorizationJuz(r.memorization_amount);
+    const parsed = parseMemorizationJuz(r.memorization_amount);
+    const current =
+      r.saved_current_memorization != null
+        ? Number(r.saved_current_memorization)
+        : parsed;
+    const target =
+      r.saved_target_amount != null ? Number(r.saved_target_amount) : 0;
     return {
       student_id: r.student_id,
       full_name_ar: r.full_name_ar,
@@ -200,7 +230,7 @@ export async function queryPreviewStudents(
       stage_id: r.stage_id,
       memorization_amount: r.memorization_amount,
       current_memorization: current,
-      target_amount: 0,
+      target_amount: target,
     };
   });
 }
@@ -381,7 +411,7 @@ export async function loadCompetitionDetailBundle(
   };
 }
 
-/** O(1) DELETE chain — cascade child rows then competition row */
+/** O(K) — single batch transaction: logs → tasks → targets → attendance → ledger → competition */
 export async function deleteCompetitionCascade(
   env: Env,
   competitionId: number,
@@ -394,26 +424,81 @@ export async function deleteCompetitionCascade(
     .first();
   if (!row) return false;
 
-  const tables = [
-    "competition_logs",
-    "competition_tasks",
-    "competition_targets",
-    "competition_attendance",
-  ];
-  for (const table of tables) {
-    if (await hasTable(env, table)) {
-      await env.DB.prepare(
-        `DELETE FROM ${table} WHERE competition_id = ?`,
-      )
-        .bind(competitionId)
-        .run();
-    }
-  }
+  const [hasLogs, hasTasks, hasTargets, hasAtt, hasLedger] = await Promise.all([
+    hasTable(env, "competition_logs"),
+    hasTable(env, "competition_tasks"),
+    hasTable(env, "competition_targets"),
+    hasTable(env, "competition_attendance"),
+    hasTable(env, "quran_daily_ledger"),
+  ]);
 
-  await env.DB.prepare(`DELETE FROM competitions WHERE id = ? AND complex_id = ?`)
-    .bind(competitionId, complexId)
-    .run();
+  const stmts: ReturnType<typeof env.DB.prepare>[] = [];
+  if (hasLogs) {
+    stmts.push(
+      env.DB.prepare(`DELETE FROM competition_logs WHERE competition_id = ?`).bind(
+        competitionId,
+      ),
+    );
+  }
+  if (hasTasks) {
+    stmts.push(
+      env.DB.prepare(`DELETE FROM competition_tasks WHERE competition_id = ?`).bind(
+        competitionId,
+      ),
+    );
+  }
+  if (hasTargets) {
+    stmts.push(
+      env.DB.prepare(`DELETE FROM competition_targets WHERE competition_id = ?`).bind(
+        competitionId,
+      ),
+    );
+  }
+  if (hasAtt) {
+    stmts.push(
+      env.DB.prepare(
+        `DELETE FROM competition_attendance WHERE competition_id = ?`,
+      ).bind(competitionId),
+    );
+  }
+  if (hasLedger) {
+    stmts.push(
+      env.DB.prepare(
+        `DELETE FROM quran_daily_ledger WHERE context_type = 'competition' AND context_id = ?`,
+      ).bind(competitionId),
+    );
+  }
+  stmts.push(
+    env.DB.prepare(`DELETE FROM competitions WHERE id = ? AND complex_id = ?`).bind(
+      competitionId,
+      complexId,
+    ),
+  );
+
+  await env.DB.batch(stmts);
   return true;
+}
+
+/** O(1) batch — delete task logs then task row */
+export async function deleteCompetitionTask(
+  env: Env,
+  competitionId: number,
+  taskId: number,
+): Promise<void> {
+  const stmts: ReturnType<typeof env.DB.prepare>[] = [];
+  if (await hasTable(env, "competition_logs")) {
+    stmts.push(
+      env.DB.prepare(
+        `DELETE FROM competition_logs WHERE competition_id = ? AND task_id = ?`,
+      ).bind(competitionId, taskId),
+    );
+  }
+  stmts.push(
+    env.DB.prepare(
+      `DELETE FROM competition_tasks WHERE id = ? AND competition_id = ?`,
+    ).bind(taskId, competitionId),
+  );
+  await env.DB.batch(stmts);
 }
 
 export type DashboardTargetRow = {

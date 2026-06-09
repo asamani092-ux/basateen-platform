@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { Calendar, Pencil, Plus, Trash2, Trophy } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "../../components/ui/button";
 import {
   AlertDialog,
@@ -71,14 +72,24 @@ export function CompetitionsPage() {
 
   async function confirmDelete() {
     if (!deleteId) return;
+    const removedId = deleteId;
+    const removedRow = items.find((c) => c.id === removedId);
     setDeleting(true);
     setError(null);
+    setItems((prev) => prev.filter((c) => c.id !== removedId));
+    setDeleteId(null);
     try {
-      await api.competitionsDelete(deleteId);
-      setItems((prev) => prev.filter((c) => c.id !== deleteId));
-      setDeleteId(null);
+      await api.competitionsDelete(removedId);
+      toast.success("تم حذف المنافسة بنجاح");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل الحذف");
+      if (removedRow) {
+        setItems((prev) =>
+          prev.some((c) => c.id === removedId) ? prev : [...prev, removedRow],
+        );
+      }
+      const msg = e instanceof Error ? e.message : "فشل الحذف";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setDeleting(false);
     }

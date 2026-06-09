@@ -18,6 +18,9 @@ export const STAFF_ROLES: UserRole[] = [
 
 export const EDU_ROLES: UserRole[] = ["edu_supervisor", "super_admin"];
 
+/** مسارات محرك المنافسات — مشرف تعليمي ومدير عام فقط */
+export const COMPETITION_MANAGER_ROLES: UserRole[] = ["edu_supervisor", "super_admin"];
+
 export const FIELD_EDU_ROLES: UserRole[] = ["edu_supervisor"];
 
 export const PROG_ROLES: UserRole[] = ["programs_supervisor", "super_admin"];

@@ -4,6 +4,7 @@ import { hasTable, tableHasColumn } from "../lib/db-schema";
 import {
   computeAchievedByStudent,
   deleteCompetitionCascade,
+  deleteCompetitionTask,
   formatMemorizationJuz,
   hasCompetitionCategory,
   hasEngineLogs,
@@ -28,6 +29,7 @@ import {
   type ScopeMode,
 } from "../lib/dept-scope";
 import { DEFAULT_COMPETITION } from "../lib/edu-settings-defaults";
+import { COMPETITION_MANAGER_ROLES } from "../lib/roles";
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
@@ -329,7 +331,7 @@ export async function handleEduCompetitionsRouter(
 
   const auth = await getAuth(request, env);
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
-  if (!requireRoles(auth, ["edu_supervisor", "super_admin"])) {
+  if (!requireRoles(auth, COMPETITION_MANAGER_ROLES)) {
     return json({ error: "forbidden" }, 403);
   }
 
@@ -363,17 +365,22 @@ export async function handleEduCompetitionsRouter(
     if (!(await hasCompetitionCategory(env))) {
       return json({ error: "migration_required", hint: "db:remote:048" }, 503);
     }
-    let body: { target_scope?: TargetScope };
+    let body: { target_scope?: TargetScope; competition_id?: number };
     try {
       body = await request.json();
     } catch {
       return json({ error: "invalid_json" }, 400);
     }
+    const competitionId =
+      body.competition_id != null && Number(body.competition_id) > 0
+        ? Number(body.competition_id)
+        : undefined;
     const students = await queryPreviewStudents(
       env,
       auth.complexId,
       scope,
       body.target_scope ?? {},
+      competitionId,
     );
     return json({ items: students });
   }
@@ -439,12 +446,8 @@ export async function handleEduCompetitionsRouter(
     const taskId = Number(taskDeleteMatch[2]);
     const row = await competitionExists(env, competitionId, auth.complexId);
     if (!row) return json({ error: "not_found" }, 404);
-    await env.DB.prepare(
-      `DELETE FROM competition_tasks WHERE id = ? AND competition_id = ?`,
-    )
-      .bind(taskId, competitionId)
-      .run();
-    return json({ ok: true });
+    await deleteCompetitionTask(env, competitionId, taskId);
+    return json({ ok: true, deleted: true });
   }
 
   const tasksMatch = path.match(/^\/api\/edu-dept\/competitions\/(\d+)\/tasks$/);
@@ -564,7 +567,7 @@ export async function handleEduCompetitionsRouter(
     if (request.method === "DELETE") {
       const deleted = await deleteCompetitionCascade(env, id, auth.complexId);
       if (!deleted) return json({ error: "not_found" }, 404);
-      return json({ ok: true });
+      return json({ ok: true, deleted: true });
     }
 
     if (request.method === "GET") {

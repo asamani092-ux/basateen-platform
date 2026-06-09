@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Copy, Loader2 } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -38,6 +38,29 @@ const emptyScope = (): TargetScope => ({
   stage_ids: [],
 });
 
+function scopeHasFilter(scope: TargetScope): boolean {
+  return (
+    scope.circle_ids.length > 0 ||
+    scope.track_ids.length > 0 ||
+    scope.stage_ids.length > 0
+  );
+}
+
+function mapPreviewToTargets(
+  items: PreviewStudent[],
+  category: CompetitionCategory,
+): StudentTargetRow[] {
+  return items.map((s) => ({
+    student_id: s.student_id,
+    full_name_ar: s.full_name_ar,
+    current_memorization: s.current_memorization,
+    target_amount:
+      s.target_amount > 0
+        ? s.target_amount
+        : defaultTargetForCategory(category, s.current_memorization),
+  }));
+}
+
 export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
   const [nameAr, setNameAr] = useState("");
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -47,11 +70,12 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
   const [targetScope, setTargetScope] = useState<TargetScope>(emptyScope);
   const [circles, setCircles] = useState<CircleOption[]>([]);
   const [tracks, setTracks] = useState<TrackOption[]>([]);
-  const [previewStudents, setPreviewStudents] = useState<PreviewStudent[]>([]);
   const [targets, setTargets] = useState<StudentTargetRow[]>([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const categoryRef = useRef(category);
+  categoryRef.current = category;
 
   useEffect(() => {
     if (!canUseApi()) {
@@ -78,7 +102,12 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
     });
   }, []);
 
-  const loadPreview = useCallback(async () => {
+  const fetchPreview = useCallback(async (scope: TargetScope) => {
+    if (!scopeHasFilter(scope)) {
+      setTargets([]);
+      return;
+    }
+
     if (!canUseApi()) {
       const mock: PreviewStudent[] = [
         {
@@ -87,79 +116,52 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
           circle_name: "حلقة النور",
           stage_id: 2,
           current_memorization: 5,
+          target_amount: 0,
           memorization_amount: "5 أجزاء",
         },
-        {
-          student_id: 2,
-          full_name_ar: "خالد سعود",
-          circle_name: "حلقة الإتقان",
-          stage_id: 3,
-          current_memorization: 10,
-          memorization_amount: "10 أجزاء",
-        },
       ];
-      setPreviewStudents(mock);
-      setTargets(
-        mock.map((s) => ({
-          student_id: s.student_id,
-          full_name_ar: s.full_name_ar,
-          current_memorization: s.current_memorization,
-          target_amount: defaultTargetForCategory(category, s.current_memorization),
-        })),
-      );
+      setTargets(mapPreviewToTargets(mock, categoryRef.current));
       return;
     }
 
     setLoadingPreview(true);
     setError(null);
     try {
-      const res = await api.competitionsPreviewTargets({ target_scope: targetScope });
+      const res = await api.competitionsPreviewTargets({ target_scope: scope });
       const items = res.items as PreviewStudent[];
-      setPreviewStudents(items);
-      setTargets(
-        items.map((s) => ({
-          student_id: s.student_id,
-          full_name_ar: s.full_name_ar,
-          current_memorization: s.current_memorization,
-          target_amount: defaultTargetForCategory(category, s.current_memorization),
-        })),
-      );
+      setTargets(mapPreviewToTargets(items, categoryRef.current));
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل تحميل المستهدفين");
-      setPreviewStudents([]);
       setTargets([]);
     } finally {
       setLoadingPreview(false);
     }
-  }, [targetScope, category]);
+  }, []);
 
   useEffect(() => {
-    const hasFilter =
-      targetScope.circle_ids.length > 0 ||
-      targetScope.track_ids.length > 0 ||
-      targetScope.stage_ids.length > 0;
-    if (!hasFilter) {
-      setPreviewStudents([]);
-      setTargets([]);
-      return;
-    }
-    const timer = window.setTimeout(() => void loadPreview(), 400);
-    return () => window.clearTimeout(timer);
-  }, [loadPreview, targetScope]);
+    void fetchPreview(targetScope);
+  }, [targetScope, fetchPreview]);
 
   useEffect(() => {
     setTargets((prev) =>
-      prev.map((t) => ({
-        ...t,
-        target_amount: defaultTargetForCategory(category, t.current_memorization),
-      })),
+      prev.length
+        ? mapPreviewToTargets(
+            prev.map((t) => ({
+              student_id: t.student_id,
+              full_name_ar: t.full_name_ar,
+              circle_name: null,
+              stage_id: null,
+              current_memorization: t.current_memorization,
+              target_amount: t.target_amount,
+              memorization_amount: null,
+            })),
+            category,
+          )
+        : prev,
     );
   }, [category]);
 
-  function toggleScopeId(
-    key: keyof TargetScope,
-    id: number,
-  ) {
+  function toggleScopeId(key: keyof TargetScope, id: number) {
     setTargetScope((prev) => {
       const set = new Set(prev[key]);
       if (set.has(id)) set.delete(id);
@@ -351,7 +353,7 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
 
         <div>
           <p className="text-xs text-muted-foreground mb-2" style={tajawal}>
-            المرحلة الدراسية
+            المرحلة الدراسية (بدون تلقين)
           </p>
           <div className="flex flex-wrap gap-2">
             {COMPETITION_STAGE_OPTIONS.map((s) => (
@@ -431,22 +433,17 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
             </table>
             <p className="text-xs text-muted-foreground p-2" style={tajawal}>
               {isAdditiveCategory(category)
-                ? "حفظ جديد: العدد المستهدف = القيمة المضافة فقط (لا يُجمع مع الحفظ الحالي في هذا الحقل)."
+                ? "حفظ جديد: العدد المستهدف = القيمة المضافة فقط."
                 : "سرد/مراجعة: يمكن نسخ الحفظ الحالي أو تحديد رقم أقل."}
             </p>
           </div>
         )}
 
-        {!loadingPreview &&
-          targetScope.circle_ids.length +
-            targetScope.track_ids.length +
-            targetScope.stage_ids.length >
-            0 &&
-          targets.length === 0 && (
-            <p className="text-sm text-muted-foreground" style={tajawal}>
-              لا يوجد طلاب مطابقون للفلتر المحدد.
-            </p>
-          )}
+        {!loadingPreview && scopeHasFilter(targetScope) && targets.length === 0 && (
+          <p className="text-sm text-muted-foreground" style={tajawal}>
+            لا يوجد طلاب مطابقون للفلتر المحدد.
+          </p>
+        )}
       </section>
 
       <div className="flex flex-wrap gap-2 justify-end sticky bottom-0 bg-background pt-2 border-t">

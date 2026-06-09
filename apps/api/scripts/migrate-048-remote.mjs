@@ -15,6 +15,22 @@ const apiRoot = path.resolve(apiDir, "..");
 const schemaDir = path.resolve(apiRoot, "../../packages/database/schema");
 const remote = "--remote";
 
+if (!process.env.CLOUDFLARE_API_TOKEN?.trim()) {
+  console.error(`
+❌ CLOUDFLARE_API_TOKEN غير مضبوط — لا يمكن تنفيذ ترحيل D1 البعيد.
+
+من جهازك أو Codespace (بعد إضافة السر في GitHub):
+  export CLOUDFLARE_API_TOKEN="your-token"
+  cd apps/api && npm run db:remote:048
+
+للتطوير المحلي فقط (بدون إعادة تسمية مهام المعلم):
+  cd apps/api && npm run db:local:048
+
+Token: https://developers.cloudflare.com/fundamentals/api/get-started/create-token/
+`);
+  process.exit(1);
+}
+
 function run(args, label) {
   console.log(`\n>>> ${label}`);
   execSync(`npx wrangler d1 execute basateen ${remote} ${args}`, {

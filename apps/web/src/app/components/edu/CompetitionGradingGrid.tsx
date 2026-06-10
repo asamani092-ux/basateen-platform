@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import { Minus, Plus, Search } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
@@ -32,6 +32,72 @@ type StudentRow = {
 type Props = {
   competitionId: number;
 };
+
+function scoreKey(studentId: number, taskId: number) {
+  return `${studentId}:${taskId}`;
+}
+
+function TaskScoreCell({
+  task,
+  value,
+  onChange,
+}: {
+  task: TaskCol;
+  value: number;
+  onChange: (next: number) => void;
+}) {
+  if (task.type === "addition") {
+    const checked = value > 0;
+    return (
+      <div className="flex flex-col items-center gap-1">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked ? 1 : 0)}
+          className="size-5 rounded border-border cursor-pointer"
+          aria-label={task.name_ar}
+        />
+        {checked && (
+          <span className="text-[10px] text-emerald-600 tabular-nums">+{task.weight}</span>
+        )}
+      </div>
+    );
+  }
+
+  const count = Math.max(0, Math.round(value));
+  const totalPenalty = count * task.weight;
+
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div className="flex items-center justify-center gap-1">
+        <Button
+          type="button"
+          size="icon"
+          variant="outline"
+          className="h-7 w-7 rounded-full"
+          disabled={count <= 0}
+          onClick={() => onChange(count - 1)}
+          aria-label="إنقاص"
+        >
+          <Minus className="w-3 h-3" />
+        </Button>
+        <span className="w-6 text-center text-sm font-semibold tabular-nums">{count}</span>
+        <Button
+          type="button"
+          size="icon"
+          className="h-7 w-7 rounded-full"
+          onClick={() => onChange(count + 1)}
+          aria-label="زيادة"
+        >
+          <Plus className="w-3 h-3" />
+        </Button>
+      </div>
+      {count > 0 && (
+        <span className="text-[10px] text-destructive tabular-nums">−{totalPenalty}</span>
+      )}
+    </div>
+  );
+}
 
 export function CompetitionGradingGrid({ competitionId }: Props) {
   const [logDate, setLogDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -88,10 +154,6 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
     [students, query],
   );
 
-  function scoreKey(studentId: number, taskId: number) {
-    return `${studentId}:${taskId}`;
-  }
-
   function patchScore(studentId: number, taskId: number, value: number) {
     setScores((prev) => ({ ...prev, [scoreKey(studentId, taskId)]: value }));
   }
@@ -109,13 +171,12 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
       for (const student of students) {
         for (const task of tasks) {
           const key = scoreKey(student.student_id, task.id);
-          if (scores[key] != null) {
-            records.push({
-              student_id: student.student_id,
-              task_id: task.id,
-              points: Number(scores[key] ?? 0),
-            });
-          }
+          const raw = Number(scores[key] ?? 0);
+          records.push({
+            student_id: student.student_id,
+            task_id: task.id,
+            points: task.type === "addition" ? (raw > 0 ? 1 : 0) : Math.max(0, Math.round(raw)),
+          });
         }
       }
       const targetUpdates = students
@@ -204,13 +265,13 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
                 {tasks.map((task) => (
                   <TableHead
                     key={task.id}
-                    className={`${ds.table.head} text-center min-w-[88px]`}
+                    className={`${ds.table.head} text-center min-w-[96px]`}
                     style={tajawal}
                     title={`وزن ${task.weight}`}
                   >
                     {task.name_ar}
                     <span className="block text-[10px] font-normal text-muted-foreground">
-                      {task.type === "deduction" ? "خصم" : "إضافة"}
+                      {task.type === "deduction" ? `خصم ×${task.weight}` : `إضافة +${task.weight}`}
                     </span>
                   </TableHead>
                 ))}
@@ -236,17 +297,15 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
                   </TableCell>
                   {tasks.map((task) => {
                     const key = scoreKey(student.student_id, task.id);
+                    const raw = Number(scores[key] ?? 0);
+                    const displayValue =
+                      task.type === "addition" ? (raw > 0 ? 1 : 0) : Math.max(0, Math.round(raw));
                     return (
                       <TableCell key={task.id} className={`${ds.table.cell} text-center`}>
-                        <Input
-                          type="number"
-                          min={0}
-                          step={0.1}
-                          value={scores[key] ?? 0}
-                          onChange={(e) =>
-                            patchScore(student.student_id, task.id, Number(e.target.value))
-                          }
-                          className={`${ds.btnRound} h-8 w-20 mx-auto text-center text-sm`}
+                        <TaskScoreCell
+                          task={task}
+                          value={displayValue}
+                          onChange={(v) => patchScore(student.student_id, task.id, v)}
                         />
                       </TableCell>
                     );

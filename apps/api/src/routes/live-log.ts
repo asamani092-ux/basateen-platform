@@ -4,6 +4,8 @@ import { hasTable, tableHasColumn } from "../lib/db-schema";
 import { hasEngineTargets, hasEngineTasks } from "../lib/competition-engine";
 import { FIELD_EDU_ROLES } from "../lib/roles";
 
+type SessionKind = "yom_himma" | "competition";
+
 type HimmaRules = {
   hizb_points: number;
   alert_penalty: number;
@@ -12,97 +14,134 @@ type HimmaRules = {
   fail_threshold_errors: number;
 };
 
-function json(data: unknown, status = 200): Response {
-  return Response.json(data, { status });
+const DEFAULT_HIMMA_RULES: HimmaRules = {
+  hizb_points: 1,
+  alert_penalty: 0.5,
+  error_penalty: 1,
+  alerts_per_error: 5,
+  fail_threshold_errors: 3,
+};
+
+function parseRulesJson(raw: unknown): Record<string, unknown> {
+  if (raw == null || raw === "") return {};
+  try {
+    const parsed = JSON.parse(String(raw));
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
 }
 
-type SessionKind = "yom_himma" | "competition";
+async function resolveYomHimmaLiveSession(env: Env, token: string) {
+  const hasRulesJson = await tableHasColumn(env, "yom_himma_sessions", "rules_json");
+  const cols = [
+    "id",
+    "complex_id",
+    "name_ar",
+    "session_date",
+    "status",
+    "live_log_token",
+    "tv_launch_key",
+  ];
+  if (hasRulesJson) cols.push("rules_json");
 
-async function resolveLiveSession(env: Env, token: string) {
   const himma = await env.DB.prepare(
-    `SELECT id, complex_id, name_ar, session_date, status, rules_json, live_log_token, tv_launch_key
+    `SELECT ${cols.join(", ")}
      FROM yom_himma_sessions
      WHERE live_log_token = ? OR tv_launch_key = ?
      LIMIT 1`,
   )
     .bind(token, token)
-    .first<{
-      id: number;
-      complex_id: number;
-      name_ar: string;
-      session_date: string;
-      status: string;
-      rules_json: string;
-      live_log_token: string | null;
-      tv_launch_key: string;
-    }>();
+    .first<Record<string, unknown>>();
 
-  if (himma) {
-    const himmaRules = JSON.parse(himma.rules_json || "{}") as Record<string, unknown>;
-    return {
-      kind: "yom_himma" as SessionKind,
-      id: himma.id,
-      complexId: himma.complex_id,
-      name_ar: himma.name_ar,
-      date: himma.session_date,
-      status: himma.status,
-      rules: himmaRules as HimmaRules,
-      access_pin: String(himmaRules.access_pin ?? "1234"),
-      tv_key: himma.tv_launch_key,
-    };
-  }
+  if (!himma) return null;
 
+  const himmaRules = hasRulesJson
+    ? parseRulesJson(himma.rules_json)
+    : {};
+  const mergedRules = { ...DEFAULT_HIMMA_RULES, ...himmaRules } as HimmaRules;
+
+  return {
+    kind: "yom_himma" as SessionKind,
+    id: Number(himma.id),
+    complexId: Number(himma.complex_id),
+    name_ar: String(himma.name_ar ?? ""),
+    date: String(himma.session_date ?? ""),
+    status: String(himma.status ?? "draft"),
+    rules: mergedRules,
+    access_pin: String(himmaRules.access_pin ?? "1234"),
+    tv_key: String(himma.tv_launch_key ?? ""),
+  };
+}
+
+async function resolveCompetitionLiveSession(env: Env, token: string) {
   const hasCategory = await tableHasColumn(env, "competitions", "category");
+  const hasCustomCategory = await tableHasColumn(env, "competitions", "custom_category");
   const hasAccessPinCol = await tableHasColumn(env, "competitions", "access_pin");
-  const categoryCol = hasCategory ? ", category, custom_category" : "";
-  const accessPinCol = hasAccessPinCol ? ", access_pin" : "";
+  const hasRulesJson = await tableHasColumn(env, "competitions", "rules_json");
+  const hasTelemetry = await tableHasColumn(env, "competitions", "telemetry_type");
+  const hasStageId = await tableHasColumn(env, "competitions", "stage_id");
+
+  const cols = [
+    "id",
+    "complex_id",
+    "name_ar",
+    "start_date",
+    "end_date",
+    "status",
+    "live_log_token",
+    "tv_launch_key",
+  ];
+  if (hasRulesJson) cols.push("rules_json");
+  if (hasTelemetry) cols.push("telemetry_type");
+  if (hasStageId) cols.push("stage_id");
+  if (hasCategory) cols.push("category");
+  if (hasCustomCategory) cols.push("custom_category");
+  if (hasAccessPinCol) cols.push("access_pin");
 
   const comp = await env.DB.prepare(
-    `SELECT id, complex_id, name_ar, start_date, end_date, status, telemetry_type,
-            rules_json, live_log_token, tv_launch_key, stage_id${categoryCol}${accessPinCol}
+    `SELECT ${cols.join(", ")}
      FROM competitions
      WHERE live_log_token = ? OR tv_launch_key = ?
      LIMIT 1`,
   )
     .bind(token, token)
-    .first<{
-      id: number;
-      complex_id: number;
-      name_ar: string;
-      start_date: string;
-      end_date: string;
-      status: string;
-      telemetry_type: string;
-      rules_json: string;
-      tv_launch_key: string;
-      stage_id: number | null;
-      category?: string;
-      custom_category?: string;
-      access_pin?: string;
-    }>();
+    .first<Record<string, unknown>>();
 
-  if (comp) {
-    const compRules = JSON.parse(comp.rules_json || "{}") as Record<string, unknown>;
-    const pinFromCol = hasAccessPinCol ? String(comp.access_pin ?? "") : "";
-    return {
-      kind: "competition" as SessionKind,
-      id: comp.id,
-      complexId: comp.complex_id,
-      name_ar: comp.name_ar,
-      date: comp.start_date,
-      status: comp.status,
-      telemetry_type: comp.telemetry_type,
-      rules: compRules,
-      access_pin: pinFromCol || String(compRules.access_pin ?? "1234"),
-      tv_key: comp.tv_launch_key,
-      stage_id: comp.stage_id,
-      category: hasCategory ? String(comp.category ?? "recitation") : "recitation",
-      custom_category: hasCategory ? String(comp.custom_category ?? "") : "",
-    };
-  }
+  if (!comp) return null;
 
-  return null;
+  const compRules = hasRulesJson ? parseRulesJson(comp.rules_json) : {};
+  const pinFromCol = hasAccessPinCol ? String(comp.access_pin ?? "") : "";
+
+  return {
+    kind: "competition" as SessionKind,
+    id: Number(comp.id),
+    complexId: Number(comp.complex_id),
+    name_ar: String(comp.name_ar ?? ""),
+    date: String(comp.start_date ?? ""),
+    status: String(comp.status ?? "draft"),
+    telemetry_type: hasTelemetry
+      ? String(comp.telemetry_type ?? "intensive_routine")
+      : "intensive_routine",
+    rules: compRules,
+    access_pin: pinFromCol || String(compRules.access_pin ?? "1234"),
+    tv_key: String(comp.tv_launch_key ?? ""),
+    stage_id: hasStageId ? (comp.stage_id as number | null) : null,
+    category: hasCategory ? String(comp.category ?? "recitation") : "recitation",
+    custom_category: hasCustomCategory ? String(comp.custom_category ?? "") : "",
+  };
 }
+
+async function resolveLiveSession(env: Env, token: string) {
+  const himma = await resolveYomHimmaLiveSession(env, token);
+  if (himma) return himma;
+  return resolveCompetitionLiveSession(env, token);
+}
+
+function json(data: unknown, status = 200): Response {
+  return Response.json(data, { status });
+}
+
 
 export async function handleLiveLogRouter(
   request: Request,
@@ -403,23 +442,28 @@ export async function handleYomHimmaLiveLogToken(
   const token = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 
   await env.DB.prepare(
-    `UPDATE yom_himma_sessions SET live_log_token = ?, status = 'live', updated_at = datetime('now')
+    `UPDATE yom_himma_sessions SET live_log_token = ?, status = 'live'${(await tableHasColumn(env, "yom_himma_sessions", "updated_at")) ? ", updated_at = datetime('now')" : ""}
      WHERE id = ? AND complex_id = ?`,
   )
     .bind(token, sessionId, auth.complexId)
     .run();
 
-  const row = await env.DB.prepare(
-    `SELECT rules_json FROM yom_himma_sessions WHERE id = ? AND complex_id = ?`,
-  )
-    .bind(sessionId, auth.complexId)
-    .first<{ rules_json: string }>();
-  const rules = JSON.parse(row?.rules_json || "{}") as Record<string, unknown>;
+  const hasRulesJson = await tableHasColumn(env, "yom_himma_sessions", "rules_json");
+  let accessPin = "1234";
+  if (hasRulesJson) {
+    const row = await env.DB.prepare(
+      `SELECT rules_json FROM yom_himma_sessions WHERE id = ? AND complex_id = ?`,
+    )
+      .bind(sessionId, auth.complexId)
+      .first<{ rules_json: string }>();
+    const rules = parseRulesJson(row?.rules_json);
+    accessPin = String(rules.access_pin ?? "1234");
+  }
 
   return json({
     ok: true,
     live_log_token: token,
-    access_pin: String(rules.access_pin ?? "1234"),
+    access_pin: accessPin,
     path: `/live-log/${token}`,
   });
 }

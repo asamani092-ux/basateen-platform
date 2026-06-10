@@ -724,6 +724,138 @@ export async function handleEduCompetitionsRouter(
     }
   }
 
+  const gradingMatch = path.match(
+    /^\/api\/edu-dept\/competitions\/(\d+)\/grading$/,
+  );
+  if (gradingMatch && engineLogs && engineTasks) {
+    const id = Number(gradingMatch[1]);
+    const row = await competitionExists(env, id, auth.complexId);
+    if (!row) return json({ error: "not_found" }, 404);
+
+    const hasTaskId = await tableHasColumn(env, "competition_logs", "task_id");
+    const hasPoints = await tableHasColumn(env, "competition_logs", "points");
+
+    if (request.method === "GET") {
+      const logDate =
+        url.searchParams.get("log_date")?.trim() ||
+        new Date().toISOString().slice(0, 10);
+
+      const [targetRows, tasksRes] = await Promise.all([
+        engineTargets
+          ? loadCompetitionTargetRows(env, id)
+          : Promise.resolve([]),
+        env.DB.prepare(
+          `SELECT id, name_ar, weight, type, sort_order
+           FROM competition_tasks WHERE competition_id = ?
+           ORDER BY sort_order, id`,
+        )
+          .bind(id)
+          .all<{
+            id: number;
+            name_ar: string;
+            weight: number;
+            type: string;
+            sort_order: number;
+          }>(),
+      ]);
+
+      const scores = new Map<string, number>();
+      if (hasTaskId && hasPoints) {
+        const logRows = await env.DB.prepare(
+          `SELECT student_id, task_id, points
+           FROM competition_logs
+           WHERE competition_id = ? AND log_date = ?`,
+        )
+          .bind(id, logDate)
+          .all<{ student_id: number; task_id: number; points: number }>();
+        for (const r of logRows.results ?? []) {
+          scores.set(`${r.student_id}:${r.task_id}`, Number(r.points ?? 0));
+        }
+      }
+
+      return json({
+        log_date: logDate,
+        tasks: tasksRes.results ?? [],
+        students: targetRows.map((t) => ({
+          student_id: t.student_id,
+          full_name_ar: t.full_name_ar,
+          target_amount: Number(t.target_amount ?? 0),
+          achieved_amount: Number(t.achieved_amount ?? 0),
+          current_memorization: Number(t.current_memorization ?? 0),
+        })),
+        scores: Object.fromEntries(scores),
+      });
+    }
+
+    if (request.method === "POST") {
+      let body: {
+        log_date?: string;
+        records?: Array<{ student_id: number; task_id: number; points: number }>;
+        targets?: Array<{ student_id: number; target_amount: number }>;
+      };
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: "invalid_json" }, 400);
+      }
+
+      const logDate =
+        body.log_date?.trim() || new Date().toISOString().slice(0, 10);
+      const records = body.records ?? [];
+
+      if (hasTaskId && hasPoints && records.length > 0) {
+        for (const rec of records) {
+          const existing = await env.DB.prepare(
+            `SELECT id FROM competition_logs
+             WHERE competition_id = ? AND student_id = ? AND task_id = ? AND log_date = ?`,
+          )
+            .bind(id, rec.student_id, rec.task_id, logDate)
+            .first<{ id: number }>();
+          if (existing) {
+            await env.DB.prepare(
+              `UPDATE competition_logs
+               SET points = ?, recorded_by_user_id = ?, recorded_at = datetime('now')
+               WHERE id = ?`,
+            )
+              .bind(Number(rec.points ?? 0), auth.userId, existing.id)
+              .run();
+          } else {
+            await env.DB.prepare(
+              `INSERT INTO competition_logs
+               (competition_id, student_id, task_id, log_date, points, recorded_by_user_id)
+               VALUES (?, ?, ?, ?, ?, ?)`,
+            )
+              .bind(
+                id,
+                rec.student_id,
+                rec.task_id,
+                logDate,
+                Number(rec.points ?? 0),
+                auth.userId,
+              )
+              .run();
+          }
+        }
+      }
+
+      if (engineTargets && body.targets?.length) {
+        const existing = await loadCompetitionTargetRows(env, id);
+        const byStudent = new Map(existing.map((t) => [t.student_id, t]));
+        const merged: StudentTargetInput[] = body.targets.map((t) => {
+          const prev = byStudent.get(t.student_id);
+          return {
+            student_id: t.student_id,
+            current_memorization: Number(prev?.current_memorization ?? 0),
+            target_amount: Number(t.target_amount ?? 0),
+          };
+        });
+        await upsertStudentTargets(env, id, merged);
+      }
+
+      return json({ ok: true, saved: records.length });
+    }
+  }
+
   const dashboardMatch = path.match(
     /^\/api\/edu-dept\/competitions\/(\d+)\/dashboard$/,
   );
@@ -734,6 +866,7 @@ export async function handleEduCompetitionsRouter(
 
     const dateFrom = url.searchParams.get("date_from") ?? String(row.start_date);
     const dateTo = url.searchParams.get("date_to") ?? String(row.end_date);
+    const leaderboardMode = url.searchParams.get("leaderboard_mode") ?? "top";
 
     const studentIds = await resolveCompetitionStudents(
       env,
@@ -785,19 +918,34 @@ export async function handleEduCompetitionsRouter(
           ? 100
           : 0;
 
-    const leaders = [...achievedByStudent.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([student_id, score]) => ({ student_id, score }));
+    const nameMap = new Map(
+      targetRows.map((t) => [t.student_id, t.full_name_ar]),
+    );
+    const targetByStudent = new Map(
+      targetRows.map((t) => [t.student_id, Number(t.target_amount ?? 0)]),
+    );
 
-    if (leaders.length && targetRows.length) {
-      const nameMap = new Map(
-        targetRows.map((t) => [t.student_id, t.full_name_ar]),
-      );
-      for (const l of leaders) {
-        (l as { full_name_ar?: string }).full_name_ar = nameMap.get(l.student_id);
-      }
-    }
+    const allLeaders = [...achievedByStudent.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([student_id, score]) => {
+        const targetAmount = targetByStudent.get(student_id) ?? 0;
+        const achievementPct =
+          targetAmount > 0
+            ? Math.min(100, Math.round((score / targetAmount) * 100))
+            : score > 0
+              ? 100
+              : 0;
+        return {
+          student_id,
+          score: Math.round(score * 100) / 100,
+          full_name_ar: nameMap.get(student_id),
+          target_amount: targetAmount,
+          achievement_pct: achievementPct,
+        };
+      });
+
+    const leaders =
+      leaderboardMode === "all" ? allLeaders : allLeaders.slice(0, 5);
 
     return json({
       date_from: dateFrom,

@@ -96,7 +96,11 @@ export function DailyRecitationPage() {
   const { user } = useAuth();
   const isSupervisor = user ? SUPERVISOR_ROLES.has(user.role) : false;
 
-  const [circles, setCircles] = useState<Array<{ id: number; name_ar: string }>>([]);
+  const [circles, setCircles] = useState<
+    Array<{ id: number; name_ar: string; track_id?: number | null }>
+  >([]);
+  const [tracks, setTracks] = useState<Array<{ id: number; name_ar: string }>>([]);
+  const [trackId, setTrackId] = useState<number | null>(null);
   const [circleId, setCircleId] = useState<number | null>(null);
   const [circleName, setCircleName] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -123,6 +127,26 @@ export function DailyRecitationPage() {
     [criteria],
   );
 
+  const visibleCircles = useMemo(() => {
+    if (!isSupervisor || trackId == null) return circles;
+    return circles.filter((c) => c.track_id === trackId);
+  }, [circles, isSupervisor, trackId]);
+
+  const loadScopes = useCallback(async () => {
+    if (!canUseApi() || !isSupervisor) return;
+    try {
+      const res = await api.eduDeptFilterScopes();
+      setTracks(res.tracks);
+      setCircles(res.circles);
+    } catch {
+      /* ignore */
+    }
+  }, [isSupervisor]);
+
+  useEffect(() => {
+    void loadScopes();
+  }, [loadScopes]);
+
   const load = useCallback(async () => {
     if (!canUseApi()) {
       setLoading(false);
@@ -135,12 +159,22 @@ export function DailyRecitationPage() {
         ? await api.eduDeptMyStudents({
             date,
             ...(circleId != null ? { circle_id: circleId } : {}),
+            ...(trackId != null ? { track_id: trackId } : {}),
           })
         : await api.eduDeptMyStudents({ date });
 
       const evalCriteria = res.evaluation_criteria ?? [];
       setCriteria(evalCriteria);
-      setCircles(res.circles ?? []);
+      if (isSupervisor && res.circles?.length) {
+        setCircles((prev) => {
+          const trackMap = new Map(prev.map((c) => [c.id, c.track_id]));
+          return res.circles!.map((c) => ({
+            id: c.id,
+            name_ar: c.name_ar,
+            track_id: trackMap.get(c.id) ?? null,
+          }));
+        });
+      }
       if (res.needs_circle_selection && isSupervisor) {
         setRows([]);
         return;
@@ -155,7 +189,7 @@ export function DailyRecitationPage() {
     } finally {
       setLoading(false);
     }
-  }, [date, circleId, isSupervisor]);
+  }, [date, circleId, trackId, isSupervisor]);
 
   useEffect(() => {
     void load();
@@ -275,6 +309,28 @@ export function DailyRecitationPage() {
       )}
 
       <div className={`${ds.card} p-4 flex flex-col md:flex-row flex-wrap gap-4 md:items-end`}>
+        {isSupervisor && tracks.length > 0 && (
+          <div className="space-y-1 w-full md:max-w-xs">
+            <Label style={tajawal}>المسار التعليمي</Label>
+            <select
+              value={trackId ?? ""}
+              onChange={(e) => {
+                const next = e.target.value ? Number(e.target.value) : null;
+                setTrackId(next);
+                setCircleId(null);
+              }}
+              className={ds.select}
+              style={tajawal}
+            >
+              <option value="">— كل المسارات —</option>
+              {tracks.map((t) => (
+                <option key={t.id} value={String(t.id)}>
+                  {t.name_ar}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         {isSupervisor && (
           <div className="space-y-1 w-full md:max-w-xs">
             <Label style={tajawal}>الحلقة</Label>
@@ -287,7 +343,7 @@ export function DailyRecitationPage() {
               style={tajawal}
             >
               <option value="">— اختر الحلقة —</option>
-              {circles.map((c) => (
+              {visibleCircles.map((c) => (
                 <option key={c.id} value={String(c.id)}>
                   {c.name_ar}
                 </option>

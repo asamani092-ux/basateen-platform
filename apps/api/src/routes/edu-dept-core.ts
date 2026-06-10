@@ -260,6 +260,88 @@ async function canAccessRecitationCircle(
   return circles.some((c) => c.id === circleId);
 }
 
+async function filterCirclesByTrack(
+  env: Env,
+  complexId: number,
+  circles: Array<{ id: number; name_ar: string }>,
+  trackId: number,
+): Promise<Array<{ id: number; name_ar: string }>> {
+  if (circles.length === 0) return circles;
+  const hasCircleTrack = await tableHasColumn(env, "circles", "track_id");
+  if (hasCircleTrack) {
+    const ids = circles.map((c) => c.id);
+    const ph = ids.map(() => "?").join(",");
+    const rows = await env.DB.prepare(
+      `SELECT id FROM circles
+       WHERE complex_id = ? AND track_id = ? AND id IN (${ph})`,
+    )
+      .bind(complexId, trackId, ...ids)
+      .all<{ id: number }>();
+    const allowed = new Set((rows.results ?? []).map((r) => r.id));
+    return circles.filter((c) => allowed.has(c.id));
+  }
+
+  const hasCurrentTrack = await tableHasColumn(env, "students", "current_track_id");
+  if (!hasCurrentTrack) return [];
+
+  const ids = circles.map((c) => c.id);
+  const ph = ids.map(() => "?").join(",");
+  const rows = await env.DB.prepare(
+    `SELECT DISTINCT s.current_circle_id AS circle_id
+     FROM students s
+     WHERE s.complex_id = ? AND s.current_track_id = ?
+       AND s.current_circle_id IN (${ph})`,
+  )
+    .bind(complexId, trackId, ...ids)
+    .all<{ circle_id: number }>();
+  const allowed = new Set((rows.results ?? []).map((r) => r.circle_id));
+  return circles.filter((c) => allowed.has(c.id));
+}
+
+async function loadEduFilterScopes(
+  env: Env,
+  auth: { userId: number; complexId: number; role: string },
+): Promise<{
+  circles: Array<{ id: number; name_ar: string; track_id: number | null }>;
+  tracks: Array<{ id: number; name_ar: string }>;
+}> {
+  const circleRows = await resolveRecitationCircles(env, auth);
+  const ids = circleRows.map((c) => c.id);
+  const trackMap = new Map<number, number | null>();
+  const hasCircleTrack = await tableHasColumn(env, "circles", "track_id");
+  if (hasCircleTrack && ids.length > 0) {
+    const ph = ids.map(() => "?").join(",");
+    const rows = await env.DB.prepare(
+      `SELECT id, track_id FROM circles WHERE id IN (${ph})`,
+    )
+      .bind(...ids)
+      .all<{ id: number; track_id: number | null }>();
+    for (const r of rows.results ?? []) {
+      trackMap.set(r.id, r.track_id ?? null);
+    }
+  }
+
+  const circles = circleRows.map((c) => ({
+    id: c.id,
+    name_ar: c.name_ar,
+    track_id: trackMap.get(c.id) ?? null,
+  }));
+
+  let tracks: Array<{ id: number; name_ar: string }> = [];
+  if (await hasTable(env, "tracks")) {
+    const trackRows = await env.DB.prepare(
+      `SELECT id, name_ar FROM tracks
+       WHERE complex_id = ? AND COALESCE(is_active, 1) = 1
+       ORDER BY name_ar`,
+    )
+      .bind(auth.complexId)
+      .all<{ id: number; name_ar: string }>();
+    tracks = trackRows.results ?? [];
+  }
+
+  return { circles, tracks };
+}
+
 function attendanceCriterionId(criteria: EvalCriterion[]): string | null {
   const exact = criteria.find((c) => c.id === "attendance" || c.id === "presence");
   if (exact) return exact.id;
@@ -543,6 +625,24 @@ export async function handleEduDeptCoreRouter(
     return json({ items: items.results ?? [] });
   }
 
+  // --- Filter scopes (circles + tracks for edu dept UI) ---
+  if (path === "/api/edu-dept/filter-scopes" && request.method === "GET") {
+    if (
+      !requireRoles(auth, [
+        ...RECITATION_ROLES,
+        ...EDU_SUPERVISOR_ROLES,
+      ])
+    ) {
+      return json({ error: "forbidden" }, 403);
+    }
+    try {
+      const scopes = await loadEduFilterScopes(env, auth);
+      return json(scopes);
+    } catch (err) {
+      return serverError("filter-scopes", err);
+    }
+  }
+
   // --- My students (auto circle for teacher; scoped circles for supervisors) ---
   if (path === "/api/edu-dept/my-students" && request.method === "GET") {
     if (!requireRoles(auth, [...RECITATION_ROLES])) {
@@ -553,6 +653,11 @@ export async function handleEduDeptCoreRouter(
     try {
       const date = url.searchParams.get("date")?.trim() || todayIso();
       const circleParam = url.searchParams.get("circle_id");
+      const trackParam = url.searchParams.get("track_id");
+      const trackFilter =
+        trackParam != null && trackParam !== "" && Number.isFinite(Number(trackParam))
+          ? Number(trackParam)
+          : null;
 
       let circleId: number;
       let circleName = "";
@@ -572,6 +677,14 @@ export async function handleEduDeptCoreRouter(
         circles = [teacherCircle];
       } else {
         circles = await resolveRecitationCircles(env, auth);
+        if (trackFilter != null && trackFilter > 0) {
+          circles = await filterCirclesByTrack(
+            env,
+            auth.complexId,
+            circles,
+            trackFilter,
+          );
+        }
         if (circles.length === 0) {
           return json({ error: "no_circle_assigned" }, 404);
         }
@@ -1239,17 +1352,22 @@ export async function handleEduDeptCoreRouter(
       WHERE dr.recitation_date >= ? AND dr.recitation_date <= ?`;
     const binds: (string | number)[] = [auth.complexId, dateFrom, dateTo];
     const hasCircleTrack = await tableHasColumn(env, "circles", "track_id");
+    const hasCurrentTrack = await tableHasColumn(env, "students", "current_track_id");
     if (circleFilter != null && Number.isFinite(circleFilter) && circleFilter > 0) {
       sql += ` AND dr.circle_id = ?`;
       binds.push(circleFilter);
     } else if (
       trackFilter != null &&
       Number.isFinite(trackFilter) &&
-      trackFilter > 0 &&
-      hasCircleTrack
+      trackFilter > 0
     ) {
-      sql += ` AND c.track_id = ?`;
-      binds.push(trackFilter);
+      if (hasCurrentTrack) {
+        sql += ` AND s.current_track_id = ?`;
+        binds.push(trackFilter);
+      } else if (hasCircleTrack) {
+        sql += ` AND c.track_id = ?`;
+        binds.push(trackFilter);
+      }
     }
     sql += ` ORDER BY s.full_name_ar, dr.recitation_date`;
 
@@ -1398,13 +1516,17 @@ export async function handleEduDeptCoreRouter(
     } else if (
       trackFilter != null &&
       Number.isFinite(trackFilter) &&
-      trackFilter > 0 &&
-      hasCircleTrack
+      trackFilter > 0
     ) {
-      facesInRangeSql += ` AND dr.circle_id IN (
-        SELECT id FROM circles WHERE complex_id = ? AND track_id = ?
-      )`;
-      facesInRangeBinds.push(auth.complexId, trackFilter);
+      if (hasCurrentTrack) {
+        facesInRangeSql += ` AND s.current_track_id = ?`;
+        facesInRangeBinds.push(trackFilter);
+      } else if (hasCircleTrack) {
+        facesInRangeSql += ` AND dr.circle_id IN (
+          SELECT id FROM circles WHERE complex_id = ? AND track_id = ?
+        )`;
+        facesInRangeBinds.push(auth.complexId, trackFilter);
+      }
     }
 
     let totalFacesInRange = 0;
@@ -1422,7 +1544,7 @@ export async function handleEduDeptCoreRouter(
       .all<{ id: number; name_ar: string }>();
 
     let tracks: Array<{ id: number; name_ar: string }> = [];
-    if (hasCircleTrack) {
+    if (await hasTable(env, "tracks")) {
       const trackRows = await env.DB.prepare(
         `SELECT id, name_ar FROM tracks WHERE complex_id = ? AND COALESCE(is_active, 1) = 1 ORDER BY name_ar`,
       )
@@ -1463,6 +1585,11 @@ export async function handleEduDeptCoreRouter(
       : "";
     const teacherCol = hasTeacher ? ", u.full_name_ar AS teacher_name" : ", NULL AS teacher_name";
     const q = url.searchParams.get("q")?.trim() ?? "";
+    const trackIdParam = url.searchParams.get("track_id");
+    const trackFilter =
+      trackIdParam != null && trackIdParam !== "" && Number.isFinite(Number(trackIdParam))
+        ? Number(trackIdParam)
+        : null;
     let sql = `
       SELECT c.id, c.name_ar, ${track.trackIdCol}, ${track.trackNameCol}${teacherCol}
       FROM circles c
@@ -1470,6 +1597,12 @@ export async function handleEduDeptCoreRouter(
       ${teacherJoin}
       WHERE c.complex_id = ? AND COALESCE(c.is_active, 1) = 1`;
     const binds: (string | number)[] = [auth.complexId];
+    if (trackFilter != null && trackFilter > 0) {
+      if (await tableHasColumn(env, "circles", "track_id")) {
+        sql += ` AND c.track_id = ?`;
+        binds.push(trackFilter);
+      }
+    }
     if (q) {
       sql += ` AND (c.name_ar LIKE ? OR ${track.trackNameCol} LIKE ?)`;
       binds.push(`%${q}%`, `%${q}%`);

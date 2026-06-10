@@ -531,9 +531,16 @@ export const api = {
     }),
   competitionsDashboard: (
     id: number,
-    params: { date_from: string; date_to: string },
-  ) =>
-    request<{
+    params: { date_from: string; date_to: string; leaderboard_mode?: "top" | "all" },
+  ) => {
+    const q = new URLSearchParams({
+      date_from: params.date_from,
+      date_to: params.date_to,
+    });
+    if (params.leaderboard_mode) {
+      q.set("leaderboard_mode", params.leaderboard_mode);
+    }
+    return request<{
       date_from: string;
       date_to: string;
       kpis: {
@@ -543,10 +550,48 @@ export const api = {
         target_juz: number;
         achieved_juz: number;
       };
-      leaders: Array<{ student_id: number; score: number; full_name_ar?: string }>;
+      leaders: Array<{
+        student_id: number;
+        score: number;
+        full_name_ar?: string;
+        target_amount?: number;
+        achievement_pct?: number;
+      }>;
+    }>(`/api/edu-dept/competitions/${id}/dashboard?${q.toString()}`);
+  },
+  competitionsGradingGet: (id: number, logDate: string) =>
+    request<{
+      log_date: string;
+      tasks: Array<{
+        id: number;
+        name_ar: string;
+        weight: number;
+        type: string;
+        sort_order: number;
+      }>;
+      students: Array<{
+        student_id: number;
+        full_name_ar: string;
+        target_amount: number;
+        achieved_amount: number;
+        current_memorization: number;
+      }>;
+      scores: Record<string, number>;
     }>(
-      `/api/edu-dept/competitions/${id}/dashboard?date_from=${encodeURIComponent(params.date_from)}&date_to=${encodeURIComponent(params.date_to)}`,
+      `/api/edu-dept/competitions/${id}/grading?log_date=${encodeURIComponent(logDate)}`,
     ),
+  competitionsGradingSave: (
+    id: number,
+    body: {
+      log_date: string;
+      records: Array<{ student_id: number; task_id: number; points: number }>;
+      targets?: Array<{ student_id: number; target_amount: number }>;
+    },
+  ) =>
+    request<{ ok: boolean; saved: number }>(`/api/edu-dept/competitions/${id}/grading`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   competitionsAttendanceGet: (id: number, date: string) =>
     request<{
       date: string;
@@ -1647,10 +1692,15 @@ export const api = {
     request<{ items: Array<{ id: number; name_ar: string }> }>(
       "/api/edu-dept/teacher/circles",
     ),
-  eduDeptMyStudents: (params?: { date?: string; circle_id?: number }) => {
+  eduDeptMyStudents: (params?: {
+    date?: string;
+    circle_id?: number;
+    track_id?: number;
+  }) => {
     const q = new URLSearchParams();
     if (params?.date) q.set("date", params.date);
     if (params?.circle_id != null) q.set("circle_id", String(params.circle_id));
+    if (params?.track_id != null) q.set("track_id", String(params.track_id));
     const qs = q.toString();
     return request<{
       date: string;
@@ -1768,8 +1818,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  eduDeptPlacementOptions: (q?: string) =>
-    request<{
+  eduDeptPlacementOptions: (q?: string, trackId?: number) => {
+    const params = new URLSearchParams();
+    if (q?.trim()) params.set("q", q.trim());
+    if (trackId != null && trackId > 0) params.set("track_id", String(trackId));
+    const qs = params.toString();
+    return request<{
       items: Array<{
         id: number;
         name_ar: string;
@@ -1777,9 +1831,13 @@ export const api = {
         track_name: string | null;
         teacher_name: string | null;
       }>;
-    }>(
-      `/api/edu-dept/placement-options${q?.trim() ? `?q=${encodeURIComponent(q.trim())}` : ""}`,
-    ),
+    }>(`/api/edu-dept/placement-options${qs ? `?${qs}` : ""}`);
+  },
+  eduDeptFilterScopes: () =>
+    request<{
+      circles: Array<{ id: number; name_ar: string; track_id: number | null }>;
+      tracks: Array<{ id: number; name_ar: string }>;
+    }>("/api/edu-dept/filter-scopes"),
   eduDeptTransferHistory: (q?: string) =>
     request<{
       items: Array<{

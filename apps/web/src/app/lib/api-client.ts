@@ -1867,7 +1867,12 @@ export const api = {
     }),
   eduDeptResolveTeacherRequest: (
     id: number,
-    body: { status: "approved" | "rejected"; target_circle_id?: number },
+    body: {
+      status: "approved" | "rejected";
+      target_circle_id?: number;
+      target_track_id?: number;
+      placement_type?: "circle" | "track";
+    },
   ) =>
     request<{ ok: boolean; status: string }>(
       `/api/edu-dept/teacher-requests/${id}`,
@@ -1875,8 +1880,9 @@ export const api = {
     ),
   eduDeptManualTransfer: (body: {
     student_id: number;
-    circle_id: number;
+    circle_id?: number;
     track_id?: number | null;
+    placement_type?: "circle" | "track";
     note: string;
   }) =>
     request<{ ok: boolean }>("/api/edu-dept/transfers/manual", {
@@ -1891,6 +1897,7 @@ export const api = {
     return request<{
       items: Array<{
         id: number;
+        entity_type: "circle" | "track";
         name_ar: string;
         track_id: number | null;
         track_name: string | null;

@@ -26,6 +26,7 @@ import {
   transferStudentCircle,
   transferStudentPlacement,
 } from "../lib/edu-transfer";
+import { applyStudentPlacement } from "../lib/students-admin";
 import { todayLocalIso } from "../lib/local-iso-date";
 import {
   computeQualityFromCriteria,
@@ -1036,7 +1037,12 @@ export async function handleEduDeptCoreRouter(
       return json({ error: "forbidden" }, 403);
     }
     const id = Number(reqMatch[1]);
-    let body: { status?: string; target_circle_id?: number };
+    let body: {
+      status?: string;
+      target_circle_id?: number;
+      target_track_id?: number;
+      placement_type?: "circle" | "track";
+    };
     try {
       body = await request.json();
     } catch {
@@ -1068,6 +1074,88 @@ export async function handleEduDeptCoreRouter(
     if (row.status !== "pending") return json({ error: "already_resolved" }, 409);
 
     if (body.status === "approved" && row.request_type === "transfer") {
+      if (body.placement_type === "track") {
+        const trackId = Number(body.target_track_id);
+        if (!Number.isFinite(trackId) || trackId <= 0) {
+          return json({ error: "target_track_required" }, 400);
+        }
+        if (!(await hasTable(env, "tracks"))) {
+          return json({ error: "track_not_found" }, 404);
+        }
+        const targetTrack = await env.DB.prepare(
+          `SELECT id, name_ar FROM tracks
+           WHERE id = ? AND complex_id = ? AND COALESCE(is_active, 1) = 1`,
+        )
+          .bind(trackId, auth.complexId)
+          .first<{ id: number; name_ar: string }>();
+        if (!targetTrack) return json({ error: "track_not_found" }, 404);
+        try {
+          await applyStudentPlacement(
+            env,
+            row.student_id,
+            { kind: "track", id: trackId },
+            row.notes ?? "موافقة على طلب نقل — مسار",
+          );
+          const eventId = await logTransferEvent(env, {
+            complexId: auth.complexId,
+            studentId: row.student_id,
+            studentName: row.student_name,
+            status: "success",
+            source: "teacher_request",
+            teacherRequestId: row.id,
+            oldCircleId: row.current_circle_id,
+            newCircleId: null,
+            oldTrackId: row.current_track_id,
+            newTrackId: trackId,
+            newCircleName: null,
+            newTrackName: targetTrack.name_ar,
+            reason: row.notes,
+            initiatedByUserId: row.teacher_user_id,
+            resolvedByUserId: auth.userId,
+          });
+          const hasSupervisor = await tableHasColumn(env, "tracks", "supervisor_id");
+          let supervisorUserId: number | null = null;
+          if (hasSupervisor) {
+            const sup = await env.DB.prepare(
+              `SELECT supervisor_id FROM tracks WHERE id = ?`,
+            )
+              .bind(trackId)
+              .first<{ supervisor_id: number | null }>();
+            supervisorUserId = sup?.supervisor_id ?? null;
+          }
+          const oldTeacher = await circleTeacherUserId(env, row.current_circle_id);
+          await notifyTransferRecipients(env, {
+            complexId: auth.complexId,
+            studentName: row.student_name,
+            newCircleName: targetTrack.name_ar,
+            newTrackName: targetTrack.name_ar,
+            recipientUserIds: [row.teacher_user_id, oldTeacher, supervisorUserId].filter(
+              (x): x is number => x != null,
+            ),
+            referenceId: eventId,
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error("teacher_request_track_transfer_failed", err);
+          await logTransferEvent(env, {
+            complexId: auth.complexId,
+            studentId: row.student_id,
+            studentName: row.student_name,
+            status: "failed",
+            source: "teacher_request",
+            teacherRequestId: row.id,
+            oldCircleId: row.current_circle_id,
+            oldTrackId: row.current_track_id,
+            newTrackId: trackId,
+            reason: row.notes,
+            errorCode: "transfer_failed",
+            errorMessage: msg,
+            initiatedByUserId: row.teacher_user_id,
+            resolvedByUserId: auth.userId,
+          });
+          return json({ error: "transfer_failed", message: msg }, 500);
+        }
+      } else {
       const newCircleId = Number(body.target_circle_id ?? row.target_circle_id);
       if (!Number.isFinite(newCircleId) || newCircleId <= 0) {
         return json({ error: "target_circle_required" }, 400);
@@ -1144,6 +1232,7 @@ export async function handleEduDeptCoreRouter(
         });
         return json({ error: "transfer_failed", message: msg }, 500);
       }
+      }
     }
 
     await env.DB.prepare(
@@ -1176,6 +1265,7 @@ export async function handleEduDeptCoreRouter(
       student_id?: number;
       circle_id?: number;
       track_id?: number | null;
+      placement_type?: "circle" | "track";
       note?: string;
     };
     try {
@@ -1184,10 +1274,11 @@ export async function handleEduDeptCoreRouter(
       return json({ error: "invalid_json" }, 400);
     }
     const studentId = Number(body.student_id);
-    const circleId = Number(body.circle_id);
-    if (!Number.isFinite(studentId) || !Number.isFinite(circleId)) {
-      return json({ error: "student_id_and_circle_id_required" }, 400);
+    if (!Number.isFinite(studentId)) {
+      return json({ error: "student_id_required" }, 400);
     }
+    const placementType =
+      body.placement_type === "track" ? "track" : "circle";
     const scope = await loadUserScope(env, auth.userId);
     const scopeWhere = await buildStudentsInScopeWhere(env, scope);
     const allowed = await env.DB.prepare(
@@ -1196,6 +1287,113 @@ export async function handleEduDeptCoreRouter(
       .bind(...studentsInScopeBinds(auth.complexId, scope), studentId)
       .first();
     if (!allowed) return json({ error: "student_out_of_scope" }, 403);
+
+    const note =
+      typeof body.note === "string" ? body.note.trim().slice(0, 500) : "";
+    if (!note) return json({ error: "reason_required" }, 400);
+
+    const current = await env.DB.prepare(
+      `SELECT full_name_ar, current_circle_id, current_track_id FROM students WHERE id = ?`,
+    )
+      .bind(studentId)
+      .first<{
+        full_name_ar: string;
+        current_circle_id: number | null;
+        current_track_id: number | null;
+      }>();
+
+    if (placementType === "track") {
+      const trackId = Number(body.track_id);
+      if (!Number.isFinite(trackId) || trackId <= 0) {
+        return json({ error: "track_id_required" }, 400);
+      }
+      if (!(await hasTable(env, "tracks"))) {
+        return json({ error: "track_not_found" }, 404);
+      }
+      const targetTrack = await env.DB.prepare(
+        `SELECT id, name_ar FROM tracks
+         WHERE id = ? AND complex_id = ? AND COALESCE(is_active, 1) = 1`,
+      )
+        .bind(trackId, auth.complexId)
+        .first<{ id: number; name_ar: string }>();
+      if (!targetTrack) return json({ error: "track_not_found" }, 404);
+
+      if (
+        current?.current_track_id === trackId &&
+        (current?.current_circle_id == null || current.current_circle_id === 0)
+      ) {
+        return json({ error: "already_in_track" }, 409);
+      }
+
+      try {
+        await applyStudentPlacement(
+          env,
+          studentId,
+          { kind: "track", id: trackId },
+          note,
+        );
+        const eventId = await logTransferEvent(env, {
+          complexId: auth.complexId,
+          studentId,
+          studentName: current?.full_name_ar,
+          status: "success",
+          source: "manual",
+          oldCircleId: current?.current_circle_id,
+          newCircleId: null,
+          oldTrackId: current?.current_track_id,
+          newTrackId: trackId,
+          newCircleName: null,
+          newTrackName: targetTrack.name_ar,
+          reason: note,
+          resolvedByUserId: auth.userId,
+        });
+        const hasSupervisor = await tableHasColumn(env, "tracks", "supervisor_id");
+        let supervisorUserId: number | null = null;
+        if (hasSupervisor) {
+          const sup = await env.DB.prepare(
+            `SELECT supervisor_id FROM tracks WHERE id = ?`,
+          )
+            .bind(trackId)
+            .first<{ supervisor_id: number | null }>();
+          supervisorUserId = sup?.supervisor_id ?? null;
+        }
+        const oldTeacher = await circleTeacherUserId(env, current?.current_circle_id);
+        await notifyTransferRecipients(env, {
+          complexId: auth.complexId,
+          studentName: current?.full_name_ar ?? "طالب",
+          newCircleName: targetTrack.name_ar,
+          newTrackName: targetTrack.name_ar,
+          recipientUserIds: [oldTeacher, supervisorUserId].filter(
+            (x): x is number => x != null,
+          ),
+          referenceId: eventId,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("manual_transfer_track_failed", err);
+        await logTransferEvent(env, {
+          complexId: auth.complexId,
+          studentId,
+          studentName: current?.full_name_ar,
+          status: "failed",
+          source: "manual",
+          oldCircleId: current?.current_circle_id,
+          oldTrackId: current?.current_track_id,
+          newTrackId: trackId,
+          reason: note,
+          errorCode: "transfer_failed",
+          errorMessage: msg,
+          resolvedByUserId: auth.userId,
+        });
+        return json({ error: "transfer_failed", message: msg }, 500);
+      }
+      return json({ ok: true });
+    }
+
+    const circleId = Number(body.circle_id);
+    if (!Number.isFinite(circleId)) {
+      return json({ error: "student_id_and_circle_id_required" }, 400);
+    }
 
     const circleExists = await env.DB.prepare(
       `SELECT id FROM circles WHERE id = ? AND complex_id = ? AND is_active = 1`,
@@ -1212,19 +1410,6 @@ export async function handleEduDeptCoreRouter(
       auth.complexId,
       explicitTrack,
     );
-    const note =
-      typeof body.note === "string" ? body.note.trim().slice(0, 500) : "";
-    if (!note) return json({ error: "reason_required" }, 400);
-
-    const current = await env.DB.prepare(
-      `SELECT full_name_ar, current_circle_id, current_track_id FROM students WHERE id = ?`,
-    )
-      .bind(studentId)
-      .first<{
-        full_name_ar: string;
-        current_circle_id: number | null;
-        current_track_id: number | null;
-      }>();
 
     const newCircle = await env.DB.prepare(
       `SELECT c.name_ar, t.name_ar AS track_name FROM circles c
@@ -1578,38 +1763,125 @@ export async function handleEduDeptCoreRouter(
     if (!requireRoles(auth, [...EDU_SUPERVISOR_ROLES])) {
       return json({ error: "forbidden" }, 403);
     }
-    const track = await circleTrackSelectSql(env);
-    const hasTeacher = await tableHasColumn(env, "circles", "teacher_id");
-    const teacherJoin = hasTeacher
-      ? "LEFT JOIN users u ON u.id = c.teacher_id"
-      : "";
-    const teacherCol = hasTeacher ? ", u.full_name_ar AS teacher_name" : ", NULL AS teacher_name";
+    type PlacementRow = {
+      id: number;
+      entity_type: "circle" | "track";
+      name_ar: string;
+      track_id: number | null;
+      track_name: string | null;
+      teacher_name: string | null;
+    };
     const q = url.searchParams.get("q")?.trim() ?? "";
     const trackIdParam = url.searchParams.get("track_id");
     const trackFilter =
       trackIdParam != null && trackIdParam !== "" && Number.isFinite(Number(trackIdParam))
         ? Number(trackIdParam)
         : null;
-    let sql = `
-      SELECT c.id, c.name_ar, ${track.trackIdCol}, ${track.trackNameCol}${teacherCol}
-      FROM circles c
-      ${track.joinSql}
-      ${teacherJoin}
-      WHERE c.complex_id = ? AND COALESCE(c.is_active, 1) = 1`;
-    const binds: (string | number)[] = [auth.complexId];
-    if (trackFilter != null && trackFilter > 0) {
-      if (await tableHasColumn(env, "circles", "track_id")) {
-        sql += ` AND c.track_id = ?`;
-        binds.push(trackFilter);
+    const items: PlacementRow[] = [];
+
+    if (await hasTable(env, "circles")) {
+      const track = await circleTrackSelectSql(env);
+      const hasTeacher = await tableHasColumn(env, "circles", "teacher_id");
+      const teacherJoin = hasTeacher
+        ? "LEFT JOIN users u ON u.id = c.teacher_id"
+        : "";
+      const teacherCol = hasTeacher
+        ? ", u.full_name_ar AS teacher_name"
+        : ", NULL AS teacher_name";
+      let sql = `
+        SELECT c.id, c.name_ar, ${track.trackIdCol}, ${track.trackNameCol}${teacherCol}
+        FROM circles c
+        ${track.joinSql}
+        ${teacherJoin}
+        WHERE c.complex_id = ? AND COALESCE(c.is_active, 1) = 1`;
+      const binds: (string | number)[] = [auth.complexId];
+      if (trackFilter != null && trackFilter > 0) {
+        if (await tableHasColumn(env, "circles", "track_id")) {
+          sql += ` AND c.track_id = ?`;
+          binds.push(trackFilter);
+        }
+      }
+      if (q) {
+        sql += ` AND (c.name_ar LIKE ? OR ${track.trackNameCol} LIKE ?)`;
+        binds.push(`%${q}%`, `%${q}%`);
+        if (hasTeacher) {
+          sql += ` OR u.full_name_ar LIKE ?`;
+          binds.push(`%${q}%`);
+        }
+      }
+      sql += ` ORDER BY c.name_ar LIMIT 300`;
+      const circles = await env.DB.prepare(sql)
+        .bind(...binds)
+        .all<{
+          id: number;
+          name_ar: string;
+          track_id?: number | null;
+          track_name?: string | null;
+          teacher_name?: string | null;
+        }>();
+      for (const c of circles.results ?? []) {
+        items.push({
+          id: c.id,
+          entity_type: "circle",
+          name_ar: c.name_ar,
+          track_id: c.track_id ?? null,
+          track_name: c.track_name ?? null,
+          teacher_name: c.teacher_name ?? null,
+        });
       }
     }
-    if (q) {
-      sql += ` AND (c.name_ar LIKE ? OR ${track.trackNameCol} LIKE ?)`;
-      binds.push(`%${q}%`, `%${q}%`);
+
+    if (await hasTable(env, "tracks")) {
+      const hasSupervisor = await tableHasColumn(env, "tracks", "supervisor_id");
+      const supervisorJoin = hasSupervisor
+        ? "LEFT JOIN users u ON u.id = t.supervisor_id"
+        : "";
+      const supervisorCol = hasSupervisor
+        ? ", u.full_name_ar AS teacher_name"
+        : ", NULL AS teacher_name";
+      let trackSql = `
+        SELECT t.id, t.name_ar${supervisorCol}
+        FROM tracks t
+        ${supervisorJoin}
+        WHERE t.complex_id = ? AND COALESCE(t.is_active, 1) = 1`;
+      const trackBinds: (string | number)[] = [auth.complexId];
+      if (q) {
+        trackSql += ` AND (t.name_ar LIKE ?`;
+        trackBinds.push(`%${q}%`);
+        if (hasSupervisor) {
+          trackSql += ` OR u.full_name_ar LIKE ?`;
+          trackBinds.push(`%${q}%`);
+        }
+        trackSql += `)`;
+      }
+      trackSql += ` ORDER BY t.name_ar LIMIT 200`;
+      const tracks = await env.DB.prepare(trackSql)
+        .bind(...trackBinds)
+        .all<{
+          id: number;
+          name_ar: string;
+          teacher_name?: string | null;
+        }>();
+      for (const t of tracks.results ?? []) {
+        items.push({
+          id: t.id,
+          entity_type: "track",
+          name_ar: t.name_ar,
+          track_id: t.id,
+          track_name: null,
+          teacher_name: t.teacher_name ?? null,
+        });
+      }
     }
-    sql += ` ORDER BY c.name_ar LIMIT 300`;
-    const items = await env.DB.prepare(sql).bind(...binds).all();
-    return json({ items: items.results ?? [] });
+
+    items.sort((a, b) => {
+      if (a.entity_type !== b.entity_type) {
+        return a.entity_type === "circle" ? -1 : 1;
+      }
+      return a.name_ar.localeCompare(b.name_ar, "ar");
+    });
+
+    return json({ items });
   }
 
   if (path === "/api/edu-dept/transfers/history" && request.method === "GET") {

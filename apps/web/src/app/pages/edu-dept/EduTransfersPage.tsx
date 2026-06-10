@@ -52,11 +52,56 @@ type TransferReq = {
 
 type PlacementOpt = {
   id: number;
+  entity_type: "circle" | "track";
   name_ar: string;
   track_id: number | null;
   track_name: string | null;
   teacher_name: string | null;
 };
+
+function placementKey(p: PlacementOpt) {
+  return `${p.entity_type}:${p.id}`;
+}
+
+function isSamePlacement(a: PlacementOpt | null, b: PlacementOpt) {
+  return a?.entity_type === b.entity_type && a?.id === b.id;
+}
+
+function PlacementDestinationRow({
+  placement,
+  selected,
+  onSelect,
+}: {
+  placement: PlacementOpt;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const isTrack = placement.entity_type === "track";
+  return (
+    <button
+      key={placementKey(placement)}
+      type="button"
+      onClick={onSelect}
+      className={`w-full text-right px-3 py-2.5 text-sm hover:bg-muted transition-colors ${
+        selected ? "bg-muted ring-1 ring-primary/30" : ""
+      }`}
+      style={tajawal}
+    >
+      <Badge variant={isTrack ? "default" : "outline"} className="ml-2 rounded-lg text-xs">
+        {isTrack ? "مسار" : "حلقة"}
+      </Badge>
+      <span className="font-semibold">{placement.name_ar}</span>
+      {!isTrack && placement.track_name && (
+        <span className="text-muted-foreground"> · {placement.track_name}</span>
+      )}
+      {placement.teacher_name && (
+        <Badge variant="secondary" className="mr-2 rounded-lg text-xs">
+          {placement.teacher_name}
+        </Badge>
+      )}
+    </button>
+  );
+}
 
 type HistoryRow = {
   id: number;
@@ -209,7 +254,14 @@ export function EduTransfersPage() {
 
   function openApproveDialog(req: TransferReq) {
     if (req.target_circle_id != null) {
-      void resolveRequest(req.id, "approved", req.target_circle_id);
+      void resolveRequest(req.id, "approved", {
+        id: req.target_circle_id,
+        entity_type: "circle",
+        name_ar: req.target_circle_name ?? "—",
+        track_id: null,
+        track_name: null,
+        teacher_name: null,
+      });
       return;
     }
     setApproveReqId(req.id);
@@ -221,14 +273,21 @@ export function EduTransfersPage() {
   async function resolveRequest(
     id: number,
     status: "approved" | "rejected",
-    targetCircleId?: number,
+    target?: PlacementOpt,
   ) {
     setBusyId(id);
     setError(null);
     try {
       await api.eduDeptResolveTeacherRequest(id, {
         status,
-        target_circle_id: targetCircleId,
+        ...(status === "approved" && target
+          ? target.entity_type === "track"
+            ? {
+                placement_type: "track" as const,
+                target_track_id: target.id,
+              }
+            : { target_circle_id: target.id, placement_type: "circle" as const }
+          : {}),
       });
       setSuccess(status === "approved" ? "تم اعتماد النقل." : "تم الرفض.");
       await loadPending();
@@ -252,8 +311,13 @@ export function EduTransfersPage() {
     try {
       await api.eduDeptManualTransfer({
         student_id: studentId,
-        circle_id: selectedPlacement.id,
-        track_id: selectedPlacement.track_id,
+        placement_type: selectedPlacement.entity_type,
+        ...(selectedPlacement.entity_type === "circle"
+          ? {
+              circle_id: selectedPlacement.id,
+              track_id: selectedPlacement.track_id,
+            }
+          : { track_id: selectedPlacement.id }),
         note: reason.trim() || "نقل إداري",
       });
       setSuccess("تم حفظ النقل بنجاح.");
@@ -443,25 +507,12 @@ export function EduTransfersPage() {
                   />
                   <div className="max-h-52 overflow-y-auto border border-border rounded-xl divide-y">
                     {filteredPlacements.map((p) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => setSelectedPlacement(p)}
-                        className={`w-full text-right px-3 py-2.5 text-sm hover:bg-muted transition-colors ${
-                          selectedPlacement?.id === p.id ? "bg-muted ring-1 ring-primary/30" : ""
-                        }`}
-                        style={tajawal}
-                      >
-                        <span className="font-semibold">{p.name_ar}</span>
-                        {p.track_name && (
-                          <span className="text-muted-foreground"> · {p.track_name}</span>
-                        )}
-                        {p.teacher_name && (
-                          <Badge variant="secondary" className="mr-2 rounded-lg text-xs">
-                            {p.teacher_name}
-                          </Badge>
-                        )}
-                      </button>
+                      <PlacementDestinationRow
+                        key={placementKey(p)}
+                        placement={p}
+                        selected={isSamePlacement(selectedPlacement, p)}
+                        onSelect={() => setSelectedPlacement(p)}
+                      />
                     ))}
                     {filteredPlacements.length === 0 && (
                       <p className="p-3 text-sm text-muted-foreground" style={tajawal}>
@@ -469,9 +520,12 @@ export function EduTransfersPage() {
                       </p>
                     )}
                   </div>
-                  {selectedPlacement?.teacher_name && (
+                  {selectedPlacement && (
                     <Badge variant="secondary" className="rounded-lg" style={tajawal}>
-                      المعلم المستهدف: {selectedPlacement.teacher_name}
+                      {selectedPlacement.entity_type === "track" ? "المشرف المستهدف" : "المعلم المستهدف"}
+                      {selectedPlacement.teacher_name
+                        ? `: ${selectedPlacement.teacher_name}`
+                        : " — غير محدد"}
                     </Badge>
                   )}
                 </div>
@@ -538,25 +592,12 @@ export function EduTransfersPage() {
             />
             <div className="max-h-48 overflow-y-auto border border-border rounded-xl divide-y">
               {approvePlacements.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => setApprovePlacement(p)}
-                  className={`w-full text-right px-3 py-2 text-sm hover:bg-muted ${
-                    approvePlacement?.id === p.id ? "bg-muted" : ""
-                  }`}
-                  style={tajawal}
-                >
-                  <span className="font-semibold">{p.name_ar}</span>
-                  {p.track_name && (
-                    <span className="text-muted-foreground"> · {p.track_name}</span>
-                  )}
-                  {p.teacher_name && (
-                    <Badge variant="secondary" className="mr-2 rounded-lg text-xs">
-                      {p.teacher_name}
-                    </Badge>
-                  )}
-                </button>
+                <PlacementDestinationRow
+                  key={placementKey(p)}
+                  placement={p}
+                  selected={isSamePlacement(approvePlacement, p)}
+                  onSelect={() => setApprovePlacement(p)}
+                />
               ))}
             </div>
             <Button
@@ -565,7 +606,7 @@ export function EduTransfersPage() {
               disabled={approveReqId == null || approvePlacement == null || busyId != null}
               onClick={() => {
                 if (approveReqId == null || !approvePlacement) return;
-                void resolveRequest(approveReqId, "approved", approvePlacement.id).then(() => {
+                void resolveRequest(approveReqId, "approved", approvePlacement).then(() => {
                   setApproveReqId(null);
                   setApprovePlacement(null);
                 });

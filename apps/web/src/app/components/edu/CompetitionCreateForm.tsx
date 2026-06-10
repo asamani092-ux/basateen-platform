@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Copy, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
@@ -38,12 +39,19 @@ const emptyScope = (): TargetScope => ({
   stage_ids: [],
 });
 
-function scopeHasFilter(scope: TargetScope): boolean {
-  return (
-    scope.circle_ids.length > 0 ||
-    scope.track_ids.length > 0 ||
-    scope.stage_ids.length > 0
-  );
+/** يطبّع المعرفات إلى أرقام — مصفوفة فارغة = «الكل» */
+function normalizeScopeForApi(scope: TargetScope): TargetScope {
+  const ids = (arr: number[]) =>
+    arr.map((v) => Number(v)).filter((n) => Number.isFinite(n) && n > 0);
+  return {
+    circle_ids: ids(scope.circle_ids),
+    track_ids: ids(scope.track_ids),
+    stage_ids: ids(scope.stage_ids),
+  };
+}
+
+function clearScopeKey(key: keyof TargetScope) {
+  return (prev: TargetScope): TargetScope => ({ ...prev, [key]: [] });
 }
 
 function mapPreviewToTargets(
@@ -71,6 +79,7 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
   const [circles, setCircles] = useState<CircleOption[]>([]);
   const [tracks, setTracks] = useState<TrackOption[]>([]);
   const [targets, setTargets] = useState<StudentTargetRow[]>([]);
+  const [loadingOptions, setLoadingOptions] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,36 +87,51 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
   categoryRef.current = category;
 
   useEffect(() => {
-    if (!canUseApi()) {
-      setCircles([
-        { id: 1, name_ar: "حلقة النور" },
-        { id: 2, name_ar: "حلقة الإتقان" },
-      ]);
-      setTracks([{ id: 1, name_ar: "مسار الحفظ" }]);
-      return;
+    async function loadFilterOptions() {
+      if (!canUseApi()) {
+        setCircles([
+          { id: 1, name_ar: "حلقة النور" },
+          { id: 2, name_ar: "حلقة الإتقان" },
+        ]);
+        setTracks([{ id: 1, name_ar: "مسار الحفظ" }]);
+        return;
+      }
+      setLoadingOptions(true);
+      setError(null);
+      try {
+        const res = await api.competitionsFilterOptions();
+        const circleRows = Array.isArray(res.circles) ? res.circles : [];
+        const trackRows = Array.isArray(res.tracks) ? res.tracks : [];
+        setCircles(
+          circleRows.map((c) => ({
+            id: Number(c.id),
+            name_ar: String(c.name_ar ?? ""),
+          })),
+        );
+        setTracks(
+          trackRows.map((t) => ({
+            id: Number(t.id),
+            name_ar: String(t.name_ar ?? ""),
+          })),
+        );
+        if (circleRows.length === 0 && trackRows.length === 0) {
+          toast.warning("لا توجد حلقات أو مسارات مسجّلة في المجمع");
+        }
+      } catch (e) {
+        const msg =
+          e instanceof Error ? e.message : "فشل تحميل الحلقات والمسارات";
+        setError(`خطأ في البيانات الأساسية: ${msg}`);
+        toast.error(`تعذّر جلب الحلقات والمسارات — ${msg}`);
+        setCircles([]);
+        setTracks([]);
+      } finally {
+        setLoadingOptions(false);
+      }
     }
-    api.eduTargetOptions().then((res) => {
-      setCircles(
-        (res.circles as Array<Record<string, unknown>>).map((c) => ({
-          id: Number(c.id),
-          name_ar: String(c.name_ar),
-        })),
-      );
-      setTracks(
-        (res.tracks as Array<Record<string, unknown>>).map((t) => ({
-          id: Number(t.id),
-          name_ar: String(t.name_ar),
-        })),
-      );
-    });
+    void loadFilterOptions();
   }, []);
 
   const fetchPreview = useCallback(async (scope: TargetScope) => {
-    if (!scopeHasFilter(scope)) {
-      setTargets([]);
-      return;
-    }
-
     if (!canUseApi()) {
       const mock: PreviewStudent[] = [
         {
@@ -127,11 +151,21 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
     setLoadingPreview(true);
     setError(null);
     try {
-      const res = await api.competitionsPreviewTargets({ target_scope: scope });
-      const items = res.items as PreviewStudent[];
+      const targetScope = normalizeScopeForApi(scope);
+      const res = await api.competitionsPreviewTargets({ target_scope: targetScope });
+      const rawItems = res?.items;
+      const items = Array.isArray(rawItems) ? (rawItems as PreviewStudent[]) : [];
+      if (res?.error) {
+        toast.error(`خطأ في جلب الطلاب: ${res.error}`);
+      }
       setTargets(mapPreviewToTargets(items, categoryRef.current));
+      if (items.length === 0) {
+        toast.info("لا يوجد طلاب مطابقون للفلتر المحدد");
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل تحميل المستهدفين");
+      const msg = e instanceof Error ? e.message : "فشل تحميل المستهدفين";
+      setError(msg);
+      toast.error(`تعذّر جلب الطلاب — ${msg}`);
       setTargets([]);
     } finally {
       setLoadingPreview(false);
@@ -162,10 +196,12 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
   }, [category]);
 
   function toggleScopeId(key: keyof TargetScope, id: number) {
+    const numId = Number(id);
+    if (!Number.isFinite(numId) || numId <= 0) return;
     setTargetScope((prev) => {
-      const set = new Set(prev[key]);
-      if (set.has(id)) set.delete(id);
-      else set.add(id);
+      const set = new Set(prev[key].map(Number));
+      if (set.has(numId)) set.delete(numId);
+      else set.add(numId);
       return { ...prev, [key]: [...set] };
     });
   }
@@ -208,7 +244,7 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
         end_date: endDate,
         category,
         custom_category: category === "other" ? customCategory.trim() : null,
-        target_scope: targetScope,
+        target_scope: normalizeScopeForApi(targetScope),
         targets: targets.map((t) => ({
           student_id: t.student_id,
           current_memorization: t.current_memorization,
@@ -305,11 +341,36 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
           القسم الثاني — الاستهداف الذكي
         </h3>
 
+        {loadingOptions && (
+          <p className="text-sm text-muted-foreground flex items-center gap-2" style={tajawal}>
+            <Loader2 className="w-4 h-4 animate-spin" />
+            جاري تحميل الحلقات والمسارات…
+          </p>
+        )}
+
+        {!loadingOptions && circles.length === 0 && tracks.length === 0 && (
+          <p className="text-sm text-amber-700" style={tajawal}>
+            لم تُحمّل الحلقات أو المسارات. تحقق من الاتصال أو صلاحيات الحساب.
+          </p>
+        )}
+
         <div>
           <p className="text-xs text-muted-foreground mb-2" style={tajawal}>
             حلقات
           </p>
           <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setTargetScope(clearScopeKey("circle_ids"))}
+              className={`px-3 py-1 rounded-full text-sm border ${
+                targetScope.circle_ids.length === 0
+                  ? "bg-primary text-primary-foreground"
+                  : "border-border"
+              }`}
+              style={tajawal}
+            >
+              الكل
+            </button>
             {circles.map((c) => (
               <button
                 key={c.id}
@@ -333,6 +394,18 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
             مسارات
           </p>
           <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setTargetScope(clearScopeKey("track_ids"))}
+              className={`px-3 py-1 rounded-full text-sm border ${
+                targetScope.track_ids.length === 0
+                  ? "bg-primary text-primary-foreground"
+                  : "border-border"
+              }`}
+              style={tajawal}
+            >
+              الكل
+            </button>
             {tracks.map((t) => (
               <button
                 key={t.id}
@@ -356,6 +429,18 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
             المرحلة الدراسية (بدون تلقين)
           </p>
           <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setTargetScope(clearScopeKey("stage_ids"))}
+              className={`px-3 py-1 rounded-full text-sm border ${
+                targetScope.stage_ids.length === 0
+                  ? "bg-primary text-primary-foreground"
+                  : "border-border"
+              }`}
+              style={tajawal}
+            >
+              الكل
+            </button>
             {COMPETITION_STAGE_OPTIONS.map((s) => (
               <button
                 key={s.id}
@@ -439,9 +524,9 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
           </div>
         )}
 
-        {!loadingPreview && scopeHasFilter(targetScope) && targets.length === 0 && (
+        {!loadingPreview && targets.length === 0 && (
           <p className="text-sm text-muted-foreground" style={tajawal}>
-            لا يوجد طلاب مطابقون للفلتر المحدد.
+            لا يوجد طلاب مطابقون للفلتر المحدد. جرّب «الكل» أو فلتراً أوسع.
           </p>
         )}
       </section>

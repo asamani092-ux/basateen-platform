@@ -235,6 +235,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+const COMPETITION_NO_CACHE: Record<string, string> = {
+  "Cache-Control": "no-cache, no-store, must-revalidate",
+  Pragma: "no-cache",
+};
+
+async function competitionRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  return request<T>(path, {
+    ...init,
+    headers: {
+      ...COMPETITION_NO_CACHE,
+      ...(init?.headers as Record<string, string> | undefined),
+    },
+  });
+}
+
 export const api = {
   health: () => request<{ ok: boolean; service?: string }>("/api/health"),
   tvSummary: () => request<TvSummary>("/api/tv/summary"),
@@ -456,8 +471,12 @@ export const api = {
   liveLogSession: (token: string, pin: string) =>
     request<{
       kind: "yom_himma" | "competition";
-      session: Record<string, unknown>;
+      session: Record<string, unknown> & {
+        category?: string;
+        custom_category?: string;
+      };
       students: Array<Record<string, unknown>>;
+      tasks?: Array<Record<string, unknown>>;
       audit?: Array<Record<string, unknown>>;
       logs?: Array<Record<string, unknown>>;
     }>(`/api/live-log/${encodeURIComponent(token)}`, {
@@ -477,58 +496,80 @@ export const api = {
       },
     ),
   competitionsList: () =>
-    request<{ items: Array<Record<string, unknown>> }>(
+    competitionRequest<{ items: Array<Record<string, unknown>> }>(
       "/api/edu-dept/competitions",
     ),
-  competitionsPreviewTargets: (body: { target_scope: Record<string, unknown> }) =>
-    request<{ items: Array<Record<string, unknown>> }>(
+  competitionsFilterOptions: () =>
+    competitionRequest<{
+      circles: Array<{ id: number; name_ar: string; stage_id?: number | null }>;
+      tracks: Array<{ id: number; name_ar: string }>;
+    }>("/api/edu-dept/competitions/filter-options"),
+  competitionsPreviewTargets: (body: {
+    target_scope: Record<string, unknown>;
+    competition_id?: number;
+  }) =>
+    competitionRequest<{ items: Array<Record<string, unknown>>; error?: string }>(
       "/api/edu-dept/competitions/preview-targets",
       { method: "POST", body: JSON.stringify(body) },
     ),
   competitionsCreate: (body: Record<string, unknown>) =>
-    request<{ ok: boolean; id: number; tv_launch_key: string }>(
+    competitionRequest<{ ok: boolean; id: number; tv_launch_key: string }>(
       "/api/edu-dept/competitions",
       { method: "POST", body: JSON.stringify(body) },
     ),
   competitionsDetail: (id: number) =>
-    request<{
+    competitionRequest<{
       competition: Record<string, unknown>;
       targets: Array<Record<string, unknown>>;
       tasks: Array<Record<string, unknown>>;
       logs: Array<Record<string, unknown>>;
     }>(`/api/edu-dept/competitions/${id}`),
   competitionsTasksList: (id: number) =>
-    request<{ items: Array<Record<string, unknown>> }>(
+    competitionRequest<{ items: Array<Record<string, unknown>> }>(
       `/api/edu-dept/competitions/${id}/tasks`,
     ),
   competitionsAddTask: (
     id: number,
     body: { name_ar: string; weight: number; type: "addition" | "deduction" },
   ) =>
-    request<{ ok: boolean; id: number }>(`/api/edu-dept/competitions/${id}/tasks`, {
+    competitionRequest<{ ok: boolean; id: number }>(`/api/edu-dept/competitions/${id}/tasks`, {
       method: "POST",
       body: JSON.stringify(body),
     }),
   competitionsDeleteTask: (competitionId: number, taskId: number) =>
-    request<{ ok: boolean }>(
+    competitionRequest<{ ok: boolean }>(
       `/api/edu-dept/competitions/${competitionId}/tasks/${taskId}`,
       { method: "DELETE" },
     ),
   competitionsSyncMemorization: (id: number) =>
-    request<{
+    competitionRequest<{
       ok: boolean;
       updated_count: number;
       updated: Array<{ student_id: number; new_memorization: number }>;
     }>(`/api/edu-dept/competitions/${id}/sync-memorization`, { method: "POST" }),
   competitionsDelete: (id: number) =>
-    request<{ ok: boolean }>(`/api/edu-dept/competitions/${id}`, {
+    competitionRequest<{ ok: boolean }>(`/api/edu-dept/competitions/${id}`, {
       method: "DELETE",
     }),
   competitionsPatch: (id: number, body: Record<string, unknown>) =>
-    request<{ ok: boolean }>(`/api/edu-dept/competitions/${id}`, {
+    competitionRequest<{ ok: boolean }>(`/api/edu-dept/competitions/${id}`, {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
+  competitionsUpdateTarget: (
+    competitionId: number,
+    studentId: number,
+    target_amount: number,
+  ) =>
+    competitionRequest<{ ok: boolean }>(
+      `/api/edu-dept/competitions/${competitionId}/targets/${studentId}`,
+      { method: "PATCH", body: JSON.stringify({ target_amount }) },
+    ),
+  competitionsDeleteTarget: (competitionId: number, studentId: number) =>
+    competitionRequest<{ ok: boolean }>(
+      `/api/edu-dept/competitions/${competitionId}/targets/${studentId}`,
+      { method: "DELETE" },
+    ),
   competitionsDashboard: (
     id: number,
     params: { date_from: string; date_to: string; leaderboard_mode?: "top" | "all" },
@@ -540,7 +581,7 @@ export const api = {
     if (params.leaderboard_mode) {
       q.set("leaderboard_mode", params.leaderboard_mode);
     }
-    return request<{
+    return competitionRequest<{
       date_from: string;
       date_to: string;
       kpis: {
@@ -560,7 +601,7 @@ export const api = {
     }>(`/api/edu-dept/competitions/${id}/dashboard?${q.toString()}`);
   },
   competitionsGradingGet: (id: number, logDate: string) =>
-    request<{
+    competitionRequest<{
       log_date: string;
       tasks: Array<{
         id: number;
@@ -588,14 +629,22 @@ export const api = {
       targets?: Array<{ student_id: number; target_amount: number }>;
     },
   ) =>
-    request<{ ok: boolean; saved: number }>(`/api/edu-dept/competitions/${id}/grading`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    competitionRequest<{ ok: boolean; saved: number }>(
+      `/api/edu-dept/competitions/${id}/grading`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    ),
   competitionsAttendanceGet: (id: number, date: string) =>
     request<{
       date: string;
-      items: Array<{ student_id: number; full_name_ar: string; present: boolean }>;
+      items: Array<{
+        student_id: number;
+        full_name_ar: string;
+        present: boolean;
+        status?: "present" | "excused" | "absent";
+      }>;
       present_count: number;
       total: number;
     }>(
@@ -603,16 +652,31 @@ export const api = {
     ),
   competitionsAttendanceSave: (
     id: number,
-    body: { date: string; records: Array<{ student_id: number; present: boolean }> },
+    body: {
+      date: string;
+      records: Array<{
+        student_id: number;
+        present?: boolean;
+        status?: "present" | "excused" | "absent";
+      }>;
+    },
   ) =>
     request<{ ok: boolean }>(`/api/edu-dept/competitions/${id}/attendance`, {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  competitionsLiveLogToken: (id: number) =>
-    request<{ ok: boolean; live_log_token: string; path: string }>(
+  competitionsLiveLogToken: (id: number, access_pin?: string) =>
+    request<{ ok: boolean; live_log_token: string; access_pin?: string; path: string }>(
       `/api/edu-dept/competitions/${id}/live-log-token`,
-      { method: "POST", body: "{}" },
+      {
+        method: "POST",
+        body: JSON.stringify(access_pin ? { access_pin } : {}),
+      },
+    ),
+  competitionsDeleteLiveLogToken: (id: number) =>
+    request<{ ok: boolean; deleted: boolean }>(
+      `/api/edu-dept/competitions/${id}/live-log-token`,
+      { method: "DELETE" },
     ),
   competitionsActivate: (id: number) =>
     request<{ ok: boolean }>(

@@ -13,7 +13,7 @@
 
 ## الأسباب الأشهر
 
-### 1) أسرار GitHub غير مضافة أو التوكن منتهي (الأكثر شيوعاً)
+### 1) أسرار GitHub غير مضافة أو التوكن غير صالح (الأكثر شيوعاً)
 
 في: https://github.com/asamani092-ux/basateen-platform/settings/secrets/actions
 
@@ -31,7 +31,16 @@
 | Account → **D1** | **Edit** | `d1 execute --remote` |
 | Account → Account Settings | **Read** | `wrangler whoami` |
 
+**قراءة أخطاء wrangler:**
+
+| الخطأ | المعنى |
+|-------|--------|
+| `Invalid access token [9109]` | التوken **غير صالح** — لصق خاطئ، منتهي، أو ملغى |
+| `Authentication error [10000]` على `/workers/services/...` | التوken صالح لـ whoami لكن **يفتقر Workers Scripts → Edit** |
+
 > إذا ظهر `whoami` بنجاح لكن `deploy` يفشل بـ `[10000]` — التوكن يفتقر **Workers Scripts → Edit** أو مربوط بحساب آخر.
+
+> **مهم:** تحديث Secret في GitHub **لا يعيد تشغيل** الـ workflow تلقائياً. بعد التحديث: Actions → **Deploy API (production)** → **Run workflow**.
 
 ### إنشاء توكن جديد (موصى به)
 

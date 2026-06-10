@@ -1370,6 +1370,19 @@ export function resolveDevPreviewMock<T>(
   }
 
   if (
+    p === "/api/edu-dept/competitions/filter-options" &&
+    m === "GET"
+  ) {
+    return {
+      circles: [
+        { id: 1, name_ar: "حلقة النور", stage_id: 2 },
+        { id: 2, name_ar: "حلقة الإتقان", stage_id: 3 },
+      ],
+      tracks: [{ id: 1, name_ar: "مسار الحفظ" }],
+    } as T;
+  }
+
+  if (
     (p === "/api/edu-supervisor/competitions" ||
       p === "/api/edu-dept/competitions" ||
       p === "/api/competitions") &&

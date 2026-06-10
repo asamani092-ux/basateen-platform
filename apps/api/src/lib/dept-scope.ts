@@ -1,5 +1,5 @@
 import type { Env } from "../types";
-import { hasTable, tableHasColumn } from "./db-schema";
+import { hasTable, tableHasColumn, studentIsActiveSql } from "./db-schema";
 
 export const STAGE_LABELS: Record<number, string> = {
   1: "تلقين",
@@ -98,13 +98,14 @@ export async function buildStudentsInScopeWhere(
   env: Env,
   scope: ScopeMode,
 ): Promise<string> {
+  const activeSql = await studentIsActiveSql(env, "s");
   if (scope.type === "global") {
-    return "s.complex_id = ? AND s.is_active = 1";
+    return `s.complex_id = ? AND ${activeSql}`;
   }
   const ph = scope.stageIds.map(() => "?").join(",");
   const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
   if (hasCurrentCircle) {
-    return `s.complex_id = ? AND s.is_active = 1 AND (
+    return `s.complex_id = ? AND ${activeSql} AND (
       s.stage_id IN (${ph})
       OR EXISTS (
         SELECT 1 FROM circles c
@@ -112,7 +113,10 @@ export async function buildStudentsInScopeWhere(
       )
     )`;
   }
-  return studentsInScopeWhere(scope);
+  return studentsInScopeWhere(scope).replace(
+    "s.is_active = 1",
+    activeSql,
+  );
 }
 
 export function studentsInScopeBinds(

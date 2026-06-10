@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
+import { toast } from "sonner";
 import {
   BarChart3,
   ClipboardCheck,
   Copy,
   Link2,
   ListChecks,
+  Loader2,
   Minus,
   Pencil,
   Plus,
+  Printer,
   RefreshCw,
   Search,
   Trash2,
@@ -25,10 +28,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
+import { AttendanceStatusButtons } from "../../components/attendance/AttendanceStatusButtons";
 import { EduKpiCard } from "../../components/edu/EduKpiCard";
 import { CompetitionGradingGrid } from "../../components/edu/CompetitionGradingGrid";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
+import { normalizeAttendanceStatus } from "../../lib/attendance-status";
 import { categoryLabel } from "../../lib/competition-engine";
 import { matchesArabicName } from "../../lib/attendance-search";
 import { defaultDateRange } from "../../lib/local-iso-date";
@@ -44,6 +49,31 @@ type TaskRow = {
   type: "addition" | "deduction";
 };
 
+type TargetRow = {
+  student_id: number;
+  full_name_ar: string;
+  current_memorization: number | string;
+  target_amount: number | string;
+  achieved_amount?: number | string;
+};
+
+type AttendanceItem = {
+  student_id: number;
+  full_name_ar: string;
+  status: "present" | "excused" | "absent";
+};
+
+const ATTENDANCE_STORAGE_KEY = (compId: number, date: string) =>
+  `basateen-competition-attendance-${compId}-${date}`;
+
+function printCompetitionDashboard() {
+  document.body.classList.add("printing-competition-dashboard");
+  window.print();
+  window.setTimeout(() => {
+    document.body.classList.remove("printing-competition-dashboard");
+  }, 500);
+}
+
 export function CompetitionDetailPage() {
   const { competitionId } = useParams<{ competitionId: string }>();
   const id = Number(competitionId);
@@ -52,12 +82,19 @@ export function CompetitionDetailPage() {
   const [dashboard, setDashboard] = useState<Record<string, unknown> | null>(null);
   const [attendance, setAttendance] = useState<{
     date: string;
-    items: Array<{ student_id: number; full_name_ar: string; present: boolean }>;
+    items: AttendanceItem[];
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [liveLink, setLiveLink] = useState<string | null>(null);
+  const [accessPin, setAccessPin] = useState("");
   const [tasks, setTasks] = useState<TaskRow[]>([]);
+  const [targets, setTargets] = useState<TargetRow[]>([]);
+  const [editingTargetId, setEditingTargetId] = useState<number | null>(null);
+  const [editTargetAmount, setEditTargetAmount] = useState("");
   const [newTaskName, setNewTaskName] = useState("");
   const [newTaskWeight, setNewTaskWeight] = useState(1);
   const [newTaskType, setNewTaskType] = useState<"addition" | "deduction">("addition");
@@ -72,6 +109,8 @@ export function CompetitionDetailPage() {
 
   const load = useCallback(async () => {
     if (!canUseApi() || !id) return;
+    setLoading(true);
+    setError(null);
     try {
       const res = await api.competitionsDetail(id);
       setData(res);
@@ -85,6 +124,15 @@ export function CompetitionDetailPage() {
             | "deduction",
         })),
       );
+      setTargets(
+        (res.targets as Array<Record<string, unknown>>).map((t) => ({
+          student_id: Number(t.student_id),
+          full_name_ar: String(t.full_name_ar ?? ""),
+          current_memorization: t.current_memorization ?? 0,
+          target_amount: t.target_amount ?? 0,
+          achieved_amount: t.achieved_amount ?? 0,
+        })),
+      );
       const comp = res.competition as Record<string, unknown>;
       setDashRange({
         start: String(comp.start_date),
@@ -95,11 +143,15 @@ export function CompetitionDetailPage() {
       setEditEndDate(String(comp.end_date ?? ""));
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل التحميل");
+    } finally {
+      setLoading(false);
     }
   }, [id]);
 
   const loadDashboard = useCallback(async () => {
     if (!canUseApi() || !id) return;
+    setDashboardLoading(true);
+    setError(null);
     try {
       const res = await api.competitionsDashboard(id, {
         date_from: dashRange.start,
@@ -109,23 +161,47 @@ export function CompetitionDetailPage() {
       setDashboard(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل تحميل المؤشرات");
+    } finally {
+      setDashboardLoading(false);
     }
   }, [id, dashRange.start, dashRange.end, leaderboardMode]);
 
   const loadAttendance = useCallback(async () => {
     if (!canUseApi() || !id) return;
+    setAttendanceLoading(true);
+    setError(null);
     try {
       const res = await api.competitionsAttendanceGet(id, attDate);
-      setAttendance({
-        date: res.date,
-        items: res.items as Array<{
-          student_id: number;
-          full_name_ar: string;
-          present: boolean;
-        }>,
-      });
+      const items: AttendanceItem[] = (
+        res.items as Array<Record<string, unknown>>
+      ).map((i) => ({
+        student_id: Number(i.student_id),
+        full_name_ar: String(i.full_name_ar),
+        status: normalizeAttendanceStatus(
+          String(i.status ?? (i.present ? "present" : "absent")),
+        ) as AttendanceItem["status"],
+      }));
+
+      const storageKey = ATTENDANCE_STORAGE_KEY(id, attDate);
+      try {
+        const cached = localStorage.getItem(storageKey);
+        if (cached) {
+          const parsed = JSON.parse(cached) as AttendanceItem[];
+          const map = new Map(parsed.map((p) => [p.student_id, p.status]));
+          for (const item of items) {
+            const st = map.get(item.student_id);
+            if (st) item.status = st;
+          }
+        }
+      } catch {
+        /* ignore corrupt cache */
+      }
+
+      setAttendance({ date: res.date, items });
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل تحميل التحضير");
+    } finally {
+      setAttendanceLoading(false);
     }
   }, [id, attDate]);
 
@@ -141,8 +217,19 @@ export function CompetitionDetailPage() {
     if (tab === "attendance") void loadAttendance();
   }, [tab, loadAttendance]);
 
+  useEffect(() => {
+    if (!id || !attendance) return;
+    try {
+      localStorage.setItem(
+        ATTENDANCE_STORAGE_KEY(id, attDate),
+        JSON.stringify(attendance.items),
+      );
+    } catch {
+      /* quota exceeded */
+    }
+  }, [attendance, id, attDate]);
+
   const comp = data?.competition as Record<string, unknown> | undefined;
-  const targets = (data?.targets as Array<Record<string, unknown>>) ?? [];
   const logs = (data?.logs as Array<Record<string, unknown>>) ?? [];
   const kpis = (dashboard?.kpis ?? {}) as Record<string, number>;
   const leaders = (dashboard?.leaders ?? []) as Array<{
@@ -196,6 +283,7 @@ export function CompetitionDetailPage() {
       setNewTaskName("");
       setNewTaskWeight(1);
       setNewTaskType("addition");
+      toast.success("تم إدراج المهمة بنجاح");
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل إضافة المهمة");
@@ -206,12 +294,22 @@ export function CompetitionDetailPage() {
 
   async function removeTask(taskId: number) {
     if (!id) return;
+    const removed = tasks.find((t) => t.id === taskId);
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
     setSaving(true);
+    setError(null);
     try {
       await api.competitionsDeleteTask(id, taskId);
-      await load();
+      toast.success("تم حذف المهمة");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل حذف المهمة");
+      if (removed) {
+        setTasks((prev) =>
+          prev.some((t) => t.id === taskId) ? prev : [...prev, removed],
+        );
+      }
+      const msg = e instanceof Error ? e.message : "فشل حذف المهمة";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setSaving(false);
     }
@@ -231,7 +329,7 @@ export function CompetitionDetailPage() {
     try {
       const res = await api.competitionsSyncMemorization(id);
       await load();
-      alert(`تم التحديث لـ ${res.updated_count} طالب.`);
+      toast.success(`تم التحديث لـ ${res.updated_count} طالب`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل التزامن");
     } finally {
@@ -241,13 +339,82 @@ export function CompetitionDetailPage() {
 
   async function enableLiveLog() {
     if (!id) return;
+    setSaving(true);
+    setError(null);
     try {
-      const res = await api.competitionsLiveLogToken(id);
+      const res = await api.competitionsLiveLogToken(
+        id,
+        accessPin.trim() || undefined,
+      );
       const url = `${window.location.origin}/live-log/${res.live_log_token}`;
       setLiveLink(url);
       await navigator.clipboard.writeText(url);
+      toast.success("تم توليد الرابط ونسخه");
+      await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل توليد الرابط");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteLiveLogLink() {
+    if (!id) return;
+    if (!window.confirm("حذف رابط الرصد؟ لن يتمكن المقرئ من الدخول عبر هذا الرابط.")) {
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await api.competitionsDeleteLiveLogToken(id);
+      setLiveLink(null);
+      toast.success("تم حذف الرابط");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "فشل حذف الرابط");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveTargetEdit(studentId: number) {
+    if (!id) return;
+    const amount = Number(editTargetAmount);
+    if (!Number.isFinite(amount) || amount < 0) {
+      toast.error("أدخل قيمة مستهدفة صحيحة");
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.competitionsUpdateTarget(id, studentId, amount);
+      setTargets((prev) =>
+        prev.map((t) =>
+          t.student_id === studentId ? { ...t, target_amount: amount } : t,
+        ),
+      );
+      setEditingTargetId(null);
+      toast.success("تم تحديث المستهدف");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "فشل التحديث");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeTarget(studentId: number) {
+    if (!id) return;
+    if (!window.confirm("إزالة هذا الطالب من المنافسة؟")) return;
+    const removed = targets.find((t) => t.student_id === studentId);
+    setTargets((prev) => prev.filter((t) => t.student_id !== studentId));
+    setSaving(true);
+    try {
+      await api.competitionsDeleteTarget(id, studentId);
+      toast.success("تم حذف الطالب من المستهدفين");
+    } catch (e) {
+      if (removed) setTargets((prev) => [...prev, removed]);
+      toast.error(e instanceof Error ? e.message : "فشل الحذف");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -259,9 +426,11 @@ export function CompetitionDetailPage() {
         date: attDate,
         records: attendance.items.map((i) => ({
           student_id: i.student_id,
-          present: i.present,
+          status: i.status,
         })),
       });
+      localStorage.removeItem(ATTENDANCE_STORAGE_KEY(id, attDate));
+      toast.success("تم حفظ التحضير");
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل حفظ التحضير");
     } finally {
@@ -278,21 +447,32 @@ export function CompetitionDetailPage() {
     { id: "attendance", label: "تحضير المنافسة", icon: <ClipboardCheck className="w-4 h-4" /> },
   ];
 
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[320px] gap-3">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <p className="text-muted-foreground" style={tajawal}>
+          جاري تحميل المنافسة…
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 max-w-[1200px]">
-      <Button asChild variant="outline" className={ds.btnRound} style={tajawal}>
+      <Button asChild variant="outline" className={`${ds.btnRound} print:hidden`} style={tajawal}>
         <Link to="/edu-dept/competitions">← المنافسات</Link>
       </Button>
 
       {error && (
-        <p className={ds.alert.error} style={tajawal}>
+        <p className={`${ds.alert.error} print:hidden`} style={tajawal}>
           {error}
         </p>
       )}
 
       {comp && (
         <>
-          <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex flex-wrap items-start justify-between gap-4 print:hidden">
             <div>
               <h2 className={ds.page.title} style={tajawal}>
                 {String(comp.name_ar)}
@@ -376,7 +556,7 @@ export function CompetitionDetailPage() {
             </Card>
           )}
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 print:hidden">
             {tabs.map((t) => (
               <Button
                 key={t.id}
@@ -393,8 +573,16 @@ export function CompetitionDetailPage() {
           </div>
 
           {tab === "dashboard" && (
-            <div className="space-y-4">
-              <div className="flex flex-wrap gap-3 items-end">
+            <div className="space-y-4" id="competition-dashboard-print">
+              <div className="competition-print-header hidden print:block mb-4">
+                <h2 className="text-xl font-bold" style={tajawal}>
+                  تقرير مؤشرات المنافسة — {String(comp.name_ar)}
+                </h2>
+                <p className="text-sm text-muted-foreground" style={tajawal}>
+                  {dashRange.start} → {dashRange.end}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-3 items-end print:hidden">
                 <div className="space-y-1">
                   <Label style={tajawal}>من تاريخ</Label>
                   <Input
@@ -420,97 +608,124 @@ export function CompetitionDetailPage() {
                 <Button
                   type="button"
                   className={ds.btnRound}
+                  disabled={dashboardLoading}
                   onClick={() => void loadDashboard()}
                   style={tajawal}
                 >
-                  تطبيق
+                  {dashboardLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      جاري التحميل…
+                    </>
+                  ) : (
+                    "تطبيق"
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={ds.btnRound}
+                  onClick={printCompetitionDashboard}
+                  style={tajawal}
+                >
+                  <Printer className="w-4 h-4" />
+                  طباعة التقرير
                 </Button>
               </div>
-              <div className="grid gap-4 sm:grid-cols-3">
-                <EduKpiCard
-                  icon={<BarChart3 className="w-4 h-4" />}
-                  label="نسبة الانضباط"
-                  value={`${kpis.discipline_pct ?? 0}%`}
-                  sub="حضور المنافسة فقط"
-                />
-                <EduKpiCard
-                  icon={<Users className="w-4 h-4" />}
-                  label="الإنجاز مقابل المستهدف"
-                  value={`${kpis.achievement_pct ?? 0}%`}
-                  sub={`${kpis.achieved_juz ?? 0} / ${kpis.target_juz ?? 0} جزء`}
-                />
-                <EduKpiCard
-                  label="المشاركون"
-                  value={kpis.participants ?? 0}
-                  sub="طلاب مستهدفون"
-                />
-              </div>
-              <Card className={ds.card}>
-                <CardHeader className="space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <CardTitle style={tajawal}>
-                      {leaderboardMode === "all" ? "جميع الطلاب" : "الأوائل"}
-                    </CardTitle>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        variant={leaderboardMode === "top" ? "default" : "outline"}
-                        size="sm"
-                        className={ds.btnRound}
-                        onClick={() => setLeaderboardMode("top")}
-                        style={tajawal}
-                      >
-                        عرض الأوائل
-                      </Button>
-                      <Button
-                        type="button"
-                        variant={leaderboardMode === "all" ? "default" : "outline"}
-                        size="sm"
-                        className={ds.btnRound}
-                        onClick={() => setLeaderboardMode("all")}
-                        style={tajawal}
-                      >
-                        عرض كل الطلاب
-                      </Button>
-                    </div>
+              {dashboardLoading ? (
+                <div className="flex items-center gap-2 text-muted-foreground py-8 justify-center">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span style={tajawal}>جاري جلب المؤشرات…</span>
+                </div>
+              ) : (
+                <>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <EduKpiCard
+                      icon={<BarChart3 className="w-4 h-4" />}
+                      label="نسبة الانضباط"
+                      value={`${kpis.discipline_pct ?? 0}%`}
+                      sub="حضور المنافسة فقط"
+                    />
+                    <EduKpiCard
+                      icon={<Users className="w-4 h-4" />}
+                      label="الإنجاز مقابل المستهدف"
+                      value={`${kpis.achievement_pct ?? 0}%`}
+                      sub={`${kpis.achieved_juz ?? 0} / ${kpis.target_juz ?? 0} جزء`}
+                    />
+                    <EduKpiCard
+                      label="المشاركون"
+                      value={kpis.participants ?? 0}
+                      sub="طلاب مستهدفون"
+                    />
                   </div>
-                  {leaderboardMode === "all" && (
-                    <div className="relative max-w-sm">
-                      <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                      <Input
-                        type="search"
-                        placeholder="بحث عن طالب…"
-                        value={leaderSearch}
-                        onChange={(e) => setLeaderSearch(e.target.value)}
-                        className={`${ds.btnRound} pr-10`}
-                        style={tajawal}
-                      />
-                    </div>
-                  )}
-                </CardHeader>
-                <CardContent className="space-y-2 text-sm" style={tajawal}>
-                  {filteredLeaders.length === 0 ? (
-                    <p className="text-muted-foreground">لا بيانات إنجاز بعد.</p>
-                  ) : (
-                    filteredLeaders.map((l, i) => (
-                      <div
-                        key={l.student_id}
-                        className="flex justify-between border-b py-2 gap-4"
-                      >
-                        <span>
-                          {i + 1}. {l.full_name_ar ?? `طالب #${l.student_id}`}
-                        </span>
-                        <span className="text-muted-foreground tabular-nums text-left shrink-0">
-                          {Math.round(l.score * 100) / 100} جزء
-                          {l.achievement_pct != null ? (
-                            <span className="mr-2">· {l.achievement_pct}%</span>
-                          ) : null}
-                        </span>
+                  <Card className={ds.card}>
+                    <CardHeader className="space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <CardTitle style={tajawal}>
+                          {leaderboardMode === "all" ? "جميع الطلاب" : "الأوائل"}
+                        </CardTitle>
+                        <div className="flex flex-wrap gap-2 print:hidden">
+                          <Button
+                            type="button"
+                            variant={leaderboardMode === "top" ? "default" : "outline"}
+                            size="sm"
+                            className={ds.btnRound}
+                            onClick={() => setLeaderboardMode("top")}
+                            style={tajawal}
+                          >
+                            عرض الأوائل
+                          </Button>
+                          <Button
+                            type="button"
+                            variant={leaderboardMode === "all" ? "default" : "outline"}
+                            size="sm"
+                            className={ds.btnRound}
+                            onClick={() => setLeaderboardMode("all")}
+                            style={tajawal}
+                          >
+                            عرض كل الطلاب
+                          </Button>
+                        </div>
                       </div>
-                    ))
-                  )}
-                </CardContent>
-              </Card>
+                      {leaderboardMode === "all" && (
+                        <div className="relative max-w-sm print:hidden">
+                          <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                          <Input
+                            type="search"
+                            placeholder="بحث عن طالب…"
+                            value={leaderSearch}
+                            onChange={(e) => setLeaderSearch(e.target.value)}
+                            className={`${ds.btnRound} pr-10`}
+                            style={tajawal}
+                          />
+                        </div>
+                      )}
+                    </CardHeader>
+                    <CardContent className="space-y-2 text-sm" style={tajawal}>
+                      {filteredLeaders.length === 0 ? (
+                        <p className="text-muted-foreground">لا بيانات إنجاز بعد.</p>
+                      ) : (
+                        filteredLeaders.map((l, i) => (
+                          <div
+                            key={l.student_id}
+                            className="flex justify-between border-b py-2 gap-4"
+                          >
+                            <span>
+                              {i + 1}. {l.full_name_ar ?? `طالب #${l.student_id}`}
+                            </span>
+                            <span className="text-muted-foreground tabular-nums text-left shrink-0">
+                              {Math.round(l.score * 100) / 100} جزء
+                              {l.achievement_pct != null ? (
+                                <span className="mr-2">· {l.achievement_pct}%</span>
+                              ) : null}
+                            </span>
+                          </div>
+                        ))
+                      )}
+                    </CardContent>
+                  </Card>
+                </>
+              )}
             </div>
           )}
 
@@ -532,18 +747,81 @@ export function CompetitionDetailPage() {
                         <th className="text-right p-2">الحفظ عند البدء</th>
                         <th className="text-right p-2">المستهدف</th>
                         <th className="text-right p-2">المُنجَز</th>
+                        <th className="text-right p-2 print:hidden">إجراءات</th>
                       </tr>
                     </thead>
                     <tbody>
                       {targets.map((t) => (
-                        <tr key={String(t.student_id)} className="border-t">
-                          <td className="p-2">{String(t.full_name_ar)}</td>
+                        <tr key={t.student_id} className="border-t">
+                          <td className="p-2">{t.full_name_ar}</td>
+                          <td className="p-2 tabular-nums">{String(t.current_memorization)}</td>
                           <td className="p-2 tabular-nums">
-                            {String(t.current_memorization)}
+                            {editingTargetId === t.student_id ? (
+                              <Input
+                                type="number"
+                                min={0}
+                                step={0.1}
+                                value={editTargetAmount}
+                                onChange={(e) => setEditTargetAmount(e.target.value)}
+                                className="h-8 w-24"
+                              />
+                            ) : (
+                              String(t.target_amount)
+                            )}
                           </td>
-                          <td className="p-2 tabular-nums">{String(t.target_amount)}</td>
-                          <td className="p-2 tabular-nums">
-                            {String(t.achieved_amount ?? 0)}
+                          <td className="p-2 tabular-nums">{String(t.achieved_amount ?? 0)}</td>
+                          <td className="p-2 print:hidden">
+                            <div className="flex items-center gap-1">
+                              {editingTargetId === t.student_id ? (
+                                <>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="default"
+                                    disabled={saving}
+                                    onClick={() => void saveTargetEdit(t.student_id)}
+                                  >
+                                    حفظ
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => setEditingTargetId(null)}
+                                  >
+                                    إلغاء
+                                  </Button>
+                                </>
+                              ) : (
+                                <>
+                                  <Button
+                                    type="button"
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-8 w-8"
+                                    title="تعديل المستهدف"
+                                    disabled={saving}
+                                    onClick={() => {
+                                      setEditingTargetId(t.student_id);
+                                      setEditTargetAmount(String(t.target_amount));
+                                    }}
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-8 w-8 text-destructive"
+                                    title="حذف من المنافسة"
+                                    disabled={saving}
+                                    onClick={() => void removeTarget(t.student_id)}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                </>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -605,8 +883,17 @@ export function CompetitionDetailPage() {
                     onClick={() => void addTask()}
                     style={tajawal}
                   >
-                    <Plus className="w-4 h-4" />
-                    إضافة مهمة
+                    {saving ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        جاري الإضافة…
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-4 h-4" />
+                        إضافة مهمة
+                      </>
+                    )}
                   </Button>
                 </CardContent>
               </Card>
@@ -675,6 +962,19 @@ export function CompetitionDetailPage() {
                 <p className="text-sm text-muted-foreground" style={tajawal}>
                   رابط مستقل للمُختبِر/المعلم لرصد الإنجاز — معزول عن الرصد اليومي للحلقة.
                 </p>
+                <div className="space-y-2 max-w-sm">
+                  <Label style={tajawal}>رمز تحقق الرابط / Access Token</Label>
+                  <Input
+                    value={accessPin}
+                    onChange={(e) => setAccessPin(e.target.value)}
+                    placeholder="مثال: 1234 (اختياري — الافتراضي 1234)"
+                    className={ds.btnRound}
+                    dir="ltr"
+                  />
+                  <p className="text-xs text-muted-foreground" style={tajawal}>
+                    يُطلب من المقرئ إدخال هذا الرمز قبل فتح قائمة الطلاب.
+                  </p>
+                </div>
                 {comp.live_log_token ? (
                   <code className="text-xs break-all block p-3 bg-muted rounded-xl" dir="ltr">
                     {`${window.location.origin}/live-log/${String(comp.live_log_token)}`}
@@ -684,15 +984,35 @@ export function CompetitionDetailPage() {
                     لم يُولَّد رابط بعد.
                   </p>
                 )}
-                <Button
-                  type="button"
-                  className={ds.btnRound}
-                  onClick={() => void enableLiveLog()}
-                  style={tajawal}
-                >
-                  <Link2 className="w-4 h-4" />
-                  {comp.live_log_token ? "تجديد الرابط" : "توليد الرابط"}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    className={ds.btnRound}
+                    disabled={saving}
+                    onClick={() => void enableLiveLog()}
+                    style={tajawal}
+                  >
+                    {saving ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Link2 className="w-4 h-4" />
+                    )}
+                    {comp.live_log_token ? "تجديد الرابط" : "توليد الرابط"}
+                  </Button>
+                  {comp.live_log_token ? (
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      className={ds.btnRound}
+                      disabled={saving}
+                      onClick={() => void deleteLiveLogLink()}
+                      style={tajawal}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      حذف الرابط
+                    </Button>
+                  ) : null}
+                </div>
                 {liveLink && (
                   <div className={ds.alert.info}>
                     <code className="text-xs break-all block mb-2" dir="ltr">
@@ -754,47 +1074,75 @@ export function CompetitionDetailPage() {
                     type="button"
                     variant="outline"
                     className={ds.btnRound}
+                    disabled={attendanceLoading}
                     onClick={() => void loadAttendance()}
                     style={tajawal}
                   >
-                    تحميل
+                    {attendanceLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        جاري التحميل…
+                      </>
+                    ) : (
+                      "تحميل الأسماء"
+                    )}
                   </Button>
                 </div>
+                {attendanceLoading && !attendance && (
+                  <div className="flex items-center gap-2 text-muted-foreground py-4">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span style={tajawal}>جاري جلب قائمة الطلاب…</span>
+                  </div>
+                )}
                 {attendance && (
                   <div className="space-y-2">
-                    {attendance.items.map((item) => (
-                      <label
-                        key={item.student_id}
-                        className="flex items-center gap-3 py-2 border-b cursor-pointer"
-                        style={tajawal}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={item.present}
-                          onChange={(e) => {
-                            setAttendance((prev) =>
-                              prev
-                                ? {
-                                    ...prev,
-                                    items: prev.items.map((i) =>
-                                      i.student_id === item.student_id
-                                        ? { ...i, present: e.target.checked }
-                                        : i,
-                                    ),
-                                  }
-                                : prev,
-                            );
-                          }}
-                        />
-                        <span className={item.present ? "" : "text-muted-foreground line-through"}>
-                          {item.full_name_ar}
-                        </span>
-                      </label>
-                    ))}
+                    {attendance.items.length === 0 ? (
+                      <p className="text-sm text-muted-foreground" style={tajawal}>
+                        لا مستهدفين في هذه المنافسة.
+                      </p>
+                    ) : (
+                      attendance.items.map((item) => (
+                        <div
+                          key={item.student_id}
+                          className="flex flex-wrap items-center justify-between gap-3 py-2 border-b"
+                          style={tajawal}
+                        >
+                          <span
+                            className={
+                              item.status === "absent"
+                                ? "text-muted-foreground line-through"
+                                : item.status === "excused"
+                                  ? "text-amber-700"
+                                  : ""
+                            }
+                          >
+                            {item.full_name_ar}
+                          </span>
+                          <AttendanceStatusButtons
+                            value={item.status}
+                            disabled={saving}
+                            onChange={(status) => {
+                              setAttendance((prev) =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      items: prev.items.map((i) =>
+                                        i.student_id === item.student_id
+                                          ? { ...i, status }
+                                          : i,
+                                      ),
+                                    }
+                                  : prev,
+                              );
+                            }}
+                          />
+                        </div>
+                      ))
+                    )}
                     <Button
                       type="button"
                       className={ds.btnRound}
-                      disabled={saving}
+                      disabled={saving || attendance.items.length === 0}
                       onClick={() => void saveAttendance()}
                       style={tajawal}
                     >

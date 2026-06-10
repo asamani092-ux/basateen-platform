@@ -1,7 +1,8 @@
 import type { Env } from "../types";
-import { tableHasColumn } from "../lib/db-schema";
+import { hasTable, tableHasColumn, historyCircleColumn, activePlacementSql } from "../lib/db-schema";
 import type { ScopeMode } from "../lib/dept-scope";
 import {
+  buildStudentsInScopeWhere,
   loadUserScope,
   parseStageScope,
   stageFilterBinds,
@@ -298,36 +299,74 @@ export async function handleEduDeptExtendedRoutes(
   }
 
   if (method === "GET" && path === "/api/edu-dept/target-options") {
-    const students = await env.DB.prepare(
-      `SELECT s.id, s.full_name_ar, s.stage_id, c.name_ar AS circle_name
-       FROM students s
-       LEFT JOIN student_circle_history h
-         ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL
-       LEFT JOIN circles c ON c.id = h.circle_id
-       WHERE ${studentsInScopeWhere(scope)}
-       ORDER BY s.full_name_ar LIMIT 200`,
-    )
-      .bind(...studentsInScopeBinds(auth.complexId, scope))
-      .all();
+    let circles: Array<Record<string, unknown>> = [];
+    let tracks: Array<Record<string, unknown>> = [];
+    let students: Array<Record<string, unknown>> = [];
 
-    const circles = await env.DB.prepare(
-      `SELECT c.id, c.name_ar, c.stage_id FROM circles c
-       WHERE c.complex_id = ? AND c.is_active = 1
-       ORDER BY c.name_ar`,
-    )
-      .bind(auth.complexId)
-      .all();
+    if (await hasTable(env, "circles")) {
+      const hasActive = await tableHasColumn(env, "circles", "is_active");
+      const activeClause = hasActive
+        ? " AND COALESCE(CAST(c.is_active AS INTEGER), 1) = 1"
+        : "";
+      try {
+        const circleRes = await env.DB.prepare(
+          `SELECT c.id, c.name_ar, c.stage_id FROM circles c
+           WHERE c.complex_id = ?${activeClause}
+           ORDER BY c.name_ar`,
+        )
+          .bind(auth.complexId)
+          .all();
+        circles = circleRes.results ?? [];
+      } catch (err) {
+        console.error("target-options circles failed:", err);
+      }
+    }
 
-    const tracks = await env.DB.prepare(
-      `SELECT t.id, t.name_ar FROM tracks t WHERE t.complex_id = ? ORDER BY t.name_ar`,
-    )
-      .bind(auth.complexId)
-      .all();
+    if (await hasTable(env, "tracks")) {
+      try {
+        const trackRes = await env.DB.prepare(
+          `SELECT t.id, t.name_ar FROM tracks t WHERE t.complex_id = ? ORDER BY t.name_ar`,
+        )
+          .bind(auth.complexId)
+          .all();
+        tracks = trackRes.results ?? [];
+      } catch (err) {
+        console.error("target-options tracks failed:", err);
+      }
+    }
+
+    try {
+      const scopeWhere = await buildStudentsInScopeWhere(env, scope);
+      const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
+      let circleJoin = "LEFT JOIN circles c ON c.id = s.current_circle_id";
+      if (!hasCurrentCircle) {
+        const histCol = await historyCircleColumn(env, "h");
+        if (histCol) {
+          const active = await activePlacementSql(env, "h");
+          circleJoin = `LEFT JOIN student_circle_history h ON h.student_id = s.id AND ${active}
+                          LEFT JOIN circles c ON c.id = ${histCol}`;
+        } else {
+          circleJoin = "LEFT JOIN circles c ON 1=0";
+        }
+      }
+      const studentRes = await env.DB.prepare(
+        `SELECT s.id, s.full_name_ar, s.stage_id, c.name_ar AS circle_name
+         FROM students s
+         ${circleJoin}
+         WHERE ${scopeWhere}
+         ORDER BY s.full_name_ar LIMIT 200`,
+      )
+        .bind(...studentsInScopeBinds(auth.complexId, scope))
+        .all();
+      students = studentRes.results ?? [];
+    } catch (err) {
+      console.error("target-options students failed:", err);
+    }
 
     return json({
-      students: students.results ?? [],
-      circles: circles.results ?? [],
-      tracks: tracks.results ?? [],
+      students,
+      circles,
+      tracks,
       scope,
     });
   }

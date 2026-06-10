@@ -8,6 +8,7 @@ import {
 } from "./db-schema";
 import {
   buildStudentsInScopeWhere,
+  STAGE_LABELS,
   studentsInScopeBinds,
   type ScopeMode,
 } from "./dept-scope";
@@ -43,6 +44,13 @@ export type PreviewStudentRow = {
 /** مرحلة التلقين — مستبعدة من استهداف المنافسات */
 export const EXCLUDED_COMPETITION_STAGE_ID = 1;
 
+/** كلمات البحث الجزئي في school_grade لكل stage_id */
+export const STAGE_GRADE_KEYWORDS: Record<number, string[]> = {
+  2: ["ابتدائي", "إبتدائي", "ابتدائية"],
+  3: ["متوسط", "متوسطة", "متوسطه"],
+  4: ["ثانوي", "ثانوية", "ثانويه"],
+};
+
 const AR_DIGITS = "٠١٢٣٤٥٦٧٨٩";
 
 /** O(n) on string length — n is short memorization text */
@@ -64,16 +72,25 @@ export function parseTargetScope(raw: string | null | undefined): TargetScope {
   if (!raw?.trim()) return {};
   try {
     const parsed = JSON.parse(raw) as TargetScope;
-    return {
-      circle_ids: (parsed.circle_ids ?? []).map(Number).filter((n) => n > 0),
-      track_ids: (parsed.track_ids ?? []).map(Number).filter((n) => n > 0),
-      stage_ids: (parsed.stage_ids ?? [])
-        .map(Number)
-        .filter((n) => n > 0 && n !== EXCLUDED_COMPETITION_STAGE_ID),
-    };
+    return normalizeTargetScope(parsed);
   } catch {
     return {};
   }
+}
+
+/** O(n) — يطبّع المعرفات إلى أرقام؛ مصفوفة فارغة = «الكل» (تجاوز الفلتر) */
+export function normalizeTargetScope(scope: TargetScope): TargetScope {
+  const normIds = (arr?: number[]) =>
+    (arr ?? [])
+      .map((v) => Number(v))
+      .filter((n) => Number.isFinite(n) && n > 0);
+  return {
+    circle_ids: normIds(scope.circle_ids),
+    track_ids: normIds(scope.track_ids),
+    stage_ids: normIds(scope.stage_ids).filter(
+      (n) => n !== EXCLUDED_COMPETITION_STAGE_ID,
+    ),
+  };
 }
 
 export async function hasEngineTargets(env: Env): Promise<boolean> {
@@ -98,8 +115,105 @@ export async function hasCompetitionCategory(env: Env): Promise<boolean> {
   return await tableHasColumn(env, "competitions", "category");
 }
 
+export type CompetitionFilterOptions = {
+  circles: Array<{ id: number; name_ar: string; stage_id: number | null }>;
+  tracks: Array<{ id: number; name_ar: string }>;
+};
+
 /**
- * O(S) time, O(S) space — S ≤ 500; single query, schema-aware (v25 flat + legacy history).
+ * O(C + T) — circles/tracks only; independent of competition_targets.
+ * Never throws — returns empty arrays on missing tables/columns.
+ */
+export async function loadCompetitionFilterOptions(
+  env: Env,
+  complexId: number,
+): Promise<CompetitionFilterOptions> {
+  const out: CompetitionFilterOptions = { circles: [], tracks: [] };
+
+  if (await hasTable(env, "circles")) {
+    const hasActive = await tableHasColumn(env, "circles", "is_active");
+    const hasStage = await tableHasColumn(env, "circles", "stage_id");
+    const activeClause = hasActive ? " AND COALESCE(CAST(c.is_active AS INTEGER), 1) = 1" : "";
+    const stageCol = hasStage ? ", c.stage_id" : ", NULL AS stage_id";
+    try {
+      const rows = await env.DB.prepare(
+        `SELECT c.id, c.name_ar${stageCol}
+         FROM circles c
+         WHERE c.complex_id = ?${activeClause}
+         ORDER BY c.name_ar`,
+      )
+        .bind(complexId)
+        .all<{ id: number; name_ar: string; stage_id: number | null }>();
+      out.circles = (rows.results ?? []).map((r) => ({
+        id: Number(r.id),
+        name_ar: String(r.name_ar ?? ""),
+        stage_id: r.stage_id != null ? Number(r.stage_id) : null,
+      }));
+    } catch (err) {
+      console.error("loadCompetitionFilterOptions circles failed:", err);
+    }
+  }
+
+  if (await hasTable(env, "tracks")) {
+    const hasActive = await tableHasColumn(env, "tracks", "is_active");
+    const activeClause = hasActive ? " AND COALESCE(CAST(t.is_active AS INTEGER), 1) = 1" : "";
+    try {
+      const rows = await env.DB.prepare(
+        `SELECT t.id, t.name_ar FROM tracks t
+         WHERE t.complex_id = ?${activeClause}
+         ORDER BY t.name_ar`,
+      )
+        .bind(complexId)
+        .all<{ id: number; name_ar: string }>();
+      out.tracks = (rows.results ?? []).map((r) => ({
+        id: Number(r.id),
+        name_ar: String(r.name_ar ?? ""),
+      }));
+    } catch (err) {
+      console.error("loadCompetitionFilterOptions tracks failed:", err);
+    }
+  }
+
+  return out;
+}
+
+/**
+ * O(K) — K = عدد المراحل × كلمات البحث; يبني شرط OR للـ stage_id و school_grade LIKE.
+ * Time O(K) binds; Space O(K).
+ */
+function appendStageFilterSql(
+  stageIds: number[],
+  hasStageCol: boolean,
+  hasSchoolGrade: boolean,
+  filters: string[],
+  binds: (string | number)[],
+): void {
+  if (!stageIds.length || !hasStageCol) return;
+
+  const parts: string[] = [];
+  const idPh = stageIds.map(() => "?").join(",");
+  parts.push(`s.stage_id IN (${idPh})`);
+  parts.push(`c.stage_id IN (${idPh})`);
+  binds.push(...stageIds, ...stageIds);
+
+  if (hasSchoolGrade) {
+    for (const sid of stageIds) {
+      const keywords = STAGE_GRADE_KEYWORDS[sid] ?? [STAGE_LABELS[sid] ?? ""];
+      for (const kw of keywords) {
+        if (!kw) continue;
+        parts.push(`s.school_grade LIKE ?`);
+        binds.push(`%${kw}%`);
+      }
+    }
+  }
+
+  filters.push(`(${parts.join(" OR ")})`);
+}
+
+/**
+ * O(S) time, O(S) space — S ≤ 500; single query with LEFT JOINs only.
+ * Students always listed from `students`; optional competition_targets LEFT JOIN
+ * pre-fills saved targets when editing (never filters rows out).
  * Always excludes talqeen (stage_id = 1).
  */
 export async function queryPreviewStudents(
@@ -107,75 +221,97 @@ export async function queryPreviewStudents(
   complexId: number,
   scope: ScopeMode,
   targetScope: TargetScope,
+  competitionId?: number,
 ): Promise<PreviewStudentRow[]> {
+  const normalized = normalizeTargetScope(targetScope);
   const scopeWhere = await buildStudentsInScopeWhere(env, scope);
   const binds: (string | number)[] = [...studentsInScopeBinds(complexId, scope)];
   const filters: string[] = [];
 
-  const circleIds = targetScope.circle_ids ?? [];
-  const trackIds = targetScope.track_ids ?? [];
-  const stageIds = (targetScope.stage_ids ?? []).filter(
-    (id) => id !== EXCLUDED_COMPETITION_STAGE_ID,
-  );
+  const circleIds = normalized.circle_ids ?? [];
+  const trackIds = normalized.track_ids ?? [];
+  const stageIds = normalized.stage_ids ?? [];
 
   const hasStageCol = await tableHasColumn(env, "students", "stage_id");
-  if (hasStageCol) {
-    filters.push(
-      `(s.stage_id IS NULL OR s.stage_id != ${EXCLUDED_COMPETITION_STAGE_ID})`,
-    );
-  }
-
+  const hasSchoolGrade = await tableHasColumn(env, "students", "school_grade");
   const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
   const hasCurrentTrack = await tableHasColumn(env, "students", "current_track_id");
   const circleHistCol = await historyCircleColumn(env, "h");
   const trackHistCol = await historyTrackColumn(env, "h");
+  const hasLegacyHistory = await hasTable(env, "student_circle_history");
   const hasLegacyPlacement =
+    hasLegacyHistory &&
     circleHistCol !== null &&
     (await tableHasColumn(env, "student_circle_history", "to_at"));
 
-  const useFlatPlacement = hasCurrentCircle || hasCurrentTrack;
-  let fromJoin = "";
+  const engineTargets = competitionId
+    ? await hasEngineTargets(env)
+    : false;
 
-  if (useFlatPlacement) {
-    fromJoin = "LEFT JOIN circles c ON c.id = s.current_circle_id";
-    if (circleIds.length && hasCurrentCircle) {
-      filters.push(`s.current_circle_id IN (${circleIds.map(() => "?").join(",")})`);
+  let fromJoin = "LEFT JOIN circles c ON c.id = s.current_circle_id";
+
+  if (hasCurrentCircle) {
+    if (circleIds.length) {
+      const ph = circleIds.map(() => "?").join(",");
+      filters.push(`CAST(s.current_circle_id AS INTEGER) IN (${ph})`);
       binds.push(...circleIds);
     }
     if (trackIds.length && hasCurrentTrack) {
-      filters.push(`s.current_track_id IN (${trackIds.map(() => "?").join(",")})`);
+      const ph = trackIds.map(() => "?").join(",");
+      filters.push(`CAST(s.current_track_id AS INTEGER) IN (${ph})`);
       binds.push(...trackIds);
     }
   } else if (hasLegacyPlacement && circleHistCol) {
     const active = await activePlacementSql(env, "h");
-    fromJoin = `INNER JOIN student_circle_history h ON h.student_id = s.id AND ${active}
+    fromJoin = `LEFT JOIN student_circle_history h ON h.student_id = s.id AND ${active}
                 LEFT JOIN circles c ON c.id = ${circleHistCol}`;
     if (circleIds.length) {
-      filters.push(`${circleHistCol} IN (${circleIds.map(() => "?").join(",")})`);
+      const ph = circleIds.map(() => "?").join(",");
+      filters.push(`CAST(${circleHistCol} AS INTEGER) IN (${ph})`);
       binds.push(...circleIds);
     }
     if (trackIds.length && trackHistCol) {
-      filters.push(`${trackHistCol} IN (${trackIds.map(() => "?").join(",")})`);
+      const ph = trackIds.map(() => "?").join(",");
+      filters.push(`CAST(${trackHistCol} AS INTEGER) IN (${ph})`);
       binds.push(...trackIds);
     }
-  } else if (hasCurrentCircle) {
-    fromJoin = "LEFT JOIN circles c ON c.id = s.current_circle_id";
+  } else if (!hasCurrentCircle) {
+    fromJoin = "LEFT JOIN circles c ON 1=0";
   }
 
-  if (stageIds.length && hasStageCol) {
-    filters.push(`s.stage_id IN (${stageIds.map(() => "?").join(",")})`);
-    binds.push(...stageIds);
+  if (engineTargets && competitionId) {
+    fromJoin += `
+     LEFT JOIN competition_targets ct
+       ON ct.student_id = s.id AND ct.competition_id = ${competitionId}`;
   }
+
+  if (hasStageCol) {
+    filters.push(
+      `(COALESCE(s.stage_id, 0) != ${EXCLUDED_COMPETITION_STAGE_ID})`,
+      `(c.stage_id IS NULL OR c.stage_id != ${EXCLUDED_COMPETITION_STAGE_ID})`,
+    );
+    if (hasSchoolGrade) {
+      filters.push(
+        `(s.school_grade IS NULL OR s.school_grade NOT LIKE '%تلقين%')`,
+      );
+    }
+  }
+
+  appendStageFilterSql(stageIds, hasStageCol, hasSchoolGrade, filters, binds);
 
   const filterSql = filters.length ? ` AND ${filters.join(" AND ")}` : "";
   const memCol = (await tableHasColumn(env, "students", "memorization_amount"))
     ? "s.memorization_amount"
     : "NULL AS memorization_amount";
   const stageCol = hasStageCol ? "s.stage_id" : "NULL AS stage_id";
+  const targetCurrentCol =
+    engineTargets && competitionId
+      ? "ct.current_memorization AS saved_current_memorization, ct.target_amount AS saved_target_amount"
+      : "NULL AS saved_current_memorization, NULL AS saved_target_amount";
 
   const rows = await env.DB.prepare(
     `SELECT DISTINCT s.id AS student_id, s.full_name_ar, ${memCol}, ${stageCol},
-            c.name_ar AS circle_name
+            c.name_ar AS circle_name, ${targetCurrentCol}
      FROM students s
      ${fromJoin}
      WHERE ${scopeWhere}${filterSql}
@@ -189,10 +325,18 @@ export async function queryPreviewStudents(
       memorization_amount: string | null;
       stage_id: number | null;
       circle_name: string | null;
+      saved_current_memorization: number | null;
+      saved_target_amount: number | null;
     }>();
 
   return (rows.results ?? []).map((r) => {
-    const current = parseMemorizationJuz(r.memorization_amount);
+    const parsed = parseMemorizationJuz(r.memorization_amount);
+    const current =
+      r.saved_current_memorization != null
+        ? Number(r.saved_current_memorization)
+        : parsed;
+    const target =
+      r.saved_target_amount != null ? Number(r.saved_target_amount) : 0;
     return {
       student_id: r.student_id,
       full_name_ar: r.full_name_ar,
@@ -200,7 +344,7 @@ export async function queryPreviewStudents(
       stage_id: r.stage_id,
       memorization_amount: r.memorization_amount,
       current_memorization: current,
-      target_amount: 0,
+      target_amount: target,
     };
   });
 }
@@ -381,7 +525,7 @@ export async function loadCompetitionDetailBundle(
   };
 }
 
-/** O(1) DELETE chain — cascade child rows then competition row */
+/** O(K) — single batch transaction: logs → tasks → targets → attendance → ledger → competition */
 export async function deleteCompetitionCascade(
   env: Env,
   competitionId: number,
@@ -394,26 +538,81 @@ export async function deleteCompetitionCascade(
     .first();
   if (!row) return false;
 
-  const tables = [
-    "competition_logs",
-    "competition_tasks",
-    "competition_targets",
-    "competition_attendance",
-  ];
-  for (const table of tables) {
-    if (await hasTable(env, table)) {
-      await env.DB.prepare(
-        `DELETE FROM ${table} WHERE competition_id = ?`,
-      )
-        .bind(competitionId)
-        .run();
-    }
-  }
+  const [hasLogs, hasTasks, hasTargets, hasAtt, hasLedger] = await Promise.all([
+    hasTable(env, "competition_logs"),
+    hasTable(env, "competition_tasks"),
+    hasTable(env, "competition_targets"),
+    hasTable(env, "competition_attendance"),
+    hasTable(env, "quran_daily_ledger"),
+  ]);
 
-  await env.DB.prepare(`DELETE FROM competitions WHERE id = ? AND complex_id = ?`)
-    .bind(competitionId, complexId)
-    .run();
+  const stmts: ReturnType<typeof env.DB.prepare>[] = [];
+  if (hasLogs) {
+    stmts.push(
+      env.DB.prepare(`DELETE FROM competition_logs WHERE competition_id = ?`).bind(
+        competitionId,
+      ),
+    );
+  }
+  if (hasTasks) {
+    stmts.push(
+      env.DB.prepare(`DELETE FROM competition_tasks WHERE competition_id = ?`).bind(
+        competitionId,
+      ),
+    );
+  }
+  if (hasTargets) {
+    stmts.push(
+      env.DB.prepare(`DELETE FROM competition_targets WHERE competition_id = ?`).bind(
+        competitionId,
+      ),
+    );
+  }
+  if (hasAtt) {
+    stmts.push(
+      env.DB.prepare(
+        `DELETE FROM competition_attendance WHERE competition_id = ?`,
+      ).bind(competitionId),
+    );
+  }
+  if (hasLedger) {
+    stmts.push(
+      env.DB.prepare(
+        `DELETE FROM quran_daily_ledger WHERE context_type = 'competition' AND context_id = ?`,
+      ).bind(competitionId),
+    );
+  }
+  stmts.push(
+    env.DB.prepare(`DELETE FROM competitions WHERE id = ? AND complex_id = ?`).bind(
+      competitionId,
+      complexId,
+    ),
+  );
+
+  await env.DB.batch(stmts);
   return true;
+}
+
+/** O(1) batch — delete task logs then task row */
+export async function deleteCompetitionTask(
+  env: Env,
+  competitionId: number,
+  taskId: number,
+): Promise<void> {
+  const stmts: ReturnType<typeof env.DB.prepare>[] = [];
+  if (await hasTable(env, "competition_logs")) {
+    stmts.push(
+      env.DB.prepare(
+        `DELETE FROM competition_logs WHERE competition_id = ? AND task_id = ?`,
+      ).bind(competitionId, taskId),
+    );
+  }
+  stmts.push(
+    env.DB.prepare(
+      `DELETE FROM competition_tasks WHERE id = ? AND competition_id = ?`,
+    ).bind(taskId, competitionId),
+  );
+  await env.DB.batch(stmts);
 }
 
 export type DashboardTargetRow = {
@@ -423,6 +622,36 @@ export type DashboardTargetRow = {
   target_amount: number;
   achieved_amount: number;
 };
+
+/** O(1) — update single student target_amount */
+export async function updateStudentTargetAmount(
+  env: Env,
+  competitionId: number,
+  studentId: number,
+  targetAmount: number,
+): Promise<boolean> {
+  const res = await env.DB.prepare(
+    `UPDATE competition_targets SET target_amount = ?
+     WHERE competition_id = ? AND student_id = ?`,
+  )
+    .bind(targetAmount, competitionId, studentId)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+/** O(1) — remove one student from competition targets */
+export async function deleteStudentTarget(
+  env: Env,
+  competitionId: number,
+  studentId: number,
+): Promise<boolean> {
+  const res = await env.DB.prepare(
+    `DELETE FROM competition_targets WHERE competition_id = ? AND student_id = ?`,
+  )
+    .bind(competitionId, studentId)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
 
 /** O(T) — single JOIN for targets + student names (feeds dashboard KPIs) */
 export async function loadCompetitionTargetRows(

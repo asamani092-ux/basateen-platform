@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "npx wrangler dev --ip 127.0.0.1 --port 8787",
     "deploy": "npx wrangler deploy",
-    "deploy:prod": "npx wrangler deploy --env production",
+    "deploy:prod": "node scripts/deploy-prod-remote.mjs",
     "db:local:001": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/001_core.sql",
     "db:local:002": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/002_admin.sql",
     "db:local:003": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/003_education.sql",
@@ -105,6 +105,7 @@
     "db:remote:047": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/047_transfer_notifications.sql",
     "db:remote:048": "node scripts/migrate-048-remote.mjs",
     "db:remote:049": "node scripts/migrate-049-remote.mjs",
+    "db:remote:050": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/050_competition_attendance_status.sql",
     "db:local:048": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/048_competition_engine.sql",
     "db:remote:036:tracks": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/036_tracks_consolidate_single_table.sql",
     "db:remote:034:wipe": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/034_admin_data_wipe.sql",

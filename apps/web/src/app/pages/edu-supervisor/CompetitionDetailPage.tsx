@@ -34,7 +34,7 @@ import { CompetitionGradingGrid } from "../../components/edu/CompetitionGradingG
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { normalizeAttendanceStatus } from "../../lib/attendance-status";
-import { categoryLabel } from "../../lib/competition-engine";
+import { categoryLabel, defaultInputTypeFromTaskType, TASK_INPUT_TYPE_OPTIONS } from "../../lib/competition-engine";
 import { matchesArabicName } from "../../lib/attendance-search";
 import { defaultDateRange } from "../../lib/local-iso-date";
 import { ds, tajawal } from "../../lib/design-system";
@@ -47,6 +47,7 @@ type TaskRow = {
   name_ar: string;
   weight: number;
   type: "addition" | "deduction";
+  input_type?: string;
 };
 
 type TargetRow = {
@@ -98,6 +99,9 @@ export function CompetitionDetailPage() {
   const [newTaskName, setNewTaskName] = useState("");
   const [newTaskWeight, setNewTaskWeight] = useState(1);
   const [newTaskType, setNewTaskType] = useState<"addition" | "deduction">("addition");
+  const [newTaskInputType, setNewTaskInputType] = useState<
+    "boolean" | "numeric" | "counter"
+  >("boolean");
   const [attDate, setAttDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [dashRange, setDashRange] = useState(defaultDateRange(7));
   const [leaderboardMode, setLeaderboardMode] = useState<LeaderboardMode>("top");
@@ -122,6 +126,7 @@ export function CompetitionDetailPage() {
           type: (t.type === "deduction" ? "deduction" : "addition") as
             | "addition"
             | "deduction",
+          input_type: t.input_type != null ? String(t.input_type) : undefined,
         })),
       );
       setTargets(
@@ -282,10 +287,12 @@ export function CompetitionDetailPage() {
         name_ar: newTaskName.trim(),
         weight: newTaskWeight,
         type: newTaskType,
+        input_type: newTaskInputType,
       });
       setNewTaskName("");
       setNewTaskWeight(1);
       setNewTaskType("addition");
+      setNewTaskInputType("boolean");
       toast.success("تم إدراج المهمة بنجاح");
       await load();
     } catch (e) {
@@ -872,7 +879,7 @@ export function CompetitionDetailPage() {
                 <CardHeader>
                   <CardTitle style={tajawal}>إضافة مهمة جديدة</CardTitle>
                 </CardHeader>
-                <CardContent className="grid sm:grid-cols-4 gap-3 items-end">
+                <CardContent className="grid sm:grid-cols-5 gap-3 items-end">
                   <div className="sm:col-span-2 space-y-2">
                     <Label style={tajawal}>اسم المهمة</Label>
                     <Input
@@ -897,9 +904,11 @@ export function CompetitionDetailPage() {
                     <Label style={tajawal}>نوع المهمة</Label>
                     <Select
                       value={newTaskType}
-                      onValueChange={(v) =>
-                        setNewTaskType(v as "addition" | "deduction")
-                      }
+                      onValueChange={(v) => {
+                        const type = v as "addition" | "deduction";
+                        setNewTaskType(type);
+                        setNewTaskInputType(defaultInputTypeFromTaskType(type));
+                      }}
                     >
                       <SelectTrigger className={ds.btnRound}>
                         <SelectValue />
@@ -910,9 +919,29 @@ export function CompetitionDetailPage() {
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="space-y-2">
+                    <Label style={tajawal}>نوع الإدخال</Label>
+                    <Select
+                      value={newTaskInputType}
+                      onValueChange={(v) =>
+                        setNewTaskInputType(v as "boolean" | "numeric" | "counter")
+                      }
+                    >
+                      <SelectTrigger className={ds.btnRound}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TASK_INPUT_TYPE_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <Button
                     type="button"
-                    className={`${ds.btnRound} sm:col-span-4`}
+                    className={`${ds.btnRound} sm:col-span-5`}
                     disabled={saving || !newTaskName.trim()}
                     onClick={() => void addTask()}
                     style={tajawal}
@@ -957,6 +986,10 @@ export function CompetitionDetailPage() {
                           <span>{task.name_ar}</span>
                           <span className="text-muted-foreground tabular-nums">
                             وزن {task.weight}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {TASK_INPUT_TYPE_OPTIONS.find((o) => o.value === task.input_type)
+                              ?.label ?? "—"}
                           </span>
                         </div>
                         <Button

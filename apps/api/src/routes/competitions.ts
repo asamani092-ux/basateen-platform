@@ -20,9 +20,12 @@ import {
   normalizeTargetScope,
   queryPreviewStudents,
   countCompetitionDays,
-  seedNewMemorizationDailyTasks,
+  seedMemorizationDailyTasks,
   studentDailyFaces,
   targetHizbCount,
+  hasTaskInputType,
+  competitionTaskSelectSql,
+  parseTaskInputType,
   type CompetitionCategory,
   type MemorizationUnit,
   type StudentTargetInput,
@@ -77,7 +80,6 @@ type CompetitionSchema = {
   updated_at: boolean;
   stage_id: boolean;
   category: boolean;
-  custom_category: boolean;
   target_scope: boolean;
 };
 
@@ -91,7 +93,6 @@ async function competitionSchema(env: Env): Promise<CompetitionSchema> {
     updated_at,
     stage_id,
     category,
-    custom_category,
     target_scope,
   ] = await Promise.all([
     tableHasColumn(env, t, "description"),
@@ -101,7 +102,6 @@ async function competitionSchema(env: Env): Promise<CompetitionSchema> {
     tableHasColumn(env, t, "updated_at"),
     tableHasColumn(env, t, "stage_id"),
     tableHasColumn(env, t, "category"),
-    tableHasColumn(env, t, "custom_category"),
     tableHasColumn(env, t, "target_scope"),
   ]);
   return {
@@ -112,7 +112,6 @@ async function competitionSchema(env: Env): Promise<CompetitionSchema> {
     updated_at,
     stage_id,
     category,
-    custom_category,
     target_scope,
   };
 }
@@ -158,7 +157,6 @@ async function insertCompetitionRow(
     tv_launch_key: string;
     userId: number;
     category?: CompetitionCategory;
-    custom_category?: string;
     target_scope?: TargetScope;
   },
 ) {
@@ -190,11 +188,6 @@ async function insertCompetitionRow(
     cols.push("category");
     placeholders.push("?");
     binds.push(params.category ?? "recitation");
-  }
-  if (schema.custom_category) {
-    cols.push("custom_category");
-    placeholders.push("?");
-    binds.push(params.custom_category ?? "");
   }
   if (schema.target_scope) {
     cols.push("target_scope");
@@ -234,7 +227,6 @@ async function patchCompetitionRow(
     end_date?: string;
     status?: string;
     category?: CompetitionCategory;
-    custom_category?: string;
     target_scope?: TargetScope;
   },
   rulesJson: string,
@@ -261,10 +253,6 @@ async function patchCompetitionRow(
   if (schema.category) {
     sets.push("category = COALESCE(?, category)");
     binds.push(body.category ?? null);
-  }
-  if (schema.custom_category) {
-    sets.push("custom_category = COALESCE(?, custom_category)");
-    binds.push(body.custom_category ?? null);
   }
   if (schema.target_scope) {
     sets.push("target_scope = COALESCE(?, target_scope)");
@@ -323,7 +311,6 @@ function serializeCompetition(
     ...row,
     description: schema.description ? row.description ?? "" : "",
     category: schema.category ? row.category ?? "recitation" : "recitation",
-    custom_category: schema.custom_category ? row.custom_category ?? "" : "",
     target_scope: schema.target_scope
       ? parseTargetScope(String(row.target_scope ?? "{}"))
       : {},
@@ -447,7 +434,6 @@ export async function handleEduCompetitionsRouter(
       start_date?: string;
       end_date?: string;
       category?: CompetitionCategory;
-      custom_category?: string;
       target_scope?: TargetScope;
       targets?: StudentTargetInput[];
       rules?: Record<string, unknown>;
@@ -484,7 +470,6 @@ export async function handleEduCompetitionsRouter(
       tv_launch_key: tvKey,
       userId: auth.userId,
       category: catResult,
-      custom_category: "",
       target_scope: body.target_scope ?? {},
     });
 
@@ -494,15 +479,18 @@ export async function handleEduCompetitionsRouter(
     }
 
     if (
-      catResult === "new_memorization" &&
+      (catResult === "new_memorization" || catResult === "review") &&
       engineTasks &&
       body.targets?.length
     ) {
-      const unit = memorizationUnitFromRules(rules);
+      const unit =
+        catResult === "new_memorization"
+          ? memorizationUnitFromRules(rules)
+          : ("juz" as const);
       const avgTarget =
         body.targets.reduce((s, t) => s + (Number(t.target_amount) || 0), 0) /
         body.targets.length;
-      await seedNewMemorizationDailyTasks(
+      await seedMemorizationDailyTasks(
         env,
         competitionId,
         body.start_date,
@@ -534,8 +522,10 @@ export async function handleEduCompetitionsRouter(
     if (!row) return json({ error: "not_found" }, 404);
 
     if (request.method === "GET") {
+      const hasInputType = await hasTaskInputType(env);
+      const taskCols = competitionTaskSelectSql(hasInputType);
       const tasks = await env.DB.prepare(
-        `SELECT id, name_ar, weight, type, sort_order, created_at
+        `SELECT ${taskCols.replace(", created_at", "")}, created_at
          FROM competition_tasks WHERE competition_id = ?
          ORDER BY sort_order, id`,
       )
@@ -545,7 +535,12 @@ export async function handleEduCompetitionsRouter(
     }
 
     if (request.method === "POST") {
-      let body: { name_ar?: string; weight?: number; type?: string };
+      let body: {
+        name_ar?: string;
+        weight?: number;
+        type?: string;
+        input_type?: string;
+      };
       try {
         body = await request.json();
       } catch {
@@ -553,23 +548,40 @@ export async function handleEduCompetitionsRouter(
       }
       if (!body.name_ar?.trim()) return json({ error: "name_required" }, 400);
       const taskType = body.type === "deduction" ? "deduction" : "addition";
+      const inputType = parseTaskInputType(body.input_type, taskType);
+      const hasInputType = await hasTaskInputType(env);
       const maxSort = await env.DB.prepare(
         `SELECT COALESCE(MAX(sort_order), 0) AS m FROM competition_tasks WHERE competition_id = ?`,
       )
         .bind(competitionId)
         .first<{ m: number }>();
-      const ins = await env.DB.prepare(
-        `INSERT INTO competition_tasks (competition_id, name_ar, weight, type, sort_order)
-         VALUES (?, ?, ?, ?, ?)`,
-      )
-        .bind(
-          competitionId,
-          body.name_ar.trim(),
-          Number(body.weight ?? 1) || 1,
-          taskType,
-          Number(maxSort?.m ?? 0) + 1,
-        )
-        .run();
+      const ins = hasInputType
+        ? await env.DB.prepare(
+            `INSERT INTO competition_tasks
+             (competition_id, name_ar, weight, type, input_type, sort_order)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+          )
+            .bind(
+              competitionId,
+              body.name_ar.trim(),
+              Number(body.weight ?? 1) || 1,
+              taskType,
+              inputType,
+              Number(maxSort?.m ?? 0) + 1,
+            )
+            .run()
+        : await env.DB.prepare(
+            `INSERT INTO competition_tasks (competition_id, name_ar, weight, type, sort_order)
+             VALUES (?, ?, ?, ?, ?)`,
+          )
+            .bind(
+              competitionId,
+              body.name_ar.trim(),
+              Number(body.weight ?? 1) || 1,
+              taskType,
+              Number(maxSort?.m ?? 0) + 1,
+            )
+            .run();
       return json({ ok: true, id: ins.meta.last_row_id });
     }
   }
@@ -953,19 +965,27 @@ export async function handleEduCompetitionsRouter(
         engineTargets
           ? loadCompetitionTargetRows(env, id)
           : Promise.resolve([]),
-        env.DB.prepare(
-          `SELECT id, name_ar, weight, type, sort_order
-           FROM competition_tasks WHERE competition_id = ?
-           ORDER BY sort_order, id`,
-        )
-          .bind(id)
-          .all<{
-            id: number;
-            name_ar: string;
-            weight: number;
-            type: string;
-            sort_order: number;
-          }>(),
+        (async () => {
+          const hasInputType = await hasTaskInputType(env);
+          const taskCols = competitionTaskSelectSql(hasInputType).replace(
+            ", created_at",
+            "",
+          );
+          return env.DB.prepare(
+            `SELECT ${taskCols}
+             FROM competition_tasks WHERE competition_id = ?
+             ORDER BY sort_order, id`,
+          )
+            .bind(id)
+            .all<{
+              id: number;
+              name_ar: string;
+              weight: number;
+              type: string;
+              input_type?: string;
+              sort_order: number;
+            }>();
+        })(),
       ]);
 
       const scores = new Map<string, number>();
@@ -1023,8 +1043,12 @@ export async function handleEduCompetitionsRouter(
             target_hizb:
               category === "recitation" ? targetHizbCount(targetAmount) : undefined,
             daily_faces:
-              category === "new_memorization"
-                ? studentDailyFaces(memorizationUnit, targetAmount, competitionDays)
+              category === "new_memorization" || category === "review"
+                ? studentDailyFaces(
+                    category === "new_memorization" ? memorizationUnit : "juz",
+                    targetAmount,
+                    competitionDays,
+                  )
                 : undefined,
           };
         }),

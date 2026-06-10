@@ -20,6 +20,10 @@ export type CompetitionCategory =
 
 export type MemorizationUnit = "juz" | "hizb";
 
+export type TaskInputType = "boolean" | "numeric" | "counter";
+
+export type TaskType = "addition" | "deduction";
+
 export type TargetScope = {
   circle_ids?: number[];
   track_ids?: number[];
@@ -98,6 +102,26 @@ export function targetHizbCount(targetJuz: number): number {
 
 export function parseMemorizationUnit(raw: unknown): MemorizationUnit {
   return raw === "hizb" ? "hizb" : "juz";
+}
+
+/** O(1) — maps legacy task type to default input widget. */
+export function defaultInputTypeFromTaskType(type: TaskType): TaskInputType {
+  return type === "deduction" ? "counter" : "boolean";
+}
+
+export function parseTaskInputType(raw: unknown, fallbackType: TaskType): TaskInputType {
+  if (raw === "boolean" || raw === "numeric" || raw === "counter") return raw;
+  return defaultInputTypeFromTaskType(fallbackType);
+}
+
+export async function hasTaskInputType(env: Env): Promise<boolean> {
+  return tableHasColumn(env, "competition_tasks", "input_type");
+}
+
+export function competitionTaskSelectSql(hasInputType: boolean): string {
+  return hasInputType
+    ? "id, name_ar, weight, type, input_type, sort_order, created_at"
+    : "id, name_ar, weight, type, sort_order, created_at";
 }
 
 export function studentDailyFaces(
@@ -509,9 +533,11 @@ export async function loadCompetitionDetailBundle(
         .all()
     : Promise.resolve({ results: [] });
 
+  const hasInputType = flags.engineTasks ? await hasTaskInputType(env) : false;
+  const taskCols = competitionTaskSelectSql(hasInputType);
   const tasksPromise = flags.engineTasks
     ? env.DB.prepare(
-        `SELECT id, competition_id, name_ar, weight, type, sort_order, created_at
+        `SELECT competition_id, ${taskCols}
          FROM competition_tasks
          WHERE competition_id = ?
          ORDER BY sort_order, id`,
@@ -697,7 +723,7 @@ export async function deleteStudentTarget(
  * O(D) — seed one addition task per competition day for new_memorization.
  * Time O(D); Space O(D) batch statements.
  */
-export async function seedNewMemorizationDailyTasks(
+export async function seedMemorizationDailyTasks(
   env: Env,
   competitionId: number,
   startDate: string,
@@ -706,6 +732,7 @@ export async function seedNewMemorizationDailyTasks(
   representativeTarget: number,
 ): Promise<void> {
   if (!(await hasEngineTasks(env))) return;
+  const hasInputType = await hasTaskInputType(env);
   const days = countCompetitionDays(startDate, endDate);
   const facesPerDay = dailyFaces(
     totalFacesFromUnit(unit, representativeTarget),
@@ -713,20 +740,38 @@ export async function seedNewMemorizationDailyTasks(
   );
   const stmts: ReturnType<typeof env.DB.prepare>[] = [];
   for (let d = 1; d <= days; d++) {
-    stmts.push(
-      env.DB.prepare(
-        `INSERT INTO competition_tasks (competition_id, name_ar, weight, type, sort_order)
-         VALUES (?, ?, ?, 'addition', ?)`,
-      ).bind(
-        competitionId,
-        `اليوم ${d} — ${facesPerDay} وجه`,
-        facesPerDay,
-        d,
-      ),
-    );
+    if (hasInputType) {
+      stmts.push(
+        env.DB.prepare(
+          `INSERT INTO competition_tasks
+           (competition_id, name_ar, weight, type, input_type, sort_order)
+           VALUES (?, ?, ?, 'addition', 'numeric', ?)`,
+        ).bind(
+          competitionId,
+          `اليوم ${d} — ${facesPerDay} وجه`,
+          facesPerDay,
+          d,
+        ),
+      );
+    } else {
+      stmts.push(
+        env.DB.prepare(
+          `INSERT INTO competition_tasks (competition_id, name_ar, weight, type, sort_order)
+           VALUES (?, ?, ?, 'addition', ?)`,
+        ).bind(
+          competitionId,
+          `اليوم ${d} — ${facesPerDay} وجه`,
+          facesPerDay,
+          d,
+        ),
+      );
+    }
   }
   if (stmts.length) await env.DB.batch(stmts);
 }
+
+/** @deprecated use seedMemorizationDailyTasks */
+export const seedNewMemorizationDailyTasks = seedMemorizationDailyTasks;
 
 /** O(T) — single JOIN for targets + student names (feeds dashboard KPIs) */
 export async function loadCompetitionTargetRows(

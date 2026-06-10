@@ -5,6 +5,10 @@ export type CompetitionCategory =
 
 export type MemorizationUnit = "juz" | "hizb";
 
+export type TaskInputType = "boolean" | "numeric" | "counter";
+
+export type TaskType = "addition" | "deduction";
+
 export type TargetScope = {
   circle_ids: number[];
   track_ids: number[];
@@ -63,6 +67,30 @@ export function isRecitationCategory(category: string): boolean {
 export function isReviewCategory(category: string): boolean {
   return category === "review";
 }
+
+export function isMemorizationTrackingCategory(category: string): boolean {
+  return category === "new_memorization" || category === "review";
+}
+
+/** O(1) — maps legacy task type to default input widget. */
+export function defaultInputTypeFromTaskType(type: TaskType): TaskInputType {
+  return type === "deduction" ? "counter" : "boolean";
+}
+
+export function resolveTaskInputType(task: {
+  type: string;
+  input_type?: string | null;
+}): TaskInputType {
+  const raw = task.input_type;
+  if (raw === "boolean" || raw === "numeric" || raw === "counter") return raw;
+  return defaultInputTypeFromTaskType(task.type === "deduction" ? "deduction" : "addition");
+}
+
+export const TASK_INPUT_TYPE_OPTIONS: Array<{ value: TaskInputType; label: string }> = [
+  { value: "boolean", label: "نعم/لا (checkbox)" },
+  { value: "numeric", label: "رقم (إدخال)" },
+  { value: "counter", label: "عداد (+/−)" },
+];
 
 /** O(1) — inclusive calendar days between start and end (YYYY-MM-DD). */
 export function countCompetitionDays(startDate: string, endDate: string): number {

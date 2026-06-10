@@ -533,7 +533,12 @@ export const api = {
     ),
   competitionsAddTask: (
     id: number,
-    body: { name_ar: string; weight: number; type: "addition" | "deduction" },
+    body: {
+      name_ar: string;
+      weight: number;
+      type: "addition" | "deduction";
+      input_type?: "boolean" | "numeric" | "counter";
+    },
   ) =>
     competitionRequest<{ ok: boolean; id: number }>(`/api/edu-dept/competitions/${id}/tasks`, {
       method: "POST",

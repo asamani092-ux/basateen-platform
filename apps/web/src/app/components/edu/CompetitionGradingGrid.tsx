@@ -12,23 +12,19 @@ import {
   TableRow,
 } from "../ui/table";
 import { HizbSessionGrid } from "./HizbSessionGrid";
+import { TaskInputCell, type TaskInputCol } from "./TaskInputCell";
 import { api } from "../../lib/api-client";
 import { matchesArabicName } from "../../lib/attendance-search";
 import {
   gradingScoreKey,
+  isMemorizationTrackingCategory,
   isRecitationCategory,
   isReviewCategory,
+  resolveTaskInputType,
   targetHizbCount,
   type CompetitionCategory,
 } from "../../lib/competition-engine";
 import { ds, tajawal } from "../../lib/design-system";
-
-type TaskCol = {
-  id: number;
-  name_ar: string;
-  weight: number;
-  type: "addition" | "deduction";
-};
 
 type StudentRow = {
   student_id: number;
@@ -44,72 +40,17 @@ type Props = {
   competitionId: number;
 };
 
-function TaskScoreCell({
-  task,
-  value,
-  onChange,
-}: {
-  task: TaskCol;
-  value: number;
-  onChange: (next: number) => void;
-}) {
-  if (task.type === "addition") {
-    const checked = value > 0;
-    return (
-      <div className="flex flex-col items-center gap-1">
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={(e) => onChange(e.target.checked ? 1 : 0)}
-          className="size-5 rounded border-border cursor-pointer"
-          aria-label={task.name_ar}
-        />
-        {checked && (
-          <span className="text-[10px] text-emerald-600 tabular-nums">+{task.weight}</span>
-        )}
-      </div>
-    );
-  }
-
-  const count = Math.max(0, Math.round(value));
-  const totalPenalty = count * task.weight;
-
-  return (
-    <div className="flex flex-col items-center gap-1">
-      <div className="flex items-center justify-center gap-1">
-        <Button
-          type="button"
-          size="icon"
-          variant="outline"
-          className="h-7 w-7 rounded-full"
-          disabled={count <= 0}
-          onClick={() => onChange(count - 1)}
-          aria-label="إنقاص"
-        >
-          <Minus className="w-3 h-3" />
-        </Button>
-        <span className="w-6 text-center text-sm font-semibold tabular-nums">{count}</span>
-        <Button
-          type="button"
-          size="icon"
-          className="h-7 w-7 rounded-full"
-          onClick={() => onChange(count + 1)}
-          aria-label="زيادة"
-        >
-          <Plus className="w-3 h-3" />
-        </Button>
-      </div>
-      {count > 0 && (
-        <span className="text-[10px] text-destructive tabular-nums">−{totalPenalty}</span>
-      )}
-    </div>
-  );
+function normalizePoints(task: TaskInputCol, raw: number): number {
+  const inputType = resolveTaskInputType(task);
+  if (inputType === "boolean") return raw > 0 ? 1 : 0;
+  if (inputType === "numeric") return Math.max(0, Number(raw) || 0);
+  return Math.max(0, Math.round(raw));
 }
 
 export function CompetitionGradingGrid({ competitionId }: Props) {
   const [logDate, setLogDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [category, setCategory] = useState<CompetitionCategory>("recitation");
-  const [tasks, setTasks] = useState<TaskCol[]>([]);
+  const [tasks, setTasks] = useState<TaskInputCol[]>([]);
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [targets, setTargets] = useState<Record<number, number>>({});
@@ -133,6 +74,7 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
           name_ar: String(t.name_ar),
           weight: Number(t.weight ?? 1),
           type: t.type === "deduction" ? "deduction" : "addition",
+          input_type: t.input_type != null ? String(t.input_type) : undefined,
         })),
       );
       setStudents(
@@ -207,8 +149,7 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
             student_id: recitationStudentId,
             task_id: task.id,
             hizb_index: activeHizb,
-            points:
-              task.type === "addition" ? (raw > 0 ? 1 : 0) : Math.max(0, Math.round(raw)),
+            points: normalizePoints(task, raw),
           });
         }
       } else {
@@ -219,8 +160,7 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
             records.push({
               student_id: student.student_id,
               task_id: task.id,
-              points:
-                task.type === "addition" ? (raw > 0 ? 1 : 0) : Math.max(0, Math.round(raw)),
+              points: normalizePoints(task, raw),
             });
           }
         }
@@ -357,20 +297,15 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
                         activeHizb,
                       );
                       const raw = Number(scores[key] ?? 0);
-                      const displayValue =
-                        task.type === "addition"
-                          ? raw > 0
-                            ? 1
-                            : 0
-                          : Math.max(0, Math.round(raw));
                       return (
                         <div key={task.id} className="text-center">
                           <p className="text-xs mb-2" style={tajawal}>
                             {task.name_ar}
                           </p>
-                          <TaskScoreCell
+                          <TaskInputCell
                             task={task}
-                            value={displayValue}
+                            value={raw}
+                            compact
                             onChange={(v) =>
                               patchScore(recitationStudent.student_id, task.id, v, activeHizb)
                             }
@@ -395,7 +330,7 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
                 <TableHead className={`${ds.table.head} text-center`} style={tajawal}>
                   {isReviewCategory(category) ? "أجزاء المراجعة" : "المستهدف"}
                 </TableHead>
-                {category === "new_memorization" && (
+                {isMemorizationTrackingCategory(category) && (
                   <TableHead className={`${ds.table.head} text-center`} style={tajawal}>
                     وجوه/يوم
                   </TableHead>
@@ -433,7 +368,7 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
                       className={`${ds.btnRound} h-8 w-20 mx-auto text-center text-sm`}
                     />
                   </TableCell>
-                  {category === "new_memorization" && (
+                  {isMemorizationTrackingCategory(category) && (
                     <TableCell className={`${ds.table.cell} text-center tabular-nums`}>
                       {student.daily_faces ?? "—"}
                     </TableCell>
@@ -441,13 +376,12 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
                   {tasks.map((task) => {
                     const key = gradingScoreKey(student.student_id, task.id);
                     const raw = Number(scores[key] ?? 0);
-                    const displayValue =
-                      task.type === "addition" ? (raw > 0 ? 1 : 0) : Math.max(0, Math.round(raw));
                     return (
                       <TableCell key={task.id} className={`${ds.table.cell} text-center`}>
-                        <TaskScoreCell
+                        <TaskInputCell
                           task={task}
-                          value={displayValue}
+                          value={raw}
+                          compact
                           onChange={(v) => patchScore(student.student_id, task.id, v)}
                         />
                       </TableCell>

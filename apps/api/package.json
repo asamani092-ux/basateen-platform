@@ -106,6 +106,7 @@
     "db:remote:048": "node scripts/migrate-048-remote.mjs",
     "db:remote:049": "node scripts/migrate-049-remote.mjs",
     "db:remote:050": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/050_competition_attendance_status.sql",
+    "db:remote:051": "node scripts/migrate-051-remote.mjs",
     "db:local:048": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/048_competition_engine.sql",
     "db:remote:036:tracks": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/036_tracks_consolidate_single_table.sql",
     "db:remote:034:wipe": "npx wrangler d1 execute basateen --remote --file=../../packages/database/schema/034_admin_data_wipe.sql",

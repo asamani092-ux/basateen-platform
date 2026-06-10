@@ -7,8 +7,10 @@ import {
 } from "../lib/db-schema";
 import {
   countCompetitionDays,
+  competitionTaskSelectSql,
   hasEngineTargets,
   hasEngineTasks,
+  hasTaskInputType,
   parseMemorizationUnit,
   studentDailyFaces,
   targetHizbCount,
@@ -87,7 +89,6 @@ async function resolveYomHimmaLiveSession(env: Env, token: string) {
 
 async function resolveCompetitionLiveSession(env: Env, token: string) {
   const hasCategory = await tableHasColumn(env, "competitions", "category");
-  const hasCustomCategory = await tableHasColumn(env, "competitions", "custom_category");
   const hasAccessPinCol = await tableHasColumn(env, "competitions", "access_pin");
   const hasRulesJson = await tableHasColumn(env, "competitions", "rules_json");
   const hasTelemetry = await tableHasColumn(env, "competitions", "telemetry_type");
@@ -107,7 +108,6 @@ async function resolveCompetitionLiveSession(env: Env, token: string) {
   if (hasTelemetry) cols.push("telemetry_type");
   if (hasStageId) cols.push("stage_id");
   if (hasCategory) cols.push("category");
-  if (hasCustomCategory) cols.push("custom_category");
   if (hasAccessPinCol) cols.push("access_pin");
 
   const comp = await env.DB.prepare(
@@ -139,7 +139,6 @@ async function resolveCompetitionLiveSession(env: Env, token: string) {
     tv_key: String(comp.tv_launch_key ?? ""),
     stage_id: hasStageId ? (comp.stage_id as number | null) : null,
     category: hasCategory ? String(comp.category ?? "recitation") : "recitation",
-    custom_category: hasCustomCategory ? String(comp.custom_category ?? "") : "",
   };
 }
 
@@ -266,8 +265,12 @@ export async function handleLiveLogRouter(
         target_hizb:
           compCategory === "recitation" ? targetHizbCount(targetAmount) : undefined,
         daily_faces:
-          compCategory === "new_memorization"
-            ? studentDailyFaces(memorizationUnit, targetAmount, competitionDays)
+          compCategory === "new_memorization" || compCategory === "review"
+            ? studentDailyFaces(
+                compCategory === "new_memorization" ? memorizationUnit : "juz",
+                targetAmount,
+                competitionDays,
+              )
             : undefined,
         memorization_unit:
           compCategory === "new_memorization" ? memorizationUnit : undefined,
@@ -275,13 +278,20 @@ export async function handleLiveLogRouter(
     });
 
     const tasks = engineTasks
-      ? await env.DB.prepare(
-          `SELECT id, name_ar, weight, type, sort_order
-           FROM competition_tasks WHERE competition_id = ?
-           ORDER BY sort_order, id`,
-        )
-          .bind(session.id)
-          .all()
+      ? await (async () => {
+          const hasInputType = await hasTaskInputType(env);
+          const taskCols = competitionTaskSelectSql(hasInputType).replace(
+            ", created_at",
+            "",
+          );
+          return env.DB.prepare(
+            `SELECT ${taskCols}
+             FROM competition_tasks WHERE competition_id = ?
+             ORDER BY sort_order, id`,
+          )
+            .bind(session.id)
+            .all();
+        })()
       : { results: [] };
 
     const hasMetricsJson = await tableHasColumn(env, "competition_logs", "metrics_json");
@@ -308,10 +318,7 @@ export async function handleLiveLogRouter(
       logs = { results: [] };
     }
 
-    const sess = session as {
-      category?: string;
-      custom_category?: string;
-    };
+    const sess = session as { category?: string };
 
     return json({
       kind: session.kind,
@@ -320,7 +327,6 @@ export async function handleLiveLogRouter(
         name_ar: session.name_ar,
         telemetry_type: session.telemetry_type,
         category: sess.category ?? compCategory,
-        custom_category: sess.custom_category ?? "",
         start_date: compRow?.start_date ?? session.date,
         end_date: compRow?.end_date ?? session.date,
         memorization_unit: memorizationUnit,

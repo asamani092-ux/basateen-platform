@@ -103,10 +103,24 @@ function PlacementDestinationRow({
   );
 }
 
+function formatPlacementLabel(
+  circleName: string | null | undefined,
+  trackName: string | null | undefined,
+) {
+  const parts: string[] = [];
+  if (circleName?.trim()) parts.push(circleName.trim());
+  if (trackName?.trim() && trackName.trim() !== circleName?.trim()) {
+    parts.push(trackName.trim());
+  }
+  return parts.length > 0 ? parts.join(" · ") : "—";
+}
+
 type HistoryRow = {
   id: number;
   student_name: string | null;
   status: "success" | "failed";
+  old_circle_name: string | null;
+  old_track_name: string | null;
   new_circle_name: string | null;
   new_track_name: string | null;
   reason: string | null;
@@ -205,8 +219,10 @@ export function EduTransfersPage() {
         setCurrentPlacement(
           res.current
             ? {
-                circle_name: res.current.circle_name,
-                track_name: res.current.track_name,
+                circle_name: res.current.circle_name?.trim()
+                  ? res.current.circle_name
+                  : "—",
+                track_name: res.current.track_name?.trim() ?? null,
               }
             : { circle_name: "غير موزّع حالياً", track_name: null },
         );
@@ -657,7 +673,10 @@ export function EduTransfersPage() {
                         الطالب
                       </TableHead>
                       <TableHead className={ds.table.head} style={tajawal}>
-                        الوجهة
+                        من (السابق)
+                      </TableHead>
+                      <TableHead className={ds.table.head} style={tajawal}>
+                        إلى (الجديد)
                       </TableHead>
                       <TableHead className={ds.table.head} style={tajawal}>
                         الحالة
@@ -677,8 +696,10 @@ export function EduTransfersPage() {
                           {h.student_name ?? "—"}
                         </TableCell>
                         <TableCell className={ds.table.cell} style={tajawal}>
-                          {[h.new_circle_name, h.new_track_name].filter(Boolean).join(" · ") ||
-                            "—"}
+                          {formatPlacementLabel(h.old_circle_name, h.old_track_name)}
+                        </TableCell>
+                        <TableCell className={ds.table.cell} style={tajawal}>
+                          {formatPlacementLabel(h.new_circle_name, h.new_track_name)}
                         </TableCell>
                         <TableCell className={ds.table.cell} style={tajawal}>
                           <Badge

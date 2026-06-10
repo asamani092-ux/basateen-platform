@@ -78,23 +78,68 @@ export async function handleStudentDetail(
   if (!student) return json({ error: "student_not_found" }, 404);
 
     const hasHistory = await hasTable(env, "student_circle_history");
-    const hasLegacyHistory = hasHistory && (await tableHasColumn(env, "student_circle_history", "circle_id"));
-    const activePlacement = hasLegacyHistory ? await activePlacementSql(env, "h") : "1=0";
-    const current = hasLegacyHistory
-      ? await env.DB.prepare(
+    const hasLegacyHistory =
+      hasHistory && (await tableHasColumn(env, "student_circle_history", "circle_id"));
+    const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
+    const hasCurrentTrack = await tableHasColumn(env, "students", "current_track_id");
+
+    let current: PlacementRow | null = null;
+
+    if (hasCurrentCircle || hasCurrentTrack) {
+      const placement = await buildStudentPlacementSql(env);
+      const row = await env.DB.prepare(
+        `SELECT ${placement.circleRef} AS circle_id,
+                c.name_ar AS circle_name,
+                ${placement.trackRef} AS track_id,
+                t.name_ar AS track_name
+         FROM students s
+         ${placement.circleJoin}
+         ${placement.trackJoin}
+         WHERE s.id = ? AND s.complex_id = ?`,
+      )
+        .bind(studentId, auth.complexId)
+        .first<{
+          circle_id: number | null;
+          circle_name: string | null;
+          track_id: number | null;
+          track_name: string | null;
+        }>();
+
+      if (
+        row &&
+        (row.circle_id != null ||
+          row.track_id != null ||
+          row.circle_name ||
+          row.track_name)
+      ) {
+        current = {
+          history_id: 0,
+          circle_id: row.circle_id ?? 0,
+          circle_name: row.circle_name ?? "",
+          track_id: row.track_id,
+          track_name: row.track_name,
+          from_at: "",
+          to_at: null,
+        };
+      }
+    }
+
+    if (!current && hasLegacyHistory) {
+      const activePlacement = await activePlacementSql(env, "h");
+      current = await env.DB.prepare(
         `SELECT h.id AS history_id, h.circle_id, c.name_ar AS circle_name,
-            h.track_id, t.name_ar AS track_name, h.from_at, h.to_at
-     FROM student_circle_history h
-     JOIN circles c ON c.id = h.circle_id
-     LEFT JOIN tracks t ON t.id = h.track_id
-     WHERE h.student_id = ? AND ${activePlacement}
-     ORDER BY h.id DESC LIMIT 1`,
+                h.track_id, t.name_ar AS track_name, h.from_at, h.to_at
+         FROM student_circle_history h
+         JOIN circles c ON c.id = h.circle_id
+         LEFT JOIN tracks t ON t.id = h.track_id
+         WHERE h.student_id = ? AND ${activePlacement}
+         ORDER BY h.id DESC LIMIT 1`,
       )
         .bind(studentId)
-        .first<PlacementRow>()
-      : null;
+        .first<PlacementRow>();
+    }
 
-  if (current && auth.role === "edu_supervisor") {
+  if (current?.circle_id && auth.role === "edu_supervisor") {
     const ok = await canManageCircle(env, auth, current.circle_id);
     if (!ok) return json({ error: "forbidden" }, 403);
   }

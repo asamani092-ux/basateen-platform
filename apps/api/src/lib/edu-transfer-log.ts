@@ -92,6 +92,29 @@ export async function createEduNotification(
   return Number(res.meta.last_row_id) || null;
 }
 
+/** O(1)–O(2) — أسماء الحلقة/المسار من المعرّفات */
+export async function resolvePlacementLabels(
+  env: Env,
+  circleId: number | null | undefined,
+  trackId: number | null | undefined,
+): Promise<{ circle_name: string | null; track_name: string | null }> {
+  let circle_name: string | null = null;
+  let track_name: string | null = null;
+  if (circleId != null && circleId > 0) {
+    const row = await env.DB.prepare(`SELECT name_ar FROM circles WHERE id = ?`)
+      .bind(circleId)
+      .first<{ name_ar: string }>();
+    circle_name = row?.name_ar ?? null;
+  }
+  if (trackId != null && trackId > 0) {
+    const row = await env.DB.prepare(`SELECT name_ar FROM tracks WHERE id = ?`)
+      .bind(trackId)
+      .first<{ name_ar: string }>();
+    track_name = row?.name_ar ?? null;
+  }
+  return { circle_name, track_name };
+}
+
 export async function circleTeacherUserId(
   env: Env,
   circleId: number | null | undefined,

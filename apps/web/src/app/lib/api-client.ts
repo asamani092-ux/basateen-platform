@@ -1917,6 +1917,8 @@ export const api = {
         student_name: string | null;
         status: "success" | "failed";
         source: string;
+        old_circle_name: string | null;
+        old_track_name: string | null;
         new_circle_name: string | null;
         new_track_name: string | null;
         reason: string | null;

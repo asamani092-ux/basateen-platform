@@ -19,6 +19,7 @@ import {
   createEduNotification,
   logTransferEvent,
   notifyTransferRecipients,
+  resolvePlacementLabels,
 } from "../lib/edu-transfer-log";
 import { fetchStudentForAdminReport } from "../lib/admin-student-report";
 import { resolveAttendanceTableName } from "../lib/student-attendance-db";
@@ -1089,6 +1090,11 @@ export async function handleEduDeptCoreRouter(
           .bind(trackId, auth.complexId)
           .first<{ id: number; name_ar: string }>();
         if (!targetTrack) return json({ error: "track_not_found" }, 404);
+        const reqOldLabels = await resolvePlacementLabels(
+          env,
+          row.current_circle_id,
+          row.current_track_id,
+        );
         try {
           await applyStudentPlacement(
             env,
@@ -1107,6 +1113,7 @@ export async function handleEduDeptCoreRouter(
             newCircleId: null,
             oldTrackId: row.current_track_id,
             newTrackId: trackId,
+            oldCircleName: reqOldLabels.circle_name,
             newCircleName: null,
             newTrackName: targetTrack.name_ar,
             reason: row.notes,
@@ -1174,6 +1181,12 @@ export async function handleEduDeptCoreRouter(
         newCircleId,
         auth.complexId,
       );
+      const reqOldLabels = await resolvePlacementLabels(
+        env,
+        row.current_circle_id,
+        row.current_track_id,
+      );
+      const reqNewLabels = await resolvePlacementLabels(env, newCircleId, trackId);
       try {
         await transferStudentCircle(env, {
           studentId: row.student_id,
@@ -1194,8 +1207,9 @@ export async function handleEduDeptCoreRouter(
           newCircleId,
           oldTrackId: row.current_track_id,
           newTrackId: trackId,
-          newCircleName: newCircle.name_ar,
-          newTrackName: newCircle.track_name,
+          oldCircleName: reqOldLabels.circle_name,
+          newCircleName: reqNewLabels.circle_name ?? newCircle.name_ar,
+          newTrackName: reqNewLabels.track_name ?? newCircle.track_name,
           reason: row.notes,
           initiatedByUserId: row.teacher_user_id,
           resolvedByUserId: auth.userId,
@@ -1325,6 +1339,12 @@ export async function handleEduDeptCoreRouter(
         return json({ error: "already_in_track" }, 409);
       }
 
+      const oldLabels = await resolvePlacementLabels(
+        env,
+        current?.current_circle_id,
+        current?.current_track_id,
+      );
+
       try {
         await applyStudentPlacement(
           env,
@@ -1342,6 +1362,7 @@ export async function handleEduDeptCoreRouter(
           newCircleId: null,
           oldTrackId: current?.current_track_id,
           newTrackId: trackId,
+          oldCircleName: oldLabels.circle_name,
           newCircleName: null,
           newTrackName: targetTrack.name_ar,
           reason: note,
@@ -1423,6 +1444,13 @@ export async function handleEduDeptCoreRouter(
       explicitTrack != null &&
       explicitTrack !== current?.current_track_id;
 
+    const oldLabels = await resolvePlacementLabels(
+      env,
+      current?.current_circle_id,
+      current?.current_track_id,
+    );
+    const newLabels = await resolvePlacementLabels(env, circleId, trackId);
+
     try {
       await transferStudentPlacement(env, {
         studentId,
@@ -1443,8 +1471,9 @@ export async function handleEduDeptCoreRouter(
         newCircleId: circleId,
         oldTrackId: current?.current_track_id,
         newTrackId: trackId,
-        newCircleName: newCircle?.name_ar,
-        newTrackName: newCircle?.track_name,
+        oldCircleName: oldLabels.circle_name,
+        newCircleName: newLabels.circle_name ?? newCircle?.name_ar,
+        newTrackName: newLabels.track_name ?? newCircle?.track_name,
         reason: note,
         resolvedByUserId: auth.userId,
       });
@@ -1801,12 +1830,14 @@ export async function handleEduDeptCoreRouter(
           binds.push(trackFilter);
         }
       }
+      const trackNameFilter = track.joinSql ? "t.name_ar" : "NULL";
       if (q) {
-        sql += ` AND (c.name_ar LIKE ? OR ${track.trackNameCol} LIKE ?)`;
-        binds.push(`%${q}%`, `%${q}%`);
         if (hasTeacher) {
-          sql += ` OR u.full_name_ar LIKE ?`;
-          binds.push(`%${q}%`);
+          sql += ` AND (c.name_ar LIKE ? OR ${trackNameFilter} LIKE ? OR u.full_name_ar LIKE ?)`;
+          binds.push(`%${q}%`, `%${q}%`, `%${q}%`);
+        } else {
+          sql += ` AND (c.name_ar LIKE ? OR ${trackNameFilter} LIKE ?)`;
+          binds.push(`%${q}%`, `%${q}%`);
         }
       }
       sql += ` ORDER BY c.name_ar LIMIT 300`;
@@ -1890,13 +1921,30 @@ export async function handleEduDeptCoreRouter(
     }
     if (!(await hasTable(env, "edu_transfer_events"))) return json({ items: [] });
     const q = url.searchParams.get("q")?.trim() ?? "";
-    let sql = `SELECT * FROM edu_transfer_events WHERE complex_id = ?`;
+    let sql = `
+      SELECT
+        e.id,
+        e.student_name,
+        e.status,
+        e.reason,
+        e.error_message,
+        e.created_at,
+        COALESCE(e.old_circle_name, oc.name_ar) AS old_circle_name,
+        ot.name_ar AS old_track_name,
+        COALESCE(e.new_circle_name, nc.name_ar) AS new_circle_name,
+        COALESCE(e.new_track_name, nt.name_ar) AS new_track_name
+      FROM edu_transfer_events e
+      LEFT JOIN circles oc ON oc.id = e.old_circle_id
+      LEFT JOIN tracks ot ON ot.id = e.old_track_id
+      LEFT JOIN circles nc ON nc.id = e.new_circle_id
+      LEFT JOIN tracks nt ON nt.id = e.new_track_id
+      WHERE e.complex_id = ?`;
     const binds: (string | number)[] = [auth.complexId];
     if (q) {
-      sql += ` AND (student_name LIKE ? OR reason LIKE ? OR error_message LIKE ?)`;
+      sql += ` AND (e.student_name LIKE ? OR e.reason LIKE ? OR e.error_message LIKE ?)`;
       binds.push(`%${q}%`, `%${q}%`, `%${q}%`);
     }
-    sql += ` ORDER BY created_at DESC LIMIT 200`;
+    sql += ` ORDER BY e.created_at DESC LIMIT 200`;
     const items = await env.DB.prepare(sql).bind(...binds).all();
     return json({ items: items.results ?? [] });
   }

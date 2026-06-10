@@ -15,10 +15,16 @@ import {
   loadCompetitionFilterOptions,
   loadCompetitionTargetRows,
   parseMemorizationJuz,
+  parseMemorizationUnit,
   parseTargetScope,
   normalizeTargetScope,
   queryPreviewStudents,
+  countCompetitionDays,
+  seedNewMemorizationDailyTasks,
+  studentDailyFaces,
+  targetHizbCount,
   type CompetitionCategory,
+  type MemorizationUnit,
   type StudentTargetInput,
   type TargetScope,
   upsertStudentTargets,
@@ -61,7 +67,6 @@ const VALID_CATEGORIES: CompetitionCategory[] = [
   "recitation",
   "review",
   "new_memorization",
-  "other",
 ];
 
 type CompetitionSchema = {
@@ -128,16 +133,16 @@ function competitionsScopeClause(
 
 function validateCategoryBody(
   category: string | undefined,
-  customCategory: string | undefined,
 ): CompetitionCategory | Response {
   const cat = (category ?? "recitation") as CompetitionCategory;
   if (!VALID_CATEGORIES.includes(cat)) {
     return json({ error: "invalid_category" }, 400);
   }
-  if (cat === "other" && !customCategory?.trim()) {
-    return json({ error: "custom_category_required" }, 400);
-  }
   return cat;
+}
+
+function memorizationUnitFromRules(rules: Record<string, unknown>): MemorizationUnit {
+  return parseMemorizationUnit(rules.memorization_unit);
 }
 
 async function insertCompetitionRow(
@@ -457,7 +462,7 @@ export async function handleEduCompetitionsRouter(
       return json({ error: "name_and_dates_required" }, 400);
     }
 
-    const catResult = validateCategoryBody(body.category, body.custom_category);
+    const catResult = validateCategoryBody(body.category);
     if (catResult instanceof Response) return catResult;
 
     if (engineTargets && (!body.targets?.length)) {
@@ -466,6 +471,9 @@ export async function handleEduCompetitionsRouter(
 
     const tvKey = randomKey();
     const rules = { ...defaultRules(), ...(body.rules ?? {}) };
+    if (catResult === "new_memorization" && body.rules?.memorization_unit) {
+      rules.memorization_unit = parseMemorizationUnit(body.rules.memorization_unit);
+    }
     const ins = await insertCompetitionRow(env, schema, {
       complexId: auth.complexId,
       name_ar: body.name_ar.trim(),
@@ -476,13 +484,32 @@ export async function handleEduCompetitionsRouter(
       tv_launch_key: tvKey,
       userId: auth.userId,
       category: catResult,
-      custom_category: body.custom_category?.trim(),
+      custom_category: "",
       target_scope: body.target_scope ?? {},
     });
 
     const competitionId = ins.meta.last_row_id as number;
     if (engineTargets && body.targets?.length) {
       await upsertStudentTargets(env, competitionId, body.targets);
+    }
+
+    if (
+      catResult === "new_memorization" &&
+      engineTasks &&
+      body.targets?.length
+    ) {
+      const unit = memorizationUnitFromRules(rules);
+      const avgTarget =
+        body.targets.reduce((s, t) => s + (Number(t.target_amount) || 0), 0) /
+        body.targets.length;
+      await seedNewMemorizationDailyTasks(
+        env,
+        competitionId,
+        body.start_date,
+        body.end_date,
+        unit,
+        avgTarget || 1,
+      );
     }
 
     return json({ ok: true, id: competitionId, tv_launch_key: tvKey });
@@ -655,7 +682,7 @@ export async function handleEduCompetitionsRouter(
       }
 
       if (body.category) {
-        const catResult = validateCategoryBody(body.category, body.custom_category);
+        const catResult = validateCategoryBody(body.category);
         if (catResult instanceof Response) return catResult;
       }
 
@@ -911,6 +938,17 @@ export async function handleEduCompetitionsRouter(
         url.searchParams.get("log_date")?.trim() ||
         new Date().toISOString().slice(0, 10);
 
+      const category = String(row.category ?? "recitation");
+      const compRules = JSON.parse(String(row.rules_json ?? "{}")) as Record<
+        string,
+        unknown
+      >;
+      const memorizationUnit = memorizationUnitFromRules(compRules);
+      const competitionDays = countCompetitionDays(
+        String(row.start_date),
+        String(row.end_date),
+      );
+
       const [targetRows, tasksRes] = await Promise.all([
         engineTargets
           ? loadCompetitionTargetRows(env, id)
@@ -931,29 +969,65 @@ export async function handleEduCompetitionsRouter(
       ]);
 
       const scores = new Map<string, number>();
+      const hasNotes = await tableHasColumn(env, "competition_logs", "notes");
       if (hasTaskId && hasPoints) {
+        const logCols = hasNotes
+          ? "student_id, task_id, points, notes"
+          : "student_id, task_id, points";
         const logRows = await env.DB.prepare(
-          `SELECT student_id, task_id, points
+          `SELECT ${logCols}
            FROM competition_logs
            WHERE competition_id = ? AND log_date = ?`,
         )
           .bind(id, logDate)
-          .all<{ student_id: number; task_id: number; points: number }>();
+          .all<{
+            student_id: number;
+            task_id: number;
+            points: number;
+            notes?: string;
+          }>();
         for (const r of logRows.results ?? []) {
-          scores.set(`${r.student_id}:${r.task_id}`, Number(r.points ?? 0));
+          let hizbIndex = 0;
+          if (hasNotes && r.notes) {
+            try {
+              const parsed = JSON.parse(r.notes) as { hizb_index?: number };
+              hizbIndex = Number(parsed.hizb_index ?? 0);
+            } catch {
+              hizbIndex = 0;
+            }
+          }
+          const key =
+            category === "recitation" && hizbIndex > 0
+              ? `${r.student_id}:${hizbIndex}:${r.task_id}`
+              : `${r.student_id}:${r.task_id}`;
+          scores.set(key, Number(r.points ?? 0));
         }
       }
 
       return json({
         log_date: logDate,
+        category,
+        memorization_unit: memorizationUnit,
+        competition_days: competitionDays,
+        start_date: row.start_date,
+        end_date: row.end_date,
         tasks: tasksRes.results ?? [],
-        students: targetRows.map((t) => ({
-          student_id: t.student_id,
-          full_name_ar: t.full_name_ar,
-          target_amount: Number(t.target_amount ?? 0),
-          achieved_amount: Number(t.achieved_amount ?? 0),
-          current_memorization: Number(t.current_memorization ?? 0),
-        })),
+        students: targetRows.map((t) => {
+          const targetAmount = Number(t.target_amount ?? 0);
+          return {
+            student_id: t.student_id,
+            full_name_ar: t.full_name_ar,
+            target_amount: targetAmount,
+            achieved_amount: Number(t.achieved_amount ?? 0),
+            current_memorization: Number(t.current_memorization ?? 0),
+            target_hizb:
+              category === "recitation" ? targetHizbCount(targetAmount) : undefined,
+            daily_faces:
+              category === "new_memorization"
+                ? studentDailyFaces(memorizationUnit, targetAmount, competitionDays)
+                : undefined,
+          };
+        }),
         scores: Object.fromEntries(scores),
       });
     }
@@ -961,7 +1035,12 @@ export async function handleEduCompetitionsRouter(
     if (request.method === "POST") {
       let body: {
         log_date?: string;
-        records?: Array<{ student_id: number; task_id: number; points: number }>;
+        records?: Array<{
+          student_id: number;
+          task_id: number;
+          points: number;
+          hizb_index?: number;
+        }>;
         targets?: Array<{ student_id: number; target_amount: number }>;
       };
       try {
@@ -973,22 +1052,84 @@ export async function handleEduCompetitionsRouter(
       const logDate =
         body.log_date?.trim() || new Date().toISOString().slice(0, 10);
       const records = body.records ?? [];
+      const category = String(row.category ?? "recitation");
+      const hasNotes = await tableHasColumn(env, "competition_logs", "notes");
 
       if (hasTaskId && hasPoints && records.length > 0) {
         for (const rec of records) {
-          const existing = await env.DB.prepare(
-            `SELECT id FROM competition_logs
-             WHERE competition_id = ? AND student_id = ? AND task_id = ? AND log_date = ?`,
-          )
-            .bind(id, rec.student_id, rec.task_id, logDate)
-            .first<{ id: number }>();
-          if (existing) {
-            await env.DB.prepare(
-              `UPDATE competition_logs
-               SET points = ?, recorded_by_user_id = ?, recorded_at = datetime('now')
-               WHERE id = ?`,
+          const hizbIndex = Number(rec.hizb_index ?? 0);
+          const notesPayload =
+            category === "recitation" && hizbIndex > 0
+              ? JSON.stringify({ hizb_index: hizbIndex })
+              : null;
+
+          let existing: { id: number } | null = null;
+          if (hasNotes && category === "recitation" && hizbIndex > 0) {
+            const candidates = await env.DB.prepare(
+              `SELECT id, notes FROM competition_logs
+               WHERE competition_id = ? AND student_id = ? AND task_id = ? AND log_date = ?`,
             )
-              .bind(Number(rec.points ?? 0), auth.userId, existing.id)
+              .bind(id, rec.student_id, rec.task_id, logDate)
+              .all<{ id: number; notes: string | null }>();
+            existing =
+              (candidates.results ?? []).find((r) => {
+                try {
+                  const p = JSON.parse(String(r.notes ?? "{}")) as {
+                    hizb_index?: number;
+                  };
+                  return Number(p.hizb_index ?? 0) === hizbIndex;
+                } catch {
+                  return hizbIndex === 0;
+                }
+              }) ?? null;
+          } else {
+            existing = await env.DB.prepare(
+              `SELECT id FROM competition_logs
+               WHERE competition_id = ? AND student_id = ? AND task_id = ? AND log_date = ?`,
+            )
+              .bind(id, rec.student_id, rec.task_id, logDate)
+              .first<{ id: number }>();
+          }
+
+          if (existing) {
+            if (hasNotes) {
+              await env.DB.prepare(
+                `UPDATE competition_logs
+                 SET points = ?, notes = COALESCE(?, notes),
+                     recorded_by_user_id = ?, recorded_at = datetime('now')
+                 WHERE id = ?`,
+              )
+                .bind(
+                  Number(rec.points ?? 0),
+                  notesPayload,
+                  auth.userId,
+                  existing.id,
+                )
+                .run();
+            } else {
+              await env.DB.prepare(
+                `UPDATE competition_logs
+                 SET points = ?, recorded_by_user_id = ?, recorded_at = datetime('now')
+                 WHERE id = ?`,
+              )
+                .bind(Number(rec.points ?? 0), auth.userId, existing.id)
+                .run();
+            }
+          } else if (hasNotes) {
+            await env.DB.prepare(
+              `INSERT INTO competition_logs
+               (competition_id, student_id, task_id, log_date, points, notes, recorded_by_user_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            )
+              .bind(
+                id,
+                rec.student_id,
+                rec.task_id,
+                logDate,
+                Number(rec.points ?? 0),
+                notesPayload,
+                auth.userId,
+              )
               .run();
           } else {
             await env.DB.prepare(

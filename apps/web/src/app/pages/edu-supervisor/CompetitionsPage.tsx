@@ -33,7 +33,6 @@ type CompetitionRow = {
   end_date: string;
   status: string;
   category?: string;
-  custom_category?: string;
 };
 
 function statusLabel(status: string): string {
@@ -188,7 +187,7 @@ export function CompetitionsPage() {
                 </div>
                 <Link to={`/edu-dept/competitions/${c.id}`} className="flex-1 block">
                   <p className="text-xs text-primary/80 mb-2" style={tajawal}>
-                    {categoryLabel(c.category, c.custom_category)}
+                    {categoryLabel(c.category)}
                   </p>
                   {c.description ? (
                     <p className="text-sm text-muted-foreground line-clamp-2 mb-3" style={tajawal}>

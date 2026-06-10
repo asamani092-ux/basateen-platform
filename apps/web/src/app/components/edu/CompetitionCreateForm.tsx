@@ -16,9 +16,12 @@ import { canUseApi } from "../../lib/api-access";
 import {
   COMPETITION_CATEGORIES,
   COMPETITION_STAGE_OPTIONS,
+  countCompetitionDays,
   defaultTargetForCategory,
   isAdditiveCategory,
+  studentDailyFaces,
   type CompetitionCategory,
+  type MemorizationUnit,
   type PreviewStudent,
   type StudentTargetRow,
   type TargetScope,
@@ -74,7 +77,7 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [category, setCategory] = useState<CompetitionCategory>("recitation");
-  const [customCategory, setCustomCategory] = useState("");
+  const [memorizationUnit, setMemorizationUnit] = useState<MemorizationUnit>("juz");
   const [targetScope, setTargetScope] = useState<TargetScope>(emptyScope);
   const [circles, setCircles] = useState<CircleOption[]>([]);
   const [tracks, setTracks] = useState<TrackOption[]>([]);
@@ -226,10 +229,6 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
 
   async function submit() {
     if (!nameAr.trim()) return;
-    if (category === "other" && !customCategory.trim()) {
-      setError("اكتب نوع المنافسة عند اختيار «أخرى»");
-      return;
-    }
     if (targets.length === 0) {
       setError("طبّق فلتر الاستهداف واختر طلاباً مستهدفين");
       return;
@@ -243,8 +242,11 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
         start_date: startDate,
         end_date: endDate,
         category,
-        custom_category: category === "other" ? customCategory.trim() : null,
         target_scope: normalizeScopeForApi(targetScope),
+        rules:
+          category === "new_memorization"
+            ? { memorization_unit: memorizationUnit }
+            : undefined,
         targets: targets.map((t) => ({
           student_id: t.student_id,
           current_memorization: t.current_memorization,
@@ -258,6 +260,12 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
       setCreating(false);
     }
   }
+
+  const competitionDays = countCompetitionDays(startDate, endDate);
+  const sampleDailyFaces =
+    category === "new_memorization" && targets.length > 0
+      ? studentDailyFaces(memorizationUnit, targets[0].target_amount, competitionDays)
+      : null;
 
   const showCopyButton = !isAdditiveCategory(category);
 
@@ -320,18 +328,29 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
             </SelectContent>
           </Select>
         </div>
-        {category === "other" && (
+        {category === "new_memorization" && (
           <div className="space-y-2">
-            <Label style={tajawal}>
-              نوع المنافسة (مخصص) <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              value={customCategory}
-              onChange={(e) => setCustomCategory(e.target.value)}
-              className={ds.btnRound}
-              placeholder="اكتب نوع المنافسة"
-              required
-            />
+            <Label style={tajawal}>وحدة الحفظ المستهدفة</Label>
+            <Select
+              value={memorizationUnit}
+              onValueChange={(v) => setMemorizationUnit(v as MemorizationUnit)}
+            >
+              <SelectTrigger className={ds.btnRound}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="juz">أجزاء</SelectItem>
+                <SelectItem value="hizb">أحزاب</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground" style={tajawal}>
+              {memorizationUnit === "juz"
+                ? "كل جزء = 20 وجهًا · يُقسَّم على أيام المنافسة"
+                : "كل حزب = 10 وجوه · يُقسَّم على أيام المنافسة"}
+              {sampleDailyFaces != null
+                ? ` · مثال يومي: ${sampleDailyFaces} وجه`
+                : null}
+            </p>
           </div>
         )}
       </section>
@@ -475,8 +494,12 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
                   <th className="text-right p-2">مقدار الحفظ الحالي</th>
                   <th className="text-right p-2">
                     {isAdditiveCategory(category)
-                      ? "القيمة المضافة (أجزاء)"
-                      : "العدد المستهدف"}
+                      ? memorizationUnit === "juz"
+                        ? "القيمة المضافة (أجزاء)"
+                        : "القيمة المضافة (أحزاب)"
+                      : category === "review"
+                        ? "أجزاء المراجعة"
+                        : "العدد المستهدف (جزء)"}
                   </th>
                   {showCopyButton && <th className="p-2 w-24" />}
                 </tr>
@@ -518,8 +541,10 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
             </table>
             <p className="text-xs text-muted-foreground p-2" style={tajawal}>
               {isAdditiveCategory(category)
-                ? "حفظ جديد: العدد المستهدف = القيمة المضافة فقط."
-                : "سرد/مراجعة: يمكن نسخ الحفظ الحالي أو تحديد رقم أقل."}
+                ? `حفظ جديد: العدد المستهدف = القيمة المضافة (${memorizationUnit === "juz" ? "أجزاء" : "أحزاب"}) · ${competitionDays} يومًا.`
+                : category === "review"
+                  ? "مراجعة: المستهدف = أجزاء المراجعة من المحفوظ الحالي (قابل للتعديل)."
+                  : "سرد: يمكن نسخ الحفظ الحالي أو تحديد رقم أقل — يُحوَّل تلقائيًا إلى أحزاب (جزء = حزبان)."}
             </p>
           </div>
         )}
@@ -541,8 +566,7 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
           disabled={
             creating ||
             !nameAr.trim() ||
-            targets.length === 0 ||
-            (category === "other" && !customCategory.trim())
+            targets.length === 0
           }
           onClick={() => void submit()}
           style={tajawal}

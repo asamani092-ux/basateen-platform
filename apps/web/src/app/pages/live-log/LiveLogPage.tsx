@@ -6,6 +6,11 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { api } from "../../lib/api-client";
 import { matchesArabicName } from "../../lib/attendance-search";
+import {
+  targetHizbCount,
+  type MemorizationUnit,
+} from "../../lib/competition-engine";
+import { HizbSessionGrid } from "../../components/edu/HizbSessionGrid";
 import { ds, tajawal } from "../../lib/design-system";
 import {
   clearReciterDraft,
@@ -22,6 +27,8 @@ type StudentRow = {
   target_amount?: number;
   current_memorization?: number;
   achieved_amount?: number;
+  daily_faces?: number;
+  memorization_unit?: MemorizationUnit;
 };
 
 type TaskRow = {
@@ -34,6 +41,16 @@ type TaskRow = {
 type AuditRow = ReciterDraftAudit & {
   student_id?: number;
   current_hizb_failed?: number;
+  active_hizb?: number;
+  hizb_sessions?: Record<
+    string,
+    {
+      alerts_count?: number;
+      errors_count?: number;
+      task_points?: Record<number, number>;
+      done?: boolean;
+    }
+  >;
 };
 
 export function LiveLogPage() {
@@ -48,6 +65,8 @@ export function LiveLogPage() {
   const [sessionId, setSessionId] = useState(0);
   const [sessionName, setSessionName] = useState("");
   const [category, setCategory] = useState("recitation");
+  const [memorizationUnit, setMemorizationUnit] = useState<MemorizationUnit>("juz");
+  const [competitionDays, setCompetitionDays] = useState(1);
   const [kind, setKind] = useState<"yom_himma" | "competition">("yom_himma");
   const [rules, setRules] = useState({
     fail_threshold_errors: 3,
@@ -82,6 +101,10 @@ export function LiveLogPage() {
       setSessionId(Number(data.session.id ?? 0));
       setSessionName(String(data.session.name_ar ?? ""));
       setCategory(String(data.session.category ?? "recitation"));
+      setMemorizationUnit(
+        data.session.memorization_unit === "hizb" ? "hizb" : "juz",
+      );
+      setCompetitionDays(Number(data.session.competition_days ?? 1));
       if (data.session.rules) {
         const r = data.session.rules as Record<string, number>;
         setRules({
@@ -89,15 +112,26 @@ export function LiveLogPage() {
           alerts_per_error: Number(r.alerts_per_error ?? 5),
         });
       }
-      const studs = (data.students as StudentRow[]).map((s) => ({
-        student_id: Number(s.student_id),
-        full_name_ar: String(s.full_name_ar),
-        target_hizb: Number(s.target_hizb ?? 0),
-        target_juz: Number(s.target_juz ?? s.target_amount ?? 0),
-        target_amount: Number(s.target_amount ?? 0),
-        current_memorization: Number(s.current_memorization ?? 0),
-        achieved_amount: Number(s.achieved_amount ?? 0),
-      }));
+      const studs = (data.students as StudentRow[]).map((s) => {
+        const targetAmount = Number(s.target_amount ?? 0);
+        const targetHizb =
+          s.target_hizb != null && Number(s.target_hizb) > 0
+            ? Number(s.target_hizb)
+            : targetHizbCount(targetAmount);
+        return {
+          student_id: Number(s.student_id),
+          full_name_ar: String(s.full_name_ar),
+          target_hizb: targetHizb,
+          target_juz: Number(s.target_juz ?? targetAmount),
+          target_amount: targetAmount,
+          current_memorization: Number(s.current_memorization ?? 0),
+          achieved_amount: Number(s.achieved_amount ?? 0),
+          daily_faces:
+            s.daily_faces != null ? Number(s.daily_faces) : undefined,
+          memorization_unit:
+            s.memorization_unit === "hizb" ? ("hizb" as const) : ("juz" as const),
+        };
+      });
       setStudents(studs);
       setTasks(
         ((data.tasks ?? []) as Array<Record<string, unknown>>).map((t) => ({
@@ -128,6 +162,14 @@ export function LiveLogPage() {
               juz_done: Number(row.points ?? 0),
               notes: String(row.notes ?? ""),
             };
+            if (row.notes) {
+              try {
+                const parsed = JSON.parse(String(row.notes)) as AuditRow;
+                Object.assign(metrics, parsed);
+              } catch {
+                /* keep defaults */
+              }
+            }
           }
           a[sid] = { student_id: sid, ...metrics };
         }
@@ -242,6 +284,8 @@ export function LiveLogPage() {
             errors: activeAudit.errors_count,
             task_points: activeAudit.task_points,
             notes: activeAudit.notes,
+            active_hizb: activeAudit.active_hizb,
+            hizb_sessions: activeAudit.hizb_sessions,
             ...patch,
           },
         },
@@ -427,10 +471,13 @@ export function LiveLogPage() {
                       onClick={() => pickStudent(s.student_id)}
                     >
                       {s.full_name_ar}
-                      {s.target_amount || s.target_hizb ? (
+                      {(s.target_amount ?? 0) > 0 || (s.target_hizb ?? 0) > 0 ? (
                         <span className="block text-xs font-normal text-muted-foreground mt-0.5">
-                          مستهدف: {s.target_amount || s.target_juz || s.target_hizb}{" "}
-                          {s.target_hizb ? "حزب" : "جزء"}
+                          {category === "new_memorization" && s.daily_faces
+                            ? `مستهدف: ${s.target_amount} ${s.memorization_unit === "hizb" ? "حزب" : "جزء"} · ${s.daily_faces} وجه/يوم`
+                            : category === "recitation"
+                              ? `مستهدف: ${s.target_amount ?? 0} جزء (${s.target_hizb ?? targetHizbCount(s.target_amount ?? 0)} حزب)`
+                              : `مستهدف: ${s.target_amount ?? 0} جزء`}
                         </span>
                       ) : null}
                     </button>
@@ -463,6 +510,7 @@ export function LiveLogPage() {
               tasks={tasks}
               audit={activeAudit}
               saving={saving}
+              memorizationUnit={memorizationUnit}
               onTaskBump={bumpTaskPoints}
               onJuzBump={(d) => bump("delta_juz", d)}
               onSave={() => void saveAudit({})}
@@ -473,6 +521,35 @@ export function LiveLogPage() {
               audit={activeAudit}
               saving={saving}
               onBump={bump}
+              onSave={() => void saveAudit({})}
+            />
+          ) : kind === "competition" && category === "recitation" ? (
+            <RecitationCard
+              student={active}
+              audit={activeAudit}
+              tasks={tasks}
+              competitionMode
+              saving={saving}
+              onSelectHizb={(hizb) => patchAudit({ active_hizb: hizb })}
+              onPatchHizbSession={(hizb, patch) => {
+                if (!activeId) return;
+                setAudit((prev) => {
+                  const cur = prev[activeId] ?? {};
+                  const sessions = { ...(cur.hizb_sessions ?? {}) };
+                  const key = String(hizb);
+                  sessions[key] = { ...(sessions[key] ?? {}), ...patch };
+                  const next = { ...cur, hizb_sessions: sessions, active_hizb: hizb };
+                  writeReciterDraft(sessionId, activeId, token!, {
+                    juz_done: next.juz_done,
+                    hizb_done: next.hizb_done,
+                    alerts_count: next.alerts_count,
+                    errors_count: next.errors_count,
+                    task_points: next.task_points,
+                    notes: next.notes,
+                  });
+                  return { ...prev, [activeId]: next };
+                });
+              }}
               onSave={() => void saveAudit({})}
             />
           ) : (
@@ -503,17 +580,146 @@ function RecitationCard({
   audit,
   failed,
   saving,
+  rules,
+  competitionMode,
+  tasks,
   onBump,
+  onSelectHizb,
+  onPatchHizbSession,
   onSave,
 }: {
   student: StudentRow;
   audit: AuditRow;
-  failed: boolean;
+  failed?: boolean;
   saving: boolean;
-  rules: { fail_threshold_errors: number; alerts_per_error: number };
-  onBump: (field: "delta_hizb" | "delta_juz" | "delta_alert" | "delta_error", d: number) => void;
+  rules?: { fail_threshold_errors: number; alerts_per_error: number };
+  competitionMode?: boolean;
+  tasks?: TaskRow[];
+  onBump?: (field: "delta_hizb" | "delta_juz" | "delta_alert" | "delta_error", d: number) => void;
+  onSelectHizb?: (hizb: number) => void;
+  onPatchHizbSession?: (
+    hizb: number,
+    patch: {
+      alerts_count?: number;
+      errors_count?: number;
+      task_points?: Record<number, number>;
+      done?: boolean;
+    },
+  ) => void;
   onSave: () => void;
 }) {
+  const totalHizbs =
+    student.target_hizb ?? targetHizbCount(student.target_amount ?? student.target_juz ?? 0);
+  const activeHizb = audit.active_hizb ?? null;
+  const session =
+    activeHizb != null ? audit.hizb_sessions?.[String(activeHizb)] : undefined;
+  const sessionAlerts = Number(session?.alerts_count ?? 0);
+  const sessionErrors = Number(session?.errors_count ?? 0);
+  const sessionFailed =
+    competitionMode && sessionErrors >= (rules?.fail_threshold_errors ?? 3);
+
+  if (competitionMode) {
+    return (
+      <div
+        className={`${ds.card} p-4 ${sessionFailed ? "ring-2 ring-destructive bg-destructive/5" : ""}`}
+      >
+        <h2 className="text-lg font-bold mb-1 flex items-center gap-2" style={tajawal}>
+          <BookOpen className="w-5 h-5 text-primary" />
+          بطاقة السرد — {student.full_name_ar}
+        </h2>
+        <p className="text-sm text-muted-foreground mb-4" style={tajawal}>
+          مستهدف {student.target_amount ?? 0} جزء · {totalHizbs} حزب
+        </p>
+        <HizbSessionGrid
+          totalHizbs={totalHizbs}
+          activeHizb={activeHizb}
+          completedHizbs={
+            new Set(
+              Object.entries(audit.hizb_sessions ?? {})
+                .filter(([, v]) => v.done)
+                .map(([k]) => Number(k)),
+            )
+          }
+          onSelect={(hizb) => onSelectHizb?.(hizb)}
+        />
+        {activeHizb != null && (
+          <div className="mt-4 space-y-3 rounded-xl border p-3">
+            <p className="font-semibold text-sm" style={tajawal}>
+              تقييم الحزب {activeHizb}
+            </p>
+            {sessionFailed && (
+              <p
+                className="text-destructive text-sm font-bold flex items-center gap-2"
+                style={tajawal}
+              >
+                <AlertTriangle className="w-4 h-4" />
+                راسب في هذا الحزب
+              </p>
+            )}
+            {(tasks ?? []).map((task) => (
+              <MetricBlock
+                key={task.id}
+                label={`${task.name_ar} (×${task.weight})`}
+                value={Number(session?.task_points?.[task.id] ?? 0)}
+                onMinus={() =>
+                  onPatchHizbSession?.(activeHizb, {
+                    task_points: {
+                      ...(session?.task_points ?? {}),
+                      [task.id]: Math.max(
+                        0,
+                        Number(session?.task_points?.[task.id] ?? 0) - 1,
+                      ),
+                    },
+                  })
+                }
+                onPlus={() =>
+                  onPatchHizbSession?.(activeHizb, {
+                    task_points: {
+                      ...(session?.task_points ?? {}),
+                      [task.id]: Number(session?.task_points?.[task.id] ?? 0) + 1,
+                    },
+                  })
+                }
+                disabled={!!sessionFailed || saving}
+              />
+            ))}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className={`${ds.btnRound} flex-1 min-h-12`}
+                disabled={saving || !!sessionFailed}
+                onClick={() =>
+                  onPatchHizbSession?.(activeHizb, {
+                    alerts_count: sessionAlerts + 1,
+                  })
+                }
+                style={tajawal}
+              >
+                + تنبيه ({sessionAlerts})
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                className={`${ds.btnRound} flex-1 min-h-12`}
+                disabled={saving || !!sessionFailed}
+                onClick={() =>
+                  onPatchHizbSession?.(activeHizb, {
+                    errors_count: sessionErrors + 1,
+                  })
+                }
+                style={tajawal}
+              >
+                + خطأ ({sessionErrors})
+              </Button>
+            </div>
+          </div>
+        )}
+        <SaveButton saving={saving} onSave={onSave} />
+      </div>
+    );
+  }
+
   return (
     <div className={`${ds.card} p-4 ${failed ? "ring-2 ring-destructive bg-destructive/5" : ""}`}>
       <h2 className="text-lg font-bold mb-1 flex items-center gap-2" style={tajawal}>
@@ -533,15 +739,15 @@ function RecitationCard({
         <MetricBlock
           label="أحزاب منجزة"
           value={Number(audit.hizb_done ?? 0)}
-          onMinus={() => onBump("delta_hizb", -1)}
-          onPlus={() => onBump("delta_hizb", 1)}
+          onMinus={() => onBump?.("delta_hizb", -1)}
+          onPlus={() => onBump?.("delta_hizb", 1)}
           disabled={!!failed || saving}
         />
         <MetricBlock
           label="أجزاء"
           value={Number(audit.juz_done ?? 0)}
-          onMinus={() => onBump("delta_juz", -1)}
-          onPlus={() => onBump("delta_juz", 1)}
+          onMinus={() => onBump?.("delta_juz", -1)}
+          onPlus={() => onBump?.("delta_juz", 1)}
           disabled={!!failed || saving}
         />
       </div>
@@ -551,7 +757,7 @@ function RecitationCard({
           variant="outline"
           className={`${ds.btnRound} flex-1 min-h-12`}
           disabled={saving || !!failed}
-          onClick={() => onBump("delta_alert", 1)}
+          onClick={() => onBump?.("delta_alert", 1)}
           style={tajawal}
         >
           + تنبيه ({audit.alerts_count ?? 0})
@@ -561,7 +767,7 @@ function RecitationCard({
           variant="destructive"
           className={`${ds.btnRound} flex-1 min-h-12`}
           disabled={saving || !!failed}
-          onClick={() => onBump("delta_error", 1)}
+          onClick={() => onBump?.("delta_error", 1)}
           style={tajawal}
         >
           + خطأ ({audit.errors_count ?? 0})
@@ -577,6 +783,7 @@ function NewMemorizationCard({
   tasks,
   audit,
   saving,
+  memorizationUnit,
   onTaskBump,
   onJuzBump,
   onSave,
@@ -585,10 +792,12 @@ function NewMemorizationCard({
   tasks: TaskRow[];
   audit: AuditRow;
   saving: boolean;
+  memorizationUnit: MemorizationUnit;
   onTaskBump: (taskId: number, delta: number) => void;
   onJuzBump: (delta: number) => void;
   onSave: () => void;
 }) {
+  const unitLabel = memorizationUnit === "hizb" ? "حزب" : "جزء";
   return (
     <div className={`${ds.card} p-4 ring-2 ring-emerald-500/30`}>
       <h2 className="text-lg font-bold mb-1 flex items-center gap-2" style={tajawal}>
@@ -597,7 +806,10 @@ function NewMemorizationCard({
       </h2>
       <p className="text-sm text-muted-foreground mb-4" style={tajawal}>
         الحفظ الحالي: {student.current_memorization ?? 0} · المستهدف:{" "}
-        {student.target_amount ?? 0} جزء
+        {student.target_amount ?? 0} {unitLabel}
+        {student.daily_faces != null ? (
+          <> · الهدف اليومي: {student.daily_faces} وجه</>
+        ) : null}
       </p>
       {tasks.length === 0 ? (
         <p className="text-sm text-muted-foreground mb-4" style={tajawal}>
@@ -618,7 +830,7 @@ function NewMemorizationCard({
         </div>
       )}
       <MetricBlock
-        label="أجزاء محفوظة اليوم"
+        label="وجوه محفوظة اليوم"
         value={Number(audit.juz_done ?? 0)}
         onMinus={() => onJuzBump(-1)}
         onPlus={() => onJuzBump(1)}
@@ -649,8 +861,9 @@ function ReviewCard({
         رصد المراجعة — {student.full_name_ar}
       </h2>
       <p className="text-sm text-muted-foreground mb-4" style={tajawal}>
-        ضبط المحفوظ السابق · المنجَز: {student.achieved_amount ?? 0} /{" "}
-        {student.target_amount ?? 0}
+        ضبط المحفوظ السابق · الحفظ الحالي: {student.current_memorization ?? 0} ·
+        أجزاء المراجعة: {student.target_amount ?? 0} · المنجَز:{" "}
+        {student.achieved_amount ?? 0}
       </p>
       <div className="grid grid-cols-2 gap-3 mb-4">
         <MetricBlock

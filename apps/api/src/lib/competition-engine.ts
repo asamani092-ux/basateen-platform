@@ -16,8 +16,9 @@ import {
 export type CompetitionCategory =
   | "recitation"
   | "review"
-  | "new_memorization"
-  | "other";
+  | "new_memorization";
+
+export type MemorizationUnit = "juz" | "hizb";
 
 export type TargetScope = {
   circle_ids?: number[];
@@ -66,6 +67,45 @@ export function formatMemorizationJuz(juz: number): string {
   if (rounded <= 0) return "";
   if (rounded === 1) return "1 جزء";
   return `${rounded} أجزاء`;
+}
+
+/** O(1) — inclusive calendar days between start and end (YYYY-MM-DD). */
+export function countCompetitionDays(startDate: string, endDate: string): number {
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 1;
+  const diffMs = end.getTime() - start.getTime();
+  return Math.max(1, Math.floor(diffMs / 86_400_000) + 1);
+}
+
+/** O(1) — juz × 20 faces, hizb × 10 faces. */
+export function totalFacesFromUnit(unit: MemorizationUnit, count: number): number {
+  const n = Number(count) || 0;
+  return unit === "juz" ? n * 20 : n * 10;
+}
+
+/** O(1) — daily face quota for memorization competitions. */
+export function dailyFaces(totalFaces: number, dayCount: number): number {
+  const days = Math.max(1, dayCount);
+  return Math.round((totalFaces / days) * 100) / 100;
+}
+
+/** O(1) — recitation targets: 1 juz = 2 hizb. */
+export function targetHizbCount(targetJuz: number): number {
+  const juz = Number(targetJuz) || 0;
+  return Math.max(1, Math.ceil(juz * 2));
+}
+
+export function parseMemorizationUnit(raw: unknown): MemorizationUnit {
+  return raw === "hizb" ? "hizb" : "juz";
+}
+
+export function studentDailyFaces(
+  unit: MemorizationUnit,
+  targetAmount: number,
+  dayCount: number,
+): number {
+  return dailyFaces(totalFacesFromUnit(unit, targetAmount), dayCount);
 }
 
 export function parseTargetScope(raw: string | null | undefined): TargetScope {
@@ -651,6 +691,41 @@ export async function deleteStudentTarget(
     .bind(competitionId, studentId)
     .run();
   return (res.meta.changes ?? 0) > 0;
+}
+
+/**
+ * O(D) — seed one addition task per competition day for new_memorization.
+ * Time O(D); Space O(D) batch statements.
+ */
+export async function seedNewMemorizationDailyTasks(
+  env: Env,
+  competitionId: number,
+  startDate: string,
+  endDate: string,
+  unit: MemorizationUnit,
+  representativeTarget: number,
+): Promise<void> {
+  if (!(await hasEngineTasks(env))) return;
+  const days = countCompetitionDays(startDate, endDate);
+  const facesPerDay = dailyFaces(
+    totalFacesFromUnit(unit, representativeTarget),
+    days,
+  );
+  const stmts: ReturnType<typeof env.DB.prepare>[] = [];
+  for (let d = 1; d <= days; d++) {
+    stmts.push(
+      env.DB.prepare(
+        `INSERT INTO competition_tasks (competition_id, name_ar, weight, type, sort_order)
+         VALUES (?, ?, ?, 'addition', ?)`,
+      ).bind(
+        competitionId,
+        `اليوم ${d} — ${facesPerDay} وجه`,
+        facesPerDay,
+        d,
+      ),
+    );
+  }
+  if (stmts.length) await env.DB.batch(stmts);
 }
 
 /** O(T) — single JOIN for targets + student names (feeds dashboard KPIs) */

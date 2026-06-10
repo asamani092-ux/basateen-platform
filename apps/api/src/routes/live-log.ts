@@ -1,7 +1,18 @@
 import type { Env } from "../types";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
-import { hasTable, tableHasColumn } from "../lib/db-schema";
-import { hasEngineTargets, hasEngineTasks } from "../lib/competition-engine";
+import {
+  hasTable,
+  studentIsActiveSql,
+  tableHasColumn,
+} from "../lib/db-schema";
+import {
+  countCompetitionDays,
+  hasEngineTargets,
+  hasEngineTasks,
+  parseMemorizationUnit,
+  studentDailyFaces,
+  targetHizbCount,
+} from "../lib/competition-engine";
 import { FIELD_EDU_ROLES } from "../lib/roles";
 
 type SessionKind = "yom_himma" | "competition";
@@ -200,6 +211,26 @@ export async function handleLiveLogRouter(
     const logDate = new Date().toISOString().slice(0, 10);
     const engineTargets = await hasEngineTargets(env);
     const engineTasks = await hasEngineTasks(env);
+    const compRow = await env.DB.prepare(
+      `SELECT start_date, end_date, rules_json, category FROM competitions WHERE id = ?`,
+    )
+      .bind(session.id)
+      .first<{
+        start_date: string;
+        end_date: string;
+        rules_json: string;
+        category: string;
+      }>();
+    const compRules = parseRulesJson(compRow?.rules_json);
+    const memorizationUnit = parseMemorizationUnit(compRules.memorization_unit);
+    const competitionDays = countCompetitionDays(
+      String(compRow?.start_date ?? session.date),
+      String(compRow?.end_date ?? session.date),
+    );
+    const compCategory = String(
+      compRow?.category ?? (session as { category?: string }).category ?? "recitation",
+    );
+    const activeSql = await studentIsActiveSql(env, "s");
 
     let students: { results?: unknown[] };
     if (engineTargets) {
@@ -208,7 +239,7 @@ export async function handleLiveLogRouter(
                 ct.current_memorization, ct.target_amount, ct.achieved_amount
          FROM competition_targets ct
          INNER JOIN students s ON s.id = ct.student_id
-         WHERE ct.competition_id = ? AND s.is_active = 1
+         WHERE ct.competition_id = ? AND ${activeSql}
          ORDER BY s.full_name_ar`,
       )
         .bind(session.id)
@@ -220,12 +251,28 @@ export async function handleLiveLogRouter(
          FROM students s
          LEFT JOIN competition_student_plans p
            ON p.student_id = s.id AND p.competition_id = ?
-         WHERE s.complex_id = ? AND s.is_active = 1
+         WHERE s.complex_id = ? AND ${activeSql}
          ORDER BY s.full_name_ar`,
       )
         .bind(session.id, session.complexId)
         .all();
     }
+
+    const enrichedStudents = (students.results ?? []).map((row) => {
+      const r = row as Record<string, unknown>;
+      const targetAmount = Number(r.target_amount ?? r.total_target_juz ?? 0);
+      return {
+        ...r,
+        target_hizb:
+          compCategory === "recitation" ? targetHizbCount(targetAmount) : undefined,
+        daily_faces:
+          compCategory === "new_memorization"
+            ? studentDailyFaces(memorizationUnit, targetAmount, competitionDays)
+            : undefined,
+        memorization_unit:
+          compCategory === "new_memorization" ? memorizationUnit : undefined,
+      };
+    });
 
     const tasks = engineTasks
       ? await env.DB.prepare(
@@ -272,12 +319,16 @@ export async function handleLiveLogRouter(
         id: session.id,
         name_ar: session.name_ar,
         telemetry_type: session.telemetry_type,
-        category: sess.category ?? "recitation",
+        category: sess.category ?? compCategory,
         custom_category: sess.custom_category ?? "",
+        start_date: compRow?.start_date ?? session.date,
+        end_date: compRow?.end_date ?? session.date,
+        memorization_unit: memorizationUnit,
+        competition_days: competitionDays,
         rules: session.rules,
         tv_key: session.tv_key,
       },
-      students: students.results ?? [],
+      students: enrichedStudents,
       tasks: tasks.results ?? [],
       logs: logs.results ?? [],
     });

@@ -473,7 +473,10 @@ export const api = {
       kind: "yom_himma" | "competition";
       session: Record<string, unknown> & {
         category?: string;
-        custom_category?: string;
+        start_date?: string;
+        end_date?: string;
+        memorization_unit?: string;
+        competition_days?: number;
       };
       students: Array<Record<string, unknown>>;
       tasks?: Array<Record<string, unknown>>;
@@ -603,6 +606,11 @@ export const api = {
   competitionsGradingGet: (id: number, logDate: string) =>
     competitionRequest<{
       log_date: string;
+      category?: string;
+      memorization_unit?: string;
+      competition_days?: number;
+      start_date?: string;
+      end_date?: string;
       tasks: Array<{
         id: number;
         name_ar: string;
@@ -616,6 +624,8 @@ export const api = {
         target_amount: number;
         achieved_amount: number;
         current_memorization: number;
+        target_hizb?: number;
+        daily_faces?: number;
       }>;
       scores: Record<string, number>;
     }>(
@@ -625,7 +635,12 @@ export const api = {
     id: number,
     body: {
       log_date: string;
-      records: Array<{ student_id: number; task_id: number; points: number }>;
+      records: Array<{
+        student_id: number;
+        task_id: number;
+        points: number;
+        hizb_index?: number;
+      }>;
       targets?: Array<{ student_id: number; target_amount: number }>;
     },
   ) =>

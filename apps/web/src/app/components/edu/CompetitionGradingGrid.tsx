@@ -11,8 +11,16 @@ import {
   TableHeader,
   TableRow,
 } from "../ui/table";
+import { HizbSessionGrid } from "./HizbSessionGrid";
 import { api } from "../../lib/api-client";
 import { matchesArabicName } from "../../lib/attendance-search";
+import {
+  gradingScoreKey,
+  isRecitationCategory,
+  isReviewCategory,
+  targetHizbCount,
+  type CompetitionCategory,
+} from "../../lib/competition-engine";
 import { ds, tajawal } from "../../lib/design-system";
 
 type TaskCol = {
@@ -27,15 +35,14 @@ type StudentRow = {
   full_name_ar: string;
   target_amount: number;
   achieved_amount: number;
+  current_memorization?: number;
+  target_hizb?: number;
+  daily_faces?: number;
 };
 
 type Props = {
   competitionId: number;
 };
-
-function scoreKey(studentId: number, taskId: number) {
-  return `${studentId}:${taskId}`;
-}
 
 function TaskScoreCell({
   task,
@@ -101,11 +108,14 @@ function TaskScoreCell({
 
 export function CompetitionGradingGrid({ competitionId }: Props) {
   const [logDate, setLogDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [category, setCategory] = useState<CompetitionCategory>("recitation");
   const [tasks, setTasks] = useState<TaskCol[]>([]);
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [targets, setTargets] = useState<Record<number, number>>({});
   const [query, setQuery] = useState("");
+  const [recitationStudentId, setRecitationStudentId] = useState<number | null>(null);
+  const [activeHizb, setActiveHizb] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -116,6 +126,7 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
     setError(null);
     try {
       const res = await api.competitionsGradingGet(competitionId, logDate);
+      setCategory((res.category as CompetitionCategory) ?? "recitation");
       setTasks(
         (res.tasks ?? []).map((t) => ({
           id: Number(t.id),
@@ -130,6 +141,9 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
           full_name_ar: String(s.full_name_ar),
           target_amount: Number(s.target_amount ?? 0),
           achieved_amount: Number(s.achieved_amount ?? 0),
+          current_memorization: Number(s.current_memorization ?? 0),
+          target_hizb: s.target_hizb != null ? Number(s.target_hizb) : undefined,
+          daily_faces: s.daily_faces != null ? Number(s.daily_faces) : undefined,
         })),
       );
       setScores(res.scores ?? {});
@@ -154,8 +168,19 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
     [students, query],
   );
 
-  function patchScore(studentId: number, taskId: number, value: number) {
-    setScores((prev) => ({ ...prev, [scoreKey(studentId, taskId)]: value }));
+  const recitationStudent = recitationStudentId
+    ? students.find((s) => s.student_id === recitationStudentId)
+    : null;
+
+  const recitationHizbTotal = recitationStudent
+    ? recitationStudent.target_hizb ?? targetHizbCount(recitationStudent.target_amount)
+    : 0;
+
+  function patchScore(studentId: number, taskId: number, value: number, hizbIndex?: number) {
+    setScores((prev) => ({
+      ...prev,
+      [gradingScoreKey(studentId, taskId, hizbIndex)]: value,
+    }));
   }
 
   function patchTarget(studentId: number, value: number) {
@@ -167,18 +192,40 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
     setError(null);
     setSuccess(null);
     try {
-      const records: Array<{ student_id: number; task_id: number; points: number }> = [];
-      for (const student of students) {
+      const records: Array<{
+        student_id: number;
+        task_id: number;
+        points: number;
+        hizb_index?: number;
+      }> = [];
+
+      if (isRecitationCategory(category) && recitationStudentId && activeHizb) {
         for (const task of tasks) {
-          const key = scoreKey(student.student_id, task.id);
+          const key = gradingScoreKey(recitationStudentId, task.id, activeHizb);
           const raw = Number(scores[key] ?? 0);
           records.push({
-            student_id: student.student_id,
+            student_id: recitationStudentId,
             task_id: task.id,
-            points: task.type === "addition" ? (raw > 0 ? 1 : 0) : Math.max(0, Math.round(raw)),
+            hizb_index: activeHizb,
+            points:
+              task.type === "addition" ? (raw > 0 ? 1 : 0) : Math.max(0, Math.round(raw)),
           });
         }
+      } else {
+        for (const student of students) {
+          for (const task of tasks) {
+            const key = gradingScoreKey(student.student_id, task.id);
+            const raw = Number(scores[key] ?? 0);
+            records.push({
+              student_id: student.student_id,
+              task_id: task.id,
+              points:
+                task.type === "addition" ? (raw > 0 ? 1 : 0) : Math.max(0, Math.round(raw)),
+            });
+          }
+        }
       }
+
       const targetUpdates = students
         .filter((s) => targets[s.student_id] != null)
         .map((s) => ({
@@ -226,17 +273,19 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
         <Button type="button" variant="outline" className={ds.btnRound} onClick={() => void load()} style={tajawal}>
           تحميل
         </Button>
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            type="search"
-            placeholder="بحث عن طالب…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className={`${ds.btnRound} pr-10`}
-            style={tajawal}
-          />
-        </div>
+        {!isRecitationCategory(category) && (
+          <div className="relative flex-1 min-w-[200px] max-w-sm">
+            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="بحث عن طالب…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className={`${ds.btnRound} pr-10`}
+              style={tajawal}
+            />
+          </div>
+        )}
       </div>
 
       {loading ? (
@@ -251,6 +300,90 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
         <p className={ds.alert.info} style={tajawal}>
           لا مستهدفين في هذه المنافسة.
         </p>
+      ) : isRecitationCategory(category) ? (
+        <div className="space-y-4">
+          <div className="relative max-w-md">
+            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="اختر طالبًا للسرد…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className={`${ds.btnRound} pr-10`}
+              style={tajawal}
+            />
+          </div>
+          {query.trim() && (
+            <div className="flex flex-wrap gap-2">
+              {filtered.map((s) => (
+                <Button
+                  key={s.student_id}
+                  type="button"
+                  variant={recitationStudentId === s.student_id ? "default" : "outline"}
+                  className={ds.btnRound}
+                  onClick={() => {
+                    setRecitationStudentId(s.student_id);
+                    setActiveHizb(null);
+                    setQuery(s.full_name_ar);
+                  }}
+                  style={tajawal}
+                >
+                  {s.full_name_ar}
+                </Button>
+              ))}
+            </div>
+          )}
+          {recitationStudent && (
+            <>
+              <p className="text-sm text-muted-foreground" style={tajawal}>
+                {recitationStudent.full_name_ar} · مستهدف {recitationStudent.target_amount} جزء
+                ({recitationHizbTotal} حزب)
+              </p>
+              <HizbSessionGrid
+                totalHizbs={recitationHizbTotal}
+                activeHizb={activeHizb}
+                onSelect={setActiveHizb}
+              />
+              {activeHizb && (
+                <div className="rounded-xl border p-4 space-y-3">
+                  <p className="font-semibold" style={tajawal}>
+                    تقييم الحزب {activeHizb}
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    {tasks.map((task) => {
+                      const key = gradingScoreKey(
+                        recitationStudent.student_id,
+                        task.id,
+                        activeHizb,
+                      );
+                      const raw = Number(scores[key] ?? 0);
+                      const displayValue =
+                        task.type === "addition"
+                          ? raw > 0
+                            ? 1
+                            : 0
+                          : Math.max(0, Math.round(raw));
+                      return (
+                        <div key={task.id} className="text-center">
+                          <p className="text-xs mb-2" style={tajawal}>
+                            {task.name_ar}
+                          </p>
+                          <TaskScoreCell
+                            task={task}
+                            value={displayValue}
+                            onChange={(v) =>
+                              patchScore(recitationStudent.student_id, task.id, v, activeHizb)
+                            }
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       ) : (
         <div className="overflow-x-auto max-h-[70vh] border rounded-xl">
           <Table className={`${ds.tableMin} text-right edu-recitation-grid`}>
@@ -260,8 +393,13 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
                   الطالب
                 </TableHead>
                 <TableHead className={`${ds.table.head} text-center`} style={tajawal}>
-                  المستهدف
+                  {isReviewCategory(category) ? "أجزاء المراجعة" : "المستهدف"}
                 </TableHead>
+                {category === "new_memorization" && (
+                  <TableHead className={`${ds.table.head} text-center`} style={tajawal}>
+                    وجوه/يوم
+                  </TableHead>
+                )}
                 {tasks.map((task) => (
                   <TableHead
                     key={task.id}
@@ -295,8 +433,13 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
                       className={`${ds.btnRound} h-8 w-20 mx-auto text-center text-sm`}
                     />
                   </TableCell>
+                  {category === "new_memorization" && (
+                    <TableCell className={`${ds.table.cell} text-center tabular-nums`}>
+                      {student.daily_faces ?? "—"}
+                    </TableCell>
+                  )}
                   {tasks.map((task) => {
-                    const key = scoreKey(student.student_id, task.id);
+                    const key = gradingScoreKey(student.student_id, task.id);
                     const raw = Number(scores[key] ?? 0);
                     const displayValue =
                       task.type === "addition" ? (raw > 0 ? 1 : 0) : Math.max(0, Math.round(raw));
@@ -322,7 +465,11 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
           <Button
             type="button"
             className={ds.btnRound}
-            disabled={saving}
+            disabled={
+              saving ||
+              (isRecitationCategory(category) &&
+                (!recitationStudentId || !activeHizb))
+            }
             onClick={() => void saveGrading()}
             style={tajawal}
           >

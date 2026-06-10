@@ -1,8 +1,9 @@
 export type CompetitionCategory =
   | "recitation"
   | "review"
-  | "new_memorization"
-  | "other";
+  | "new_memorization";
+
+export type MemorizationUnit = "juz" | "hizb";
 
 export type TargetScope = {
   circle_ids: number[];
@@ -34,7 +35,6 @@ export const COMPETITION_CATEGORIES: Array<{
   { value: "recitation", label: "سرد" },
   { value: "review", label: "مراجعة" },
   { value: "new_memorization", label: "حفظ جديد" },
-  { value: "other", label: "أخرى" },
 ];
 
 /** مراحل الاستهداف في المنافسات — ابتدائي، متوسط، ثانوي فقط */
@@ -44,18 +44,59 @@ export const COMPETITION_STAGE_OPTIONS = [
   { id: 4, label: "ثانوي" },
 ] as const;
 
-export function categoryLabel(
-  category: string | undefined,
-  custom?: string | null,
-): string {
-  if (category === "other" && custom?.trim()) return custom.trim();
+export function categoryLabel(category: string | undefined): string {
   return (
-    COMPETITION_CATEGORIES.find((c) => c.value === category)?.label ?? category ?? "—"
+    COMPETITION_CATEGORIES.find((c) => c.value === category)?.label ??
+    category ??
+    "—"
   );
 }
 
 export function isAdditiveCategory(category: CompetitionCategory): boolean {
   return category === "new_memorization";
+}
+
+export function isRecitationCategory(category: string): boolean {
+  return category === "recitation";
+}
+
+export function isReviewCategory(category: string): boolean {
+  return category === "review";
+}
+
+/** O(1) — inclusive calendar days between start and end (YYYY-MM-DD). */
+export function countCompetitionDays(startDate: string, endDate: string): number {
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 1;
+  const diffMs = end.getTime() - start.getTime();
+  return Math.max(1, Math.floor(diffMs / 86_400_000) + 1);
+}
+
+/** O(1) — juz × 20 faces, hizb × 10 faces. */
+export function totalFacesFromUnit(unit: MemorizationUnit, count: number): number {
+  const n = Number(count) || 0;
+  return unit === "juz" ? n * 20 : n * 10;
+}
+
+/** O(1) — daily face quota for memorization competitions. */
+export function dailyFaces(totalFaces: number, dayCount: number): number {
+  const days = Math.max(1, dayCount);
+  return Math.round((totalFaces / days) * 100) / 100;
+}
+
+/** O(1) — recitation targets: 1 juz = 2 hizb. */
+export function targetHizbCount(targetJuz: number): number {
+  const juz = Number(targetJuz) || 0;
+  return Math.max(1, Math.ceil(juz * 2));
+}
+
+export function studentDailyFaces(
+  unit: MemorizationUnit,
+  targetAmount: number,
+  dayCount: number,
+): number {
+  return dailyFaces(totalFacesFromUnit(unit, targetAmount), dayCount);
 }
 
 export function defaultTargetForCategory(
@@ -64,4 +105,23 @@ export function defaultTargetForCategory(
 ): number {
   if (isAdditiveCategory(category)) return 1;
   return currentMemorization;
+}
+
+export function recitationScoreKey(
+  studentId: number,
+  hizbIndex: number,
+  taskId: number,
+): string {
+  return `${studentId}:${hizbIndex}:${taskId}`;
+}
+
+export function gradingScoreKey(
+  studentId: number,
+  taskId: number,
+  hizbIndex?: number,
+): string {
+  if (hizbIndex != null && hizbIndex > 0) {
+    return recitationScoreKey(studentId, hizbIndex, taskId);
+  }
+  return `${studentId}:${taskId}`;
 }

@@ -248,6 +248,9 @@ export function CompetitionDetailPage() {
   );
   const category = String(comp?.category ?? "recitation");
   const isNewMemorization = category === "new_memorization";
+  const isReview = category === "review";
+  const canCloseWithoutSync =
+    (isReview || category === "recitation") && comp?.status !== "closed";
 
   async function saveCompetitionMeta() {
     if (!id) return;
@@ -310,6 +313,25 @@ export function CompetitionDetailPage() {
       const msg = e instanceof Error ? e.message : "فشل حذف المهمة";
       setError(msg);
       toast.error(msg);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function closeCompetitionOnly() {
+    if (!id) return;
+    const msg = isReview
+      ? "سيتم إنهاء المنافسة دون تحديث سجل الحفظ المركزي للطلاب. متابعة؟"
+      : "سيتم إنهاء المنافسة دون تحديث المحفوظ. متابعة؟";
+    if (!window.confirm(msg)) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.competitionsPatch(id, { status: "closed" });
+      await load();
+      toast.success("تم إنهاء المنافسة");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "فشل إنهاء المنافسة");
     } finally {
       setSaving(false);
     }
@@ -478,7 +500,7 @@ export function CompetitionDetailPage() {
                 {String(comp.name_ar)}
               </h2>
               <p className="text-sm text-primary/80 mt-1" style={tajawal}>
-                {categoryLabel(String(comp.category), comp.custom_category as string)}
+                {categoryLabel(String(comp.category))}
               </p>
               <p className={ds.page.description} style={tajawal}>
                 {String(comp.start_date)} → {String(comp.end_date)} · {String(comp.status)}
@@ -506,6 +528,18 @@ export function CompetitionDetailPage() {
               >
                 <RefreshCw className="w-4 h-4" />
                 إنهاء المنافسة وتحديث المحفوظ
+              </Button>
+            )}
+            {canCloseWithoutSync && (
+              <Button
+                type="button"
+                variant="outline"
+                className={ds.btnRound}
+                disabled={saving}
+                onClick={() => void closeCompetitionOnly()}
+                style={tajawal}
+              >
+                إنهاء المنافسة
               </Button>
             )}
             </div>

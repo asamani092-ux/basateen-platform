@@ -1826,9 +1826,15 @@ async function handleAdminDeptRouterImpl(
       const limit = Math.min(Number(url.searchParams.get("limit") ?? 20), 50);
 
       const hasCircleCol = await tableHasColumn(env, "students", "current_circle_id");
+      const hasTrackCol = await tableHasColumn(env, "students", "current_track_id");
+      const hasTracksTable = await hasTable(env, "tracks");
       const circleJoin = hasCircleCol
         ? `LEFT JOIN circles c ON c.id = s.current_circle_id AND c.complex_id = s.complex_id`
         : `LEFT JOIN circles c ON 1 = 0`;
+      const trackJoin =
+        hasTrackCol && hasTracksTable
+          ? `LEFT JOIN tracks t ON t.id = s.current_track_id AND t.complex_id = s.complex_id`
+          : `LEFT JOIN (SELECT NULL AS id, NULL AS name_ar) t ON 1 = 0`;
 
       const nationalExpr = (await tableHasColumn(env, "students", "national_id"))
         ? "s.national_id"
@@ -1844,9 +1850,11 @@ async function handleAdminDeptRouterImpl(
 
       let sql = `
       SELECT s.id, s.full_name_ar, ${nationalExpr}, ${phoneExpr}, ${guardianExpr},
-             c.name_ar AS circle_name
+             c.name_ar AS circle_name,
+             t.name_ar AS track_name
       FROM students s
       ${circleJoin}
+      ${trackJoin}
       WHERE s.complex_id = ? AND ${isActiveExpr}`;
       const binds: (string | number)[] = [admin.complexId];
 
@@ -1866,6 +1874,7 @@ async function handleAdminDeptRouterImpl(
           phone: string | null;
           guardian_phone: string | null;
           circle_name: string | null;
+          track_name: string | null;
         }>();
 
       return json({ items: rows.results ?? [], count: rows.results?.length ?? 0 });

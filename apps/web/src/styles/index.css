@@ -4,6 +4,27 @@
 
 /* Admin reports — print only KPI cards + detail table */
 @media print {
+  html,
+  body,
+  #root,
+  .main-layout {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    position: static !important;
+  }
+
+  main {
+    overflow: visible !important;
+    max-height: none !important;
+    height: auto !important;
+  }
+
+  tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
   body {
     background: #fff !important;
   }

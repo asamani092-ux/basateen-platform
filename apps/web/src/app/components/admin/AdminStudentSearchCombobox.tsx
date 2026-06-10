@@ -12,6 +12,7 @@ export type AdminStudentOption = {
   id: number;
   full_name_ar: string;
   circle_name: string | null;
+  track_name?: string | null;
 };
 
 type Props = {
@@ -49,6 +50,7 @@ export function AdminStudentSearchCombobox({
         id: detail.student.id,
         full_name_ar: detail.student.full_name_ar,
         circle_name: detail.current?.circle_name ?? null,
+        track_name: detail.current?.track_name ?? null,
       };
       setSelected(hit);
       setQuery(hit.full_name_ar);

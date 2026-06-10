@@ -195,7 +195,7 @@ export function RoleShellLayout() {
 
   return (
     <AdminDataSyncProvider>
-    <div className="min-h-screen bg-background text-foreground" dir="rtl">
+    <div className="main-layout min-h-screen bg-background text-foreground" dir="rtl">
       <div className="min-h-screen flex">
         <aside className="w-64 shrink-0 bg-card border-l border-border hidden lg:flex flex-col print:hidden">
           <SidebarBrand userName={user?.full_name_ar} />

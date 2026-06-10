@@ -57,6 +57,8 @@ export function LiveLogPage() {
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [audit, setAudit] = useState<Record<number, AuditRow>>({});
   const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchRootRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -145,9 +147,28 @@ export function LiveLogPage() {
   }, [token, pinVerified, loadSession]);
 
   const filtered = useMemo(
-    () => students.filter((s) => matchesArabicName(query, s.full_name_ar)),
+    () =>
+      query.trim()
+        ? students.filter((s) => matchesArabicName(query, s.full_name_ar))
+        : [],
     [students, query],
   );
+
+  const showSuggestions = searchOpen && query.trim().length > 0 && !loading;
+
+  useEffect(() => {
+    function onPointerDown(e: MouseEvent) {
+      if (searchRootRef.current?.contains(e.target as Node)) return;
+      setSearchOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, []);
+
+  function pickStudent(studentId: number) {
+    setActiveId(studentId);
+    setSearchOpen(false);
+  }
 
   const active = activeId ? students.find((s) => s.student_id === activeId) : null;
 
@@ -358,41 +379,69 @@ export function LiveLogPage() {
         </div>
       ) : !active ? (
         <div className="space-y-4 max-w-lg mx-auto">
-          <div className="relative">
-            <Search className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+          <div ref={searchRootRef} className="relative">
+            <Search className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground pointer-events-none z-10" />
             <Input
               type="search"
               placeholder="ابحث باسم الطالب…"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setSearchOpen(true);
+              }}
+              onFocus={() => setSearchOpen(true)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setSearchOpen(false);
+                  return;
+                }
+                if (e.key === "Enter" && filtered.length === 1) {
+                  e.preventDefault();
+                  pickStudent(filtered[0].student_id);
+                }
+              }}
               className={`${ds.btnRound} h-14 text-lg pr-12`}
               style={tajawal}
               autoFocus
+              autoComplete="off"
+              spellCheck={false}
             />
+            {showSuggestions && (
+              <div
+                className="absolute z-50 mt-1 w-full rounded-xl border border-border bg-popover text-popover-foreground shadow-lg max-h-[min(60vh,320px)] overflow-y-auto overscroll-contain"
+                role="listbox"
+                onPointerDown={(e) => e.preventDefault()}
+              >
+                {filtered.length === 0 ? (
+                  <p className="px-4 py-3 text-sm text-muted-foreground" style={tajawal}>
+                    لا يوجد طالب مطابق في هذه الفعالية.
+                  </p>
+                ) : (
+                  filtered.map((s) => (
+                    <button
+                      key={s.student_id}
+                      type="button"
+                      role="option"
+                      className="w-full text-right px-4 py-3 text-base font-semibold hover:bg-muted transition-colors border-b border-border last:border-0 touch-manipulation"
+                      style={tajawal}
+                      onClick={() => pickStudent(s.student_id)}
+                    >
+                      {s.full_name_ar}
+                      {s.target_amount || s.target_hizb ? (
+                        <span className="block text-xs font-normal text-muted-foreground mt-0.5">
+                          مستهدف: {s.target_amount || s.target_juz || s.target_hizb}{" "}
+                          {s.target_hizb ? "حزب" : "جزء"}
+                        </span>
+                      ) : null}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
           </div>
-          <ul className="space-y-2">
-            {filtered.map((s) => (
-              <li key={s.student_id}>
-                <button
-                  type="button"
-                  className={`${ds.card} w-full p-4 text-right font-semibold text-lg touch-manipulation hover:ring-2 hover:ring-primary`}
-                  style={tajawal}
-                  onClick={() => setActiveId(s.student_id)}
-                >
-                  {s.full_name_ar}
-                  {s.target_amount || s.target_hizb ? (
-                    <span className="block text-xs font-normal text-muted-foreground mt-1">
-                      مستهدف: {s.target_amount || s.target_juz || s.target_hizb}{" "}
-                      {s.target_hizb ? "حزب" : "جزء"}
-                    </span>
-                  ) : null}
-                </button>
-              </li>
-            ))}
-          </ul>
-          {filtered.length === 0 && (
-            <p className={ds.alert.info} style={tajawal}>
-              لا يوجد طالب بهذا الاسم في هذه الفعالية.
+          {!searchOpen && query.trim().length === 0 && students.length > 0 && (
+            <p className="text-sm text-muted-foreground text-center" style={tajawal}>
+              ابدأ بكتابة اسم الطالب لعرض الاقتراحات ({students.length} مشارك)
             </p>
           )}
         </div>

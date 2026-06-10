@@ -76,11 +76,14 @@ export function EduTransfersPage() {
 
   const [formOpen, setFormOpen] = useState(false);
   const [studentId, setStudentId] = useState<number | null>(null);
-  const [placementQ, setPlacementQ] = useState("");
-  const [placementTrackId, setPlacementTrackId] = useState<number | null>(null);
-  const [tracks, setTracks] = useState<Array<{ id: number; name_ar: string }>>([]);
+  const [destinationQ, setDestinationQ] = useState("");
   const [placements, setPlacements] = useState<PlacementOpt[]>([]);
   const [selectedPlacement, setSelectedPlacement] = useState<PlacementOpt | null>(null);
+  const [currentPlacement, setCurrentPlacement] = useState<{
+    circle_name: string;
+    track_name: string | null;
+  } | null>(null);
+  const [placementLoading, setPlacementLoading] = useState(false);
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -116,26 +119,13 @@ export function EduTransfersPage() {
     }
   }, []);
 
-  const loadPlacements = useCallback(async (q: string, trackId?: number | null) => {
+  const loadPlacements = useCallback(async (q: string) => {
     if (!canUseApi()) return;
     try {
-      const res = await api.eduDeptPlacementOptions(
-        q,
-        trackId != null && trackId > 0 ? trackId : undefined,
-      );
+      const res = await api.eduDeptPlacementOptions(q);
       setPlacements(res.items);
     } catch {
       setPlacements([]);
-    }
-  }, []);
-
-  const loadTracks = useCallback(async () => {
-    if (!canUseApi()) return;
-    try {
-      const res = await api.eduDeptFilterScopes();
-      setTracks(res.tracks);
-    } catch {
-      setTracks([]);
     }
   }, []);
 
@@ -153,21 +143,47 @@ export function EduTransfersPage() {
   }, []);
 
   useEffect(() => {
-    void loadTracks();
-  }, [loadTracks]);
-
-  useEffect(() => {
     void loadPending();
   }, [loadPending]);
 
   useEffect(() => {
-    if (!formOpen) return;
-    const t = setTimeout(
-      () => void loadPlacements(placementQ, placementTrackId),
-      250,
-    );
+    if (!formOpen || studentId == null) {
+      setCurrentPlacement(null);
+      return;
+    }
+    let cancelled = false;
+    setPlacementLoading(true);
+    void api
+      .studentDetail(studentId)
+      .then((res) => {
+        if (cancelled) return;
+        setCurrentPlacement(
+          res.current
+            ? {
+                circle_name: res.current.circle_name,
+                track_name: res.current.track_name,
+              }
+            : { circle_name: "غير موزّع حالياً", track_name: null },
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setCurrentPlacement(null);
+      })
+      .finally(() => {
+        if (!cancelled) setPlacementLoading(false);
+      });
+    setSelectedPlacement(null);
+    setDestinationQ("");
+    return () => {
+      cancelled = true;
+    };
+  }, [formOpen, studentId]);
+
+  useEffect(() => {
+    if (!formOpen || studentId == null) return;
+    const t = setTimeout(() => void loadPlacements(destinationQ), 250);
     return () => clearTimeout(t);
-  }, [formOpen, placementQ, placementTrackId, loadPlacements]);
+  }, [formOpen, studentId, destinationQ, loadPlacements]);
 
   useEffect(() => {
     if (!historyOpen) return;
@@ -227,11 +243,7 @@ export function EduTransfersPage() {
   async function submitTransfer(e: React.FormEvent) {
     e.preventDefault();
     if (studentId == null || !selectedPlacement) {
-      setError("اختر الطالب والحلقة/المسار");
-      return;
-    }
-    if (!reason.trim()) {
-      setError("سبب النقل إلزامي");
+      setError("اختر الطالب والوجهة الجديدة");
       return;
     }
     setSubmitting(true);
@@ -242,11 +254,13 @@ export function EduTransfersPage() {
         student_id: studentId,
         circle_id: selectedPlacement.id,
         track_id: selectedPlacement.track_id,
-        note: reason.trim(),
+        note: reason.trim() || "نقل إداري",
       });
-      setSuccess("تم اعتماد النقل بنجاح.");
+      setSuccess("تم حفظ النقل بنجاح.");
       setStudentId(null);
       setSelectedPlacement(null);
+      setCurrentPlacement(null);
+      setDestinationQ("");
       setReason("");
       setFormOpen(false);
       await loadPending();
@@ -256,6 +270,16 @@ export function EduTransfersPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function openTransferForm() {
+    setStudentId(null);
+    setSelectedPlacement(null);
+    setCurrentPlacement(null);
+    setDestinationQ("");
+    setReason("");
+    setError(null);
+    setFormOpen(true);
   }
 
   return (
@@ -353,14 +377,14 @@ export function EduTransfersPage() {
           <div>
             <CardTitle style={tajawal}>إجراء نقل جديد</CardTitle>
             <CardDescription style={tajawal}>
-              نقل مباشر مع سبب إلزامي وسجل تراكمي.
+              اختر الطالب، راجع موقعه الحالي، ثم حدّد الوجهة الجديدة.
             </CardDescription>
           </div>
           {!formOpen && (
             <Button
               type="button"
               className={ds.btnRound}
-              onClick={() => setFormOpen(true)}
+              onClick={openTransferForm}
               style={tajawal}
             >
               <Plus className="w-4 h-4" />
@@ -370,94 +394,109 @@ export function EduTransfersPage() {
         </CardHeader>
         {formOpen && (
           <CardContent>
-            <form onSubmit={submitTransfer} className="space-y-4">
+            <form onSubmit={submitTransfer} className="space-y-5">
               <div className="space-y-2">
-                <Label style={tajawal}>الطالب</Label>
+                <Label style={tajawal}>1. البحث عن الطالب</Label>
                 <AdminStudentSearchCombobox
                   id="transfer-student"
                   value={studentId}
                   onChange={setStudentId}
                 />
               </div>
-              <div className="space-y-2">
-                <Label style={tajawal}>المسار التعليمي</Label>
-                <select
-                  value={placementTrackId ?? ""}
-                  onChange={(e) => {
-                    setPlacementTrackId(e.target.value ? Number(e.target.value) : null);
-                    setSelectedPlacement(null);
-                  }}
-                  className={ds.select}
-                  style={tajawal}
-                >
-                  <option value="">— كل المسارات —</option>
-                  {tracks.map((t) => (
-                    <option key={t.id} value={String(t.id)}>
-                      {t.name_ar}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label style={tajawal}>الحلقة / المسار</Label>
-                <Input
-                  placeholder="ابحث داخل القائمة…"
-                  value={placementQ}
-                  onChange={(e) => setPlacementQ(e.target.value)}
-                  className={ds.btnRound}
-                />
-                <div className="max-h-48 overflow-y-auto border border-border rounded-xl divide-y">
-                  {filteredPlacements.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => setSelectedPlacement(p)}
-                      className={`w-full text-right px-3 py-2 text-sm hover:bg-muted ${
-                        selectedPlacement?.id === p.id ? "bg-muted" : ""
-                      }`}
-                      style={tajawal}
-                    >
-                      <span className="font-semibold">{p.name_ar}</span>
-                      {p.track_name && (
-                        <span className="text-muted-foreground"> · {p.track_name}</span>
-                      )}
-                      {p.teacher_name && (
-                        <Badge variant="secondary" className="mr-2 rounded-lg text-xs">
-                          {p.teacher_name}
-                        </Badge>
-                      )}
-                    </button>
-                  ))}
-                  {filteredPlacements.length === 0 && (
-                    <p className="p-3 text-sm text-muted-foreground" style={tajawal}>
-                      لا توجد نتائج
+
+              {studentId != null && (
+                <div className={`${ds.card} p-4 space-y-2 bg-muted/30`}>
+                  <p className="text-sm font-semibold text-primary" style={tajawal}>
+                    2. الموقع الحالي للطالب
+                  </p>
+                  {placementLoading ? (
+                    <p className="text-sm text-muted-foreground" style={tajawal}>
+                      جاري جلب بيانات التوزيع…
+                    </p>
+                  ) : currentPlacement ? (
+                    <div className="flex flex-wrap gap-3 text-sm" style={tajawal}>
+                      <span>
+                        <span className="text-muted-foreground">الحلقة: </span>
+                        <strong>{currentPlacement.circle_name}</strong>
+                      </span>
+                      <span>
+                        <span className="text-muted-foreground">المسار: </span>
+                        <strong>{currentPlacement.track_name ?? "—"}</strong>
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground" style={tajawal}>
+                      تعذّر جلب الموقع الحالي.
                     </p>
                   )}
                 </div>
-                {selectedPlacement?.teacher_name && (
-                  <Badge variant="secondary" className="rounded-lg" style={tajawal}>
-                    المعلم: {selectedPlacement.teacher_name}
-                  </Badge>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label style={tajawal}>سبب النقل *</Label>
-                <Input
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  required
-                  placeholder="اكتب سبب النقل…"
-                  className={ds.btnRound}
-                />
-              </div>
-              <div className="flex gap-2">
+              )}
+
+              {studentId != null && (
+                <div className="space-y-2">
+                  <Label style={tajawal}>3. الوجهة الجديدة (حلقة / مسار)</Label>
+                  <Input
+                    placeholder="ابحث بالاسم أو المسار أو المعلم…"
+                    value={destinationQ}
+                    onChange={(e) => setDestinationQ(e.target.value)}
+                    className={ds.btnRound}
+                  />
+                  <div className="max-h-52 overflow-y-auto border border-border rounded-xl divide-y">
+                    {filteredPlacements.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setSelectedPlacement(p)}
+                        className={`w-full text-right px-3 py-2.5 text-sm hover:bg-muted transition-colors ${
+                          selectedPlacement?.id === p.id ? "bg-muted ring-1 ring-primary/30" : ""
+                        }`}
+                        style={tajawal}
+                      >
+                        <span className="font-semibold">{p.name_ar}</span>
+                        {p.track_name && (
+                          <span className="text-muted-foreground"> · {p.track_name}</span>
+                        )}
+                        {p.teacher_name && (
+                          <Badge variant="secondary" className="mr-2 rounded-lg text-xs">
+                            {p.teacher_name}
+                          </Badge>
+                        )}
+                      </button>
+                    ))}
+                    {filteredPlacements.length === 0 && (
+                      <p className="p-3 text-sm text-muted-foreground" style={tajawal}>
+                        لا توجد نتائج — جرّب كلمة بحث أخرى
+                      </p>
+                    )}
+                  </div>
+                  {selectedPlacement?.teacher_name && (
+                    <Badge variant="secondary" className="rounded-lg" style={tajawal}>
+                      المعلم المستهدف: {selectedPlacement.teacher_name}
+                    </Badge>
+                  )}
+                </div>
+              )}
+
+              {studentId != null && (
+                <div className="space-y-2">
+                  <Label style={tajawal}>4. سبب النقل (اختياري)</Label>
+                  <Input
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    placeholder="مثال: تحسين المستوى، طلب ولي الأمر…"
+                    className={ds.btnRound}
+                  />
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-1">
                 <Button
                   type="submit"
-                  disabled={submitting}
+                  disabled={submitting || studentId == null || !selectedPlacement}
                   className={ds.btnRound}
                   style={tajawal}
                 >
-                  {submitting ? "جاري الاعتماد…" : "اعتماد النقل"}
+                  {submitting ? "جاري الحفظ…" : "حفظ النقل"}
                 </Button>
                 <Button
                   type="button"

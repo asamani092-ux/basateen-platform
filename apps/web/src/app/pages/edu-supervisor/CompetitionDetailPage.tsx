@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { toast } from "sonner";
 import {
@@ -13,6 +13,7 @@ import {
   Plus,
   Printer,
   RefreshCw,
+  Search,
   Trash2,
   Users,
 } from "lucide-react";
@@ -29,14 +30,17 @@ import {
 } from "../../components/ui/select";
 import { AttendanceStatusButtons } from "../../components/attendance/AttendanceStatusButtons";
 import { EduKpiCard } from "../../components/edu/EduKpiCard";
+import { CompetitionGradingGrid } from "../../components/edu/CompetitionGradingGrid";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { normalizeAttendanceStatus } from "../../lib/attendance-status";
 import { categoryLabel } from "../../lib/competition-engine";
+import { matchesArabicName } from "../../lib/attendance-search";
 import { defaultDateRange } from "../../lib/local-iso-date";
 import { ds, tajawal } from "../../lib/design-system";
 
-type TabId = "dashboard" | "targets" | "tasks" | "live" | "attendance";
+type TabId = "dashboard" | "targets" | "tasks" | "grading" | "live" | "attendance";
+type LeaderboardMode = "top" | "all";
 
 type TaskRow = {
   id: number;
@@ -96,6 +100,12 @@ export function CompetitionDetailPage() {
   const [newTaskType, setNewTaskType] = useState<"addition" | "deduction">("addition");
   const [attDate, setAttDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [dashRange, setDashRange] = useState(defaultDateRange(7));
+  const [leaderboardMode, setLeaderboardMode] = useState<LeaderboardMode>("top");
+  const [leaderSearch, setLeaderSearch] = useState("");
+  const [editOpen, setEditOpen] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editStartDate, setEditStartDate] = useState("");
+  const [editEndDate, setEditEndDate] = useState("");
 
   const load = useCallback(async () => {
     if (!canUseApi() || !id) return;
@@ -128,6 +138,9 @@ export function CompetitionDetailPage() {
         start: String(comp.start_date),
         end: String(comp.end_date),
       });
+      setEditName(String(comp.name_ar ?? ""));
+      setEditStartDate(String(comp.start_date ?? ""));
+      setEditEndDate(String(comp.end_date ?? ""));
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل التحميل");
     } finally {
@@ -143,6 +156,7 @@ export function CompetitionDetailPage() {
       const res = await api.competitionsDashboard(id, {
         date_from: dashRange.start,
         date_to: dashRange.end,
+        leaderboard_mode: leaderboardMode,
       });
       setDashboard(res);
     } catch (e) {
@@ -150,7 +164,7 @@ export function CompetitionDetailPage() {
     } finally {
       setDashboardLoading(false);
     }
-  }, [id, dashRange.start, dashRange.end]);
+  }, [id, dashRange.start, dashRange.end, leaderboardMode]);
 
   const loadAttendance = useCallback(async () => {
     if (!canUseApi() || !id) return;
@@ -222,9 +236,39 @@ export function CompetitionDetailPage() {
     student_id: number;
     score: number;
     full_name_ar?: string;
+    target_amount?: number;
+    achievement_pct?: number;
   }>;
+  const filteredLeaders = useMemo(
+    () =>
+      leaders.filter((l) =>
+        matchesArabicName(leaderSearch, l.full_name_ar ?? `طالب #${l.student_id}`),
+      ),
+    [leaders, leaderSearch],
+  );
   const category = String(comp?.category ?? "recitation");
   const isNewMemorization = category === "new_memorization";
+
+  async function saveCompetitionMeta() {
+    if (!id) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.competitionsPatch(id, {
+        name_ar: editName.trim(),
+        start_date: editStartDate,
+        end_date: editEndDate,
+      });
+      setEditOpen(false);
+      setDashRange({ start: editStartDate, end: editEndDate });
+      await load();
+      if (tab === "dashboard") await loadDashboard();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "فشل حفظ بيانات المنافسة");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function addTask() {
     if (!id || !newTaskName.trim()) return;
@@ -398,6 +442,7 @@ export function CompetitionDetailPage() {
     { id: "dashboard", label: "مؤشرات المنافسة", icon: <BarChart3 className="w-4 h-4" /> },
     { id: "targets", label: "المستهدفون", icon: <Users className="w-4 h-4" /> },
     { id: "tasks", label: "المهام والأوزان", icon: <ListChecks className="w-4 h-4" /> },
+    { id: "grading", label: "الرصد المباشر", icon: <Pencil className="w-4 h-4" /> },
     { id: "live", label: "الرصد والروابط", icon: <Link2 className="w-4 h-4" /> },
     { id: "attendance", label: "تحضير المنافسة", icon: <ClipboardCheck className="w-4 h-4" /> },
   ];
@@ -439,6 +484,17 @@ export function CompetitionDetailPage() {
                 {String(comp.start_date)} → {String(comp.end_date)} · {String(comp.status)}
               </p>
             </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className={ds.btnRound}
+                onClick={() => setEditOpen((v) => !v)}
+                style={tajawal}
+              >
+                <Pencil className="w-4 h-4" />
+                {editOpen ? "إغلاق التعديل" : "تعديل البيانات"}
+              </Button>
             {isNewMemorization && comp.status !== "closed" && (
               <Button
                 type="button"
@@ -452,7 +508,53 @@ export function CompetitionDetailPage() {
                 إنهاء المنافسة وتحديث المحفوظ
               </Button>
             )}
+            </div>
           </div>
+
+          {editOpen && (
+            <Card className={ds.card}>
+              <CardHeader>
+                <CardTitle style={tajawal}>تعديل المنافسة</CardTitle>
+              </CardHeader>
+              <CardContent className="grid sm:grid-cols-3 gap-3 items-end">
+                <div className="sm:col-span-3 space-y-2">
+                  <Label style={tajawal}>اسم المنافسة</Label>
+                  <Input
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className={ds.btnRound}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label style={tajawal}>تاريخ البداية</Label>
+                  <Input
+                    type="date"
+                    value={editStartDate}
+                    onChange={(e) => setEditStartDate(e.target.value)}
+                    className={ds.btnRound}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label style={tajawal}>تاريخ النهاية</Label>
+                  <Input
+                    type="date"
+                    value={editEndDate}
+                    onChange={(e) => setEditEndDate(e.target.value)}
+                    className={ds.btnRound}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  className={ds.btnRound}
+                  disabled={saving || !editName.trim() || !editStartDate || !editEndDate}
+                  onClick={() => void saveCompetitionMeta()}
+                  style={tajawal}
+                >
+                  {saving ? "جاري الحفظ…" : "حفظ التعديلات"}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
 
           <div className="flex flex-wrap gap-2 print:hidden">
             {tabs.map((t) => (
@@ -557,23 +659,65 @@ export function CompetitionDetailPage() {
                     />
                   </div>
                   <Card className={ds.card}>
-                    <CardHeader>
-                      <CardTitle style={tajawal}>الأوائل</CardTitle>
+                    <CardHeader className="space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <CardTitle style={tajawal}>
+                          {leaderboardMode === "all" ? "جميع الطلاب" : "الأوائل"}
+                        </CardTitle>
+                        <div className="flex flex-wrap gap-2 print:hidden">
+                          <Button
+                            type="button"
+                            variant={leaderboardMode === "top" ? "default" : "outline"}
+                            size="sm"
+                            className={ds.btnRound}
+                            onClick={() => setLeaderboardMode("top")}
+                            style={tajawal}
+                          >
+                            عرض الأوائل
+                          </Button>
+                          <Button
+                            type="button"
+                            variant={leaderboardMode === "all" ? "default" : "outline"}
+                            size="sm"
+                            className={ds.btnRound}
+                            onClick={() => setLeaderboardMode("all")}
+                            style={tajawal}
+                          >
+                            عرض كل الطلاب
+                          </Button>
+                        </div>
+                      </div>
+                      {leaderboardMode === "all" && (
+                        <div className="relative max-w-sm print:hidden">
+                          <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                          <Input
+                            type="search"
+                            placeholder="بحث عن طالب…"
+                            value={leaderSearch}
+                            onChange={(e) => setLeaderSearch(e.target.value)}
+                            className={`${ds.btnRound} pr-10`}
+                            style={tajawal}
+                          />
+                        </div>
+                      )}
                     </CardHeader>
                     <CardContent className="space-y-2 text-sm" style={tajawal}>
-                      {leaders.length === 0 ? (
+                      {filteredLeaders.length === 0 ? (
                         <p className="text-muted-foreground">لا بيانات إنجاز بعد.</p>
                       ) : (
-                        leaders.map((l, i) => (
+                        filteredLeaders.map((l, i) => (
                           <div
                             key={l.student_id}
-                            className="flex justify-between border-b py-2"
+                            className="flex justify-between border-b py-2 gap-4"
                           >
                             <span>
                               {i + 1}. {l.full_name_ar ?? `طالب #${l.student_id}`}
                             </span>
-                            <span className="text-muted-foreground tabular-nums">
+                            <span className="text-muted-foreground tabular-nums text-left shrink-0">
                               {Math.round(l.score * 100) / 100} جزء
+                              {l.achievement_pct != null ? (
+                                <span className="mr-2">· {l.achievement_pct}%</span>
+                              ) : null}
                             </span>
                           </div>
                         ))
@@ -796,6 +940,17 @@ export function CompetitionDetailPage() {
                 </CardContent>
               </Card>
             </div>
+          )}
+
+          {tab === "grading" && id > 0 && (
+            <Card className={ds.card}>
+              <CardHeader>
+                <CardTitle style={tajawal}>شبكة الرصد التفاعلية</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <CompetitionGradingGrid competitionId={id} />
+              </CardContent>
+            </Card>
           )}
 
           {tab === "live" && (

@@ -68,24 +68,16 @@ export function EduReportsPage() {
   const loadScopes = useCallback(async () => {
     if (!canUseApi()) return;
     try {
-      const [circlesRes, placementsRes] = await Promise.all([
-        api.circles(),
-        api.eduDeptPlacementOptions(""),
-      ]);
-      setCircles(circlesRes.items.map((c) => ({ id: c.id, name_ar: c.name_ar })));
-      const trackMap = new Map<number, string>();
-      for (const p of placementsRes.items) {
-        if (p.track_id != null && p.track_name) {
-          trackMap.set(p.track_id, p.track_name);
-        }
-      }
-      setTracks(
-        [...trackMap.entries()]
-          .map(([id, name_ar]) => ({ id, name_ar }))
-          .sort((a, b) => a.name_ar.localeCompare(b.name_ar, "ar")),
-      );
+      const res = await api.eduDeptFilterScopes();
+      setCircles(res.circles.map((c) => ({ id: c.id, name_ar: c.name_ar })));
+      setTracks(res.tracks);
     } catch {
-      /* ignore */
+      try {
+        const circlesRes = await api.circles();
+        setCircles(circlesRes.items.map((c) => ({ id: c.id, name_ar: c.name_ar })));
+      } catch {
+        /* ignore */
+      }
     }
   }, []);
 

@@ -26,7 +26,7 @@
 
 | المورد | الصلاحية | مطلوب لـ |
 |--------|----------|----------|
-| Account → **Workers Scripts** | **Edit** | `wrangler deploy` |
+| Account → **Workers Scripts** | **Edit** | `wrangler deploy` ← **سبب `Authentication error [10000]` على `/workers/services/...`** |
 | Account → **Cloudflare Pages** | **Edit** | `pages deploy` |
 | Account → **D1** | **Edit** | `d1 execute --remote` |
 | Account → Account Settings | **Read** | `wrangler whoami` |
@@ -37,6 +37,8 @@
 |-------|--------|
 | `Invalid access token [9109]` | التوken **غير صالح** — لصق خاطئ، منتهي، أو ملغى |
 | `Authentication error [10000]` على `/workers/services/...` | التوken صالح لـ whoami لكن **يفتقر Workers Scripts → Edit** |
+
+> إذا ظهر `whoami` بنجاح لكن `deploy` يفشل بـ `[10000]` — التوكن يفتقر **Workers Scripts → Edit** أو مربوط بحساب آخر.
 
 > **مهم:** تحديث Secret في GitHub **لا يعيد تشغيل** الـ workflow تلقائياً. بعد التحديث: Actions → **Deploy API (production)** → **Run workflow**.
 

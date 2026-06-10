@@ -77,6 +77,8 @@ export function EduTransfersPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [studentId, setStudentId] = useState<number | null>(null);
   const [placementQ, setPlacementQ] = useState("");
+  const [placementTrackId, setPlacementTrackId] = useState<number | null>(null);
+  const [tracks, setTracks] = useState<Array<{ id: number; name_ar: string }>>([]);
   const [placements, setPlacements] = useState<PlacementOpt[]>([]);
   const [selectedPlacement, setSelectedPlacement] = useState<PlacementOpt | null>(null);
   const [reason, setReason] = useState("");
@@ -114,13 +116,26 @@ export function EduTransfersPage() {
     }
   }, []);
 
-  const loadPlacements = useCallback(async (q: string) => {
+  const loadPlacements = useCallback(async (q: string, trackId?: number | null) => {
     if (!canUseApi()) return;
     try {
-      const res = await api.eduDeptPlacementOptions(q);
+      const res = await api.eduDeptPlacementOptions(
+        q,
+        trackId != null && trackId > 0 ? trackId : undefined,
+      );
       setPlacements(res.items);
     } catch {
       setPlacements([]);
+    }
+  }, []);
+
+  const loadTracks = useCallback(async () => {
+    if (!canUseApi()) return;
+    try {
+      const res = await api.eduDeptFilterScopes();
+      setTracks(res.tracks);
+    } catch {
+      setTracks([]);
     }
   }, []);
 
@@ -138,14 +153,21 @@ export function EduTransfersPage() {
   }, []);
 
   useEffect(() => {
+    void loadTracks();
+  }, [loadTracks]);
+
+  useEffect(() => {
     void loadPending();
   }, [loadPending]);
 
   useEffect(() => {
     if (!formOpen) return;
-    const t = setTimeout(() => void loadPlacements(placementQ), 250);
+    const t = setTimeout(
+      () => void loadPlacements(placementQ, placementTrackId),
+      250,
+    );
     return () => clearTimeout(t);
-  }, [formOpen, placementQ, loadPlacements]);
+  }, [formOpen, placementQ, placementTrackId, loadPlacements]);
 
   useEffect(() => {
     if (!historyOpen) return;
@@ -356,6 +378,25 @@ export function EduTransfersPage() {
                   value={studentId}
                   onChange={setStudentId}
                 />
+              </div>
+              <div className="space-y-2">
+                <Label style={tajawal}>المسار التعليمي</Label>
+                <select
+                  value={placementTrackId ?? ""}
+                  onChange={(e) => {
+                    setPlacementTrackId(e.target.value ? Number(e.target.value) : null);
+                    setSelectedPlacement(null);
+                  }}
+                  className={ds.select}
+                  style={tajawal}
+                >
+                  <option value="">— كل المسارات —</option>
+                  {tracks.map((t) => (
+                    <option key={t.id} value={String(t.id)}>
+                      {t.name_ar}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="space-y-2">
                 <Label style={tajawal}>الحلقة / المسار</Label>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router";
 import { AlertTriangle, BookOpen, Loader2, Minus, Plus, RefreshCw, Search } from "lucide-react";
 import { toast } from "sonner";
@@ -40,7 +40,10 @@ export function LiveLogPage() {
   const { token } = useParams<{ token: string }>();
   const [pin, setPin] = useState("");
   const [pinVerified, setPinVerified] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const verifiedPinRef = useRef("");
+  const sessionLoadedRef = useRef(false);
+  const [gateLoading, setGateLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState(0);
   const [sessionName, setSessionName] = useState("");
@@ -57,12 +60,22 @@ export function LiveLogPage() {
   const [activeId, setActiveId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const load = useCallback(async () => {
-    if (!token || !pinVerified) return;
+  useEffect(() => {
+    sessionLoadedRef.current = false;
+    verifiedPinRef.current = "";
+    setPinVerified(false);
+    setStudents([]);
+    setAudit({});
+    setActiveId(null);
+    setError(null);
+  }, [token]);
+
+  const loadSession = useCallback(async () => {
+    if (!token || !pinVerified || !verifiedPinRef.current) return;
     setLoading(true);
     setError(null);
     try {
-      const data = await api.liveLogSession(token, pin);
+      const data = await api.liveLogSession(token, verifiedPinRef.current);
       setKind(data.kind);
       setSessionId(Number(data.session.id ?? 0));
       setSessionName(String(data.session.name_ar ?? ""));
@@ -123,11 +136,13 @@ export function LiveLogPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, pinVerified, pin]);
+  }, [token, pinVerified]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (!token || !pinVerified || sessionLoadedRef.current) return;
+    sessionLoadedRef.current = true;
+    void loadSession();
+  }, [token, pinVerified, loadSession]);
 
   const filtered = useMemo(
     () => students.filter((s) => matchesArabicName(query, s.full_name_ar)),
@@ -209,7 +224,7 @@ export function LiveLogPage() {
             ...patch,
           },
         },
-        pin,
+        verifiedPinRef.current,
       );
       if (sessionId) clearReciterDraft(sessionId, activeId, token);
       setAudit((prev) => ({
@@ -248,15 +263,19 @@ export function LiveLogPage() {
 
   async function verifyPin() {
     if (!token) return;
-    setLoading(true);
+    const trimmed = pin.trim();
+    if (!trimmed) return;
+    setGateLoading(true);
     setError(null);
     try {
-      await api.liveLogSession(token, pin);
+      await api.liveLogSession(token, trimmed);
+      verifiedPinRef.current = trimmed;
+      sessionLoadedRef.current = false;
       setPinVerified(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "رمز الدخول غير صحيح");
     } finally {
-      setLoading(false);
+      setGateLoading(false);
     }
   }
 
@@ -286,10 +305,10 @@ export function LiveLogPage() {
             type="button"
             className={ds.btnRound}
             onClick={verifyPin}
-            disabled={loading || !pin.trim()}
+            disabled={gateLoading || !pin.trim()}
             style={tajawal}
           >
-            {loading ? (
+            {gateLoading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
                 جارٍ التحقق...

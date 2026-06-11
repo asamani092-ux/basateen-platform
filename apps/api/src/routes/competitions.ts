@@ -75,7 +75,9 @@ import { DEFAULT_COMPETITION } from "../lib/edu-settings-defaults";
 import { loadEvaluationCriteria } from "../lib/evaluation-criteria";
 import { COMPETITION_MANAGER_ROLES } from "../lib/roles";
 import {
+  clampFaces,
   convertToFaces,
+  facesToJuz,
   formatFacesToText,
   parseMemorizationTextToFaces,
 } from "../lib/quran-memorization";
@@ -665,8 +667,8 @@ export async function handleEduCompetitionsRouter(
           : parseMemorizationTextToFaces(t.memorization_amount) ||
             convertToFaces(Number(t.current_memorization ?? 0), "juz");
       const achievedFaces = convertToFaces(achieved, "juz");
-      const newFaces = currentFaces + achievedFaces;
-      const newJuz = Math.round((newFaces / 20) * 100) / 100;
+      const newFaces = clampFaces(currentFaces + achievedFaces);
+      const newJuz = facesToJuz(newFaces);
 
       if (hasMemCol) {
         studentUpdates.push(

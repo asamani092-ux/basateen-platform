@@ -1,5 +1,15 @@
 export type QuranUnit = "face" | "hizb" | "juz";
 
+/** سقوف القرآن الكريم — الجزء 1–29 = 20 وجهاً، الجزء 30 = 23 وجهاً */
+export const QURAN_MAX_JUZ = 30;
+export const QURAN_MAX_HIZB = 60;
+export const QURAN_MAX_FACES = 604;
+export const QURAN_JUZ_FACES = 20;
+export const QURAN_JUZ30_FACES = 23;
+export const QURAN_JUZ29_TOTAL_FACES = 29 * QURAN_JUZ_FACES;
+export const QURAN_TOTAL_FACES =
+  QURAN_JUZ29_TOTAL_FACES + QURAN_JUZ30_FACES;
+
 const AR_DIGITS = "٠١٢٣٤٥٦٧٨٩";
 
 /** O(n) — n = input length */
@@ -8,42 +18,88 @@ function normalizeArabicDigits(raw: string): string {
 }
 
 /** O(1) */
-export function convertToFaces(value: number, unit: QuranUnit): number {
-  if (!value || isNaN(value)) return 0;
+export function getUnitMax(unit: QuranUnit): number {
   switch (unit) {
     case "juz":
-      return value * 20;
+      return QURAN_MAX_JUZ;
     case "hizb":
-      return value * 10;
+      return QURAN_MAX_HIZB;
     case "face":
     default:
-      return value;
+      return QURAN_MAX_FACES;
   }
 }
 
-/** O(1) */
+/** O(1) — clamp structured input before conversion */
+export function clampUnitValue(value: number, unit: QuranUnit): number {
+  const n = Math.max(0, Number(value) || 0);
+  if (!n) return 0;
+  return Math.min(n, getUnitMax(unit));
+}
+
+/** O(1) — clamp absolute faces to Quran ceiling */
+export function clampFaces(faces: number): number {
+  const n = Math.max(0, Math.round(Number(faces) || 0));
+  return Math.min(n, QURAN_MAX_FACES);
+}
+
+/** O(1) — convert structured unit to absolute faces (juz 30 = 23 faces) */
+export function convertToFaces(value: number, unit: QuranUnit): number {
+  const v = clampUnitValue(value, unit);
+  if (!v) return 0;
+  switch (unit) {
+    case "juz":
+      if (v >= QURAN_MAX_JUZ) return clampFaces(QURAN_TOTAL_FACES);
+      return clampFaces(v * QURAN_JUZ_FACES);
+    case "hizb":
+      if (v >= QURAN_MAX_HIZB) return clampFaces(QURAN_TOTAL_FACES);
+      return clampFaces(v * 10);
+    case "face":
+    default:
+      return clampFaces(v);
+  }
+}
+
+/** O(1) — decompose absolute faces to elegant Arabic (respects juz 30 = 23 faces) */
 export function formatFacesToText(faces: number): string {
-  const totalFaces = Math.max(0, Math.round(faces));
-  if (totalFaces === 0) return "";
-  const juz = Math.floor(totalFaces / 20);
-  const remainingAfterJuz = totalFaces % 20;
-  const hizb = Math.floor(remainingAfterJuz / 10);
-  const remainderFaces = remainingAfterJuz % 10;
+  const total = clampFaces(Math.round(faces));
+  if (total === 0) return "";
+  if (total >= QURAN_TOTAL_FACES) return "30 جزء";
+
   const parts: string[] = [];
+
+  if (total > QURAN_JUZ29_TOTAL_FACES) {
+    const inJuz30 = total - QURAN_JUZ29_TOTAL_FACES;
+    parts.push("29 أجزاء");
+    const hizb = Math.floor(inJuz30 / 10);
+    const remFaces = inJuz30 % 10;
+    if (hizb > 0) parts.push(hizb === 1 ? "1 حزب" : `${hizb} أحزاب`);
+    if (remFaces > 0) {
+      parts.push(remFaces === 1 ? "1 وجه" : `${remFaces} أوجه`);
+    }
+    return parts.join(" و ");
+  }
+
+  const juz = Math.floor(total / QURAN_JUZ_FACES);
+  const remaining = total % QURAN_JUZ_FACES;
+  const hizb = Math.floor(remaining / 10);
+  const remFaces = remaining % 10;
+
   if (juz > 0) parts.push(juz === 1 ? "1 جزء" : `${juz} أجزاء`);
   if (hizb > 0) parts.push(hizb === 1 ? "1 حزب" : `${hizb} أحزاب`);
-  if (remainderFaces > 0) {
-    parts.push(
-      remainderFaces === 1 ? "1 وجه" : `${remainderFaces} أوجه`,
-    );
-  }
+  if (remFaces > 0) parts.push(remFaces === 1 ? "1 وجه" : `${remFaces} أوجه`);
   return parts.join(" و ");
 }
 
-/** O(1) */
+/** O(1) — fractional juz equivalent (juz 30 weighted at 23 faces) */
 export function facesToJuz(faces: number): number {
-  const n = Math.max(0, Number(faces) || 0);
-  return Math.round((n / 20) * 100) / 100;
+  const f = clampFaces(faces);
+  if (f >= QURAN_TOTAL_FACES) return QURAN_MAX_JUZ;
+  if (f <= QURAN_JUZ29_TOTAL_FACES) {
+    return Math.round((f / QURAN_JUZ_FACES) * 100) / 100;
+  }
+  const inJuz30 = f - QURAN_JUZ29_TOTAL_FACES;
+  return Math.round((29 + inJuz30 / QURAN_JUZ30_FACES) * 100) / 100;
 }
 
 /** O(n) on string length — parse juz/hizb/face Arabic patterns + legacy numeric juz */
@@ -77,7 +133,7 @@ export function parseMemorizationTextToFaces(
     matched = true;
   }
 
-  if (matched) return total;
+  if (matched) return clampFaces(total);
 
   const match = normalized.match(/(\d+(?:\.\d+)?)/);
   return match ? convertToFaces(Number(match[1]), "juz") : 0;
@@ -88,9 +144,17 @@ export function facesToStructuredInput(faces: number): {
   value: string;
   unit: QuranUnit;
 } {
-  const total = Math.max(0, Math.round(faces));
+  const total = clampFaces(Math.round(faces));
   if (total === 0) return { value: "", unit: "face" };
-  if (total % 20 === 0) return { value: String(total / 20), unit: "juz" };
+  if (total >= QURAN_TOTAL_FACES) {
+    return { value: String(QURAN_MAX_JUZ), unit: "juz" };
+  }
+  if (total > QURAN_JUZ29_TOTAL_FACES) {
+    return { value: String(total), unit: "face" };
+  }
+  if (total % QURAN_JUZ_FACES === 0) {
+    return { value: String(total / QURAN_JUZ_FACES), unit: "juz" };
+  }
   if (total % 10 === 0) return { value: String(total / 10), unit: "hizb" };
   return { value: String(total), unit: "face" };
 }
@@ -109,7 +173,7 @@ export function resolveMemorizationFields(input: {
 }): { faces: number | null; text: string | null } {
   const explicitFaces = Number(input.memorization_faces);
   if (Number.isFinite(explicitFaces) && explicitFaces >= 0) {
-    const faces = Math.round(explicitFaces);
+    const faces = clampFaces(explicitFaces);
     return {
       faces: faces > 0 ? faces : null,
       text: formatFacesToText(faces) || null,
@@ -121,7 +185,7 @@ export function resolveMemorizationFields(input: {
   if (valueStr) {
     const n = Number(valueStr);
     if (Number.isFinite(n) && n > 0) {
-      const faces = Math.round(convertToFaces(n, unit));
+      const faces = convertToFaces(n, unit);
       return {
         faces: faces > 0 ? faces : null,
         text: formatFacesToText(faces) || null,

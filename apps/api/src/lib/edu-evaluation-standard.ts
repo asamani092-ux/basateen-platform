@@ -5,6 +5,7 @@ import {
   totalEnabledWeight,
 } from "./evaluation-criteria";
 import type { TaskInputType, TaskType } from "./competition-engine";
+import { facesToJuz } from "./quran-memorization";
 
 export type CompetitionTaskSeed = {
   name_ar: string;
@@ -141,10 +142,9 @@ export function enabledCompetitionWeightSum(tasks: CompTaskMeta[]): number {
     .reduce((sum, t) => sum + Number(t.weight ?? 1), 0);
 }
 
-/** O(1) — faces entered in memorization task → juz (20 faces per juz). */
+/** O(1) — faces entered in memorization task → juz (juz 30 = 23 faces) */
 export function memorizationPointsToJuz(points: number): number {
-  const faces = Math.max(0, Number(points) || 0);
-  return Math.round((faces / 20) * 100) / 100;
+  return facesToJuz(Math.max(0, Number(points) || 0));
 }
 
 /** O(L) — aggregate memorization task log points per student. */

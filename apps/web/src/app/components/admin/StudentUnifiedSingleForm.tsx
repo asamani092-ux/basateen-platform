@@ -8,8 +8,19 @@ import { ds, tajawal } from "../../lib/design-system";
 import {
   formatFacesToText,
   convertToFaces,
+  clampUnitValue,
+  getUnitMax,
+  QURAN_MAX_FACES,
+  QURAN_MAX_HIZB,
+  QURAN_MAX_JUZ,
   type QuranUnit,
 } from "../../lib/quran-memorization";
+
+const UNIT_MAX_HINT: Record<QuranUnit, string> = {
+  face: `الحد الأقصى ${QURAN_MAX_FACES} وجه`,
+  hizb: `الحد الأقصى ${QURAN_MAX_HIZB} حزب`,
+  juz: `الحد الأقصى ${QURAN_MAX_JUZ} جزء (الجزء 30 = 23 وجه)`,
+};
 
 export type StudentUnifiedFormValues = {
   full_name_ar: string;
@@ -110,16 +121,23 @@ export function StudentUnifiedSingleForm({
     setValues((prev) => ({ ...prev, [key]: v }));
   }
 
-  function setMemorization(value: string, unit: QuranUnit) {
-    const faces = convertToFaces(Number(value) || 0, unit);
+  function setMemorization(rawValue: string, unit: QuranUnit) {
+    const clamped = clampUnitValue(Number(rawValue) || 0, unit);
+    const displayValue =
+      rawValue === "" || rawValue === "0"
+        ? rawValue
+        : String(clamped);
+    const faces = convertToFaces(clamped, unit);
     const text = formatFacesToText(faces);
     setValues((prev) => ({
       ...prev,
-      memorization_value: value,
+      memorization_value: displayValue,
       memorization_unit: unit,
       memorization_amount: text,
     }));
   }
+
+  const memorizationMax = getUnitMax(values.memorization_unit);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -242,6 +260,7 @@ export function StudentUnifiedSingleForm({
             <Input
               type="number"
               min={0}
+              max={memorizationMax}
               step={1}
               value={values.memorization_value}
               onChange={(e) =>
@@ -267,8 +286,11 @@ export function StudentUnifiedSingleForm({
               <option value="juz">جزء</option>
             </select>
           </div>
+          <p className="text-xs text-muted-foreground mt-1" style={tajawal}>
+            {UNIT_MAX_HINT[values.memorization_unit]}
+          </p>
           {values.memorization_amount ? (
-            <p className="text-xs text-muted-foreground mt-1" style={tajawal}>
+            <p className="text-xs text-muted-foreground mt-0.5" style={tajawal}>
               {values.memorization_amount}
             </p>
           ) : null}

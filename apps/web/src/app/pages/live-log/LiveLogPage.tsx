@@ -90,6 +90,7 @@ export function LiveLogPage() {
   const searchRootRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [savingStudentId, setSavingStudentId] = useState<number | null>(null);
 
   useEffect(() => {
     sessionLoadedRef.current = false;
@@ -409,7 +410,7 @@ export function LiveLogPage() {
   async function saveAuditForStudent(studentId: number, patch: Record<string, unknown> = {}) {
     if (!token || !studentId) return;
     const rowAudit = audit[studentId] ?? {};
-    setSaving(true);
+    setSavingStudentId(studentId);
     try {
       const res = await api.liveLogUpsert(
         token,
@@ -446,7 +447,7 @@ export function LiveLogPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل الحفظ");
     } finally {
-      setSaving(false);
+      setSavingStudentId(null);
     }
   }
 
@@ -594,11 +595,17 @@ export function LiveLogPage() {
             void loadSession(d);
           }}
           saving={saving}
+          savingStudentId={savingStudentId}
           onPatchStudent={patchStudentAudit}
           onSaveStudent={(studentId) => saveAuditForStudent(studentId)}
           onSaveAll={async () => {
-            for (const s of students) {
-              await saveAuditForStudent(s.student_id);
+            setSaving(true);
+            try {
+              for (const s of students) {
+                await saveAuditForStudent(s.student_id);
+              }
+            } finally {
+              setSaving(false);
             }
           }}
         />

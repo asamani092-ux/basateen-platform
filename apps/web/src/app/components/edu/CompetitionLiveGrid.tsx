@@ -38,6 +38,7 @@ type Props = {
   logDate?: string;
   onLogDateChange?: (isoDate: string) => void;
   saving: boolean;
+  savingStudentId?: number | null;
   onPatchStudent: (
     studentId: number,
     patch: { juz_done?: number; task_points?: Record<number, number> },
@@ -57,6 +58,7 @@ export function CompetitionLiveGrid({
   logDate = "",
   onLogDateChange,
   saving,
+  savingStudentId = null,
   onPatchStudent,
   onSaveStudent,
   onSaveAll,
@@ -84,14 +86,14 @@ export function CompetitionLiveGrid({
   return (
     <div className="space-y-4 max-w-6xl mx-auto">
       {showDailyColumn && activeDates.length > 0 && onLogDateChange && (
-        <div className="space-y-2">
+        <div className="space-y-2 w-full md:max-w-xs">
           <p className="text-sm font-medium" style={tajawal}>
             يوم التسميع
           </p>
           <ActiveDayTabs
             activeDates={activeDates}
             selectedDate={logDate}
-            disabled={saving}
+            disabled={saving || savingStudentId != null}
             onSelect={onLogDateChange}
           />
         </div>
@@ -147,6 +149,8 @@ export function CompetitionLiveGrid({
             {filtered.map((student) => {
               const rowAudit = audit[student.student_id] ?? {};
               const dailyDone = Number(rowAudit.juz_done ?? 0);
+              const rowSaving = savingStudentId === student.student_id;
+              const rowDisabled = saving || rowSaving;
               return (
                 <TableRow key={student.student_id}>
                   <TableCell className={ds.table.cell} style={tajawal}>
@@ -166,7 +170,7 @@ export function CompetitionLiveGrid({
                         type="number"
                         min={0}
                         step={0.1}
-                        disabled={saving}
+                        disabled={rowDisabled}
                         value={dailyDone}
                         onChange={(e) =>
                           patchDailyFaces(student.student_id, Number(e.target.value) || 0)
@@ -183,7 +187,7 @@ export function CompetitionLiveGrid({
                           task={task}
                           value={raw}
                           compact
-                          disabled={saving}
+                          disabled={rowDisabled}
                           onChange={(v) => patchTask(student.student_id, task.id, v)}
                         />
                       </TableCell>
@@ -195,11 +199,11 @@ export function CompetitionLiveGrid({
                       size="sm"
                       variant="outline"
                       className={ds.btnRound}
-                      disabled={saving}
+                      disabled={rowDisabled}
                       onClick={() => void onSaveStudent(student.student_id)}
                       style={tajawal}
                     >
-                      {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : "حفظ"}
+                      {rowSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : "حفظ"}
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -219,7 +223,7 @@ export function CompetitionLiveGrid({
         <Button
           type="button"
           className={ds.btnRound}
-          disabled={saving || filtered.length === 0}
+          disabled={saving || savingStudentId != null || filtered.length === 0}
           onClick={() => void onSaveAll()}
           style={tajawal}
         >

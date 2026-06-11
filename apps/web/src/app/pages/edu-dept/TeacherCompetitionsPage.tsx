@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Medal, Pencil, Plus, Trash2, Trophy } from "lucide-react";
+import { Medal, Pencil, Plus, Printer, Trash2, Trophy } from "lucide-react";
 import { TableIconAction } from "../../components/admin/TableIconAction";
 import { DoubleConfirmDialog } from "../../components/shared/DoubleConfirmDialog";
 import { Button } from "../../components/ui/button";
@@ -34,6 +34,14 @@ type LeaderRow = {
   full_name_ar: string;
   total_points: number;
 };
+
+function printTeacherCompetition() {
+  document.body.classList.add("printing-teacher-competition");
+  window.print();
+  window.setTimeout(() => {
+    document.body.classList.remove("printing-teacher-competition");
+  }, 500);
+}
 
 export function TeacherCompetitionsPage() {
   const [items, setItems] = useState<Comp[]>([]);
@@ -270,7 +278,7 @@ export function TeacherCompetitionsPage() {
 
   return (
     <div dir="rtl" className="space-y-6 max-w-[1400px] text-right">
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 print:hidden">
         <div className="text-right">
           <h2 className={`${ds.page.title} flex items-center gap-2 justify-start`} style={tajawal}>
             <Trophy className="w-7 h-7 text-primary shrink-0" />
@@ -293,17 +301,17 @@ export function TeacherCompetitionsPage() {
       </div>
 
       {error && (
-        <p className={ds.alert.error} style={tajawal}>
+        <p className={`${ds.alert.error} print:hidden`} style={tajawal}>
           {error}
         </p>
       )}
       {success && (
-        <p className={ds.alert.success} style={tajawal}>
+        <p className={`${ds.alert.success} print:hidden`} style={tajawal}>
           {success}
         </p>
       )}
 
-      <div className={`${ds.card} p-4 space-y-3 text-right`} dir="rtl">
+      <div className={`${ds.card} p-4 space-y-3 text-right print:hidden`} dir="rtl">
         <Label style={tajawal}>المنافسة النشطة</Label>
         <div className="flex flex-col md:flex-row flex-wrap gap-4 md:items-end">
           <select
@@ -368,7 +376,7 @@ export function TeacherCompetitionsPage() {
       {activeCompetitionId != null && (
         <>
           <div
-            className="inline-flex flex-row-reverse items-center gap-1 rounded-full border border-border bg-muted/40 p-1"
+            className="inline-flex flex-row-reverse items-center gap-1 rounded-full border border-border bg-muted/40 p-1 print:hidden"
             dir="rtl"
             role="tablist"
           >
@@ -493,7 +501,31 @@ export function TeacherCompetitionsPage() {
           )}
 
           {tab === "leaderboard" && (
-            <div className={`${ds.card} text-right`} dir="rtl">
+            <div id="teacher-competition-print" className="space-y-4 text-right" dir="rtl">
+              <div className="teacher-competition-print-header hidden print:block mb-4">
+                <h2 className="text-xl font-bold" style={tajawal}>
+                  لوحة صدارة — {activeCompetition?.name_ar ?? "منافسة الحلقة"}
+                </h2>
+                {activeCompetition?.start_date || activeCompetition?.end_date ? (
+                  <p className="text-sm text-muted-foreground" style={tajawal}>
+                    {activeCompetition.start_date ?? "—"} → {activeCompetition.end_date ?? "—"}
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex justify-end print:hidden">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={cn(ds.btnRound, "rounded-full")}
+                  disabled={leaderboard.length === 0}
+                  onClick={printTeacherCompetition}
+                  style={tajawal}
+                >
+                  <Printer className="w-4 h-4" />
+                  طباعة الترتيب
+                </Button>
+              </div>
+              <div className={`${ds.card} text-right`} dir="rtl">
               {leaderboard.length === 0 ? (
                 <p className={`p-4 ${ds.alert.info}`} style={tajawal}>
                   لا توجد نقاط مسجّلة بعد في هذه المنافسة.
@@ -545,6 +577,7 @@ export function TeacherCompetitionsPage() {
                   </TableBody>
                 </Table>
               )}
+              </div>
             </div>
           )}
         </>

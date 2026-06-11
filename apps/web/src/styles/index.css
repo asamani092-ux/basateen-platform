@@ -503,4 +503,32 @@
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
+
+  /* Teacher competition leaderboard print */
+  body.printing-teacher-competition aside,
+  body.printing-teacher-competition header,
+  body.printing-teacher-competition [data-dev-preview-banner],
+  body.printing-teacher-competition .print\\:hidden {
+    display: none !important;
+  }
+
+  body.printing-teacher-competition main {
+    padding: 0 !important;
+  }
+
+  body.printing-teacher-competition #teacher-competition-print {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  body.printing-teacher-competition .teacher-competition-print-header {
+    display: block !important;
+  }
+
+  body.printing-teacher-competition #teacher-competition-print * {
+    color: #000 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
 }

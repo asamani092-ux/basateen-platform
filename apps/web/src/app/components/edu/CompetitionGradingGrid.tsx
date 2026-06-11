@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import { Loader2, Search } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
@@ -19,10 +19,13 @@ import { matchesArabicName } from "../../lib/attendance-search";
 import {
   computeSirdPeriodScore,
   DEFAULT_SIRD_SETTINGS,
+  defaultActiveLogDate,
+  enumerateActiveCompetitionDates,
   gradingScoreKey,
   isMemorizationTrackingCategory,
   isRecitationCategory,
   isReviewCategory,
+  parseActiveWeekdays,
   resolveTaskInputType,
   type CompetitionCategory,
   type SirdPeriodData,
@@ -91,6 +94,7 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
   const [activePeriod, setActivePeriod] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingStudentId, setSavingStudentId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -101,11 +105,31 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
       const res = await api.competitionsGradingGet(competitionId, logDate);
       setCategory((res.category as CompetitionCategory) ?? "recitation");
       setCompetitionDays(Number(res.competition_days ?? 1));
-      const dates = Array.isArray(res.active_dates)
+      const apiDates = Array.isArray(res.active_dates)
         ? (res.active_dates as string[])
         : [];
+      const startDate = String(res.start_date ?? logDate);
+      const endDate = String(res.end_date ?? logDate);
+      const weekdays = parseActiveWeekdays(
+        res.active_weekdays != null
+          ? { active_weekdays: res.active_weekdays as number[] }
+          : null,
+      );
+      const dates =
+        apiDates.length > 0
+          ? apiDates
+          : isMemorizationTrackingCategory(String(res.category ?? "recitation"))
+            ? enumerateActiveCompetitionDates(startDate, endDate, weekdays)
+            : [];
       setActiveDates(dates);
-      if (res.log_date) setLogDate(String(res.log_date));
+      const resolvedLogDate = res.log_date
+        ? String(res.log_date)
+        : defaultActiveLogDate(dates, logDate);
+      if (dates.length) {
+        setLogDate(dates.includes(resolvedLogDate) ? resolvedLogDate : defaultActiveLogDate(dates));
+      } else if (res.log_date) {
+        setLogDate(String(res.log_date));
+      }
       if (res.sird_settings) {
         setSirdSettings({
           base_hizb_score: Number(
@@ -214,6 +238,42 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
     });
   }
 
+  function buildStudentRecords(studentId: number) {
+    return tasks.map((task) => {
+      const key = gradingScoreKey(studentId, task.id);
+      const raw = Number(scores[key] ?? 0);
+      return {
+        student_id: studentId,
+        task_id: task.id,
+        points: normalizePoints(task, raw),
+      };
+    });
+  }
+
+  async function saveStudentGrading(studentId: number) {
+    setSavingStudentId(studentId);
+    setError(null);
+    setSuccess(null);
+    try {
+      await api.competitionsGradingSave(competitionId, {
+        log_date: logDate,
+        records: buildStudentRecords(studentId),
+        targets: [
+          {
+            student_id: studentId,
+            target_amount: Number(targets[studentId] ?? 0),
+          },
+        ],
+      });
+      setSuccess("تم حفظ رصد الطالب.");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "فشل حفظ الرصد");
+    } finally {
+      setSavingStudentId(null);
+    }
+  }
+
   async function saveGrading() {
     setSaving(true);
     setError(null);
@@ -242,15 +302,7 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
           points: number;
         }> = [];
         for (const student of students) {
-          for (const task of tasks) {
-            const key = gradingScoreKey(student.student_id, task.id);
-            const raw = Number(scores[key] ?? 0);
-            records.push({
-              student_id: student.student_id,
-              task_id: task.id,
-              points: normalizePoints(task, raw),
-            });
-          }
+          records.push(...buildStudentRecords(student.student_id));
         }
         const targetUpdates = students
           .filter((s) => targets[s.student_id] != null)
@@ -288,12 +340,12 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
 
       <div className="flex flex-wrap gap-3 items-end">
         {isMemorizationTrackingCategory(category) && activeDates.length > 0 ? (
-          <div className="space-y-2 w-full">
-            <Label style={tajawal}>أيام التسميع</Label>
+          <div className="space-y-2 w-full md:max-w-xs">
+            <Label style={tajawal}>يوم التسميع</Label>
             <ActiveDayTabs
               activeDates={activeDates}
               selectedDate={logDate}
-              disabled={loading || saving}
+              disabled={loading || saving || savingStudentId != null}
               onSelect={(d) => {
                 setLogDate(d);
               }}
@@ -421,6 +473,9 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
                     </span>
                   </TableHead>
                 ))}
+                <TableHead className={`${ds.table.head} text-center w-24`} style={tajawal}>
+                  حفظ
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -455,11 +510,29 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
                           task={task}
                           value={raw}
                           compact
+                          disabled={saving || savingStudentId === student.student_id}
                           onChange={(v) => patchScore(student.student_id, task.id, v)}
                         />
                       </TableCell>
                     );
                   })}
+                  <TableCell className={`${ds.table.cell} text-center`}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className={ds.btnRound}
+                      disabled={saving || savingStudentId != null}
+                      onClick={() => void saveStudentGrading(student.student_id)}
+                      style={tajawal}
+                    >
+                      {savingStudentId === student.student_id ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        "حفظ"
+                      )}
+                    </Button>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -474,6 +547,7 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
             className={ds.btnRound}
             disabled={
               saving ||
+              savingStudentId != null ||
               (isRecitationCategory(category)
                 ? !recitationStudentId || !activePeriod
                 : tasks.length === 0)

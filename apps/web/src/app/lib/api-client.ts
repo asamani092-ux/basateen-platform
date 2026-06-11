@@ -640,6 +640,8 @@ export const api = {
       competition_days?: number;
       start_date?: string;
       end_date?: string;
+      active_weekdays?: number[];
+      active_dates?: string[];
       sird_settings?: {
         base_hizb_score: number;
         mistake_deduction: number;

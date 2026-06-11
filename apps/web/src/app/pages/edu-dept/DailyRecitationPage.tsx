@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ClipboardList, Grid3X3, LayoutGrid, MoreHorizontal } from "lucide-react";
+import { ClipboardList, Grid3X3, LayoutGrid, Loader2, MoreHorizontal } from "lucide-react";
 import { TableActionsCell } from "../../components/admin/TableIconAction";
 import { Button } from "../../components/ui/button";
 import {
@@ -111,6 +111,7 @@ export function DailyRecitationPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingStudentId, setSavingStudentId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -209,6 +210,34 @@ export function DailyRecitationPage() {
         return { ...r, task_scores: nextScores };
       }),
     );
+  }
+
+  async function saveStudent(studentId: number) {
+    const row = rows.find((r) => r.student_id === studentId);
+    if (!row) return;
+    if (!isSupervisor && rows.length === 0) return;
+    if (isSupervisor && circleId == null) return;
+    setSavingStudentId(studentId);
+    setError(null);
+    setSuccess(null);
+    try {
+      await api.eduDeptDailyRecitationSave({
+        ...(circleId != null ? { circle_id: circleId } : {}),
+        recitation_date: date,
+        rows: [
+          {
+            student_id: row.student_id,
+            task_scores: row.task_scores,
+            notes: row.notes,
+          },
+        ],
+      });
+      setSuccess(`تم حفظ رصد ${row.full_name_ar}.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "فشل الحفظ");
+    } finally {
+      setSavingStudentId(null);
+    }
   }
 
   async function save() {
@@ -410,6 +439,9 @@ export function DailyRecitationPage() {
                   >
                     الجودة %
                   </TableHead>
+                  <TableHead className={`${ds.table.head} text-center w-[8%]`} style={tajawal}>
+                    حفظ
+                  </TableHead>
                   {!isSupervisor && (
                     <TableHead className={ds.table.headActions} style={tajawal}>
                       إجراء
@@ -456,6 +488,23 @@ export function DailyRecitationPage() {
                       style={tajawal}
                     >
                       {computeQualityFromCriteria(r.task_scores, criteria)}%
+                    </TableCell>
+                    <TableCell className={`${ds.table.cell} text-center`}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className={ds.btnRound}
+                        disabled={saving || savingStudentId != null || !canSave}
+                        onClick={() => void saveStudent(r.student_id)}
+                        style={tajawal}
+                      >
+                        {savingStudentId === r.student_id ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          "حفظ"
+                        )}
+                      </Button>
                     </TableCell>
                     {!isSupervisor && (
                       <TableActionsCell>
@@ -512,6 +561,26 @@ export function DailyRecitationPage() {
                       </span>
                     </div>
                   ))}
+                </div>
+                <div className="flex items-center justify-between gap-2 pt-2 border-t border-border">
+                  <span className="text-sm font-semibold tabular-nums" style={tajawal}>
+                    الجودة: {computeQualityFromCriteria(r.task_scores, criteria)}%
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className={ds.btnRound}
+                    disabled={saving || savingStudentId != null || !canSave}
+                    onClick={() => void saveStudent(r.student_id)}
+                    style={tajawal}
+                  >
+                    {savingStudentId === r.student_id ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      "حفظ"
+                    )}
+                  </Button>
                 </div>
               </div>
             ))}
@@ -579,7 +648,7 @@ export function DailyRecitationPage() {
             variant="default"
             size="lg"
             className={`${ds.btnRound} min-w-[160px] shadow-lg`}
-            disabled={saving || !canSave}
+            disabled={saving || savingStudentId != null || !canSave}
             onClick={() => save()}
             style={tajawal}
           >

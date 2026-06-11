@@ -71,6 +71,7 @@ import {
   formatStudentApiError,
   parseStudentImportFile,
   validateStudentCreateForm,
+  validateStudentPatchForm,
 } from "../../lib/students-import";
 import {
   facesToStructuredInput,
@@ -729,6 +730,14 @@ function StudentEditDialog({
     setSaving(true);
     setError(null);
     try {
+      const validated = validateStudentPatchForm(values);
+      if (!validated.success) {
+        const issues = validated.error.issues
+          .map((i) => `${i.path.join(".")}: ${i.message}`)
+          .join(" — ");
+        setError(issues || "تحقق من الحقول");
+        return;
+      }
       const payload = buildStudentPatchPayload(values);
       const res = await api.studentsPatch(student.id, payload);
       const updated = res.student;

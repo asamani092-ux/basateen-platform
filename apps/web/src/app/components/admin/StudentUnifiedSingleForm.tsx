@@ -297,12 +297,13 @@ export function StudentUnifiedSingleForm({
         </Field>
         <Field label="العمر (اختياري)">
           <Input
-            type="number"
-            min={4}
-            max={25}
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
             value={values.age}
-            onChange={(e) => set("age", e.target.value)}
+            onChange={(e) => set("age", e.target.value.replace(/[^\d]/g, ""))}
             className={ds.btnRound}
+            placeholder="—"
           />
         </Field>
         <Field label="هوية ولي الأمر (اختياري)">

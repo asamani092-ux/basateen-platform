@@ -3,6 +3,7 @@ import {
   normalizeIncomingStudentPayload,
   parsePositiveIntField,
   studentCreateBodySchema,
+  studentPatchBodySchema,
 } from "./students-schema";
 import {
   formatFacesToText,
@@ -227,28 +228,32 @@ export function parsePlacementKey(placementKey: string): {
 
 /** حمولة PATCH للطالب — بيانات كاملة + إسناد اختياري */
 export function buildStudentPatchPayload(values: StudentUnifiedFormValues) {
-  const created = buildStudentCreatePayload(values);
+  const parsed = studentPatchBodySchema.parse(buildStudentCreatePayload(values));
   const { circle_id, track_id } = parsePlacementKey(values.placement);
   return {
-    full_name_ar: created.full_name_ar,
-    national_id: created.national_id,
-    nationality: created.nationality,
-    phone: created.phone,
-    guardian_phone: created.guardian_phone,
-    school_name: created.school_name,
-    school_grade: created.school_grade,
-    memorization_amount: created.memorization_amount,
-    memorization_faces: created.memorization_faces,
+    full_name_ar: parsed.full_name_ar,
+    national_id: parsed.national_id,
+    nationality: parsed.nationality,
+    phone: parsed.phone,
+    guardian_phone: parsed.guardian_phone,
+    school_name: parsed.school_name,
+    school_grade: parsed.school_grade,
+    memorization_amount: parsed.memorization_amount,
+    memorization_faces: parsed.memorization_faces,
     memorization_value: values.memorization_value.trim() || null,
     memorization_unit: values.memorization_unit,
-    guardian_national_id: created.guardian_national_id,
-    guardian_work: created.guardian_work,
-    health_notes: created.health_notes,
-    stage_id: created.stage_id != null ? Number(created.stage_id) : null,
-    age: created.age != null ? Number(created.age) : null,
+    guardian_national_id: parsed.guardian_national_id,
+    guardian_work: parsed.guardian_work,
+    health_notes: parsed.health_notes,
+    stage_id: parsed.stage_id,
+    age: parsed.age,
     ...(circle_id != null ? { circle_id } : {}),
     ...(track_id != null && circle_id == null ? { track_id } : {}),
   };
+}
+
+export function validateStudentPatchForm(values: StudentUnifiedFormValues) {
+  return studentPatchBodySchema.safeParse(buildStudentCreatePayload(values));
 }
 
 export function validateStudentCreateForm(values: StudentUnifiedFormValues) {

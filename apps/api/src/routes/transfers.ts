@@ -458,11 +458,20 @@ export async function handleStudentPatch(
         continue;
       }
       if (col === "stage_id" || col === "age") {
-        const n = Number(body[col]);
-        if (Number.isFinite(n)) {
+        if (body[col] === null || body[col] === "") {
           sets.push(`${col} = ?`);
-          binds.push(n);
+          binds.push(null);
+          continue;
         }
+        const n = Math.trunc(Number(body[col]));
+        if (!Number.isFinite(n)) continue;
+        if (col === "age" && (n < 4 || n > 25)) {
+          sets.push(`${col} = ?`);
+          binds.push(null);
+          continue;
+        }
+        sets.push(`${col} = ?`);
+        binds.push(n);
         continue;
       }
       sets.push(`${col} = ?`);

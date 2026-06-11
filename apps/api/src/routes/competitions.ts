@@ -48,6 +48,8 @@ import {
   hasSirdPeriodRecords,
   sumReadFacesFromTaskLogs,
   sumSirdReadFaces,
+  loadCompetitionDayLogsHydrated,
+  upsertCompetitionDayMetrics,
   DEFAULT_SIRD_SETTINGS,
   type CompetitionCategory,
   type MemorizationUnit,
@@ -1100,6 +1102,12 @@ export async function handleEduCompetitionsRouter(
         }
       }
 
+      const hydrated = await loadCompetitionDayLogsHydrated(env, id, logDate);
+      const dayAchievement: Record<string, number> = {};
+      for (const [sid, audit] of hydrated.entries()) {
+        dayAchievement[String(sid)] = Number(audit.juz_done ?? 0);
+      }
+
       return json({
         log_date: logDate,
         category,
@@ -1129,6 +1137,7 @@ export async function handleEduCompetitionsRouter(
           };
         }),
         scores: Object.fromEntries(scores),
+        day_achievement: dayAchievement,
       });
     }
 
@@ -1142,6 +1151,7 @@ export async function handleEduCompetitionsRouter(
           hizb_index?: number;
         }>;
         targets?: Array<{ student_id: number; target_amount: number }>;
+        day_achievement?: Array<{ student_id: number; juz_done: number }>;
       };
       try {
         body = await request.json();
@@ -1433,7 +1443,27 @@ export async function handleEduCompetitionsRouter(
         await upsertStudentTargets(env, id, merged);
       }
 
-      return json({ ok: true, saved: records.length });
+      const dayAchievement = body.day_achievement ?? [];
+      if (isMemorizationTrackingCategory(category) && dayAchievement.length > 0) {
+        for (const entry of dayAchievement) {
+          const sid = Number(entry.student_id);
+          if (!sid) continue;
+          await upsertCompetitionDayMetrics(
+            env,
+            id,
+            sid,
+            logDate,
+            { juz_done: Number(entry.juz_done ?? 0) },
+            auth.userId,
+            "edu_supervisor",
+          );
+        }
+      }
+
+      return json({
+        ok: true,
+        saved: records.length + dayAchievement.length,
+      });
     }
   }
 

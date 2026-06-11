@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Loader2, Search } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { Label } from "../ui/label";
 import {
   Table,
   TableBody,
@@ -11,7 +12,11 @@ import {
   TableRow,
 } from "../ui/table";
 import { matchesArabicName } from "../../lib/attendance-search";
-import { isReviewCategory, type MemorizationUnit } from "../../lib/competition-engine";
+import {
+  isMemorizationTrackingCategory,
+  isReviewCategory,
+  type MemorizationUnit,
+} from "../../lib/competition-engine";
 import { ds, tajawal } from "../../lib/design-system";
 import { ActiveDayTabs } from "./ActiveDayTabs";
 import { TaskInputCell, type TaskInputCol } from "./TaskInputCell";
@@ -66,8 +71,7 @@ export function CompetitionLiveGrid({
   const [query, setQuery] = useState("");
   const unitLabel =
     isReviewCategory(category) ? "جزء" : memorizationUnit === "hizb" ? "حزب" : "جزء";
-  const showDailyColumn =
-    category === "new_memorization" || isReviewCategory(category);
+  const showDailyColumn = isMemorizationTrackingCategory(category);
 
   const filtered = useMemo(
     () => students.filter((s) => matchesArabicName(query, s.full_name_ar)),
@@ -84,41 +88,41 @@ export function CompetitionLiveGrid({
   }
 
   return (
-    <div className="space-y-4 max-w-6xl mx-auto">
-      {showDailyColumn && activeDates.length > 0 && onLogDateChange && (
-        <div className="space-y-2 w-full md:max-w-xs">
-          <p className="text-sm font-medium" style={tajawal}>
-            يوم التسميع
-          </p>
-          <ActiveDayTabs
-            activeDates={activeDates}
-            selectedDate={logDate}
-            disabled={saving || savingStudentId != null}
-            onSelect={onLogDateChange}
+    <div className="space-y-5 max-w-6xl mx-auto">
+      <div className="flex flex-wrap gap-3 items-end rounded-2xl border border-border bg-muted/30 p-4">
+        {showDailyColumn && activeDates.length > 0 && onLogDateChange && (
+          <div className="space-y-2 w-full md:max-w-xs">
+            <Label style={tajawal}>يوم التسميع</Label>
+            <ActiveDayTabs
+              activeDates={activeDates}
+              selectedDate={logDate}
+              disabled={saving || savingStudentId != null}
+              onSelect={onLogDateChange}
+            />
+          </div>
+        )}
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            type="search"
+            placeholder="بحث عن طالب…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className={`${ds.btnRound} pr-10`}
+            style={tajawal}
           />
         </div>
-      )}
-      <div className="relative">
-        <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input
-          type="search"
-          placeholder="بحث عن طالب…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          className={`${ds.btnRound} pr-10`}
-          style={tajawal}
-        />
       </div>
 
-      <div className="overflow-x-auto border rounded-xl max-h-[70vh]">
+      <div className="overflow-x-auto max-h-[70vh] rounded-2xl border border-border shadow-sm bg-card">
         <Table className={`${ds.tableMin} text-right edu-recitation-grid`}>
-          <TableHeader className="sticky top-0 z-10 bg-card">
-            <TableRow>
+          <TableHeader className="sticky top-0 z-10 bg-muted/60 backdrop-blur-sm">
+            <TableRow className="hover:bg-transparent">
               <TableHead className={`${ds.table.head} min-w-[140px]`} style={tajawal}>
                 الطالب
               </TableHead>
               <TableHead className={`${ds.table.head} text-center`} style={tajawal}>
-                المستهدف
+                {isReviewCategory(category) ? "أجزاء المراجعة" : "المستهدف"}
               </TableHead>
               {showDailyColumn && (
                 <TableHead className={`${ds.table.head} text-center`} style={tajawal}>
@@ -126,7 +130,10 @@ export function CompetitionLiveGrid({
                 </TableHead>
               )}
               {showDailyColumn && (
-                <TableHead className={`${ds.table.head} text-center min-w-[96px]`} style={tajawal}>
+                <TableHead
+                  className={`${ds.table.head} text-center min-w-[96px]`}
+                  style={tajawal}
+                >
                   إنجاز اليوم (وجه)
                 </TableHead>
               )}
@@ -138,6 +145,9 @@ export function CompetitionLiveGrid({
                   title={`وزن ${task.weight}`}
                 >
                   {task.name_ar}
+                  <span className="block text-[10px] font-normal text-muted-foreground">
+                    {task.type === "deduction" ? `خصم ×${task.weight}` : `إضافة +${task.weight}`}
+                  </span>
                 </TableHead>
               ))}
               <TableHead className={`${ds.table.head} text-center w-24`} style={tajawal}>
@@ -152,15 +162,18 @@ export function CompetitionLiveGrid({
               const rowSaving = savingStudentId === student.student_id;
               const rowDisabled = saving || rowSaving;
               return (
-                <TableRow key={student.student_id}>
+                <TableRow key={student.student_id} className="hover:bg-muted/30">
                   <TableCell className={ds.table.cell} style={tajawal}>
                     {student.full_name_ar}
                   </TableCell>
                   <TableCell className={`${ds.table.cell} text-center tabular-nums`}>
-                    {student.target_amount ?? 0} {unitLabel}
+                    {student.target_amount ?? 0}{" "}
+                    <span className="text-muted-foreground text-xs">{unitLabel}</span>
                   </TableCell>
                   {showDailyColumn && (
-                    <TableCell className={`${ds.table.cell} text-center tabular-nums`}>
+                    <TableCell
+                      className={`${ds.table.cell} text-center tabular-nums text-muted-foreground`}
+                    >
                       {student.daily_faces ?? "—"}
                     </TableCell>
                   )}
@@ -175,7 +188,7 @@ export function CompetitionLiveGrid({
                         onChange={(e) =>
                           patchDailyFaces(student.student_id, Number(e.target.value) || 0)
                         }
-                        className="h-8 w-20 mx-auto text-center text-sm tabular-nums"
+                        className={`${ds.btnRound} h-8 w-20 mx-auto text-center text-sm tabular-nums`}
                       />
                     </TableCell>
                   )}
@@ -199,7 +212,7 @@ export function CompetitionLiveGrid({
                       size="sm"
                       variant="outline"
                       className={ds.btnRound}
-                      disabled={rowDisabled}
+                      disabled={rowDisabled || savingStudentId != null}
                       onClick={() => void onSaveStudent(student.student_id)}
                       style={tajawal}
                     >
@@ -214,12 +227,14 @@ export function CompetitionLiveGrid({
       </div>
 
       {filtered.length === 0 && (
-        <p className="text-sm text-muted-foreground text-center" style={tajawal}>
-          لا يوجد طالب مطابق.
+        <p className={`${ds.alert.info} text-center`} style={tajawal}>
+          {students.length === 0
+            ? "لا مستهدفين في هذه المنافسة."
+            : "لا يوجد طالب مطابق للبحث."}
         </p>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex justify-end border-t border-border pt-4">
         <Button
           type="button"
           className={ds.btnRound}

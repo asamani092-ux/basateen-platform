@@ -329,6 +329,63 @@ export async function loadCompetitionDayLogsHydrated(
   return out;
 }
 
+/** O(1) time / O(1) space — merge juz_done (+ optional task_points) into metrics_json row. */
+export async function upsertCompetitionDayMetrics(
+  env: Env,
+  competitionId: number,
+  studentId: number,
+  logDate: string,
+  patch: { juz_done?: number; task_points?: Record<number, number> },
+  recordedByUserId: number | null = null,
+  source: "edu_supervisor" | "live_log" = "edu_supervisor",
+): Promise<void> {
+  if (!(await hasEngineLogs(env))) return;
+  const hasMetricsJson = await tableHasColumn(env, "competition_logs", "metrics_json");
+  if (!hasMetricsJson) return;
+
+  const existing = await env.DB.prepare(
+    `SELECT metrics_json FROM competition_logs
+     WHERE competition_id = ? AND student_id = ? AND log_date = ?
+     LIMIT 1`,
+  )
+    .bind(competitionId, studentId, logDate)
+    .first<{ metrics_json: string }>();
+
+  let metrics: Record<string, unknown> = {};
+  if (existing?.metrics_json) {
+    try {
+      metrics = JSON.parse(String(existing.metrics_json)) as Record<string, unknown>;
+    } catch {
+      metrics = {};
+    }
+  }
+
+  if (patch.juz_done != null) metrics.juz_done = patch.juz_done;
+  if (patch.task_points) {
+    const cur = (metrics.task_points as Record<number, number>) ?? {};
+    metrics.task_points = { ...cur, ...patch.task_points };
+  }
+
+  await env.DB.prepare(
+    `INSERT INTO competition_logs
+     (competition_id, student_id, log_date, metrics_json, source, recorded_by_user_id)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(competition_id, student_id, log_date) DO UPDATE SET
+       metrics_json = excluded.metrics_json,
+       recorded_by_user_id = COALESCE(excluded.recorded_by_user_id, recorded_by_user_id),
+       recorded_at = datetime('now')`,
+  )
+    .bind(
+      competitionId,
+      studentId,
+      logDate,
+      JSON.stringify(metrics),
+      source,
+      recordedByUserId,
+    )
+    .run();
+}
+
 /** O(K) — upsert per-task grading rows (supervisor + reciter shared path). */
 export async function upsertCompetitionTaskLogRecords(
   env: Env,

@@ -85,6 +85,7 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
   const [tasks, setTasks] = useState<TaskInputCol[]>([]);
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [scores, setScores] = useState<Record<string, number>>({});
+  const [dayAchievement, setDayAchievement] = useState<Record<number, number>>({});
   const [targets, setTargets] = useState<Record<number, number>>({});
   const [sirdPeriods, setSirdPeriods] = useState<
     Record<number, Record<number, SirdPeriodData>>
@@ -166,6 +167,11 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
         })),
       );
       setScores(res.scores ?? {});
+      const dayMap: Record<number, number> = {};
+      for (const [sid, val] of Object.entries(res.day_achievement ?? {})) {
+        dayMap[Number(sid)] = Number(val ?? 0);
+      }
+      setDayAchievement(dayMap);
       const periodMap: Record<number, Record<number, SirdPeriodData>> = {};
       for (const s of res.students ?? []) {
         const sid = Number(s.student_id);
@@ -206,6 +212,17 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
 
   function patchTarget(studentId: number, value: number) {
     setTargets((prev) => ({ ...prev, [studentId]: value }));
+  }
+
+  function patchDayAchievement(studentId: number, value: number) {
+    setDayAchievement((prev) => ({ ...prev, [studentId]: value }));
+  }
+
+  function dayAchievementPayload(studentIds: number[]) {
+    return studentIds.map((student_id) => ({
+      student_id,
+      juz_done: Number(dayAchievement[student_id] ?? 0),
+    }));
   }
 
   function patchSirdPeriod(
@@ -264,6 +281,9 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
             target_amount: Number(targets[studentId] ?? 0),
           },
         ],
+        ...(isMemorizationTrackingCategory(category)
+          ? { day_achievement: dayAchievementPayload([studentId]) }
+          : {}),
       });
       setSuccess("تم حفظ رصد الطالب.");
       await load();
@@ -314,6 +334,9 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
           log_date: logDate,
           records,
           targets: targetUpdates,
+          ...(isMemorizationTrackingCategory(category)
+            ? { day_achievement: dayAchievementPayload(students.map((s) => s.student_id)) }
+            : {}),
         });
       }
       setSuccess("تم حفظ الرصد بنجاح.");
@@ -325,8 +348,10 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
     }
   }
 
+  const showDailyColumn = isMemorizationTrackingCategory(category);
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-5 max-w-6xl mx-auto">
       {error && (
         <p className={ds.alert.error} style={tajawal}>
           {error}
@@ -338,7 +363,7 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
         </p>
       )}
 
-      <div className="flex flex-wrap gap-3 items-end">
+      <div className="flex flex-wrap gap-3 items-end rounded-2xl border border-border bg-muted/30 p-4">
         {isMemorizationTrackingCategory(category) && activeDates.length > 0 ? (
           <div className="space-y-2 w-full md:max-w-xs">
             <Label style={tajawal}>يوم التسميع</Label>
@@ -445,19 +470,27 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
           أضف مهام المنافسة أولاً من تبويب «المهام والأوزان».
         </p>
       ) : (
-        <div className="overflow-x-auto max-h-[70vh] border rounded-xl">
+        <div className="overflow-x-auto max-h-[70vh] rounded-2xl border border-border shadow-sm bg-card">
           <Table className={`${ds.tableMin} text-right edu-recitation-grid`}>
-            <TableHeader className="sticky top-0 z-10 bg-card">
-              <TableRow>
-                <TableHead className={ds.table.head} style={tajawal}>
+            <TableHeader className="sticky top-0 z-10 bg-muted/60 backdrop-blur-sm">
+              <TableRow className="hover:bg-transparent">
+                <TableHead className={`${ds.table.head} min-w-[140px]`} style={tajawal}>
                   الطالب
                 </TableHead>
                 <TableHead className={`${ds.table.head} text-center`} style={tajawal}>
                   {isReviewCategory(category) ? "أجزاء المراجعة" : "المستهدف"}
                 </TableHead>
-                {isMemorizationTrackingCategory(category) && (
+                {showDailyColumn && (
                   <TableHead className={`${ds.table.head} text-center`} style={tajawal}>
                     وجوه/يوم
+                  </TableHead>
+                )}
+                {showDailyColumn && (
+                  <TableHead
+                    className={`${ds.table.head} text-center min-w-[96px]`}
+                    style={tajawal}
+                  >
+                    إنجاز اليوم (وجه)
                   </TableHead>
                 )}
                 {tasks.map((task) => (
@@ -479,8 +512,11 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((student) => (
-                <TableRow key={student.student_id}>
+              {filtered.map((student) => {
+                const rowDisabled =
+                  saving || savingStudentId === student.student_id;
+                return (
+                <TableRow key={student.student_id} className="hover:bg-muted/30">
                   <TableCell className={ds.table.cell} style={tajawal}>
                     {student.full_name_ar}
                   </TableCell>
@@ -489,16 +525,35 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
                       type="number"
                       min={0}
                       step={0.1}
+                      disabled={rowDisabled}
                       value={targets[student.student_id] ?? student.target_amount}
                       onChange={(e) =>
                         patchTarget(student.student_id, Number(e.target.value))
                       }
-                      className={`${ds.btnRound} h-8 w-20 mx-auto text-center text-sm`}
+                      className={`${ds.btnRound} h-8 w-20 mx-auto text-center text-sm tabular-nums`}
                     />
                   </TableCell>
-                  {isMemorizationTrackingCategory(category) && (
-                    <TableCell className={`${ds.table.cell} text-center tabular-nums`}>
+                  {showDailyColumn && (
+                    <TableCell className={`${ds.table.cell} text-center tabular-nums text-muted-foreground`}>
                       {student.daily_faces ?? "—"}
+                    </TableCell>
+                  )}
+                  {showDailyColumn && (
+                    <TableCell className={`${ds.table.cell} text-center`}>
+                      <Input
+                        type="number"
+                        min={0}
+                        step={0.1}
+                        disabled={rowDisabled}
+                        value={dayAchievement[student.student_id] ?? 0}
+                        onChange={(e) =>
+                          patchDayAchievement(
+                            student.student_id,
+                            Number(e.target.value) || 0,
+                          )
+                        }
+                        className={`${ds.btnRound} h-8 w-20 mx-auto text-center text-sm tabular-nums`}
+                      />
                     </TableCell>
                   )}
                   {tasks.map((task) => {
@@ -510,7 +565,7 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
                           task={task}
                           value={raw}
                           compact
-                          disabled={saving || savingStudentId === student.student_id}
+                          disabled={rowDisabled}
                           onChange={(v) => patchScore(student.student_id, task.id, v)}
                         />
                       </TableCell>
@@ -522,7 +577,7 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
                       size="sm"
                       variant="outline"
                       className={ds.btnRound}
-                      disabled={saving || savingStudentId != null}
+                      disabled={rowDisabled || savingStudentId != null}
                       onClick={() => void saveStudentGrading(student.student_id)}
                       style={tajawal}
                     >
@@ -534,14 +589,21 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
                     </Button>
                   </TableCell>
                 </TableRow>
-              ))}
+              );
+              })}
             </TableBody>
           </Table>
         </div>
       )}
 
+      {!loading && filtered.length === 0 && students.length > 0 && !isRecitationCategory(category) && tasks.length > 0 && (
+        <p className="text-sm text-muted-foreground text-center py-4" style={tajawal}>
+          لا يوجد طالب مطابق للبحث.
+        </p>
+      )}
+
       {!loading && students.length > 0 && (
-        <div className="flex justify-end">
+        <div className="flex justify-end border-t border-border pt-4">
           <Button
             type="button"
             className={ds.btnRound}

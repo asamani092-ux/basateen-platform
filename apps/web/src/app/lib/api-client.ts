@@ -676,6 +676,7 @@ export const api = {
         daily_faces?: number;
       }>;
       scores: Record<string, number>;
+      day_achievement?: Record<string, number>;
     }>(
       `/api/edu-dept/competitions/${id}/grading?log_date=${encodeURIComponent(logDate)}`,
     ),
@@ -697,6 +698,7 @@ export const api = {
         warnings_count: number;
       }>;
       targets?: Array<{ student_id: number; target_amount: number }>;
+      day_achievement?: Array<{ student_id: number; juz_done: number }>;
     },
   ) =>
     competitionRequest<{ ok: boolean; saved: number }>(

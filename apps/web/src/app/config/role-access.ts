@@ -16,6 +16,12 @@ export function roleHomePath(role: UserRole): string {
 }
 
 export function normalizeStoredHomePath(role: UserRole, homePath: string): string {
+  /** المعلم يبدأ دائماً من البوابة — الجلسات القديمة كانت تحفظ daily-recitation */
+  if (role === "teacher") {
+    if (homePath === "/teacher" || homePath.startsWith("/teacher/")) return homePath;
+    return ROLE_HOME.teacher;
+  }
+
   if (
     homePath.includes("general-supervisor") ||
     homePath === "/dashboard" ||
@@ -131,6 +137,21 @@ export function resolveLegacyRedirect(
   pathname: string,
   role: UserRole,
 ): string | null {
+  if (role === "teacher") {
+    if (
+      pathname === "/edu-dept/daily-recitation" ||
+      pathname.startsWith("/edu-dept/daily-recitation/")
+    ) {
+      return "/teacher";
+    }
+    if (
+      pathname === "/edu-dept/teacher-competitions" ||
+      pathname.startsWith("/edu-dept/teacher-competitions/")
+    ) {
+      return "/teacher?tab=competitions";
+    }
+  }
+
   const exact = LEGACY_REDIRECTS[pathname];
   if (exact) return exact === "home" ? ROLE_HOME[role] : exact;
   if (pathname.startsWith("/edu-supervisor/")) {

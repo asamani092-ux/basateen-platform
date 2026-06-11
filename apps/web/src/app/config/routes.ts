@@ -52,19 +52,25 @@ export const SUPERVISOR_EDU_NAV: NavItem[] = [
   },
 ];
 
-/** بوابة المعلم ومشرف المسار — لا تظهر للمشرفين */
+/** بوابة المعلم — رابط واحد؛ مشرف المسار يبقى على الرصد المباشر */
 const TEACHER_EDU_NAV: NavItem[] = [
+  {
+    id: "teacher-hub",
+    label: "بوابة المعلم",
+    path: "/teacher",
+    roles: ["teacher"],
+  },
   {
     id: "daily-recitation",
     label: "الرصد اليومي",
     path: "/edu-dept/daily-recitation",
-    roles: ["teacher", "track_supervisor"],
+    roles: ["track_supervisor"],
   },
   {
     id: "teacher-competitions",
     label: "منافسات الحلقة",
     path: "/edu-dept/teacher-competitions",
-    roles: ["teacher", "track_supervisor"],
+    roles: ["track_supervisor"],
   },
 ];
 
@@ -224,10 +230,11 @@ export function navGroupIsActive(group: NavGroup, pathname: string): boolean {
 }
 
 export function isNavActive(path: string, pathname: string): boolean {
-  if (path === "/teacher" || path === "/edu-dept/daily-recitation") {
+  if (path === "/teacher") {
+    return pathname === "/teacher" || pathname.startsWith("/teacher/");
+  }
+  if (path === "/edu-dept/daily-recitation") {
     return (
-      pathname === "/teacher" ||
-      pathname.startsWith("/teacher/") ||
       pathname === "/edu-dept/daily-recitation" ||
       pathname.startsWith("/edu-dept/daily-recitation/")
     );

@@ -306,7 +306,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
       setReqNotes("");
       toast.success(
         reqType === "escalation"
-          ? "تم إرسال التصعيد للإدارة"
+          ? "تم رفع التعهد"
           : "تم إرسال طلب النقل",
       );
     } catch (err) {
@@ -783,7 +783,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                   onClick={() => setReqType("escalation")}
                   style={tajawal}
                 >
-                  تصعيد للإدارة
+                  رفع تعهد
                 </Button>
                 <Button
                   type="button"

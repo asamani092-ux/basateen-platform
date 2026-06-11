@@ -346,7 +346,6 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
         });
       }
       setSuccess("تم حفظ الرصد بنجاح.");
-      await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل حفظ الرصد");
     } finally {

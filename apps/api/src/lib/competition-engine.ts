@@ -253,6 +253,45 @@ export function disciplinePctFromAttendanceLogs(
   return total > 0 ? Math.round((present / total) * 100) : 0;
 }
 
+/** O(R) — discipline % from metrics_json.task_points per student-day row. */
+export function disciplinePctFromMetricsStudentDays(
+  rows: Array<{ metrics_json: string }>,
+  attendanceTaskId: number | null,
+): number {
+  if (!attendanceTaskId) return 0;
+  const key = String(attendanceTaskId);
+  let total = 0;
+  let present = 0;
+  for (const row of rows) {
+    const m = parseCompetitionMetricsJson(row.metrics_json);
+    const tp = m.task_points as Record<string, number> | undefined;
+    if (!tp || typeof tp !== "object") continue;
+    total += 1;
+    if (Number(tp[key] ?? 0) > 0) present += 1;
+  }
+  return total > 0 ? Math.round((present / total) * 100) : 0;
+}
+
+/** O(T) — resolve attendance task id by criterion_id or Arabic name fallback. */
+export async function resolveAttendanceTaskId(
+  env: Env,
+  competitionId: number,
+  taskMeta: CompTaskMeta[],
+): Promise<number | null> {
+  const fromCrit = taskMeta.find((t) => t.criterion_id === "attendance")?.id;
+  if (fromCrit) return fromCrit;
+  if (!(await hasEngineTasks(env))) return null;
+  const rows = await env.DB.prepare(
+    `SELECT id, name_ar FROM competition_tasks WHERE competition_id = ?`,
+  )
+    .bind(competitionId)
+    .all<{ id: number; name_ar: string }>();
+  const byName = (rows.results ?? []).find((t) =>
+    String(t.name_ar ?? "").includes("حضور"),
+  );
+  return byName ? Number(byName.id) : null;
+}
+
 /**
  * O(R) — merge task_id rows + metrics_json into one audit map per student for a day.
  * Time O(R); Space O(S).
@@ -332,9 +371,41 @@ export function mergeCompetitionDayMetrics(
   return out;
 }
 
+type DayLogExistingRow = {
+  id: number;
+  student_id: number;
+  metrics_json: string | null;
+  task_id: number | null;
+  points: number | null;
+};
+
+function mergeDayLogPayload(
+  existingRows: DayLogExistingRow[],
+  incoming: Record<string, unknown>,
+  hasTaskId: boolean,
+): { merged: Record<string, unknown>; keeperId: number | null; legacyIds: number[] } {
+  let merged = { ...incoming };
+  const legacyIds: number[] = [];
+  let keeperId: number | null = null;
+
+  for (const er of existingRows) {
+    if (!keeperId) keeperId = er.id;
+    else legacyIds.push(er.id);
+
+    merged = mergeCompetitionDayMetrics(parseCompetitionMetricsJson(er.metrics_json), merged);
+
+    if (hasTaskId && er.task_id != null) {
+      const tp = (merged.task_points as Record<string, number>) ?? {};
+      tp[String(er.task_id)] = Number(er.points ?? 0);
+      merged.task_points = tp;
+    }
+  }
+
+  return { merged, keeperId, legacyIds };
+}
+
 /**
- * O(N) time / O(N) space — upsert one canonical row per (competition, student, day).
- * Merges legacy per-task rows into metrics_json; works with or without UNIQUE index.
+ * O(N) time / O(N) space — batched upsert; 2 round-trips (load all + batch write).
  */
 export async function bulkUpsertCompetitionDayLogs(
   env: Env,
@@ -356,42 +427,45 @@ export async function bulkUpsertCompetitionDayLogs(
   const hasSource = await tableHasColumn(env, "competition_logs", "source");
   const hasTaskId = await tableHasColumn(env, "competition_logs", "task_id");
 
+  const studentIds = [...new Set(rows.map((r) => Number(r.student_id)).filter((id) => id > 0))];
+  if (!studentIds.length) return;
+
+  const ph = studentIds.map(() => "?").join(",");
+  const existingAll = await env.DB.prepare(
+    `SELECT id, student_id, metrics_json, task_id, points
+     FROM competition_logs
+     WHERE competition_id = ? AND log_date = ? AND student_id IN (${ph})`,
+  )
+    .bind(competitionId, logDate, ...studentIds)
+    .all<DayLogExistingRow>();
+
+  const grouped = new Map<number, DayLogExistingRow[]>();
+  for (const er of existingAll.results ?? []) {
+    const sid = Number(er.student_id);
+    const list = grouped.get(sid) ?? [];
+    list.push(er);
+    grouped.set(sid, list);
+  }
+
+  const batchStmts: ReturnType<typeof env.DB.prepare>[] = [];
+  const deleteIds: number[] = [];
+
   for (const row of rows) {
     const sid = Number(row.student_id);
     if (!sid) continue;
 
-    const existingRows = await env.DB.prepare(
-      `SELECT id, metrics_json, task_id, points
-       FROM competition_logs
-       WHERE competition_id = ? AND student_id = ? AND log_date = ?
-       ORDER BY CASE WHEN task_id IS NULL THEN 0 ELSE 1 END, id ASC`,
-    )
-      .bind(competitionId, sid, logDate)
-      .all<{
-        id: number;
-        metrics_json: string | null;
-        task_id: number | null;
-        points: number | null;
-      }>();
+    const existingRows = (grouped.get(sid) ?? []).sort((a, b) => {
+      const aCanon = a.task_id == null ? 0 : 1;
+      const bCanon = b.task_id == null ? 0 : 1;
+      return aCanon - bCanon || a.id - b.id;
+    });
 
-    let merged = { ...row.metrics };
-    const legacyIds: number[] = [];
-    let keeperId: number | null = null;
-
-    for (const er of existingRows.results ?? []) {
-      if (!keeperId) keeperId = er.id;
-      else legacyIds.push(er.id);
-
-      const parsed = parseCompetitionMetricsJson(er.metrics_json);
-      merged = mergeCompetitionDayMetrics(parsed, merged);
-
-      if (hasTaskId && er.task_id != null) {
-        const tp = (merged.task_points as Record<string, number>) ?? {};
-        tp[String(er.task_id)] = Number(er.points ?? 0);
-        merged.task_points = tp;
-      }
-    }
-
+    const { merged, keeperId, legacyIds } = mergeDayLogPayload(
+      existingRows,
+      row.metrics,
+      hasTaskId,
+    );
+    deleteIds.push(...legacyIds);
     const metricsStr = JSON.stringify(merged);
 
     if (keeperId != null) {
@@ -405,38 +479,21 @@ export async function bulkUpsertCompetitionDayLogs(
         sets.push("source = ?");
         binds.push(source);
       }
-      if (hasTaskId) {
-        sets.push("task_id = NULL");
-      }
+      if (hasTaskId) sets.push("task_id = NULL");
       sets.push("recorded_by_user_id = COALESCE(?, recorded_by_user_id)");
       sets.push("recorded_at = datetime('now')");
       binds.push(recordedByUserId, keeperId);
-
-      await env.DB.prepare(
-        `UPDATE competition_logs SET ${sets.join(", ")} WHERE id = ?`,
-      )
-        .bind(...binds)
-        .run();
-
-      if (legacyIds.length) {
-        const ph = legacyIds.map(() => "?").join(",");
-        await env.DB.prepare(
-          `DELETE FROM competition_logs WHERE id IN (${ph})`,
-        )
-          .bind(...legacyIds)
-          .run();
-      }
+      batchStmts.push(
+        env.DB.prepare(`UPDATE competition_logs SET ${sets.join(", ")} WHERE id = ?`).bind(
+          ...binds,
+        ),
+      );
       continue;
     }
 
     const cols = ["competition_id", "student_id", "log_date", "metrics_json"];
     const vals = ["?", "?", "?", "?"];
-    const binds: (string | number | null)[] = [
-      competitionId,
-      sid,
-      logDate,
-      metricsStr,
-    ];
+    const binds: (string | number | null)[] = [competitionId, sid, logDate, metricsStr];
     if (hasTasksSnapshot) {
       cols.push("tasks_snapshot");
       vals.push("?");
@@ -450,12 +507,23 @@ export async function bulkUpsertCompetitionDayLogs(
     cols.push("recorded_by_user_id");
     vals.push("?");
     binds.push(recordedByUserId);
+    batchStmts.push(
+      env.DB.prepare(
+        `INSERT INTO competition_logs (${cols.join(", ")}) VALUES (${vals.join(", ")})`,
+      ).bind(...binds),
+    );
+  }
 
-    await env.DB.prepare(
-      `INSERT INTO competition_logs (${cols.join(", ")}) VALUES (${vals.join(", ")})`,
-    )
-      .bind(...binds)
-      .run();
+  if (deleteIds.length) {
+    const dph = deleteIds.map(() => "?").join(",");
+    batchStmts.push(
+      env.DB.prepare(`DELETE FROM competition_logs WHERE id IN (${dph})`).bind(...deleteIds),
+    );
+  }
+
+  const chunkSize = 50;
+  for (let i = 0; i < batchStmts.length; i += chunkSize) {
+    await env.DB.batch(batchStmts.slice(i, i + chunkSize));
   }
 }
 
@@ -744,8 +812,12 @@ export async function loadCompetitionLogsForLeaderboard(
   const hasMetricsJson = await tableHasColumn(env, "competition_logs", "metrics_json");
 
   if (hasMetricsJson) {
+    const hasTaskIdCol = await tableHasColumn(env, "competition_logs", "task_id");
+    const canonFilter = hasTaskIdCol
+      ? " AND (task_id IS NULL OR CAST(task_id AS INTEGER) = 0)"
+      : "";
     let sql = `SELECT student_id, log_date, metrics_json
-               FROM competition_logs WHERE competition_id = ?`;
+               FROM competition_logs WHERE competition_id = ?${canonFilter}`;
     const binds: (string | number)[] = [competitionId];
     if (dateFrom) {
       sql += ` AND log_date >= ?`;

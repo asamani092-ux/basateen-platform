@@ -45,6 +45,8 @@ import {
   aggregateSirdStudentStats,
   aggregateTargetVolumeMetrics,
   disciplinePctFromAttendanceLogs,
+  disciplinePctFromMetricsStudentDays,
+  resolveAttendanceTaskId,
   hasSirdPeriodRecords,
   sumReadFacesFromTaskLogs,
   sumSirdReadFaces,
@@ -1311,18 +1313,34 @@ export async function handleEduCompetitionsRouter(
     const taskMetaEarly = engineTasks
       ? await loadCompetitionTaskMeta(env, id)
       : [];
-    const attendanceTaskId =
-      taskMetaEarly.find((t) => t.criterion_id === "attendance")?.id ?? null;
+    const attendanceTaskId = await resolveAttendanceTaskId(env, id, taskMetaEarly);
     const memorizationTaskId =
       taskMetaEarly.find((t) => t.criterion_id === "memorization")?.id ?? null;
     const logsForMetrics = engineLogs
       ? await loadCompetitionLogsForLeaderboard(env, id, dateFrom, dateTo)
       : [];
 
-    let disciplinePct = disciplinePctFromAttendanceLogs(
-      logsForMetrics,
-      attendanceTaskId,
-    );
+    let disciplinePct = 0;
+    const hasMetricsJsonCol = await tableHasColumn(env, "competition_logs", "metrics_json");
+    if (hasMetricsJsonCol && attendanceTaskId) {
+      const hasTaskIdCol = await tableHasColumn(env, "competition_logs", "task_id");
+      const canonFilter = hasTaskIdCol
+        ? " AND (task_id IS NULL OR CAST(task_id AS INTEGER) = 0)"
+        : "";
+      const metricRows = await env.DB.prepare(
+        `SELECT metrics_json FROM competition_logs
+         WHERE competition_id = ? AND log_date >= ? AND log_date <= ?${canonFilter}`,
+      )
+        .bind(id, dateFrom, dateTo)
+        .all<{ metrics_json: string }>();
+      disciplinePct = disciplinePctFromMetricsStudentDays(
+        metricRows.results ?? [],
+        attendanceTaskId,
+      );
+    }
+    if (disciplinePct === 0) {
+      disciplinePct = disciplinePctFromAttendanceLogs(logsForMetrics, attendanceTaskId);
+    }
     if (disciplinePct === 0 && hasCompAttendance && totalStudents > 0) {
       const hasAttStatus = await tableHasColumn(env, "competition_attendance", "status");
       const att = await env.DB.prepare(

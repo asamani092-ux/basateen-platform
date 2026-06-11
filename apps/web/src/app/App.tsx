@@ -38,6 +38,7 @@ import { StaffManagementPage } from "./pages/admin/StaffManagementPage";
 import { CirclesSetupPage } from "./pages/admin/CirclesSetupPage";
 import { AdminGeneralSettingsPage } from "./pages/admin/AdminGeneralSettingsPage";
 import { STAFF_ROLES } from "./config/role-access";
+import { TeacherHubPage } from "./pages/teacher/TeacherHubPage";
 
 export default function App() {
   return (
@@ -117,8 +118,8 @@ export default function App() {
                 />
               </Route>
 
-              <Route path="teacher" element={<Navigate to="/edu-dept/daily-recitation" replace />} />
-              <Route path="teacher/*" element={<Navigate to="/edu-dept/daily-recitation" replace />} />
+              <Route path="teacher" element={<TeacherHubPage />} />
+              <Route path="teacher/*" element={<TeacherHubPage />} />
 
               <Route path="admin-dept/students" element={<StudentsPage />} />
               <Route path="admin-dept/staff-attendance" element={<StaffAttendancePage />} />

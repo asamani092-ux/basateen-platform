@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ClipboardList, Grid3X3, LayoutGrid, Loader2, MoreHorizontal } from "lucide-react";
+import { toast } from "sonner";
 import { TableActionsCell } from "../../components/admin/TableIconAction";
 import { Button } from "../../components/ui/button";
 import {
@@ -20,6 +21,16 @@ import {
   TableRow,
 } from "../../components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "../../components/ui/toggle-group";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "../../components/ui/accordion";
+import {
+  QuranicInputCell,
+  type QuranicUnit,
+} from "../../components/ui/QuranicInputCell";
 import { useAuth } from "../../context/AuthContext";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
@@ -99,7 +110,7 @@ function normalizeRow(
   };
 }
 
-export function DailyRecitationPage() {
+export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }) {
   const { user } = useAuth();
   const isSupervisor = user ? SUPERVISOR_ROLES.has(user.role) : false;
 
@@ -118,7 +129,6 @@ export function DailyRecitationPage() {
   const [saving, setSaving] = useState(false);
   const [savingStudentId, setSavingStudentId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
 
   const [reqOpen, setReqOpen] = useState(false);
   const [reqStudent, setReqStudent] = useState<Row | null>(null);
@@ -224,7 +234,6 @@ export function DailyRecitationPage() {
     if (isSupervisor && circleId == null) return;
     setSavingStudentId(studentId);
     setError(null);
-    setSuccess(null);
     try {
       await api.eduDeptDailyRecitationSave({
         ...(circleId != null ? { circle_id: circleId } : {}),
@@ -237,9 +246,11 @@ export function DailyRecitationPage() {
           },
         ],
       });
-      setSuccess(`تم حفظ رصد ${row.full_name_ar}.`);
+      toast.success(`تم حفظ رصد ${row.full_name_ar}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل الحفظ");
+      const msg = e instanceof Error ? e.message : "فشل الحفظ";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setSavingStudentId(null);
     }
@@ -250,7 +261,6 @@ export function DailyRecitationPage() {
     if (isSupervisor && circleId == null) return;
     setSaving(true);
     setError(null);
-    setSuccess(null);
     try {
       await api.eduDeptDailyRecitationSave({
         ...(circleId != null ? { circle_id: circleId } : {}),
@@ -261,9 +271,11 @@ export function DailyRecitationPage() {
           notes: r.notes,
         })),
       });
-      setSuccess("تم حفظ الرصد اليومي.");
+      toast.success("تم حفظ الرصد اليومي");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل الحفظ");
+      const msg = e instanceof Error ? e.message : "فشل الحفظ";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setSaving(false);
     }
@@ -282,13 +294,15 @@ export function DailyRecitationPage() {
       });
       setReqOpen(false);
       setReqNotes("");
-      setSuccess(
+      toast.success(
         reqType === "escalation"
-          ? "تم إرسال التصعيد للإدارة."
-          : "تم إرسال طلب النقل.",
+          ? "تم إرسال التصعيد للإدارة"
+          : "تم إرسال طلب النقل",
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "فشل الإرسال");
+      const msg = err instanceof Error ? err.message : "فشل الإرسال";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setReqSubmitting(false);
     }
@@ -297,51 +311,57 @@ export function DailyRecitationPage() {
   const canSave = rows.length > 0 && (isSupervisor ? circleId != null : true);
 
   return (
-    <div className="space-y-6 max-w-[1200px] pb-24">
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-        <div>
-          <h2 className={`${ds.page.title} flex items-center gap-2`} style={tajawal}>
-            <ClipboardList className="w-7 h-7 text-primary" />
-            الرصد اليومي
-          </h2>
-          <p className={ds.page.description} style={tajawal}>
-            {isSupervisor
-              ? "متابعة أو رصد حلقات المسار — المهام تُولَّد تلقائياً من إعدادات التقييم."
-              : "سجّل إنجاز الطلاب وفق مهام التقييم المحددة من المشرف."}
-          </p>
-          {!isSupervisor && circleName && (
-            <p className="text-sm font-semibold text-primary mt-1" style={tajawal}>
-              الحلقة: {circleName}
+    <div
+      className={`space-y-6 max-w-[1200px] ${embedded ? "pb-28 md:pb-24" : "pb-24"}`}
+      dir="rtl"
+    >
+      {!embedded && (
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+          <div>
+            <h2 className={`${ds.page.title} flex items-center gap-2`} style={tajawal}>
+              <ClipboardList className="w-7 h-7 text-primary" />
+              الرصد اليومي
+            </h2>
+            <p className={ds.page.description} style={tajawal}>
+              {isSupervisor
+                ? "متابعة أو رصد حلقات المسار — المهام تُولَّد تلقائياً من إعدادات التقييم."
+                : "سجّل إنجاز الطلاب وفق مهام التقييم المحددة من المشرف."}
             </p>
-          )}
+            {!isSupervisor && circleName && (
+              <p className="text-sm font-semibold text-primary mt-1" style={tajawal}>
+                الحلقة: {circleName}
+              </p>
+            )}
+          </div>
+          <div className="hidden md:flex flex-wrap items-center gap-2">
+            <ToggleGroup
+              type="single"
+              value={viewMode}
+              onValueChange={(v) => v && setViewMode(v as ViewMode)}
+              className="border border-border rounded-xl p-1"
+            >
+              <ToggleGroupItem value="grid" aria-label="جدول" className={ds.btnRound}>
+                <Grid3X3 className="w-4 h-4 ml-1" />
+                جدول
+              </ToggleGroupItem>
+              <ToggleGroupItem value="cards" aria-label="بطاقات" className={ds.btnRound}>
+                <LayoutGrid className="w-4 h-4 ml-1" />
+                بطاقات
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <ToggleGroup
-            type="single"
-            value={viewMode}
-            onValueChange={(v) => v && setViewMode(v as ViewMode)}
-            className="border border-border rounded-xl p-1"
-          >
-            <ToggleGroupItem value="grid" aria-label="جدول" className={ds.btnRound}>
-              <Grid3X3 className="w-4 h-4 ml-1" />
-              جدول
-            </ToggleGroupItem>
-            <ToggleGroupItem value="cards" aria-label="بطاقات" className={ds.btnRound}>
-              <LayoutGrid className="w-4 h-4 ml-1" />
-              بطاقات
-            </ToggleGroupItem>
-          </ToggleGroup>
-        </div>
-      </div>
+      )}
+
+      {embedded && !isSupervisor && circleName && (
+        <p className="text-sm font-semibold text-primary" style={tajawal}>
+          الحلقة: {circleName}
+        </p>
+      )}
 
       {error && (
         <p className={ds.alert.error} style={tajawal}>
           {error}
-        </p>
-      )}
-      {success && (
-        <p className={ds.alert.success} style={tajawal}>
-          {success}
         </p>
       )}
 
@@ -412,184 +432,309 @@ export function DailyRecitationPage() {
           <p className={`p-4 ${ds.alert.info}`} style={tajawal}>
             لا يوجد طلاب في هذه الحلقة.
           </p>
-        ) : viewMode === "grid" ? (
-          <div className="overflow-x-auto max-h-[70vh]">
-            <Table className={`${ds.tableMin} text-right edu-recitation-grid`}>
-              <TableHeader className="sticky top-0 z-10 bg-card">
-                <TableRow>
-                  <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
-                    الطالب
-                  </TableHead>
-                  {editableCriteria.map((c) => (
-                    <TableHead
-                      key={c.id}
-                      className={`${ds.table.head} text-center`}
-                      style={tajawal}
-                    >
-                      {c.name}
-                    </TableHead>
-                  ))}
-                  {bonusCriteria.map((c) => (
-                    <TableHead
-                      key={c.id}
-                      className={`${ds.table.head} text-center text-muted-foreground`}
-                      style={tajawal}
-                    >
-                      {c.name}
-                    </TableHead>
-                  ))}
-                  <TableHead
-                    className={`${ds.table.head} text-center w-[8%]`}
-                    style={tajawal}
-                  >
-                    الجودة %
-                  </TableHead>
-                  <TableHead className={`${ds.table.head} text-center w-[8%]`} style={tajawal}>
-                    حفظ
-                  </TableHead>
-                  {!isSupervisor && (
-                    <TableHead className={ds.table.headActions} style={tajawal}>
-                      إجراء
-                    </TableHead>
-                  )}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((r) => (
-                  <TableRow key={r.student_id} className="print:break-inside-avoid">
-                    <TableCell className={ds.table.cell} style={tajawal}>
-                      <span>{r.full_name_ar}</span>
-                      {r.admin_present && (
-                        <span className="mr-2 text-[10px] text-emerald-600 font-medium">
-                          حضور إداري
-                        </span>
-                      )}
-                    </TableCell>
-                    {editableCriteria.map((c, idx) => (
-                      <TableCell key={c.id} className="text-center align-middle">
-                        <CriterionInput
-                          criterion={c}
-                          taskCol={criterionToTaskCol(c, idx)}
-                          value={r.task_scores[c.id]}
-                          onChange={(v) => patchTaskScore(r.student_id, c.id, v)}
-                        />
-                      </TableCell>
-                    ))}
-                    {bonusCriteria.map((c) => (
-                      <TableCell key={c.id} className="text-center align-middle">
-                        <span
-                          className={`text-xs px-2 py-1 rounded-full ${
-                            r.task_scores[c.id]
-                              ? "bg-emerald-500/15 text-emerald-700"
-                              : "bg-muted text-muted-foreground"
-                          }`}
+        ) : (
+          <>
+            {/* Desktop / tablet — wide grid table */}
+            <div className="hidden md:block">
+              {viewMode === "grid" ? (
+                <div className="overflow-x-auto max-h-[70vh]">
+                  <Table className={`${ds.tableMin} text-right edu-recitation-grid`}>
+                    <TableHeader className="sticky top-0 z-10 bg-card">
+                      <TableRow>
+                        <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
+                          الطالب
+                        </TableHead>
+                        {editableCriteria.map((c) => (
+                          <TableHead
+                            key={c.id}
+                            className={`${ds.table.head} text-center`}
+                            style={tajawal}
+                          >
+                            {c.name}
+                          </TableHead>
+                        ))}
+                        {bonusCriteria.map((c) => (
+                          <TableHead
+                            key={c.id}
+                            className={`${ds.table.head} text-center text-muted-foreground`}
+                            style={tajawal}
+                          >
+                            {c.name}
+                          </TableHead>
+                        ))}
+                        <TableHead
+                          className={`${ds.table.head} text-center w-[8%]`}
+                          style={tajawal}
                         >
-                          {r.task_scores[c.id] ? "نعم" : "—"}
-                        </span>
-                      </TableCell>
-                    ))}
-                    <TableCell
-                      className={`${ds.table.cell} text-center font-semibold tabular-nums`}
-                      style={tajawal}
-                    >
-                      {computeQualityFromCriteria(r.task_scores, criteria)}%
-                    </TableCell>
-                    <TableCell className={`${ds.table.cell} text-center`}>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className={ds.btnRound}
-                        disabled={saving || savingStudentId != null || !canSave}
-                        onClick={() => void saveStudent(r.student_id)}
-                        style={tajawal}
-                      >
-                        {savingStudentId === r.student_id ? (
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                        ) : (
-                          "حفظ"
+                          الجودة %
+                        </TableHead>
+                        <TableHead
+                          className={`${ds.table.head} text-center w-[8%]`}
+                          style={tajawal}
+                        >
+                          حفظ
+                        </TableHead>
+                        {!isSupervisor && (
+                          <TableHead className={ds.table.headActions} style={tajawal}>
+                            إجراء
+                          </TableHead>
                         )}
-                      </Button>
-                    </TableCell>
-                    {!isSupervisor && (
-                      <TableActionsCell>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {rows.map((r) => (
+                        <TableRow key={r.student_id} className="print:break-inside-avoid">
+                          <TableCell className={ds.table.cell} style={tajawal}>
+                            <span>{r.full_name_ar}</span>
+                            {r.admin_present && (
+                              <span className="mr-2 text-[10px] text-emerald-600 font-medium">
+                                حضور إداري
+                              </span>
+                            )}
+                          </TableCell>
+                          {editableCriteria.map((c, idx) => (
+                            <TableCell key={c.id} className="text-center align-middle">
+                              <CriterionInput
+                                criterion={c}
+                                taskCol={criterionToTaskCol(c, idx)}
+                                value={r.task_scores[c.id]}
+                                onChange={(v) => patchTaskScore(r.student_id, c.id, v)}
+                              />
+                            </TableCell>
+                          ))}
+                          {bonusCriteria.map((c) => (
+                            <TableCell key={c.id} className="text-center align-middle">
+                              <span
+                                className={`text-xs px-2 py-1 rounded-full ${
+                                  r.task_scores[c.id]
+                                    ? "bg-emerald-500/15 text-emerald-700"
+                                    : "bg-muted text-muted-foreground"
+                                }`}
+                              >
+                                {r.task_scores[c.id] ? "نعم" : "—"}
+                              </span>
+                            </TableCell>
+                          ))}
+                          <TableCell
+                            className={`${ds.table.cell} text-center font-semibold tabular-nums`}
+                            style={tajawal}
+                          >
+                            {computeQualityFromCriteria(r.task_scores, criteria)}%
+                          </TableCell>
+                          <TableCell className={`${ds.table.cell} text-center`}>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className={ds.btnRound}
+                              disabled={saving || savingStudentId != null || !canSave}
+                              onClick={() => void saveStudent(r.student_id)}
+                              style={tajawal}
+                            >
+                              {savingStudentId === r.student_id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                "حفظ"
+                              )}
+                            </Button>
+                          </TableCell>
+                          {!isSupervisor && (
+                            <TableActionsCell>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className={ds.btnRound}
+                                title="إجراء / طلب"
+                                onClick={() => {
+                                  setReqStudent(r);
+                                  setReqType("escalation");
+                                  setReqNotes("");
+                                  setReqOpen(true);
+                                }}
+                              >
+                                <MoreHorizontal className="w-4 h-4" />
+                              </Button>
+                            </TableActionsCell>
+                          )}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <div className="p-4 grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {rows.map((r) => (
+                    <div
+                      key={r.student_id}
+                      className={`${ds.card} p-4 space-y-3 border border-border`}
+                    >
+                      <p className="font-bold text-sm" style={tajawal}>
+                        {r.full_name_ar}
+                      </p>
+                      <div className="space-y-2 text-sm" style={tajawal}>
+                        {editableCriteria.map((c, idx) => (
+                          <div key={c.id} className="flex items-center justify-between gap-2">
+                            <span>{c.name}</span>
+                            <CriterionInput
+                              criterion={c}
+                              taskCol={criterionToTaskCol(c, idx)}
+                              value={r.task_scores[c.id]}
+                              onChange={(v) => patchTaskScore(r.student_id, c.id, v)}
+                              compact
+                            />
+                          </div>
+                        ))}
+                        {bonusCriteria.map((c) => (
+                          <div key={c.id} className="flex items-center justify-between gap-2">
+                            <span className="text-muted-foreground">{c.name}</span>
+                            <span className="text-xs">
+                              {r.task_scores[c.id] ? "مكتمل" : "—"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-border">
+                        <span className="text-sm font-semibold tabular-nums" style={tajawal}>
+                          الجودة: {computeQualityFromCriteria(r.task_scores, criteria)}%
+                        </span>
                         <Button
                           type="button"
-                          variant="ghost"
-                          size="icon"
+                          size="sm"
+                          variant="outline"
                           className={ds.btnRound}
-                          title="إجراء / طلب"
-                          onClick={() => {
-                            setReqStudent(r);
-                            setReqType("escalation");
-                            setReqNotes("");
-                            setReqOpen(true);
-                          }}
+                          disabled={saving || savingStudentId != null || !canSave}
+                          onClick={() => void saveStudent(r.student_id)}
+                          style={tajawal}
                         >
-                          <MoreHorizontal className="w-4 h-4" />
+                          {savingStudentId === r.student_id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            "حفظ"
+                          )}
                         </Button>
-                      </TableActionsCell>
-                    )}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        ) : (
-          <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {rows.map((r) => (
-              <div
-                key={r.student_id}
-                className={`${ds.card} p-4 space-y-3 border border-border`}
-              >
-                <p className="font-bold text-sm" style={tajawal}>
-                  {r.full_name_ar}
-                </p>
-                <div className="space-y-2 text-sm" style={tajawal}>
-                  {editableCriteria.map((c, idx) => (
-                    <div key={c.id} className="flex items-center justify-between gap-2">
-                      <span>{c.name}</span>
-                      <CriterionInput
-                        criterion={c}
-                        taskCol={criterionToTaskCol(c, idx)}
-                        value={r.task_scores[c.id]}
-                        onChange={(v) => patchTaskScore(r.student_id, c.id, v)}
-                        compact
-                      />
-                    </div>
-                  ))}
-                  {bonusCriteria.map((c) => (
-                    <div key={c.id} className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground">{c.name}</span>
-                      <span className="text-xs">
-                        {r.task_scores[c.id] ? "مكتمل" : "—"}
-                      </span>
+                      </div>
                     </div>
                   ))}
                 </div>
-                <div className="flex items-center justify-between gap-2 pt-2 border-t border-border">
-                  <span className="text-sm font-semibold tabular-nums" style={tajawal}>
-                    الجودة: {computeQualityFromCriteria(r.task_scores, criteria)}%
-                  </span>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className={ds.btnRound}
-                    disabled={saving || savingStudentId != null || !canSave}
-                    onClick={() => void saveStudent(r.student_id)}
-                    style={tajawal}
-                  >
-                    {savingStudentId === r.student_id ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : (
-                      "حفظ"
-                    )}
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
+              )}
+            </div>
+
+            {/* Mobile — expandable student cards */}
+            <div className="md:hidden p-2">
+              <Accordion type="single" collapsible className="space-y-2">
+                {rows.map((r) => {
+                  const quality = computeQualityFromCriteria(r.task_scores, criteria);
+                  return (
+                    <AccordionItem
+                      key={r.student_id}
+                      value={String(r.student_id)}
+                      className={`${ds.card} border border-border rounded-2xl px-3 overflow-hidden`}
+                    >
+                      <AccordionTrigger
+                        className="py-3 hover:no-underline text-right [&>svg]:mr-auto [&>svg]:ml-0"
+                        style={tajawal}
+                      >
+                        <div className="flex flex-1 items-center justify-between gap-2 min-w-0">
+                          <div className="min-w-0 text-right">
+                            <p className="font-semibold text-sm truncate">{r.full_name_ar}</p>
+                            {r.admin_present && (
+                              <span className="text-[10px] text-emerald-600 font-medium">
+                                حضور إداري
+                              </span>
+                            )}
+                          </div>
+                          <span
+                            className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold tabular-nums ${
+                              quality >= 75
+                                ? "bg-emerald-500/15 text-emerald-700"
+                                : quality >= 50
+                                  ? "bg-amber-500/15 text-amber-700"
+                                  : "bg-destructive/10 text-destructive"
+                            }`}
+                          >
+                            {quality}%
+                          </span>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent className="pb-3">
+                        <div className="space-y-3 border-t border-border pt-3">
+                          {editableCriteria.map((c, idx) => (
+                            <div key={c.id} className="space-y-1.5">
+                              <Label className="text-xs text-muted-foreground" style={tajawal}>
+                                {c.name}
+                              </Label>
+                              <MobileCriterionInput
+                                criterion={c}
+                                taskCol={criterionToTaskCol(c, idx)}
+                                value={r.task_scores[c.id]}
+                                onChange={(v) => patchTaskScore(r.student_id, c.id, v)}
+                              />
+                            </div>
+                          ))}
+                          {bonusCriteria.map((c) => (
+                            <div
+                              key={c.id}
+                              className="flex items-center justify-between rounded-xl bg-muted/50 px-3 py-2 text-sm"
+                              style={tajawal}
+                            >
+                              <span className="text-muted-foreground">{c.name}</span>
+                              <span
+                                className={
+                                  r.task_scores[c.id]
+                                    ? "text-emerald-600 font-medium"
+                                    : "text-muted-foreground"
+                                }
+                              >
+                                {r.task_scores[c.id] ? "مكتمل" : "—"}
+                              </span>
+                            </div>
+                          ))}
+                          <div className="flex flex-wrap items-center gap-2 pt-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="default"
+                              className={`${ds.btnRound} flex-1 min-w-[8rem]`}
+                              disabled={saving || savingStudentId != null || !canSave}
+                              onClick={() => void saveStudent(r.student_id)}
+                              style={tajawal}
+                            >
+                              {savingStudentId === r.student_id ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 animate-spin ml-1" />
+                                  جاري الحفظ…
+                                </>
+                              ) : (
+                                "حفظ"
+                              )}
+                            </Button>
+                            {!isSupervisor && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className={ds.btnRound}
+                                onClick={() => {
+                                  setReqStudent(r);
+                                  setReqType("escalation");
+                                  setReqNotes("");
+                                  setReqOpen(true);
+                                }}
+                                style={tajawal}
+                              >
+                                <MoreHorizontal className="w-4 h-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  );
+                })}
+              </Accordion>
+            </div>
+          </>
         )}
       </div>
 
@@ -684,6 +829,47 @@ function scoreToNumber(value: boolean | number | undefined): number {
 function numberToScore(c: EvalCriterion, n: number): boolean | number {
   if (c.type === "penalty" || c.input === "number") return n;
   return n > 0;
+}
+
+function isNumericCriterion(c: EvalCriterion): boolean {
+  return c.input === "number" || c.input_type === "numeric";
+}
+
+function MobileCriterionInput({
+  criterion,
+  taskCol,
+  value,
+  onChange,
+}: {
+  criterion: EvalCriterion;
+  taskCol: TaskInputCol;
+  value: boolean | number | undefined;
+  onChange: (v: boolean | number) => void;
+}) {
+  const [unit, setUnit] = useState<QuranicUnit>("face");
+  const numericValue = scoreToNumber(value);
+
+  if (isNumericCriterion(criterion)) {
+    return (
+      <QuranicInputCell
+        value={numericValue}
+        unit={unit}
+        onValueChange={(n) => onChange(numberToScore(criterion, n))}
+        onUnitChange={setUnit}
+        aria-label={criterion.name}
+      />
+    );
+  }
+
+  return (
+    <CriterionInput
+      criterion={criterion}
+      taskCol={taskCol}
+      value={value}
+      onChange={onChange}
+      compact
+    />
+  );
 }
 
 function CriterionInput({

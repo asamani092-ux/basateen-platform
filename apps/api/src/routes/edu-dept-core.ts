@@ -30,6 +30,10 @@ import {
 import { applyStudentPlacement } from "../lib/students-admin";
 import { todayLocalIso } from "../lib/local-iso-date";
 import {
+  queryStudentsInCircle,
+  resolveTrackSupervisorCircles,
+} from "../lib/student-placement";
+import {
   buildTasksSnapshot,
   computeQualityForRecord,
   computeQualityFromCriteria,
@@ -81,28 +85,7 @@ async function studentsInCircle(
   complexId: number,
   circleId: number,
 ): Promise<Array<{ id: number; full_name_ar: string }>> {
-  const hasFlat = await tableHasColumn(env, "students", "current_circle_id");
-  if (hasFlat) {
-    const rows = await env.DB.prepare(
-      `SELECT id, full_name_ar FROM students
-       WHERE complex_id = ? AND current_circle_id = ? AND is_active = 1
-       ORDER BY full_name_ar`,
-    )
-      .bind(complexId, circleId)
-      .all<{ id: number; full_name_ar: string }>();
-    return rows.results ?? [];
-  }
-  const rows = await env.DB.prepare(
-    `SELECT s.id, s.full_name_ar
-     FROM students s
-     INNER JOIN student_circle_history h
-       ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL AND h.circle_id = ?
-     WHERE s.complex_id = ? AND s.is_active = 1
-     ORDER BY s.full_name_ar`,
-  )
-    .bind(circleId, complexId)
-    .all<{ id: number; full_name_ar: string }>();
-  return rows.results ?? [];
+  return queryStudentsInCircle(env, complexId, circleId);
 }
 
 async function resolveTeacherPrimaryCircle(
@@ -172,46 +155,8 @@ async function resolveRecitationCircles(
     return [circle];
   }
 
-  if (auth.role === "track_supervisor" && (await hasTable(env, "supervisor_scopes"))) {
-    const scoped = await env.DB.prepare(
-      `SELECT DISTINCT circle_id FROM supervisor_scopes
-       WHERE user_id = ? AND circle_id IS NOT NULL`,
-    )
-      .bind(auth.userId)
-      .all<{ circle_id: number }>();
-    const circleIds = (scoped.results ?? [])
-      .map((r) => r.circle_id)
-      .filter((id) => Number.isFinite(id) && id > 0);
-    if (circleIds.length === 0) return [];
-
-    const trackScoped = await env.DB.prepare(
-      `SELECT DISTINCT track_id FROM supervisor_scopes
-       WHERE user_id = ? AND track_id IS NOT NULL`,
-    )
-      .bind(auth.userId)
-      .all<{ track_id: number }>();
-    const trackIds = (trackScoped.results ?? [])
-      .map((r) => r.track_id)
-      .filter((id) => Number.isFinite(id) && id > 0);
-
-    let sql = `SELECT DISTINCT c.id, c.name_ar
-      FROM circles c
-      WHERE c.complex_id = ? AND c.id IN (${circleIds.map(() => "?").join(",")})`;
-    const binds: (string | number)[] = [auth.complexId, ...circleIds];
-    if (hasIsActive) sql += ` AND c.is_active = 1`;
-
-    if (trackIds.length > 0 && (await hasTable(env, "track_circles"))) {
-      sql += ` AND c.id IN (
-        SELECT circle_id FROM track_circles WHERE track_id IN (${trackIds.map(() => "?").join(",")})
-      )`;
-      binds.push(...trackIds);
-    }
-
-    sql += ` ORDER BY c.name_ar`;
-    const rows = await env.DB.prepare(sql)
-      .bind(...binds)
-      .all<{ id: number; name_ar: string }>();
-    return rows.results ?? [];
+  if (auth.role === "track_supervisor") {
+    return resolveTrackSupervisorCircles(env, auth);
   }
 
   if (auth.role === "programs_supervisor") {

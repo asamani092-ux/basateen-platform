@@ -42,7 +42,12 @@ type Row = {
 
 type ViewMode = "grid" | "cards";
 
-const SUPERVISOR_ROLES = new Set(["edu_supervisor", "super_admin", "programs_supervisor"]);
+const SUPERVISOR_ROLES = new Set([
+  "edu_supervisor",
+  "super_admin",
+  "programs_supervisor",
+  "track_supervisor",
+]);
 
 function applyDependentScores(
   taskScores: Record<string, boolean | number>,

@@ -98,13 +98,18 @@ async function seedDefaultTasks(env: Env, compId: number): Promise<void> {
   }
 }
 
-type TeacherAuth = { userId: number; complexId: number };
+type TeacherAuth = { userId: number; complexId: number; role: string };
 
 async function loadTeacherStudents(
   env: Env,
   auth: TeacherAuth,
 ): Promise<{ students: Array<{ id: number; full_name_ar: string }> } | Response> {
-  const students = await studentsInTeacherCircle(env, auth.complexId, auth.userId);
+  const students = await studentsInTeacherCircle(
+    env,
+    auth.complexId,
+    auth.userId,
+    auth.role,
+  );
   if (students === null) {
     return json({ error: TEACHER_NO_CIRCLE_ACCOUNT_MSG }, 400);
   }
@@ -125,7 +130,11 @@ export async function handleEduDeptMegaRouter(
   if (!requireRoles(auth, [...TEACHER_ONLY])) return json({ error: "forbidden" }, 403);
   if (!(await hasTable(env, "teacher_competitions"))) return migrationRequired();
 
-  const teacherAuth: TeacherAuth = { userId: auth.userId, complexId: auth.complexId };
+  const teacherAuth: TeacherAuth = {
+    userId: auth.userId,
+    complexId: auth.complexId,
+    role: auth.role,
+  };
 
   try {
     if (path === "/api/edu-dept/teacher-competitions" && request.method === "GET") {

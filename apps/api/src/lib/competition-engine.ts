@@ -341,6 +341,67 @@ export async function loadCompetitionDayLogsHydrated(
   return out;
 }
 
+/**
+ * O(L) time, O(L) space — L = distinct log dates with at least one row.
+ * Returns ISO dates where any student has grading data for this competition.
+ */
+export async function loadCompetitionGradedLogDates(
+  env: Env,
+  competitionId: number,
+): Promise<string[]> {
+  if (!(await hasEngineLogs(env))) {
+    if (await hasTable(env, "quran_daily_ledger")) {
+      const rows = await env.DB.prepare(
+        `SELECT DISTINCT mark_date AS log_date
+         FROM quran_daily_ledger
+         WHERE context_type = 'competition' AND context_id = ?
+         ORDER BY mark_date`,
+      )
+        .bind(competitionId)
+        .all<{ log_date: string }>();
+      return (rows.results ?? []).map((r) => String(r.log_date));
+    }
+    return [];
+  }
+
+  const hasMetricsJson = await tableHasColumn(env, "competition_logs", "metrics_json");
+  const hasTaskIdCol = await tableHasColumn(env, "competition_logs", "task_id");
+
+  if (hasMetricsJson && hasTaskIdCol) {
+    const canon = await env.DB.prepare(
+      `SELECT DISTINCT log_date FROM competition_logs
+       WHERE competition_id = ?
+         AND (task_id IS NULL OR CAST(task_id AS INTEGER) = 0)
+       ORDER BY log_date`,
+    )
+      .bind(competitionId)
+      .all<{ log_date: string }>();
+    const dates = (canon.results ?? []).map((r) => String(r.log_date));
+    if (dates.length > 0) return dates;
+
+    const hasPoints = await tableHasColumn(env, "competition_logs", "points");
+    if (hasPoints) {
+      const legacy = await env.DB.prepare(
+        `SELECT DISTINCT log_date FROM competition_logs
+         WHERE competition_id = ? AND task_id IS NOT NULL
+         ORDER BY log_date`,
+      )
+        .bind(competitionId)
+        .all<{ log_date: string }>();
+      return (legacy.results ?? []).map((r) => String(r.log_date));
+    }
+  }
+
+  const rows = await env.DB.prepare(
+    `SELECT DISTINCT log_date FROM competition_logs
+     WHERE competition_id = ?
+     ORDER BY log_date`,
+  )
+    .bind(competitionId)
+    .all<{ log_date: string }>();
+  return (rows.results ?? []).map((r) => String(r.log_date));
+}
+
 /** O(1) — parse metrics_json safely */
 export function parseCompetitionMetricsJson(
   raw: string | null | undefined,

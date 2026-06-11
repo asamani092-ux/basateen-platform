@@ -13,10 +13,17 @@ type Props = {
   selectedDate: string;
   onSelect: (isoDate: string) => void;
   disabled?: boolean;
+  gradedDates?: string[];
 };
 
 /** قائمة منسدلة لأيام التسميع النشطة فقط — بدون أيام الإجازة */
-export function ActiveDayTabs({ activeDates, selectedDate, onSelect, disabled }: Props) {
+export function ActiveDayTabs({
+  activeDates,
+  selectedDate,
+  onSelect,
+  disabled,
+  gradedDates,
+}: Props) {
   if (!activeDates.length) return null;
 
   const value = activeDates.includes(selectedDate) ? selectedDate : activeDates[0];
@@ -34,6 +41,7 @@ export function ActiveDayTabs({ activeDates, selectedDate, onSelect, disabled }:
         {activeDates.map((iso, idx) => (
           <SelectItem key={iso} value={iso} style={tajawal}>
             {formatActiveDayLabel(idx + 1, iso)}
+            {gradedDates?.includes(iso) ? " — تم الرصد" : ""}
           </SelectItem>
         ))}
       </SelectContent>

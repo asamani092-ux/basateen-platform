@@ -51,6 +51,7 @@ import {
   sumReadFacesFromTaskLogs,
   sumSirdReadFaces,
   loadCompetitionDayLogsHydrated,
+  loadCompetitionGradedLogDates,
   upsertCompetitionDayMetrics,
   DEFAULT_SIRD_SETTINGS,
   type CompetitionCategory,
@@ -1016,6 +1017,7 @@ export async function handleEduCompetitionsRouter(
         : url.searchParams.get("log_date")?.trim() ||
           new Date().toISOString().slice(0, 10);
       const sirdSettings = parseSirdSettings(compRules);
+      const gradedDates = await loadCompetitionGradedLogDates(env, id);
 
       const targetRows = engineTargets
         ? await loadCompetitionTargetRows(env, id)
@@ -1042,6 +1044,7 @@ export async function handleEduCompetitionsRouter(
           competition_days: competitionDays,
           start_date: row.start_date,
           end_date: row.end_date,
+          graded_dates: gradedDates,
           sird_settings: sirdSettings,
           tasks: [],
           students: targetRows.map((t) => ({
@@ -1100,6 +1103,7 @@ export async function handleEduCompetitionsRouter(
         competition_days: competitionDays,
         active_weekdays: activeWeekdays,
         active_dates: activeDates,
+        graded_dates: gradedDates,
         start_date: row.start_date,
         end_date: row.end_date,
         tasks: tasksRes.results ?? [],
@@ -1223,7 +1227,7 @@ export async function handleEduCompetitionsRouter(
               .run();
           }
         }
-        return json({ ok: true, saved: sirdRecords.length });
+        return json({ ok: true, saved: sirdRecords.length, log_date: logDate });
       }
 
       const dayAchievement = body.day_achievement ?? [];
@@ -1271,6 +1275,7 @@ export async function handleEduCompetitionsRouter(
       return json({
         ok: true,
         saved,
+        log_date: logDate,
       });
     }
   }

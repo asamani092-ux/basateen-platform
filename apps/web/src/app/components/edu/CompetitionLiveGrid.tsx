@@ -40,6 +40,7 @@ type Props = {
   tasks: TaskInputCol[];
   audit: Record<number, AuditRow>;
   activeDates?: string[];
+  gradedDates?: string[];
   logDate?: string;
   onLogDateChange?: (isoDate: string) => void;
   saving: boolean;
@@ -60,6 +61,7 @@ export function CompetitionLiveGrid({
   tasks,
   audit,
   activeDates = [],
+  gradedDates = [],
   logDate = "",
   onLogDateChange,
   saving,
@@ -96,6 +98,7 @@ export function CompetitionLiveGrid({
             <ActiveDayTabs
               activeDates={activeDates}
               selectedDate={logDate}
+              gradedDates={gradedDates}
               disabled={saving || savingStudentId != null}
               onSelect={onLogDateChange}
             />

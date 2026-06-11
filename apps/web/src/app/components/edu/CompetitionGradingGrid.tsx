@@ -77,6 +77,7 @@ function mapSirdPeriods(
 export function CompetitionGradingGrid({ competitionId }: Props) {
   const [logDate, setLogDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [activeDates, setActiveDates] = useState<string[]>([]);
+  const [gradedDates, setGradedDates] = useState<string[]>([]);
   const [category, setCategory] = useState<CompetitionCategory>("recitation");
   const [competitionDays, setCompetitionDays] = useState(1);
   const [sirdSettings, setSirdSettings] = useState<SirdSettings>({
@@ -123,6 +124,9 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
             ? enumerateActiveCompetitionDates(startDate, endDate, weekdays)
             : [];
       setActiveDates(dates);
+      setGradedDates(
+        Array.isArray(res.graded_dates) ? (res.graded_dates as string[]) : [],
+      );
       const resolvedLogDate = res.log_date
         ? String(res.log_date)
         : defaultActiveLogDate(dates, logDate);
@@ -267,6 +271,12 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
     });
   }
 
+  function markDayGraded(date: string) {
+    setGradedDates((prev) =>
+      prev.includes(date) ? prev : [...prev, date].sort(),
+    );
+  }
+
   async function saveStudentGrading(studentId: number) {
     setSavingStudentId(studentId);
     setError(null);
@@ -292,6 +302,7 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
             : s,
         ),
       );
+      markDayGraded(logDate);
       setSuccess("تم حفظ رصد الطالب.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل حفظ الرصد");
@@ -345,6 +356,7 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
             : {}),
         });
       }
+      markDayGraded(logDate);
       setSuccess("تم حفظ الرصد بنجاح.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل حفظ الرصد");
@@ -375,6 +387,7 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
             <ActiveDayTabs
               activeDates={activeDates}
               selectedDate={logDate}
+              gradedDates={gradedDates}
               disabled={loading || saving || savingStudentId != null}
               onSelect={(d) => {
                 setLogDate(d);

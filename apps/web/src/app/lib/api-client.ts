@@ -479,6 +479,7 @@ export const api = {
         memorization_unit?: string;
         competition_days?: number;
         active_dates?: string[];
+        graded_dates?: string[];
         log_date?: string;
       };
       students: Array<Record<string, unknown>>;
@@ -642,6 +643,7 @@ export const api = {
       end_date?: string;
       active_weekdays?: number[];
       active_dates?: string[];
+      graded_dates?: string[];
       sird_settings?: {
         base_hizb_score: number;
         mistake_deduction: number;
@@ -701,7 +703,7 @@ export const api = {
       day_achievement?: Array<{ student_id: number; juz_done: number }>;
     },
   ) =>
-    competitionRequest<{ ok: boolean; saved: number }>(
+    competitionRequest<{ ok: boolean; saved: number; log_date?: string }>(
       `/api/edu-dept/competitions/${id}/grading`,
       {
         method: "POST",

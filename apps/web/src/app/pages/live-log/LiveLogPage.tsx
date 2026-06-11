@@ -69,6 +69,7 @@ export function LiveLogPage() {
   const [memorizationUnit, setMemorizationUnit] = useState<MemorizationUnit>("juz");
   const [competitionDays, setCompetitionDays] = useState(1);
   const [activeDates, setActiveDates] = useState<string[]>([]);
+  const [gradedDates, setGradedDates] = useState<string[]>([]);
   const [logDate, setLogDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [sirdSettings, setSirdSettings] = useState<SirdSettings>({
     ...DEFAULT_SIRD_SETTINGS,
@@ -123,6 +124,10 @@ export function LiveLogPage() {
       const sessDates = data.session.active_dates;
       if (Array.isArray(sessDates)) {
         setActiveDates(sessDates as string[]);
+      }
+      const sessGraded = data.session.graded_dates;
+      if (Array.isArray(sessGraded)) {
+        setGradedDates(sessGraded as string[]);
       }
       if (data.session.log_date) {
         setLogDate(String(data.session.log_date));
@@ -443,6 +448,11 @@ export function LiveLogPage() {
           current_hizb_failed: res.failed ? 1 : 0,
         },
       }));
+      if (kind === "competition" && logDate) {
+        setGradedDates((prev) =>
+          prev.includes(logDate) ? prev : [...prev, logDate].sort(),
+        );
+      }
       toast.success("تم حفظ الرصد بنجاح");
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل الحفظ");
@@ -588,6 +598,7 @@ export function LiveLogPage() {
           tasks={tasks}
           audit={audit}
           activeDates={activeDates}
+          gradedDates={gradedDates}
           logDate={logDate}
           onLogDateChange={(d) => {
             setLogDate(d);

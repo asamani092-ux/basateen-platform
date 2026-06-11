@@ -17,6 +17,7 @@ import {
   hasTaskInputType,
   isMemorizationTrackingCategory,
   loadCompetitionDayLogsHydrated,
+  loadCompetitionGradedLogDates,
   loadSirdPeriodsMatrix,
   parseActiveWeekdays,
   parseMemorizationUnit,
@@ -339,11 +340,10 @@ export async function handleLiveLogRouter(
       }
     }
 
-    const hydrated = await loadCompetitionDayLogsHydrated(
-      env,
-      session.id,
-      logDate,
-    );
+    const [hydrated, gradedDates] = await Promise.all([
+      loadCompetitionDayLogsHydrated(env, session.id, logDate),
+      loadCompetitionGradedLogDates(env, session.id),
+    ]);
     const logs = {
       results: [...hydrated.values()].map((a) => ({
         student_id: a.student_id,
@@ -372,6 +372,7 @@ export async function handleLiveLogRouter(
           ? activeWeekdays
           : undefined,
         active_dates: activeDates.length ? activeDates : undefined,
+        graded_dates: gradedDates.length ? gradedDates : undefined,
         log_date: logDate,
         sird_settings: isRecitation ? sirdSettings : undefined,
         rules: session.rules,

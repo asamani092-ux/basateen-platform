@@ -80,6 +80,10 @@ export async function handleStudentDetail(
     const hasHistory = await hasTable(env, "student_circle_history");
     const hasLegacyHistory =
       hasHistory && (await tableHasColumn(env, "student_circle_history", "circle_id"));
+    const hasFlatHistory =
+      hasHistory &&
+      !hasLegacyHistory &&
+      (await tableHasColumn(env, "student_circle_history", "new_circle_id"));
     const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
     const hasCurrentTrack = await tableHasColumn(env, "students", "current_track_id");
 
@@ -144,25 +148,48 @@ export async function handleStudentDetail(
     if (!ok) return json({ error: "forbidden" }, 403);
   }
 
-    const history = hasLegacyHistory
-      ? await env.DB.prepare(
+    let history: HistoryRow[] = [];
+    if (hasLegacyHistory) {
+      const legacyHistory = await env.DB.prepare(
         `SELECT h.id, c.name_ar AS circle_name, t.name_ar AS track_name,
-            h.from_at, h.to_at, h.frozen_at, h.note
-     FROM student_circle_history h
-     JOIN circles c ON c.id = h.circle_id
-     LEFT JOIN tracks t ON t.id = h.track_id
-     WHERE h.student_id = ?
-     ORDER BY h.id DESC
-     LIMIT 20`,
+                h.from_at, h.to_at, h.frozen_at, h.note
+         FROM student_circle_history h
+         JOIN circles c ON c.id = h.circle_id
+         LEFT JOIN tracks t ON t.id = h.track_id
+         WHERE h.student_id = ?
+         ORDER BY h.id DESC
+         LIMIT 20`,
       )
         .bind(studentId)
-        .all<HistoryRow>()
-      : { results: [] as HistoryRow[] };
+        .all<HistoryRow>();
+      history = legacyHistory.results ?? [];
+    } else if (hasFlatHistory) {
+      const flatHistory = await env.DB.prepare(
+        `SELECT h.id,
+                COALESCE(nc.name_ar, oc.name_ar, '—') AS circle_name,
+                COALESCE(nt.name_ar, ot.name_ar) AS track_name,
+                h.moved_at AS from_at,
+                NULL AS to_at,
+                NULL AS frozen_at,
+                h.reason AS note
+         FROM student_circle_history h
+         LEFT JOIN circles oc ON oc.id = h.old_circle_id
+         LEFT JOIN circles nc ON nc.id = h.new_circle_id
+         LEFT JOIN tracks ot ON ot.id = h.old_track_id
+         LEFT JOIN tracks nt ON nt.id = h.new_track_id
+         WHERE h.student_id = ?
+         ORDER BY h.id DESC
+         LIMIT 20`,
+      )
+        .bind(studentId)
+        .all<HistoryRow>();
+      history = flatHistory.results ?? [];
+    }
 
     return json({
       student,
       current: current ?? null,
-      history: history.results ?? [],
+      history,
     });
   } catch (err) {
     console.error("student_detail_failed", err);

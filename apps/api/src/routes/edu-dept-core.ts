@@ -30,11 +30,15 @@ import {
 import { applyStudentPlacement } from "../lib/students-admin";
 import { todayLocalIso } from "../lib/local-iso-date";
 import {
+  buildTasksSnapshot,
+  computeQualityForRecord,
   computeQualityFromCriteria,
+  criteriaForRecord,
   legacyRowToTaskScores,
   loadEvaluationCriteria,
   parseEvaluationCriteria,
   parseTaskScoresJson,
+  serializeEvaluationCriteria,
   taskScoresToLegacyColumns,
   type EvalCriterion,
   type TaskScores,
@@ -519,11 +523,15 @@ export async function handleEduDeptCoreRouter(
       const wL = criteria.find((c) => c.id === "listening")?.max_weight ?? 1;
       const wRev = criteria.find((c) => c.id === "revision")?.max_weight ?? 1;
       const wRep = criteria.find((c) => c.id === "repeat")?.max_weight ?? 1;
-      const wRabt = criteria.find((c) => c.id === "rabt")?.max_weight ?? 1;
+      const wLinking =
+        criteria.find((c) => c.id === "linking")?.max_weight ??
+        criteria.find((c) => c.id === "rabt")?.max_weight ??
+        1;
       const pen =
         criteria.find((c) => c.id === "error")?.max_weight ??
         criteria.find((c) => c.type === "penalty")?.max_weight ??
         0.5;
+      const criteriaJson = serializeEvaluationCriteria(criteria);
 
       if (hasEvalJson && hasRabt) {
         await env.DB.prepare(
@@ -546,9 +554,9 @@ export async function handleEduDeptCoreRouter(
             wL,
             wRev,
             wRep,
-            wRabt,
+            wLinking,
             pen,
-            JSON.stringify(criteria),
+            criteriaJson,
           )
           .run();
       } else if (hasEvalJson) {
@@ -566,7 +574,7 @@ export async function handleEduDeptCoreRouter(
              evaluation_criteria_json = excluded.evaluation_criteria_json,
              updated_at = datetime('now')`,
         )
-          .bind(auth.complexId, wL, wRev, wRep, pen, JSON.stringify(criteria))
+          .bind(auth.complexId, wL, wRev, wRep, pen, criteriaJson)
           .run();
       } else if (hasRabt) {
         await env.DB.prepare(
@@ -580,7 +588,7 @@ export async function handleEduDeptCoreRouter(
              penalty_per_error = excluded.penalty_per_error,
              updated_at = datetime('now')`,
         )
-          .bind(auth.complexId, wL, wRev, wRep, wRabt, pen)
+          .bind(auth.complexId, wL, wRev, wRep, wLinking, pen)
           .run();
       } else {
         await env.DB.prepare(
@@ -827,7 +835,13 @@ export async function handleEduDeptCoreRouter(
           "edu_daily_recitation",
           "task_scores_json",
         );
+        const hasTasksSnapshot = await tableHasColumn(
+          env,
+          "edu_daily_recitation",
+          "tasks_snapshot",
+        );
         const criteria = await loadEvaluationCriteria(env, auth.complexId);
+        const snapshotJson = buildTasksSnapshot(criteria);
         const stmts = rows
           .filter((r) => studentIds.has(Number(r.student_id)))
           .map((r) => {
@@ -847,25 +861,12 @@ export async function handleEduDeptCoreRouter(
               typeof r.notes === "string" ? r.notes.slice(0, 500) : null;
 
             if (hasTaskScores && hasFace) {
-              return env.DB.prepare(
-                `INSERT INTO edu_daily_recitation
-                  (student_id, teacher_user_id, circle_id, recitation_date,
-                   listened, repeated, revised, error_count, tune_errors, face_count,
-                   task_scores_json, notes, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-                 ON CONFLICT(student_id, recitation_date) DO UPDATE SET
-                   teacher_user_id = excluded.teacher_user_id,
-                   circle_id = excluded.circle_id,
-                   listened = excluded.listened,
-                   repeated = excluded.repeated,
-                   revised = excluded.revised,
-                   error_count = excluded.error_count,
-                   tune_errors = excluded.tune_errors,
-                   face_count = excluded.face_count,
-                   task_scores_json = excluded.task_scores_json,
-                   notes = excluded.notes,
-                   updated_at = datetime('now')`,
-              ).bind(
+              const snapshotCol = hasTasksSnapshot ? ", tasks_snapshot" : "";
+              const snapshotVal = hasTasksSnapshot ? ", ?" : "";
+              const snapshotUpd = hasTasksSnapshot
+                ? ", tasks_snapshot = excluded.tasks_snapshot"
+                : "";
+              const binds: (string | number | null)[] = [
                 r.student_id,
                 auth.userId,
                 cid,
@@ -878,13 +879,14 @@ export async function handleEduDeptCoreRouter(
                 legacy.face_count,
                 taskJson,
                 notes,
-              );
-            }
-            if (hasFace) {
+              ];
+              if (hasTasksSnapshot) binds.push(snapshotJson);
               return env.DB.prepare(
                 `INSERT INTO edu_daily_recitation
-                  (student_id, teacher_user_id, circle_id, recitation_date, listened, repeated, revised, error_count, tune_errors, face_count, notes, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                  (student_id, teacher_user_id, circle_id, recitation_date,
+                   listened, repeated, revised, error_count, tune_errors, face_count,
+                   task_scores_json, notes${snapshotCol}, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${snapshotVal}, datetime('now'))
                  ON CONFLICT(student_id, recitation_date) DO UPDATE SET
                    teacher_user_id = excluded.teacher_user_id,
                    circle_id = excluded.circle_id,
@@ -894,9 +896,18 @@ export async function handleEduDeptCoreRouter(
                    error_count = excluded.error_count,
                    tune_errors = excluded.tune_errors,
                    face_count = excluded.face_count,
-                   notes = excluded.notes,
+                   task_scores_json = excluded.task_scores_json,
+                   notes = excluded.notes${snapshotUpd},
                    updated_at = datetime('now')`,
-              ).bind(
+              ).bind(...binds);
+            }
+            if (hasFace) {
+              const snapshotCol = hasTasksSnapshot ? ", tasks_snapshot" : "";
+              const snapshotVal = hasTasksSnapshot ? ", ?" : "";
+              const snapshotUpd = hasTasksSnapshot
+                ? ", tasks_snapshot = excluded.tasks_snapshot"
+                : "";
+              const binds: (string | number | null)[] = [
                 r.student_id,
                 auth.userId,
                 cid,
@@ -908,23 +919,31 @@ export async function handleEduDeptCoreRouter(
                 legacy.tune_errors,
                 legacy.face_count,
                 notes,
-              );
+              ];
+              if (hasTasksSnapshot) binds.push(snapshotJson);
+              return env.DB.prepare(
+                `INSERT INTO edu_daily_recitation
+                  (student_id, teacher_user_id, circle_id, recitation_date, listened, repeated, revised, error_count, tune_errors, face_count, notes${snapshotCol}, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${snapshotVal}, datetime('now'))
+                 ON CONFLICT(student_id, recitation_date) DO UPDATE SET
+                   teacher_user_id = excluded.teacher_user_id,
+                   circle_id = excluded.circle_id,
+                   listened = excluded.listened,
+                   repeated = excluded.repeated,
+                   revised = excluded.revised,
+                   error_count = excluded.error_count,
+                   tune_errors = excluded.tune_errors,
+                   face_count = excluded.face_count,
+                   notes = excluded.notes${snapshotUpd},
+                   updated_at = datetime('now')`,
+              ).bind(...binds);
             }
-            return env.DB.prepare(
-              `INSERT INTO edu_daily_recitation
-                (student_id, teacher_user_id, circle_id, recitation_date, listened, repeated, revised, error_count, tune_errors, notes, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-               ON CONFLICT(student_id, recitation_date) DO UPDATE SET
-                 teacher_user_id = excluded.teacher_user_id,
-                 circle_id = excluded.circle_id,
-                 listened = excluded.listened,
-                 repeated = excluded.repeated,
-                 revised = excluded.revised,
-                 error_count = excluded.error_count,
-                 tune_errors = excluded.tune_errors,
-                 notes = excluded.notes,
-                 updated_at = datetime('now')`,
-            ).bind(
+            const snapshotCol = hasTasksSnapshot ? ", tasks_snapshot" : "";
+            const snapshotVal = hasTasksSnapshot ? ", ?" : "";
+            const snapshotUpd = hasTasksSnapshot
+              ? ", tasks_snapshot = excluded.tasks_snapshot"
+              : "";
+            const binds: (string | number | null)[] = [
               r.student_id,
               auth.userId,
               cid,
@@ -935,7 +954,23 @@ export async function handleEduDeptCoreRouter(
               legacy.error_count,
               legacy.tune_errors,
               notes,
-            );
+            ];
+            if (hasTasksSnapshot) binds.push(snapshotJson);
+            return env.DB.prepare(
+              `INSERT INTO edu_daily_recitation
+                (student_id, teacher_user_id, circle_id, recitation_date, listened, repeated, revised, error_count, tune_errors, notes${snapshotCol}, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?${snapshotVal}, datetime('now'))
+               ON CONFLICT(student_id, recitation_date) DO UPDATE SET
+                 teacher_user_id = excluded.teacher_user_id,
+                 circle_id = excluded.circle_id,
+                 listened = excluded.listened,
+                 repeated = excluded.repeated,
+                 revised = excluded.revised,
+                 error_count = excluded.error_count,
+                 tune_errors = excluded.tune_errors,
+                 notes = excluded.notes${snapshotUpd},
+                 updated_at = datetime('now')`,
+            ).bind(...binds);
           });
 
         if (stmts.length > 0) {
@@ -1546,10 +1581,16 @@ export async function handleEduDeptCoreRouter(
       "edu_daily_recitation",
       "task_scores_json",
     );
+    const hasTasksSnapshot = await tableHasColumn(
+      env,
+      "edu_daily_recitation",
+      "tasks_snapshot",
+    );
     const evaluation_criteria = await loadEvaluationCriteria(env, auth.complexId);
 
     const extraCols = [
       hasTaskScores ? "dr.task_scores_json" : null,
+      hasTasksSnapshot ? "dr.tasks_snapshot" : null,
       hasFace ? "dr.face_count" : null,
     ]
       .filter(Boolean)
@@ -1591,6 +1632,7 @@ export async function handleEduDeptCoreRouter(
         tune_errors: number;
         face_count?: number;
         task_scores_json?: string | null;
+        tasks_snapshot?: string | null;
         circle_id: number;
         recitation_date: string;
         full_name_ar: string;
@@ -1627,12 +1669,20 @@ export async function handleEduDeptCoreRouter(
         tune_errors: r.tune_errors,
         face_count: hasFace ? r.face_count : 0,
       });
-      const quality_pct = computeQualityFromCriteria(taskScores, evaluation_criteria);
+      const rowCriteria = criteriaForRecord(
+        hasTasksSnapshot ? r.tasks_snapshot : null,
+        evaluation_criteria,
+      );
+      const quality_pct = computeQualityForRecord(
+        taskScores,
+        hasTasksSnapshot ? r.tasks_snapshot : null,
+        evaluation_criteria,
+      );
       const listened = Boolean(r.listened);
       const repeated = Boolean(r.repeated);
       const revised = Boolean(r.revised);
       const faces = hasFace ? Number(r.face_count ?? 0) : 0;
-      const hasActivity = evaluation_criteria.some((c) => {
+      const hasActivity = rowCriteria.some((c) => {
         if (c.type !== "points" || c.requires_all?.length) return false;
         const v = taskScores[c.id];
         return c.input === "number" ? Number(v ?? 0) > 0 : Boolean(v);
@@ -1994,6 +2044,7 @@ export async function handleEduDeptCoreRouter(
 
     const criteria = await loadEvaluationCriteria(env, auth.complexId);
     const hasTaskScores = await tableHasColumn(env, "edu_daily_recitation", "task_scores_json");
+    const hasTasksSnapshot = await tableHasColumn(env, "edu_daily_recitation", "tasks_snapshot");
     const hasFace = await tableHasColumn(env, "edu_daily_recitation", "face_count");
     const hasCircleTrack = await tableHasColumn(env, "circles", "track_id");
 
@@ -2006,6 +2057,7 @@ export async function handleEduDeptCoreRouter(
       `SELECT dr.recitation_date, dr.circle_id, dr.notes,
               dr.listened, dr.repeated, dr.revised, dr.error_count, dr.tune_errors,
               ${hasTaskScores ? "dr.task_scores_json," : ""}
+              ${hasTasksSnapshot ? "dr.tasks_snapshot," : ""}
               ${hasFace ? "dr.face_count," : ""}
               c.name_ar AS circle_name, ${trackCol}
        FROM edu_daily_recitation dr
@@ -2045,15 +2097,23 @@ export async function handleEduDeptCoreRouter(
         hasTaskScores ? (r.task_scores_json as string | null) : null,
         legacy,
       );
-      const quality_pct = computeQualityFromCriteria(scores, criteria);
+      const snapshotRaw = hasTasksSnapshot
+        ? (r.tasks_snapshot as string | null)
+        : null;
+      const rowCriteria = criteriaForRecord(snapshotRaw, criteria);
+      const quality_pct = computeQualityForRecord(scores, snapshotRaw, criteria);
       qualitySum += quality_pct;
       const faces = hasFace ? Number(r.face_count ?? 0) : 0;
       totalFaces += faces;
 
-      const tasks: TaskCell[] = criteria.map((c) => ({
+      const tasks: TaskCell[] = rowCriteria.map((c) => ({
         id: c.id,
         name: c.name,
-        value: scores[c.id] ?? (c.type === "penalty" || c.input === "number" ? 0 : false),
+        value:
+          scores[c.id] ??
+          (c.type === "penalty" || c.input_type === "numeric" || c.input === "number"
+            ? 0
+            : false),
       }));
 
       items.push({

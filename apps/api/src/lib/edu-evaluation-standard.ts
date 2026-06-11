@@ -32,8 +32,35 @@ export function criteriaToCompetitionTasks(
 
 /** O(1) */
 export function criterionInputToTaskInput(c: EvalCriterion): TaskInputType {
+  if (c.input_type === "counter") return "counter";
+  if (c.input_type === "numeric") return "numeric";
   if (c.type === "penalty") return "counter";
   return c.input === "number" ? "numeric" : "boolean";
+}
+
+export type CompetitionTaskSnapshotRow = {
+  id: number;
+  name_ar: string;
+  weight: number;
+  type: string;
+  input_type?: string | null;
+  criterion_id?: string | null;
+};
+
+/** O(K) — freeze competition tasks at grading time; Space O(K) */
+export function buildCompetitionTasksSnapshot(
+  tasks: CompetitionTaskSnapshotRow[],
+): string {
+  return JSON.stringify(
+    tasks.map((t) => ({
+      id: t.id,
+      name_ar: t.name_ar,
+      weight: Number(t.weight ?? 1),
+      type: t.type,
+      input_type: t.input_type ?? "boolean",
+      criterion_id: t.criterion_id ?? null,
+    })),
+  );
 }
 
 export type CompTaskMeta = {

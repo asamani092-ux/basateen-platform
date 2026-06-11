@@ -461,12 +461,6 @@
     page-break-inside: avoid !important;
   }
 
-  body.printing-edu-detail-report .edu-print-table-wrap,
-  body.printing-edu-circle-report .edu-print-table-wrap {
-    break-inside: avoid !important;
-    page-break-inside: avoid !important;
-  }
-
   @page {
     size: A4;
     margin: 12mm;

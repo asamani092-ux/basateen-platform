@@ -2,6 +2,9 @@ import type { Env } from "../types";
 import { tableHasColumn } from "./db-schema";
 
 export type EvalCriterionType = "points" | "penalty";
+/** Unified input mode stored in evaluation_criteria_json */
+export type EvalInputType = "boolean" | "numeric" | "counter";
+/** Legacy alias kept for UI backward compatibility */
 export type EvalInputMode = "boolean" | "number";
 
 export type EvalCriterion = {
@@ -9,6 +12,7 @@ export type EvalCriterion = {
   name: string;
   type: EvalCriterionType;
   max_weight: number;
+  input_type?: EvalInputType;
   input?: EvalInputMode;
   /** When false the task is excluded from daily max and grading grids */
   enabled?: boolean;
@@ -18,14 +22,72 @@ export type EvalCriterion = {
 
 export type TaskScores = Record<string, boolean | number>;
 
+export type TasksSnapshotCriterion = {
+  id: string;
+  name: string;
+  type: EvalCriterionType;
+  max_weight: number;
+  input_type: EvalInputType;
+  enabled?: boolean;
+  requires_all?: string[];
+};
+
 /** Unified default: حضور، حفظ، استماع، تكرار، ربط، مراجعة */
 export const DEFAULT_EVALUATION_CRITERIA: EvalCriterion[] = [
-  { id: "attendance", name: "حضور", type: "points", max_weight: 1, input: "boolean", enabled: true },
-  { id: "memorization", name: "حفظ", type: "points", max_weight: 2, input: "number", enabled: true },
-  { id: "listening", name: "استماع", type: "points", max_weight: 1, input: "boolean", enabled: true },
-  { id: "repeat", name: "تكرار", type: "points", max_weight: 1, input: "boolean", enabled: true },
-  { id: "linking", name: "ربط", type: "points", max_weight: 1, input: "number", enabled: true },
-  { id: "revision", name: "مراجعة", type: "points", max_weight: 1, input: "boolean", enabled: true },
+  {
+    id: "attendance",
+    name: "حضور",
+    type: "points",
+    max_weight: 1,
+    input_type: "boolean",
+    input: "boolean",
+    enabled: true,
+  },
+  {
+    id: "memorization",
+    name: "حفظ",
+    type: "points",
+    max_weight: 2,
+    input_type: "numeric",
+    input: "number",
+    enabled: true,
+  },
+  {
+    id: "listening",
+    name: "استماع",
+    type: "points",
+    max_weight: 1,
+    input_type: "boolean",
+    input: "boolean",
+    enabled: true,
+  },
+  {
+    id: "repeat",
+    name: "تكرار",
+    type: "points",
+    max_weight: 1,
+    input_type: "boolean",
+    input: "boolean",
+    enabled: true,
+  },
+  {
+    id: "linking",
+    name: "ربط",
+    type: "points",
+    max_weight: 1,
+    input_type: "numeric",
+    input: "number",
+    enabled: true,
+  },
+  {
+    id: "revision",
+    name: "مراجعة",
+    type: "points",
+    max_weight: 1,
+    input_type: "boolean",
+    input: "boolean",
+    enabled: true,
+  },
 ];
 
 const LEGACY_ID_MAP: Record<string, string> = {
@@ -34,6 +96,44 @@ const LEGACY_ID_MAP: Record<string, string> = {
   error: "error",
   tune: "tune",
 };
+
+/** O(1) — map legacy input / type to unified input_type */
+export function criterionToInputType(c: {
+  type?: EvalCriterionType;
+  input_type?: EvalInputType;
+  input?: EvalInputMode;
+}): EvalInputType {
+  if (
+    c.input_type === "boolean" ||
+    c.input_type === "numeric" ||
+    c.input_type === "counter"
+  ) {
+    return c.input_type;
+  }
+  if (c.type === "penalty") return "counter";
+  if (c.input === "number") return "numeric";
+  return "boolean";
+}
+
+/** O(1) — normalize id, input_type, and legacy input alias */
+export function normalizeCriterion(c: EvalCriterion): EvalCriterion {
+  const id = LEGACY_ID_MAP[String(c.id).trim()] ?? String(c.id).trim();
+  const input_type = criterionToInputType(c);
+  const input: EvalInputMode = input_type === "numeric" ? "number" : "boolean";
+  return {
+    ...c,
+    id,
+    name: String(c.name).trim(),
+    type: c.type === "penalty" ? "penalty" : "points",
+    max_weight: Number(c.max_weight),
+    enabled: c.enabled !== false,
+    input_type,
+    input,
+    requires_all: Array.isArray(c.requires_all)
+      ? c.requires_all.map((r) => LEGACY_ID_MAP[String(r)] ?? String(r))
+      : undefined,
+  };
+}
 
 /** O(n) — criteria with enabled !== false */
 export function activeCriteria(criteria: EvalCriterion[]): EvalCriterion[] {
@@ -51,29 +151,28 @@ export function parseEvaluationCriteria(
     }
     return parsed
       .filter((c) => c?.id && c?.name && c?.type && Number.isFinite(Number(c.max_weight)))
-      .map((c) => {
-        const id = String(c.id).trim();
-        const mappedId = LEGACY_ID_MAP[id] ?? id;
-        return {
-          id: mappedId,
-          name: String(c.name).trim(),
-          type: c.type === "penalty" ? "penalty" : "points",
-          max_weight: Number(c.max_weight),
-          enabled: c.enabled !== false,
-          input:
-            c.input === "number" || c.type === "penalty"
-              ? "number"
-              : c.requires_all?.length
-                ? "boolean"
-                : "boolean",
-          requires_all: Array.isArray(c.requires_all)
-            ? c.requires_all.map((r) => LEGACY_ID_MAP[String(r)] ?? String(r))
-            : undefined,
-        };
-      });
+      .map((c) => normalizeCriterion(c as EvalCriterion));
   } catch {
     return [...DEFAULT_EVALUATION_CRITERIA];
   }
+}
+
+/** O(n) — serialize criteria for persistence with unified input_type */
+export function serializeEvaluationCriteria(criteria: EvalCriterion[]): string {
+  return JSON.stringify(
+    criteria.map((c) => {
+      const n = normalizeCriterion(c);
+      return {
+        id: n.id,
+        name: n.name,
+        type: n.type,
+        max_weight: n.max_weight,
+        input_type: n.input_type,
+        enabled: n.enabled !== false,
+        requires_all: n.requires_all,
+      };
+    }),
+  );
 }
 
 export function criteriaFromLegacyWeights(row: {
@@ -90,6 +189,7 @@ export function criteriaFromLegacyWeights(row: {
       name: "حضور",
       type: "points",
       max_weight: 1,
+      input_type: "boolean",
       input: "boolean",
       enabled: true,
     },
@@ -98,6 +198,7 @@ export function criteriaFromLegacyWeights(row: {
       name: "حفظ",
       type: "points",
       max_weight: 1,
+      input_type: "numeric",
       input: "number",
       enabled: true,
     },
@@ -106,6 +207,7 @@ export function criteriaFromLegacyWeights(row: {
       name: "استماع",
       type: "points",
       max_weight: Number(row.weight_listening ?? 1),
+      input_type: "boolean",
       input: "boolean",
       enabled: true,
     },
@@ -114,6 +216,7 @@ export function criteriaFromLegacyWeights(row: {
       name: "التكرار",
       type: "points",
       max_weight: Number(row.weight_repeat ?? 1),
+      input_type: "boolean",
       input: "boolean",
       enabled: true,
     },
@@ -122,6 +225,7 @@ export function criteriaFromLegacyWeights(row: {
       name: "الربط",
       type: "points",
       max_weight: Number(row.rabt_weight ?? 1),
+      input_type: "numeric",
       input: "number",
       enabled: true,
     },
@@ -130,11 +234,28 @@ export function criteriaFromLegacyWeights(row: {
       name: "المراجعة",
       type: "points",
       max_weight: Number(row.weight_revision ?? 1),
+      input_type: "boolean",
       input: "boolean",
       enabled: true,
     },
-    { id: "error", name: "الخطأ", type: "penalty", max_weight: pen, input: "number", enabled: true },
-    { id: "tune", name: "اللحن", type: "penalty", max_weight: pen, input: "number", enabled: true },
+    {
+      id: "error",
+      name: "الخطأ",
+      type: "penalty",
+      max_weight: pen,
+      input_type: "counter",
+      input: "number",
+      enabled: true,
+    },
+    {
+      id: "tune",
+      name: "اللحن",
+      type: "penalty",
+      max_weight: pen,
+      input_type: "counter",
+      input: "number",
+      enabled: true,
+    },
   ];
 }
 
@@ -169,7 +290,8 @@ export function computeQualityFromCriteria(
 
   for (const c of active) {
     const raw = taskScores[c.id];
-    if (c.type === "penalty") {
+    const inputType = criterionToInputType(c);
+    if (c.type === "penalty" || inputType === "counter") {
       penalties += c.max_weight * Math.max(0, Number(raw ?? 0));
       continue;
     }
@@ -178,8 +300,7 @@ export function computeQualityFromCriteria(
       if (allDone) earned += c.max_weight;
       continue;
     }
-    const input = c.input ?? "boolean";
-    if (input === "number") {
+    if (inputType === "numeric") {
       earned += Math.min(Math.max(0, Number(raw ?? 0)), c.max_weight);
     } else if (Boolean(raw)) {
       earned += c.max_weight;
@@ -188,6 +309,69 @@ export function computeQualityFromCriteria(
 
   const raw = maxScore > 0 ? ((earned - penalties) / maxScore) * 100 : 0;
   return Math.round(Math.max(0, Math.min(100, raw)) * 10) / 10;
+}
+
+/** O(n) — freeze active criteria at grading time; Space O(n) */
+export function buildTasksSnapshot(criteria: EvalCriterion[]): string {
+  const snapshot: TasksSnapshotCriterion[] = activeCriteria(criteria).map((c) => {
+    const n = normalizeCriterion(c);
+    return {
+      id: n.id,
+      name: n.name,
+      type: n.type,
+      max_weight: n.max_weight,
+      input_type: n.input_type!,
+      enabled: n.enabled !== false,
+      requires_all: n.requires_all,
+    };
+  });
+  return JSON.stringify(snapshot);
+}
+
+/** O(n) — parse stored snapshot; returns null when absent/invalid */
+export function parseTasksSnapshot(
+  raw: string | null | undefined,
+): EvalCriterion[] | null {
+  if (!raw?.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw) as TasksSnapshotCriterion[];
+    if (!Array.isArray(parsed) || parsed.length === 0) return null;
+    return parsed
+      .filter((c) => c?.id && c?.name && Number.isFinite(Number(c.max_weight)))
+      .map((c) =>
+        normalizeCriterion({
+          id: String(c.id),
+          name: String(c.name),
+          type: c.type === "penalty" ? "penalty" : "points",
+          max_weight: Number(c.max_weight),
+          input_type: c.input_type,
+          enabled: c.enabled !== false,
+          requires_all: c.requires_all,
+        }),
+      );
+  } catch {
+    return null;
+  }
+}
+
+/** O(n) — prefer historical snapshot over current settings */
+export function criteriaForRecord(
+  snapshotRaw: string | null | undefined,
+  current: EvalCriterion[],
+): EvalCriterion[] {
+  return parseTasksSnapshot(snapshotRaw) ?? current;
+}
+
+/** O(n) — quality using snapshot when present */
+export function computeQualityForRecord(
+  taskScores: TaskScores,
+  snapshotRaw: string | null | undefined,
+  current: EvalCriterion[],
+): number {
+  return computeQualityFromCriteria(
+    taskScores,
+    criteriaForRecord(snapshotRaw, current),
+  );
 }
 
 export function legacyRowToTaskScores(row: {

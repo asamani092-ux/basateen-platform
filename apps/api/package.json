@@ -109,6 +109,8 @@
     "db:remote:051": "node scripts/migrate-051-remote.mjs",
     "db:remote:052": "node scripts/migrate-052-remote.mjs",
     "db:remote:053": "node scripts/migrate-053-remote.mjs",
+    "db:remote:054": "node scripts/migrate-054-remote.mjs",
+    "db:local:054": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/054_tasks_snapshot.sql",
     "db:local:048": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/048_competition_engine.sql",
     "db:local:052": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/052_sird_periods_matrix.sql",
     "db:local:053": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/053_competition_criterion_id.sql",

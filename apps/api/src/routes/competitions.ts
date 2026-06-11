@@ -64,6 +64,7 @@ import {
   studentsInScopeWhere,
   type ScopeMode,
 } from "../lib/dept-scope";
+import { buildCompetitionTasksSnapshot } from "../lib/edu-evaluation-standard";
 import { DEFAULT_COMPETITION } from "../lib/edu-settings-defaults";
 import { loadEvaluationCriteria } from "../lib/evaluation-criteria";
 import { COMPETITION_MANAGER_ROLES } from "../lib/roles";
@@ -1231,6 +1232,36 @@ export async function handleEduCompetitionsRouter(
       }
 
       if (hasTaskId && hasPoints && records.length > 0 && engineTasks) {
+        const hasTasksSnapshot = await tableHasColumn(
+          env,
+          "competition_logs",
+          "tasks_snapshot",
+        );
+        let tasksSnapshot: string | null = null;
+        if (hasTasksSnapshot) {
+          const hasInputType = await hasTaskInputType(env);
+          const hasCritId = await hasCriterionId(env);
+          const taskCols = competitionTaskSelectSql(hasInputType, hasCritId).replace(
+            ", created_at",
+            "",
+          );
+          const taskRows = await env.DB.prepare(
+            `SELECT ${taskCols}
+             FROM competition_tasks WHERE competition_id = ?
+             ORDER BY sort_order, id`,
+          )
+            .bind(id)
+            .all<{
+              id: number;
+              name_ar: string;
+              weight: number;
+              type: string;
+              input_type?: string;
+              criterion_id?: string | null;
+            }>();
+          tasksSnapshot = buildCompetitionTasksSnapshot(taskRows.results ?? []);
+        }
+
         for (const rec of records) {
           const hizbIndex = Number(rec.hizb_index ?? 0);
           const notesPayload =
@@ -1267,7 +1298,23 @@ export async function handleEduCompetitionsRouter(
           }
 
           if (existing) {
-            if (hasNotes) {
+            if (hasNotes && hasTasksSnapshot) {
+              await env.DB.prepare(
+                `UPDATE competition_logs
+                 SET points = ?, notes = COALESCE(?, notes),
+                     tasks_snapshot = ?, recorded_by_user_id = ?,
+                     recorded_at = datetime('now')
+                 WHERE id = ?`,
+              )
+                .bind(
+                  Number(rec.points ?? 0),
+                  notesPayload,
+                  tasksSnapshot,
+                  auth.userId,
+                  existing.id,
+                )
+                .run();
+            } else if (hasNotes) {
               await env.DB.prepare(
                 `UPDATE competition_logs
                  SET points = ?, notes = COALESCE(?, notes),
@@ -1281,6 +1328,20 @@ export async function handleEduCompetitionsRouter(
                   existing.id,
                 )
                 .run();
+            } else if (hasTasksSnapshot) {
+              await env.DB.prepare(
+                `UPDATE competition_logs
+                 SET points = ?, tasks_snapshot = ?,
+                     recorded_by_user_id = ?, recorded_at = datetime('now')
+                 WHERE id = ?`,
+              )
+                .bind(
+                  Number(rec.points ?? 0),
+                  tasksSnapshot,
+                  auth.userId,
+                  existing.id,
+                )
+                .run();
             } else {
               await env.DB.prepare(
                 `UPDATE competition_logs
@@ -1290,6 +1351,23 @@ export async function handleEduCompetitionsRouter(
                 .bind(Number(rec.points ?? 0), auth.userId, existing.id)
                 .run();
             }
+          } else if (hasNotes && hasTasksSnapshot) {
+            await env.DB.prepare(
+              `INSERT INTO competition_logs
+               (competition_id, student_id, task_id, log_date, points, notes, tasks_snapshot, recorded_by_user_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+              .bind(
+                id,
+                rec.student_id,
+                rec.task_id,
+                logDate,
+                Number(rec.points ?? 0),
+                notesPayload,
+                tasksSnapshot,
+                auth.userId,
+              )
+              .run();
           } else if (hasNotes) {
             await env.DB.prepare(
               `INSERT INTO competition_logs
@@ -1303,6 +1381,22 @@ export async function handleEduCompetitionsRouter(
                 logDate,
                 Number(rec.points ?? 0),
                 notesPayload,
+                auth.userId,
+              )
+              .run();
+          } else if (hasTasksSnapshot) {
+            await env.DB.prepare(
+              `INSERT INTO competition_logs
+               (competition_id, student_id, task_id, log_date, points, tasks_snapshot, recorded_by_user_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            )
+              .bind(
+                id,
+                rec.student_id,
+                rec.task_id,
+                logDate,
+                Number(rec.points ?? 0),
+                tasksSnapshot,
                 auth.userId,
               )
               .run();

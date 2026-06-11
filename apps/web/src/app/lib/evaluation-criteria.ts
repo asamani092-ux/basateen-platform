@@ -1,4 +1,5 @@
 export type EvalCriterionType = "points" | "penalty";
+export type EvalInputType = "boolean" | "numeric" | "counter";
 export type EvalInputMode = "boolean" | "number";
 
 export type EvalCriterion = {
@@ -6,10 +7,24 @@ export type EvalCriterion = {
   name: string;
   type: EvalCriterionType;
   max_weight: number;
+  input_type?: EvalInputType;
   input?: EvalInputMode;
   enabled?: boolean;
   requires_all?: string[];
 };
+
+function criterionToInputType(c: EvalCriterion): EvalInputType {
+  if (
+    c.input_type === "boolean" ||
+    c.input_type === "numeric" ||
+    c.input_type === "counter"
+  ) {
+    return c.input_type;
+  }
+  if (c.type === "penalty") return "counter";
+  if (c.input === "number") return "numeric";
+  return "boolean";
+}
 
 /** O(n) */
 export function activeCriteria(criteria: EvalCriterion[]): EvalCriterion[] {
@@ -37,7 +52,8 @@ export function totalEnabledMaxScore(criteria: EvalCriterion[]): number {
 }
 
 export function defaultTaskScore(c: EvalCriterion): boolean | number {
-  return c.type === "penalty" || c.input === "number" ? 0 : false;
+  const inputType = criterionToInputType(c);
+  return inputType === "counter" || inputType === "numeric" ? 0 : false;
 }
 
 export function emptyTaskScores(criteria: EvalCriterion[]): Record<string, boolean | number> {
@@ -57,7 +73,8 @@ export function computeQualityFromCriteria(
 
   for (const c of active) {
     const raw = taskScores[c.id];
-    if (c.type === "penalty") {
+    const inputType = criterionToInputType(c);
+    if (c.type === "penalty" || inputType === "counter") {
       penalties += c.max_weight * Math.max(0, Number(raw ?? 0));
       continue;
     }
@@ -66,8 +83,7 @@ export function computeQualityFromCriteria(
       if (allDone) earned += c.max_weight;
       continue;
     }
-    const input = c.input ?? "boolean";
-    if (input === "number") {
+    if (inputType === "numeric") {
       earned += Math.min(Math.max(0, Number(raw ?? 0)), c.max_weight);
     } else if (Boolean(raw)) {
       earned += c.max_weight;

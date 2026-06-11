@@ -12,6 +12,7 @@ on:
         options:
           - upgrade
           - all
+          - "051"
           - skip
 
 concurrency:

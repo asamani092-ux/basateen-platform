@@ -82,8 +82,12 @@ case "$MODE" in
     echo "D1 remote migrate: demo examples only (018)"
     run_sql "018_edu_demo_examples.sql"
     ;;
+  051)
+    echo "D1 remote migrate: 051 competition task input_type"
+    npm run db:remote:051
+    ;;
   *)
-    echo "Usage: $0 upgrade|all|demo"
+    echo "Usage: $0 upgrade|all|demo|051"
     exit 1
     ;;
 esac

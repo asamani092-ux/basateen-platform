@@ -13,6 +13,7 @@ on:
           - upgrade
           - all
           - demo
+          - "051"
 
 concurrency:
   group: d1-remote-migrate

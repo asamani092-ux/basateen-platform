@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ClipboardList, Grid3X3, LayoutGrid, Loader2, MoreHorizontal } from "lucide-react";
+import {
+  Check,
+  ClipboardList,
+  Grid3X3,
+  LayoutGrid,
+  Loader2,
+  Minus,
+  MoreHorizontal,
+  Plus,
+} from "lucide-react";
 import { toast } from "sonner";
 import { TableActionsCell } from "../../components/admin/TableIconAction";
 import { Button } from "../../components/ui/button";
@@ -42,6 +51,7 @@ import {
   type EvalCriterion,
 } from "../../lib/evaluation-criteria";
 import { ds, tajawal } from "../../lib/design-system";
+import { cn } from "../../components/ui/utils";
 
 type Row = {
   student_id: number;
@@ -632,7 +642,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                       className={`${ds.card} border border-border rounded-2xl px-3 overflow-hidden`}
                     >
                       <AccordionTrigger
-                        className="py-3 hover:no-underline text-right [&>svg]:mr-auto [&>svg]:ml-0"
+                        className="py-2.5 hover:no-underline text-right [&>svg]:mr-auto [&>svg]:ml-0"
                         style={tajawal}
                       >
                         <div className="flex flex-1 items-center justify-between gap-2 min-w-0">
@@ -657,52 +667,68 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                           </span>
                         </div>
                       </AccordionTrigger>
-                      <AccordionContent className="pb-3">
-                        <div className="space-y-3 border-t border-border pt-3">
+                      <AccordionContent className="pb-2 pt-0">
+                        <div className="space-y-1 border-t border-border/80 pt-2">
                           {editableCriteria.map((c, idx) => (
-                            <div key={c.id} className="space-y-1.5">
-                              <Label className="text-xs text-muted-foreground" style={tajawal}>
+                            <div
+                              key={c.id}
+                              className="flex flex-row flex-wrap items-center gap-x-2 gap-y-1 py-1 min-h-10"
+                            >
+                              <span
+                                className="shrink-0 text-xs font-medium text-foreground truncate max-w-[32%] sm:max-w-[38%]"
+                                style={tajawal}
+                                title={c.name}
+                              >
                                 {c.name}
-                              </Label>
-                              <MobileCriterionInput
-                                criterion={c}
-                                taskCol={criterionToTaskCol(c, idx)}
-                                value={r.task_scores[c.id]}
-                                onChange={(v) => patchTaskScore(r.student_id, c.id, v)}
-                              />
+                              </span>
+                              <div className="ms-auto flex min-w-[7.5rem] flex-1 items-center justify-end">
+                                <MobileCriterionInput
+                                  criterion={c}
+                                  value={r.task_scores[c.id]}
+                                  onChange={(v) => patchTaskScore(r.student_id, c.id, v)}
+                                  disabled={saving || savingStudentId != null}
+                                />
+                              </div>
                             </div>
                           ))}
                           {bonusCriteria.map((c) => (
                             <div
                               key={c.id}
-                              className="flex items-center justify-between rounded-xl bg-muted/50 px-3 py-2 text-sm"
+                              className="flex flex-row items-center justify-between gap-2 rounded-lg bg-muted/40 px-2 py-1.5 min-h-9"
                               style={tajawal}
                             >
-                              <span className="text-muted-foreground">{c.name}</span>
+                              <span className="text-xs text-muted-foreground truncate">
+                                {c.name}
+                              </span>
                               <span
-                                className={
+                                className={cn(
+                                  "shrink-0 text-xs font-medium",
                                   r.task_scores[c.id]
-                                    ? "text-emerald-600 font-medium"
-                                    : "text-muted-foreground"
-                                }
+                                    ? "text-secondary-foreground bg-secondary/80 rounded-md px-2 py-0.5"
+                                    : "text-muted-foreground",
+                                )}
                               >
-                                {r.task_scores[c.id] ? "مكتمل" : "—"}
+                                {r.task_scores[c.id] ? "✓" : "—"}
                               </span>
                             </div>
                           ))}
-                          <div className="flex flex-wrap items-center gap-2 pt-2">
+
+                          <div className="flex flex-col items-center gap-2 border-t border-border/70 pt-3 mt-1">
                             <Button
                               type="button"
-                              size="sm"
+                              size="lg"
                               variant="default"
-                              className={`${ds.btnRound} flex-1 min-w-[8rem]`}
+                              className={cn(
+                                ds.btnRound,
+                                "h-11 w-full max-w-[11.5rem] min-h-[44px] shadow-md touch-manipulation",
+                              )}
                               disabled={saving || savingStudentId != null || !canSave}
                               onClick={() => void saveStudent(r.student_id)}
                               style={tajawal}
                             >
                               {savingStudentId === r.student_id ? (
                                 <>
-                                  <Loader2 className="w-4 h-4 animate-spin ml-1" />
+                                  <Loader2 className="w-4 h-4 animate-spin ml-1.5" />
                                   جاري الحفظ…
                                 </>
                               ) : (
@@ -713,8 +739,8 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                               <Button
                                 type="button"
                                 size="sm"
-                                variant="outline"
-                                className={ds.btnRound}
+                                variant="ghost"
+                                className={cn(ds.btnRound, "h-9 text-muted-foreground")}
                                 onClick={() => {
                                   setReqStudent(r);
                                   setReqType("escalation");
@@ -723,7 +749,8 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                                 }}
                                 style={tajawal}
                               >
-                                <MoreHorizontal className="w-4 h-4" />
+                                <MoreHorizontal className="w-4 h-4 ml-1" />
+                                إجراء / طلب
                               </Button>
                             )}
                           </div>
@@ -835,16 +862,98 @@ function isNumericCriterion(c: EvalCriterion): boolean {
   return c.input === "number" || c.input_type === "numeric";
 }
 
-function MobileCriterionInput({
-  criterion,
-  taskCol,
+function isCounterCriterion(c: EvalCriterion): boolean {
+  return c.type === "penalty" || c.input_type === "counter";
+}
+
+function MobileBooleanToggle({
+  checked,
+  onChange,
+  label,
+  disabled,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  label: string;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-all duration-200 touch-manipulation",
+        checked
+          ? "border-secondary bg-secondary text-secondary-foreground shadow-sm"
+          : "border-input bg-input-background text-muted-foreground hover:border-border hover:bg-muted/50",
+        disabled && "pointer-events-none opacity-50",
+      )}
+    >
+      <Check
+        className={cn(
+          "size-4 transition-all duration-200",
+          checked ? "scale-100 opacity-100" : "scale-75 opacity-0",
+        )}
+        strokeWidth={2.5}
+      />
+    </button>
+  );
+}
+
+function MobileCounterInput({
   value,
   onChange,
+  disabled,
+  label,
+}: {
+  value: number;
+  onChange: (next: number) => void;
+  disabled?: boolean;
+  label: string;
+}) {
+  const count = Math.max(0, Math.round(value));
+  return (
+    <div className="inline-flex shrink-0 items-center gap-1" aria-label={label}>
+      <Button
+        type="button"
+        size="icon"
+        variant="outline"
+        className="h-8 w-8 rounded-lg"
+        disabled={disabled || count <= 0}
+        onClick={() => onChange(count - 1)}
+        aria-label="إنقاص"
+      >
+        <Minus className="size-3.5" />
+      </Button>
+      <span className="w-7 text-center text-sm font-semibold tabular-nums">{count}</span>
+      <Button
+        type="button"
+        size="icon"
+        className="h-8 w-8 rounded-lg"
+        disabled={disabled}
+        onClick={() => onChange(count + 1)}
+        aria-label="زيادة"
+      >
+        <Plus className="size-3.5" />
+      </Button>
+    </div>
+  );
+}
+
+function MobileCriterionInput({
+  criterion,
+  value,
+  onChange,
+  disabled,
 }: {
   criterion: EvalCriterion;
-  taskCol: TaskInputCol;
   value: boolean | number | undefined;
   onChange: (v: boolean | number) => void;
+  disabled?: boolean;
 }) {
   const [unit, setUnit] = useState<QuranicUnit>("face");
   const numericValue = scoreToNumber(value);
@@ -856,18 +965,30 @@ function MobileCriterionInput({
         unit={unit}
         onValueChange={(n) => onChange(numberToScore(criterion, n))}
         onUnitChange={setUnit}
+        disabled={disabled}
         aria-label={criterion.name}
+        className="max-w-[10.5rem] min-w-[8.5rem]"
+      />
+    );
+  }
+
+  if (isCounterCriterion(criterion)) {
+    return (
+      <MobileCounterInput
+        value={numericValue}
+        onChange={(n) => onChange(numberToScore(criterion, n))}
+        disabled={disabled}
+        label={criterion.name}
       />
     );
   }
 
   return (
-    <CriterionInput
-      criterion={criterion}
-      taskCol={taskCol}
-      value={value}
-      onChange={onChange}
-      compact
+    <MobileBooleanToggle
+      checked={Boolean(value)}
+      onChange={(next) => onChange(next)}
+      label={criterion.name}
+      disabled={disabled}
     />
   );
 }

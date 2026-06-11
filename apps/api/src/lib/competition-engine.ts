@@ -1,5 +1,16 @@
 import type { Env } from "../types";
 import {
+  criteriaToCompetitionTasks,
+  type CompLogRow,
+  type CompTaskMeta,
+  type LeaderboardRow,
+  computeLeaderboardFromLogs,
+  enabledCompetitionWeightSum,
+  memorizationPointsToJuz,
+  sumMemorizationLogPoints,
+} from "./edu-evaluation-standard";
+import type { EvalCriterion } from "./evaluation-criteria";
+import {
   activePlacementSql,
   hasTable,
   historyCircleColumn,
@@ -118,11 +129,159 @@ export async function hasTaskInputType(env: Env): Promise<boolean> {
   return tableHasColumn(env, "competition_tasks", "input_type");
 }
 
-export function competitionTaskSelectSql(hasInputType: boolean): string {
-  return hasInputType
-    ? "id, name_ar, weight, type, input_type, sort_order, created_at"
-    : "id, name_ar, weight, type, sort_order, created_at";
+export async function hasCriterionId(env: Env): Promise<boolean> {
+  return tableHasColumn(env, "competition_tasks", "criterion_id");
 }
+
+export function competitionTaskSelectSql(
+  hasInputType: boolean,
+  hasCritId = false,
+): string {
+  const critCol = hasCritId ? ", criterion_id" : "";
+  return hasInputType
+    ? `id, name_ar, weight, type, input_type, sort_order${critCol}, created_at`
+    : `id, name_ar, weight, type, sort_order${critCol}, created_at`;
+}
+
+/**
+ * O(K) — seed competition_tasks from enabled evaluation criteria.
+ * Time O(K); Space O(K) batch statements.
+ */
+export async function seedCompetitionTasksFromCriteria(
+  env: Env,
+  competitionId: number,
+  criteria: EvalCriterion[],
+): Promise<void> {
+  if (!(await hasEngineTasks(env))) return;
+  const seeds = criteriaToCompetitionTasks(criteria);
+  if (!seeds.length) return;
+
+  const hasInputType = await hasTaskInputType(env);
+  const hasCritId = await hasCriterionId(env);
+  const stmts: ReturnType<typeof env.DB.prepare>[] = [];
+
+  for (const seed of seeds) {
+    if (hasInputType && hasCritId) {
+      stmts.push(
+        env.DB.prepare(
+          `INSERT INTO competition_tasks
+           (competition_id, name_ar, weight, type, input_type, criterion_id, sort_order)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        ).bind(
+          competitionId,
+          seed.name_ar,
+          seed.weight,
+          seed.type,
+          seed.input_type,
+          seed.criterion_id,
+          seed.sort_order,
+        ),
+      );
+    } else if (hasInputType) {
+      stmts.push(
+        env.DB.prepare(
+          `INSERT INTO competition_tasks
+           (competition_id, name_ar, weight, type, input_type, sort_order)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        ).bind(
+          competitionId,
+          seed.name_ar,
+          seed.weight,
+          seed.type,
+          seed.input_type,
+          seed.sort_order,
+        ),
+      );
+    } else {
+      stmts.push(
+        env.DB.prepare(
+          `INSERT INTO competition_tasks (competition_id, name_ar, weight, type, sort_order)
+           VALUES (?, ?, ?, ?, ?)`,
+        ).bind(
+          competitionId,
+          seed.name_ar,
+          seed.weight,
+          seed.type,
+          seed.sort_order,
+        ),
+      );
+    }
+  }
+  if (stmts.length) await env.DB.batch(stmts);
+}
+
+/** O(L) — all competition_logs for leaderboard (student_id scoped). */
+export async function loadCompetitionLogsForLeaderboard(
+  env: Env,
+  competitionId: number,
+  dateFrom?: string,
+  dateTo?: string,
+): Promise<CompLogRow[]> {
+  if (!(await hasEngineLogs(env))) return [];
+  const hasTaskId = await tableHasColumn(env, "competition_logs", "task_id");
+  const hasPoints = await tableHasColumn(env, "competition_logs", "points");
+  if (!hasTaskId || !hasPoints) return [];
+
+  let sql = `SELECT student_id, task_id, log_date, points
+             FROM competition_logs WHERE competition_id = ?`;
+  const binds: (string | number)[] = [competitionId];
+  if (dateFrom) {
+    sql += ` AND log_date >= ?`;
+    binds.push(dateFrom);
+  }
+  if (dateTo) {
+    sql += ` AND log_date <= ?`;
+    binds.push(dateTo);
+  }
+
+  const rows = await env.DB.prepare(sql)
+    .bind(...binds)
+    .all<CompLogRow>();
+  return rows.results ?? [];
+}
+
+/** O(T) — competition task metadata for scoring. */
+export async function loadCompetitionTaskMeta(
+  env: Env,
+  competitionId: number,
+): Promise<CompTaskMeta[]> {
+  if (!(await hasEngineTasks(env))) return [];
+  const hasCritId = await hasCriterionId(env);
+  const critCol = hasCritId ? ", criterion_id" : "";
+  const rows = await env.DB.prepare(
+    `SELECT id, weight, type${critCol}
+     FROM competition_tasks WHERE competition_id = ?
+     ORDER BY sort_order, id`,
+  )
+    .bind(competitionId)
+    .all<CompTaskMeta>();
+  return rows.results ?? [];
+}
+
+/** O(L + T) — leaderboard rows keyed by student_id. */
+export async function buildCompetitionLeaderboard(
+  env: Env,
+  competitionId: number,
+  dateFrom?: string,
+  dateTo?: string,
+): Promise<Map<number, LeaderboardRow>> {
+  const [logs, tasks] = await Promise.all([
+    loadCompetitionLogsForLeaderboard(env, competitionId, dateFrom, dateTo),
+    loadCompetitionTaskMeta(env, competitionId),
+  ]);
+  const weightSum = enabledCompetitionWeightSum(tasks);
+  return computeLeaderboardFromLogs(logs, tasks, weightSum);
+}
+
+export {
+  computeLeaderboardFromLogs,
+  enabledCompetitionWeightSum,
+  memorizationPointsToJuz,
+  sumMemorizationLogPoints,
+  type CompLogRow,
+  type CompTaskMeta,
+  type LeaderboardRow,
+};
 
 export function studentDailyFaces(
   unit: MemorizationUnit,
@@ -755,7 +914,8 @@ export async function loadCompetitionDetailBundle(
     : Promise.resolve({ results: [] });
 
   const hasInputType = flags.engineTasks ? await hasTaskInputType(env) : false;
-  const taskCols = competitionTaskSelectSql(hasInputType);
+  const hasCritId = flags.engineTasks ? await hasCriterionId(env) : false;
+  const taskCols = competitionTaskSelectSql(hasInputType, hasCritId);
   const tasksPromise = flags.engineTasks
     ? env.DB.prepare(
         `SELECT competition_id, ${taskCols}

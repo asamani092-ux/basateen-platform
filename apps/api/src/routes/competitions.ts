@@ -20,12 +20,18 @@ import {
   normalizeTargetScope,
   queryPreviewStudents,
   countCompetitionDays,
-  seedMemorizationDailyTasks,
+  seedCompetitionTasksFromCriteria,
   studentDailyFaces,
   targetHizbCount,
   hasTaskInputType,
+  hasCriterionId,
   competitionTaskSelectSql,
   parseTaskInputType,
+  buildCompetitionLeaderboard,
+  loadCompetitionLogsForLeaderboard,
+  loadCompetitionTaskMeta,
+  memorizationPointsToJuz,
+  sumMemorizationLogPoints,
   parseSirdSettings,
   computeSirdPeriodScore,
   loadSirdPeriodsMatrix,
@@ -49,6 +55,7 @@ import {
   type ScopeMode,
 } from "../lib/dept-scope";
 import { DEFAULT_COMPETITION } from "../lib/edu-settings-defaults";
+import { loadEvaluationCriteria } from "../lib/evaluation-criteria";
 import { COMPETITION_MANAGER_ROLES } from "../lib/roles";
 
 function json(
@@ -497,21 +504,8 @@ export async function handleEduCompetitionsRouter(
       engineTasks &&
       body.targets?.length
     ) {
-      const unit =
-        catResult === "new_memorization"
-          ? memorizationUnitFromRules(rules)
-          : ("juz" as const);
-      const avgTarget =
-        body.targets.reduce((s, t) => s + (Number(t.target_amount) || 0), 0) /
-        body.targets.length;
-      await seedMemorizationDailyTasks(
-        env,
-        competitionId,
-        body.start_date,
-        body.end_date,
-        unit,
-        avgTarget || 1,
-      );
+      const evalCriteria = await loadEvaluationCriteria(env, auth.complexId);
+      await seedCompetitionTasksFromCriteria(env, competitionId, evalCriteria);
     }
 
     return json({ ok: true, id: competitionId, tv_launch_key: tvKey });
@@ -537,7 +531,8 @@ export async function handleEduCompetitionsRouter(
 
     if (request.method === "GET") {
       const hasInputType = await hasTaskInputType(env);
-      const taskCols = competitionTaskSelectSql(hasInputType);
+      const hasCritId = await hasCriterionId(env);
+      const taskCols = competitionTaskSelectSql(hasInputType, hasCritId);
       const tasks = await env.DB.prepare(
         `SELECT ${taskCols.replace(", created_at", "")}, created_at
          FROM competition_tasks WHERE competition_id = ?
@@ -613,8 +608,23 @@ export async function handleEduCompetitionsRouter(
       return json({ error: "sync_only_for_new_memorization" }, 400);
     }
 
-    const achievedMap = await computeAchievedByStudent(env, competitionId);
     const targetRows = await loadCompetitionTargetRows(env, competitionId);
+    const taskMeta = await loadCompetitionTaskMeta(env, competitionId);
+    const memTask = taskMeta.find((t) => t.criterion_id === "memorization");
+
+    const allLogs = await loadCompetitionLogsForLeaderboard(env, competitionId);
+    const memByStudent = memTask
+      ? sumMemorizationLogPoints(allLogs, memTask.id)
+      : new Map<number, number>();
+
+    const achievedMap = memTask
+      ? new Map(
+          [...memByStudent.entries()].map(([sid, pts]) => [
+            sid,
+            memorizationPointsToJuz(pts),
+          ]),
+        )
+      : await computeAchievedByStudent(env, competitionId);
 
     const hasMemCol = await tableHasColumn(env, "students", "memorization_amount");
     const updated: Array<{ student_id: number; new_memorization: number }> = [];
@@ -1018,7 +1028,8 @@ export async function handleEduCompetitionsRouter(
       const tasksRes = engineTasks
         ? await (async () => {
             const hasInputType = await hasTaskInputType(env);
-            const taskCols = competitionTaskSelectSql(hasInputType).replace(
+            const hasCritId = await hasCriterionId(env);
+            const taskCols = competitionTaskSelectSql(hasInputType, hasCritId).replace(
               ", created_at",
               "",
             );
@@ -1389,31 +1400,30 @@ export async function handleEduCompetitionsRouter(
       });
     }
 
-    const achievedByStudent = await computeAchievedByStudent(env, id);
-    let targetSum = 0;
-    let achievedSum = 0;
     let targetRows: Awaited<ReturnType<typeof loadCompetitionTargetRows>> = [];
-
     if (engineTargets) {
       targetRows = await loadCompetitionTargetRows(env, id);
-
-      for (const t of targetRows) {
-        targetSum += Number(t.target_amount) || 0;
-        const achieved = Math.max(
-          Number(t.achieved_amount) || 0,
-          achievedByStudent.get(t.student_id) ?? 0,
-        );
-        achievedSum += achieved;
-        achievedByStudent.set(t.student_id, achieved);
-      }
     }
 
-    const achievementPct =
-      targetSum > 0
-        ? Math.min(100, Math.round((achievedSum / targetSum) * 100))
-        : achievedSum > 0
-          ? 100
-          : 0;
+    const leaderboardMap = await buildCompetitionLeaderboard(env, id, dateFrom, dateTo);
+    const hasGuardianPhone = await tableHasColumn(env, "students", "guardian_phone");
+
+    const guardianRows =
+      hasGuardianPhone && targetRows.length
+        ? await env.DB.prepare(
+            `SELECT id, guardian_phone FROM students
+             WHERE complex_id = ? AND id IN (${targetRows.map(() => "?").join(",")})`,
+          )
+            .bind(
+              auth.complexId,
+              ...targetRows.map((t) => t.student_id),
+            )
+            .all<{ id: number; guardian_phone: string | null }>()
+        : { results: [] as Array<{ id: number; guardian_phone: string | null }> };
+
+    const guardianMap = new Map(
+      (guardianRows.results ?? []).map((r) => [r.id, r.guardian_phone]),
+    );
 
     const nameMap = new Map(
       targetRows.map((t) => [t.student_id, t.full_name_ar]),
@@ -1422,27 +1432,56 @@ export async function handleEduCompetitionsRouter(
       targetRows.map((t) => [t.student_id, Number(t.target_amount ?? 0)]),
     );
 
-    const allLeaders = [...achievedByStudent.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([student_id, score]) => {
-        const targetAmount = targetByStudent.get(student_id) ?? 0;
-        const rowAchievementPct =
-          targetAmount > 0
-            ? Math.min(100, Math.round((score / targetAmount) * 100))
-            : score > 0
-              ? 100
-              : 0;
+    const studentIds =
+      targetRows.length > 0
+        ? targetRows.map((t) => t.student_id)
+        : [...leaderboardMap.keys()];
+
+    const allLeaders = studentIds
+      .map((student_id) => {
+        const lb = leaderboardMap.get(student_id);
+        const overallPct = lb?.overall_pct ?? 0;
         return {
           student_id,
-          score: Math.round(score * 100) / 100,
+          score: lb?.earned_score ?? 0,
+          overall_pct: overallPct,
+          grading_days: lb?.grading_days ?? 0,
           full_name_ar: nameMap.get(student_id),
-          target_amount: targetAmount,
-          achievement_pct: rowAchievementPct,
+          guardian_phone: guardianMap.get(student_id) ?? null,
+          target_amount: targetByStudent.get(student_id) ?? 0,
+          achievement_pct: overallPct,
         };
-      });
+      })
+      .sort((a, b) => (b.overall_pct ?? 0) - (a.overall_pct ?? 0));
+
+    const avgOverall =
+      allLeaders.length > 0
+        ? Math.round(
+            (allLeaders.reduce((s, r) => s + (r.overall_pct ?? 0), 0) /
+              allLeaders.length) *
+              10,
+          ) / 10
+        : 0;
 
     const leaders =
       leaderboardMode === "all" ? allLeaders : allLeaders.slice(0, 5);
+
+    let targetSum = 0;
+    let achievedSum = 0;
+    for (const t of targetRows) {
+      targetSum += Number(t.target_amount) || 0;
+    }
+    if (category === "new_memorization") {
+      const taskMeta = await loadCompetitionTaskMeta(env, id);
+      const memTask = taskMeta.find((tk) => tk.criterion_id === "memorization");
+      if (memTask) {
+        const logs = await loadCompetitionLogsForLeaderboard(env, id, dateFrom, dateTo);
+        const memPts = sumMemorizationLogPoints(logs, memTask.id);
+        for (const t of targetRows) {
+          achievedSum += memorizationPointsToJuz(memPts.get(t.student_id) ?? 0);
+        }
+      }
+    }
 
     return json({
       date_from: dateFrom,
@@ -1450,7 +1489,8 @@ export async function handleEduCompetitionsRouter(
       category,
       kpis: {
         discipline_pct: disciplinePct,
-        achievement_pct: achievementPct,
+        achievement_pct: avgOverall,
+        overall_pct: avgOverall,
         participants: totalStudents,
         target_juz: Math.round(targetSum * 100) / 100,
         achieved_juz: Math.round(achievedSum * 100) / 100,

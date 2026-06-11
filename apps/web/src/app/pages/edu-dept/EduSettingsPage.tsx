@@ -19,8 +19,8 @@ import {
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import {
-  totalMaxScore,
-  totalPositiveWeight,
+  totalEnabledMaxScore,
+  totalEnabledWeight,
   type EvalCriterion,
 } from "../../lib/evaluation-criteria";
 import { ds, tajawal } from "../../lib/design-system";
@@ -35,6 +35,7 @@ type TaskForm = {
   type: "points" | "penalty";
   max_weight: number;
   input: "boolean" | "number";
+  enabled: boolean;
 };
 
 const emptyForm = (): TaskForm => ({
@@ -43,6 +44,7 @@ const emptyForm = (): TaskForm => ({
   type: "points",
   max_weight: 1,
   input: "boolean",
+  enabled: true,
 });
 
 export function EduSettingsPage() {
@@ -55,8 +57,8 @@ export function EduSettingsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<TaskForm>(emptyForm());
 
-  const totalScore = useMemo(() => totalMaxScore(criteria), [criteria]);
-  const positiveScore = useMemo(() => totalPositiveWeight(criteria), [criteria]);
+  const totalScore = useMemo(() => totalEnabledMaxScore(criteria), [criteria]);
+  const positiveScore = useMemo(() => totalEnabledWeight(criteria), [criteria]);
 
   const load = useCallback(async () => {
     if (!canUseApi()) {
@@ -109,6 +111,7 @@ export function EduSettingsPage() {
       type: task.type,
       max_weight: task.max_weight,
       input: task.input ?? (task.type === "penalty" ? "number" : "boolean"),
+      enabled: task.enabled !== false,
     });
     setModalOpen(true);
   }
@@ -121,6 +124,7 @@ export function EduSettingsPage() {
       type: form.type,
       max_weight: form.max_weight,
       input: form.type === "penalty" ? "number" : form.input,
+      enabled: form.enabled,
     };
     const next = editingId
       ? criteria.map((c) => (c.id === editingId ? entry : c))
@@ -167,7 +171,7 @@ export function EduSettingsPage() {
               {totalScore} نقطة
             </p>
             <p className="text-xs text-muted-foreground mt-1" style={tajawal}>
-              نقاط إيجابية أساسية: {positiveScore} · خصومات منفصلة
+              مجموع أوزان المهام المفعّلة: {positiveScore} · الحد اليومي = مجموع الأوزان المفعّلة
             </p>
           </div>
           <Button
@@ -210,6 +214,7 @@ export function EduSettingsPage() {
                     <div className="min-w-0" style={tajawal}>
                       <p className="font-semibold truncate">{task.name}</p>
                       <p className="text-xs text-muted-foreground">
+                        {task.enabled === false ? "معطّلة · " : ""}
                         {task.type === "points" ? "إضافة نقاط" : "خصم / عقوبة"} ·{" "}
                         {task.max_weight} ·{" "}
                         {task.input === "number" || task.type === "penalty"
@@ -220,7 +225,26 @@ export function EduSettingsPage() {
                           : ""}
                       </p>
                     </div>
-                    <div className="flex gap-1 shrink-0">
+                    <div className="flex gap-1 shrink-0 items-center">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className={ds.btnRound}
+                        disabled={saving}
+                        onClick={() =>
+                          void persist(
+                            criteria.map((c) =>
+                              c.id === task.id
+                                ? { ...c, enabled: c.enabled === false }
+                                : c,
+                            ),
+                          )
+                        }
+                        style={tajawal}
+                      >
+                        {task.enabled === false ? "تفعيل" : "تعطيل"}
+                      </Button>
                       <Button
                         type="button"
                         variant="ghost"
@@ -305,6 +329,15 @@ export function EduSettingsPage() {
                 </select>
               </div>
             )}
+            <label className="flex items-center gap-2 text-sm" style={tajawal}>
+              <input
+                type="checkbox"
+                checked={form.enabled}
+                onChange={(e) => setForm((f) => ({ ...f, enabled: e.target.checked }))}
+                className="size-4 rounded border-border"
+              />
+              مفعّلة في الرصد اليومي والمنافسات
+            </label>
             <div className="space-y-2">
               <Label style={tajawal}>
                 {form.type === "points" ? "الدرجة / الوزن" : "قيمة الخصم لكل وحدة"}

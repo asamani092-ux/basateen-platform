@@ -191,6 +191,35 @@ export function parseSirdSettings(
 }
 
 /** O(1) — client-side sird score + pass flag. */
+/** O(1) — normalize Saudi guardian phone for wa.me */
+export function normalizeGuardianPhone(
+  raw: string | null | undefined,
+): string | null {
+  if (!raw?.trim()) return null;
+  const digits = raw.replace(/\D/g, "");
+  if (digits.startsWith("966") && digits.length >= 12) return digits;
+  if (digits.startsWith("0") && digits.length >= 10) return `966${digits.slice(1)}`;
+  if (digits.length === 9 && digits.startsWith("5")) return `966${digits}`;
+  return digits.length >= 10 ? digits : null;
+}
+
+/** O(1) — build WhatsApp report link for guardian */
+export function buildCompetitionWhatsAppUrl(
+  guardianPhone: string | null | undefined,
+  studentName: string,
+  overallPct: number,
+  rank: number,
+): string | null {
+  const phone = normalizeGuardianPhone(guardianPhone);
+  if (!phone) return null;
+  const text =
+    `السلام عليكم ورحمة الله وبركاته 🍃 عزيزي ولي أمر الطالب: ${studentName}، ` +
+    `نضع بين يديك الملخص لإنجاز ابنكم في مجمع حلق البساتين. ` +
+    `نسبة إتقان الطالب الكلية في البرنامج: ${overallPct}%، وترتيبه الحالي: ${rank}. ` +
+    `بارك الله في الجهود وأجزل لنا ولكم الأجر والمثوبة. 🌺`;
+  return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+}
+
 export function computeSirdPeriodScore(
   mistakes: number,
   warnings: number,

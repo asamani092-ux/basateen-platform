@@ -15,6 +15,7 @@ on:
           - demo
           - "051"
           - "052"
+          - "053"
 
 concurrency:
   group: d1-remote-migrate

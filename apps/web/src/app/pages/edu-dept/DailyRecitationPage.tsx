@@ -23,7 +23,9 @@ import { ToggleGroup, ToggleGroupItem } from "../../components/ui/toggle-group";
 import { useAuth } from "../../context/AuthContext";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
+import { TaskInputCell, type TaskInputCol } from "../../components/edu/TaskInputCell";
 import {
+  activeCriteria,
   computeQualityFromCriteria,
   emptyTaskScores,
   type EvalCriterion,
@@ -118,13 +120,14 @@ export function DailyRecitationPage() {
   const [reqNotes, setReqNotes] = useState("");
   const [reqSubmitting, setReqSubmitting] = useState(false);
 
+  const enabledCriteria = useMemo(() => activeCriteria(criteria), [criteria]);
   const editableCriteria = useMemo(
-    () => criteria.filter((c) => !c.requires_all?.length),
-    [criteria],
+    () => enabledCriteria.filter((c) => !c.requires_all?.length),
+    [enabledCriteria],
   );
   const bonusCriteria = useMemo(
-    () => criteria.filter((c) => c.requires_all?.length),
-    [criteria],
+    () => enabledCriteria.filter((c) => c.requires_all?.length),
+    [enabledCriteria],
   );
 
   const visibleCircles = useMemo(() => {
@@ -425,10 +428,11 @@ export function DailyRecitationPage() {
                         </span>
                       )}
                     </TableCell>
-                    {editableCriteria.map((c) => (
+                    {editableCriteria.map((c, idx) => (
                       <TableCell key={c.id} className="text-center align-middle">
-                        <TaskInput
+                        <CriterionInput
                           criterion={c}
+                          taskCol={criterionToTaskCol(c, idx)}
                           value={r.task_scores[c.id]}
                           onChange={(v) => patchTaskScore(r.student_id, c.id, v)}
                         />
@@ -488,11 +492,12 @@ export function DailyRecitationPage() {
                   {r.full_name_ar}
                 </p>
                 <div className="space-y-2 text-sm" style={tajawal}>
-                  {editableCriteria.map((c) => (
+                  {editableCriteria.map((c, idx) => (
                     <div key={c.id} className="flex items-center justify-between gap-2">
                       <span>{c.name}</span>
-                      <TaskInput
+                      <CriterionInput
                         criterion={c}
+                        taskCol={criterionToTaskCol(c, idx)}
                         value={r.task_scores[c.id]}
                         onChange={(v) => patchTaskScore(r.student_id, c.id, v)}
                         compact
@@ -586,37 +591,46 @@ export function DailyRecitationPage() {
   );
 }
 
-function TaskInput({
+function criterionToTaskCol(c: EvalCriterion, idx: number): TaskInputCol {
+  return {
+    id: idx + 1,
+    name_ar: c.name,
+    weight: c.max_weight,
+    type: c.type === "penalty" ? "deduction" : "addition",
+    input_type:
+      c.type === "penalty" ? "counter" : c.input === "number" ? "numeric" : "boolean",
+  };
+}
+
+function scoreToNumber(value: boolean | number | undefined): number {
+  if (typeof value === "boolean") return value ? 1 : 0;
+  return Number(value ?? 0);
+}
+
+function numberToScore(c: EvalCriterion, n: number): boolean | number {
+  if (c.type === "penalty" || c.input === "number") return n;
+  return n > 0;
+}
+
+function CriterionInput({
   criterion,
+  taskCol,
   value,
   onChange,
   compact,
 }: {
   criterion: EvalCriterion;
+  taskCol: TaskInputCol;
   value: boolean | number | undefined;
   onChange: (v: boolean | number) => void;
   compact?: boolean;
 }) {
-  const isNumber = criterion.type === "penalty" || criterion.input === "number";
-
-  if (isNumber) {
-    return (
-      <Input
-        type="number"
-        min={0}
-        value={Number(value ?? 0)}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className={`${ds.btnRound} ${compact ? "h-8 w-20 text-center text-sm" : "w-16 mx-auto h-8 text-center"}`}
-      />
-    );
-  }
-
   return (
-    <input
-      type="checkbox"
-      checked={Boolean(value)}
-      onChange={(e) => onChange(e.target.checked)}
-      className="size-4 rounded border-border"
+    <TaskInputCell
+      task={taskCol}
+      value={scoreToNumber(value)}
+      compact={compact}
+      onChange={(n) => onChange(numberToScore(criterion, n))}
     />
   );
 }

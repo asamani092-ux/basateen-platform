@@ -10,28 +10,35 @@ export type EvalCriterion = {
   type: EvalCriterionType;
   max_weight: number;
   input?: EvalInputMode;
+  /** When false the task is excluded from daily max and grading grids */
+  enabled?: boolean;
   /** Bonus points when all listed task ids are satisfied */
   requires_all?: string[];
 };
 
 export type TaskScores = Record<string, boolean | number>;
 
+/** Unified default: حضور، حفظ، استماع، تكرار، ربط، مراجعة */
 export const DEFAULT_EVALUATION_CRITERIA: EvalCriterion[] = [
-  { id: "listening", name: "السماع", type: "points", max_weight: 1, input: "boolean" },
-  { id: "repeat", name: "التكرار", type: "points", max_weight: 1, input: "boolean" },
-  { id: "revision", name: "المراجعة", type: "points", max_weight: 1, input: "boolean" },
-  {
-    id: "rabt",
-    name: "الربط",
-    type: "points",
-    max_weight: 1,
-    input: "boolean",
-    requires_all: ["listening", "repeat", "revision"],
-  },
-  { id: "faces", name: "الأوجه", type: "points", max_weight: 1, input: "number" },
-  { id: "error", name: "الخطأ", type: "penalty", max_weight: 0.5, input: "number" },
-  { id: "tune", name: "اللحن", type: "penalty", max_weight: 0.5, input: "number" },
+  { id: "attendance", name: "حضور", type: "points", max_weight: 1, input: "boolean", enabled: true },
+  { id: "memorization", name: "حفظ", type: "points", max_weight: 2, input: "number", enabled: true },
+  { id: "listening", name: "استماع", type: "points", max_weight: 1, input: "boolean", enabled: true },
+  { id: "repeat", name: "تكرار", type: "points", max_weight: 1, input: "boolean", enabled: true },
+  { id: "linking", name: "ربط", type: "points", max_weight: 1, input: "number", enabled: true },
+  { id: "revision", name: "مراجعة", type: "points", max_weight: 1, input: "boolean", enabled: true },
 ];
+
+const LEGACY_ID_MAP: Record<string, string> = {
+  faces: "memorization",
+  rabt: "linking",
+  error: "error",
+  tune: "tune",
+};
+
+/** O(n) — criteria with enabled !== false */
+export function activeCriteria(criteria: EvalCriterion[]): EvalCriterion[] {
+  return criteria.filter((c) => c.enabled !== false);
+}
 
 export function parseEvaluationCriteria(
   raw: string | null | undefined,
@@ -44,21 +51,26 @@ export function parseEvaluationCriteria(
     }
     return parsed
       .filter((c) => c?.id && c?.name && c?.type && Number.isFinite(Number(c.max_weight)))
-      .map((c) => ({
-        id: String(c.id).trim(),
-        name: String(c.name).trim(),
-        type: c.type === "penalty" ? "penalty" : "points",
-        max_weight: Number(c.max_weight),
-        input:
-          c.input === "number" || c.type === "penalty"
-            ? "number"
-            : c.requires_all?.length
-              ? "boolean"
-              : "boolean",
-        requires_all: Array.isArray(c.requires_all)
-          ? c.requires_all.map(String)
-          : undefined,
-      }));
+      .map((c) => {
+        const id = String(c.id).trim();
+        const mappedId = LEGACY_ID_MAP[id] ?? id;
+        return {
+          id: mappedId,
+          name: String(c.name).trim(),
+          type: c.type === "penalty" ? "penalty" : "points",
+          max_weight: Number(c.max_weight),
+          enabled: c.enabled !== false,
+          input:
+            c.input === "number" || c.type === "penalty"
+              ? "number"
+              : c.requires_all?.length
+                ? "boolean"
+                : "boolean",
+          requires_all: Array.isArray(c.requires_all)
+            ? c.requires_all.map((r) => LEGACY_ID_MAP[String(r)] ?? String(r))
+            : undefined,
+        };
+      });
   } catch {
     return [...DEFAULT_EVALUATION_CRITERIA];
   }
@@ -74,11 +86,28 @@ export function criteriaFromLegacyWeights(row: {
   const pen = Number(row.penalty_per_error ?? 0.5);
   return [
     {
+      id: "attendance",
+      name: "حضور",
+      type: "points",
+      max_weight: 1,
+      input: "boolean",
+      enabled: true,
+    },
+    {
+      id: "memorization",
+      name: "حفظ",
+      type: "points",
+      max_weight: 1,
+      input: "number",
+      enabled: true,
+    },
+    {
       id: "listening",
-      name: "السماع",
+      name: "استماع",
       type: "points",
       max_weight: Number(row.weight_listening ?? 1),
       input: "boolean",
+      enabled: true,
     },
     {
       id: "repeat",
@@ -86,6 +115,15 @@ export function criteriaFromLegacyWeights(row: {
       type: "points",
       max_weight: Number(row.weight_repeat ?? 1),
       input: "boolean",
+      enabled: true,
+    },
+    {
+      id: "linking",
+      name: "الربط",
+      type: "points",
+      max_weight: Number(row.rabt_weight ?? 1),
+      input: "number",
+      enabled: true,
     },
     {
       id: "revision",
@@ -93,42 +131,43 @@ export function criteriaFromLegacyWeights(row: {
       type: "points",
       max_weight: Number(row.weight_revision ?? 1),
       input: "boolean",
+      enabled: true,
     },
-    {
-      id: "rabt",
-      name: "الربط",
-      type: "points",
-      max_weight: Number(row.rabt_weight ?? 1),
-      input: "boolean",
-      requires_all: ["listening", "repeat", "revision"],
-    },
-    { id: "faces", name: "الأوجه", type: "points", max_weight: 1, input: "number" },
-    { id: "error", name: "الخطأ", type: "penalty", max_weight: pen, input: "number" },
-    { id: "tune", name: "اللحن", type: "penalty", max_weight: pen, input: "number" },
+    { id: "error", name: "الخطأ", type: "penalty", max_weight: pen, input: "number", enabled: true },
+    { id: "tune", name: "اللحن", type: "penalty", max_weight: pen, input: "number", enabled: true },
   ];
 }
 
 export function totalPositiveWeight(criteria: EvalCriterion[]): number {
-  return criteria
+  return activeCriteria(criteria)
     .filter((c) => c.type === "points" && !c.requires_all?.length)
     .reduce((sum, c) => sum + c.max_weight, 0);
 }
 
+export function totalEnabledWeight(criteria: EvalCriterion[]): number {
+  return totalPositiveWeight(criteria);
+}
+
 export function totalMaxScore(criteria: EvalCriterion[]): number {
-  return criteria
+  return activeCriteria(criteria)
     .filter((c) => c.type === "points")
     .reduce((sum, c) => sum + c.max_weight, 0);
+}
+
+export function totalEnabledMaxScore(criteria: EvalCriterion[]): number {
+  return totalMaxScore(criteria);
 }
 
 export function computeQualityFromCriteria(
   taskScores: TaskScores,
   criteria: EvalCriterion[],
 ): number {
+  const active = activeCriteria(criteria);
   let earned = 0;
   let penalties = 0;
-  const maxScore = totalMaxScore(criteria);
+  const maxScore = totalEnabledMaxScore(criteria);
 
-  for (const c of criteria) {
+  for (const c of active) {
     const raw = taskScores[c.id];
     if (c.type === "penalty") {
       penalties += c.max_weight * Math.max(0, Number(raw ?? 0));
@@ -160,12 +199,12 @@ export function legacyRowToTaskScores(row: {
   face_count?: number;
 }): TaskScores {
   return {
+    attendance: false,
     listening: Boolean(row.listened),
     repeat: Boolean(row.repeated),
     revision: Boolean(row.revised),
-    rabt:
-      Boolean(row.listened) && Boolean(row.repeated) && Boolean(row.revised),
-    faces: Number(row.face_count ?? 0),
+    linking: 0,
+    memorization: Number(row.face_count ?? 0),
     error: Number(row.error_count ?? 0),
     tune: Number(row.tune_errors ?? 0),
   };
@@ -194,7 +233,7 @@ export function taskScoresToLegacyColumns(
     revised: byId("revision"),
     error_count: byId("error"),
     tune_errors: byId("tune"),
-    face_count: byId("faces"),
+    face_count: byId("memorization", byId("faces")),
   };
 }
 
@@ -212,7 +251,17 @@ export function parseTaskScoresJson(
   if (raw?.trim()) {
     try {
       const parsed = JSON.parse(raw) as TaskScores;
-      if (parsed && typeof parsed === "object") return parsed;
+      if (parsed && typeof parsed === "object") {
+        const out = { ...parsed };
+        if (out.faces != null && out.memorization == null) {
+          out.memorization = Number(out.faces);
+        }
+        if (out.rabt != null && out.linking == null) {
+          out.linking =
+            typeof out.rabt === "boolean" ? (out.rabt ? 1 : 0) : Number(out.rabt);
+        }
+        return out;
+      }
     } catch {
       /* fall through */
     }

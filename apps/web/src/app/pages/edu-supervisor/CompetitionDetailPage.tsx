@@ -12,6 +12,7 @@ import {
   Pencil,
   Plus,
   Printer,
+  MessageCircle,
   RefreshCw,
   Search,
   Trash2,
@@ -35,6 +36,7 @@ import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { normalizeAttendanceStatus } from "../../lib/attendance-status";
 import {
+  buildCompetitionWhatsAppUrl,
   categoryLabel,
   DEFAULT_SIRD_SETTINGS,
   defaultInputTypeFromTaskType,
@@ -264,6 +266,9 @@ export function CompetitionDetailPage() {
   const leaders = (dashboard?.leaders ?? []) as Array<{
     student_id: number;
     score?: number;
+    overall_pct?: number;
+    grading_days?: number;
+    guardian_phone?: string | null;
     full_name_ar?: string;
     target_amount?: number;
     achievement_pct?: number;
@@ -735,12 +740,12 @@ export function CompetitionDetailPage() {
                     />
                     <EduKpiCard
                       icon={<Users className="w-4 h-4" />}
-                      label={isRecitation ? "نسبة الإتقان" : "الإنجاز مقابل المستهدف"}
-                      value={`${isRecitation ? (kpis.mastery_pct ?? kpis.achievement_pct ?? 0) : (kpis.achievement_pct ?? 0)}%`}
+                      label={isRecitation ? "نسبة الإتقان" : "نسبة الإتقان الكلية"}
+                      value={`${isRecitation ? (kpis.mastery_pct ?? kpis.achievement_pct ?? 0) : (kpis.overall_pct ?? kpis.achievement_pct ?? 0)}%`}
                       sub={
                         isRecitation
                           ? `${kpis.total_passed ?? 0} مجتاز من ${kpis.total_read ?? 0} مقروء`
-                          : `${kpis.achieved_juz ?? 0} / ${kpis.target_juz ?? 0} جزء`
+                          : "متوسط الطلاب — (مجموع الدرجات ÷ أيام الرصد × أوزان المهام)"
                       }
                     />
                     <EduKpiCard
@@ -845,28 +850,55 @@ export function CompetitionDetailPage() {
                       {filteredLeaders.length === 0 ? (
                         <p className="text-muted-foreground">لا بيانات إنجاز بعد.</p>
                       ) : (
-                        filteredLeaders.map((l, i) => (
-                          <div
-                            key={l.student_id}
-                            className="flex justify-between border-b py-2 gap-4"
-                          >
-                            <span>
-                              {i + 1}. {l.full_name_ar ?? `طالب #${l.student_id}`}
-                            </span>
-                            <span className="text-muted-foreground tabular-nums text-left shrink-0">
-                              {isRecitation ? (
-                                <span>{l.mastery_pct ?? 0}% إتقان</span>
-                              ) : (
-                                <>
-                                  {Math.round((l.score ?? 0) * 100) / 100} جزء
-                                  {l.achievement_pct != null ? (
-                                    <span className="mr-2">· {l.achievement_pct}%</span>
-                                  ) : null}
-                                </>
-                              )}
-                            </span>
-                          </div>
-                        ))
+                        filteredLeaders.map((l, i) => {
+                          const rank = i + 1;
+                          const name = l.full_name_ar ?? `طالب #${l.student_id}`;
+                          const overallPct = isRecitation
+                            ? (l.mastery_pct ?? 0)
+                            : (l.overall_pct ?? l.achievement_pct ?? 0);
+                          const waUrl = buildCompetitionWhatsAppUrl(
+                            l.guardian_phone,
+                            name,
+                            overallPct,
+                            rank,
+                          );
+                          return (
+                            <div
+                              key={l.student_id}
+                              className="flex justify-between items-center border-b py-2 gap-4"
+                            >
+                              <span>
+                                {rank}. {name}
+                              </span>
+                              <span className="flex items-center gap-2 text-muted-foreground tabular-nums text-left shrink-0">
+                                {isRecitation ? (
+                                  <span>{overallPct}% إتقان</span>
+                                ) : (
+                                  <span>{overallPct}% إتقان</span>
+                                )}
+                                {waUrl ? (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className={`${ds.btnRound} print:hidden gap-1`}
+                                    asChild
+                                  >
+                                    <a
+                                      href={waUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      title="إرسال التقرير لولي الأمر"
+                                    >
+                                      <MessageCircle className="w-3.5 h-3.5" />
+                                      إرسال التقرير
+                                    </a>
+                                  </Button>
+                                ) : null}
+                              </span>
+                            </div>
+                          );
+                        })
                       )}
                     </CardContent>
                   </Card>

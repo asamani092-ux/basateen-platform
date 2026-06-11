@@ -74,6 +74,11 @@ import { saveCompetitionGradingBulk } from "../lib/competition-grading-save";
 import { DEFAULT_COMPETITION } from "../lib/edu-settings-defaults";
 import { loadEvaluationCriteria } from "../lib/evaluation-criteria";
 import { COMPETITION_MANAGER_ROLES } from "../lib/roles";
+import {
+  convertToFaces,
+  formatFacesToText,
+  parseMemorizationTextToFaces,
+} from "../lib/quran-memorization";
 
 function json(
   data: unknown,
@@ -641,6 +646,7 @@ export async function handleEduCompetitionsRouter(
     );
 
     const hasMemCol = await tableHasColumn(env, "students", "memorization_amount");
+    const hasMemFacesCol = await tableHasColumn(env, "students", "memorization_faces");
     const updated: Array<{ student_id: number; new_memorization: number }> = [];
     const targetUpdates: ReturnType<typeof env.DB.prepare>[] = [];
     const studentUpdates: ReturnType<typeof env.DB.prepare>[] = [];
@@ -653,14 +659,27 @@ export async function handleEduCompetitionsRouter(
       );
       if (achieved <= 0) continue;
 
-      const newJuz =
-        Math.round((Number(t.current_memorization ?? 0) + achieved) * 100) / 100;
+      const currentFaces =
+        t.memorization_faces != null && Number(t.memorization_faces) > 0
+          ? Number(t.memorization_faces)
+          : parseMemorizationTextToFaces(t.memorization_amount) ||
+            convertToFaces(Number(t.current_memorization ?? 0), "juz");
+      const achievedFaces = convertToFaces(achieved, "juz");
+      const newFaces = currentFaces + achievedFaces;
+      const newJuz = Math.round((newFaces / 20) * 100) / 100;
 
       if (hasMemCol) {
         studentUpdates.push(
           env.DB.prepare(
             `UPDATE students SET memorization_amount = ? WHERE id = ? AND complex_id = ?`,
-          ).bind(formatMemorizationJuz(newJuz), t.student_id, auth.complexId),
+          ).bind(formatFacesToText(newFaces), t.student_id, auth.complexId),
+        );
+      }
+      if (hasMemFacesCol) {
+        studentUpdates.push(
+          env.DB.prepare(
+            `UPDATE students SET memorization_faces = ? WHERE id = ? AND complex_id = ?`,
+          ).bind(newFaces, t.student_id, auth.complexId),
         );
       }
 

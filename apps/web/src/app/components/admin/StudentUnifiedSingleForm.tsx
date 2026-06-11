@@ -5,6 +5,11 @@ import { Label } from "../ui/label";
 import { STAGE_OPTIONS } from "../../lib/stages";
 import type { EducationalGroupRow } from "../../lib/api-client";
 import { ds, tajawal } from "../../lib/design-system";
+import {
+  formatFacesToText,
+  convertToFaces,
+  type QuranUnit,
+} from "../../lib/quran-memorization";
 
 export type StudentUnifiedFormValues = {
   full_name_ar: string;
@@ -15,6 +20,8 @@ export type StudentUnifiedFormValues = {
   school_name: string;
   school_grade: string;
   memorization_amount: string;
+  memorization_value: string;
+  memorization_unit: QuranUnit;
   guardian_national_id: string;
   guardian_work: string;
   health_notes: string;
@@ -32,6 +39,8 @@ const EMPTY: StudentUnifiedFormValues = {
   school_name: "",
   school_grade: "",
   memorization_amount: "",
+  memorization_value: "",
+  memorization_unit: "face",
   guardian_national_id: "",
   guardian_work: "",
   health_notes: "",
@@ -99,6 +108,17 @@ export function StudentUnifiedSingleForm({
 
   function set<K extends keyof StudentUnifiedFormValues>(key: K, v: string) {
     setValues((prev) => ({ ...prev, [key]: v }));
+  }
+
+  function setMemorization(value: string, unit: QuranUnit) {
+    const faces = convertToFaces(Number(value) || 0, unit);
+    const text = formatFacesToText(faces);
+    setValues((prev) => ({
+      ...prev,
+      memorization_value: value,
+      memorization_unit: unit,
+      memorization_amount: text,
+    }));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -218,12 +238,40 @@ export function StudentUnifiedSingleForm({
           />
         </Field>
         <Field label="مقدار الحفظ">
-          <Input
-            value={values.memorization_amount}
-            onChange={(e) => set("memorization_amount", e.target.value)}
-            className={ds.btnRound}
-            style={tajawal}
-          />
+          <div className="flex gap-2">
+            <Input
+              type="number"
+              min={0}
+              step={1}
+              value={values.memorization_value}
+              onChange={(e) =>
+                setMemorization(e.target.value, values.memorization_unit)
+              }
+              className={`${ds.btnRound} flex-1`}
+              style={tajawal}
+              placeholder="0"
+            />
+            <select
+              value={values.memorization_unit}
+              onChange={(e) =>
+                setMemorization(
+                  values.memorization_value,
+                  e.target.value as QuranUnit,
+                )
+              }
+              className={ds.select}
+              style={tajawal}
+            >
+              <option value="face">وجه</option>
+              <option value="hizb">حزب</option>
+              <option value="juz">جزء</option>
+            </select>
+          </div>
+          {values.memorization_amount ? (
+            <p className="text-xs text-muted-foreground mt-1" style={tajawal}>
+              {values.memorization_amount}
+            </p>
+          ) : null}
         </Field>
         <Field label="العمر (اختياري)">
           <Input

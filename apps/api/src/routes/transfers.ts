@@ -16,6 +16,7 @@ import { applyStudentPlacement } from "../lib/students-admin";
 import { resolveCircleTrackId } from "../lib/circle-track";
 import { transferStudentCircle } from "../lib/edu-transfer";
 import { safeDeleteStudent } from "../lib/students-admin";
+import { resolveMemorizationFields } from "../lib/quran-memorization";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 
 type PlacementRow = {
@@ -411,14 +412,37 @@ export async function handleStudentPatch(
       "school_grade",
       "nationality",
       "health_notes",
-      "memorization_amount",
       "stage_id",
       "age",
       "account_status",
     ] as const;
     const sets: string[] = [];
     const binds: (string | number | null)[] = [];
+
+    const hasMemInput =
+      body.memorization_amount !== undefined ||
+      body.memorization_faces !== undefined ||
+      body.memorization_value !== undefined ||
+      body.memorization_unit !== undefined;
+    if (hasMemInput) {
+      const mem = resolveMemorizationFields({
+        memorization_faces: body.memorization_faces,
+        memorization_value: body.memorization_value,
+        memorization_unit: body.memorization_unit,
+        memorization_amount: body.memorization_amount,
+      });
+      if (await tableHasColumn(env, "students", "memorization_amount")) {
+        sets.push("memorization_amount = ?");
+        binds.push(mem.text);
+      }
+      if (await tableHasColumn(env, "students", "memorization_faces")) {
+        sets.push("memorization_faces = ?");
+        binds.push(mem.faces);
+      }
+    }
+
     for (const col of allowed) {
+      if (col === "memorization_amount") continue;
       if (body[col] === undefined) continue;
       if (!(await tableHasColumn(env, "students", col))) continue;
       if (col === "account_status") {

@@ -35,6 +35,7 @@ export type StudentRow = {
   school_name: string | null;
   school_grade: string | null;
   memorization_amount: string | null;
+  memorization_faces?: number | null;
   guardian_phone: string | null;
   health_notes: string | null;
   circle_name: string | null;
@@ -312,6 +313,9 @@ export const api = {
     school_grade?: string | null;
     health_notes?: string | null;
     memorization_amount?: string | null;
+    memorization_faces?: number | null;
+    memorization_value?: string | null;
+    memorization_unit?: string | null;
     guardian_national_id?: string | null;
     guardian_work?: string | null;
     stage_id?: number | null;
@@ -365,6 +369,9 @@ export const api = {
       nationality?: string | null;
       health_notes?: string | null;
       memorization_amount?: string | null;
+      memorization_faces?: number | null;
+      memorization_value?: string | null;
+      memorization_unit?: string | null;
       stage_id?: number | null;
       age?: number | null;
       circle_id?: number | null;

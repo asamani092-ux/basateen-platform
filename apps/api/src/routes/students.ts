@@ -16,6 +16,7 @@ type StudentListRow = {
   school_name: string | null;
   school_grade: string | null;
   memorization_amount: string | null;
+  memorization_faces?: number | null;
   guardian_phone: string | null;
   health_notes: string | null;
   circle_name: string | null;
@@ -91,6 +92,7 @@ export async function handleStudentsList(
       ${await studentColumn(env, "school_name")},
       ${await studentColumn(env, "school_grade")},
       ${await studentColumn(env, "memorization_amount")},
+      ${await studentColumn(env, "memorization_faces")},
       ${await studentColumn(env, "guardian_phone")},
       ${await studentColumn(env, "health_notes")},
       ${await studentColumn(env, "stage_id")},
@@ -322,6 +324,7 @@ export async function handleStudentCreate(
           school_grade: data.school_grade,
           health_notes: data.health_notes,
           memorization_amount: data.memorization_amount,
+          memorization_faces: data.memorization_faces,
           guardian_national_id: data.guardian_national_id,
           guardian_work: data.guardian_work,
           stage_id: data.stage_id,

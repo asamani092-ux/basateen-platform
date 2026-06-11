@@ -175,4 +175,14 @@ export function normalizeTaskScoreKeys(
   return out;
 }
 
+export {
+  convertToFaces,
+  facesToJuz,
+  formatFacesToText,
+  parseMemorizationTextToFaces,
+  parseQuranUnit,
+  resolveMemorizationFields,
+  type QuranUnit,
+} from "./quran-memorization";
+
 export { activeCriteria, totalEnabledMaxScore, totalEnabledWeight };

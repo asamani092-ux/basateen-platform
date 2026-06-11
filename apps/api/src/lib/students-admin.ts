@@ -1,5 +1,6 @@
 import type { Env } from "../types";
 import { parsePositiveIntField } from "./students-schema";
+import { resolveMemorizationFields } from "./quran-memorization";
 import { syncStudentPlacementColumns } from "./admin-dept-schema";
 import { circleExistsInComplex, resolveCircleTrackId } from "./circle-track";
 import { canManageCircle } from "./dept-scope";
@@ -183,6 +184,7 @@ export type CreateStudentInput = {
   school_grade?: string | null;
   health_notes?: string | null;
   memorization_amount?: string | null;
+  memorization_faces?: number | null;
   guardian_national_id?: string | null;
   guardian_work?: string | null;
   stage_id?: number | null;
@@ -239,6 +241,7 @@ export async function createStudentWithPlacement(
     ["school_grade", opt(input.school_grade)],
     ["health_notes", opt(input.health_notes)],
     ["memorization_amount", opt(input.memorization_amount)],
+    ["memorization_faces", input.memorization_faces ?? null],
     ["guardian_national_id", opt(input.guardian_national_id)],
     ["guardian_work", opt(input.guardian_work)],
     ["account_status", "active"],
@@ -472,6 +475,8 @@ export async function processAdminStudentsBulk(
     }
 
     try {
+      const memText = sanitizeExcelCell(row.memorization_amount, 120);
+      const mem = resolveMemorizationFields({ memorization_amount: memText });
       await createStudentWithPlacement(env, complexId, {
         full_name_ar,
         national_id,
@@ -480,7 +485,8 @@ export async function processAdminStudentsBulk(
         guardian_phone,
         school_name: sanitizeExcelCell(row.school_name, 120),
         school_grade: sanitizeExcelCell(row.school_grade, 80),
-        memorization_amount: sanitizeExcelCell(row.memorization_amount, 120),
+        memorization_amount: mem.text,
+        memorization_faces: mem.faces,
         guardian_national_id: sanitizeExcelCell(row.guardian_national_id, 32),
         health_notes: sanitizeExcelCell(row.health_notes, 500),
         circle_id: placement.kind === "circle" ? placement.id : null,

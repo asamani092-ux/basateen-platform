@@ -4,6 +4,10 @@ import {
   parsePositiveIntField,
   studentCreateBodySchema,
 } from "./students-schema";
+import {
+  formatFacesToText,
+  resolveMemorizationFields,
+} from "./quran-memorization";
 import type { StudentUnifiedFormValues } from "../components/admin/StudentUnifiedSingleForm";
 
 export const STUDENT_TEMPLATE_HEADERS = [
@@ -178,6 +182,12 @@ export function buildStudentCreatePayload(values: StudentUnifiedFormValues) {
     if (id && kind === "track") track_id = id;
   }
 
+  const mem = resolveMemorizationFields({
+    memorization_value: values.memorization_value,
+    memorization_unit: values.memorization_unit,
+    memorization_amount: values.memorization_amount,
+  });
+
   return normalizeIncomingStudentPayload({
     full_name_ar: values.full_name_ar.trim(),
     national_id: values.national_id.trim(),
@@ -186,7 +196,10 @@ export function buildStudentCreatePayload(values: StudentUnifiedFormValues) {
     guardian_phone: values.guardian_phone.trim(),
     school_name: values.school_name.trim() || null,
     school_grade: values.school_grade.trim() || null,
-    memorization_amount: values.memorization_amount.trim() || null,
+    memorization_amount: mem.text,
+    memorization_faces: mem.faces,
+    memorization_value: values.memorization_value.trim() || null,
+    memorization_unit: values.memorization_unit,
     guardian_national_id: values.guardian_national_id.trim() || null,
     guardian_work: values.guardian_work.trim() || null,
     health_notes: values.health_notes.trim() || null,
@@ -225,6 +238,9 @@ export function buildStudentPatchPayload(values: StudentUnifiedFormValues) {
     school_name: created.school_name,
     school_grade: created.school_grade,
     memorization_amount: created.memorization_amount,
+    memorization_faces: created.memorization_faces,
+    memorization_value: values.memorization_value.trim() || null,
+    memorization_unit: values.memorization_unit,
     guardian_national_id: created.guardian_national_id,
     guardian_work: created.guardian_work,
     health_notes: created.health_notes,

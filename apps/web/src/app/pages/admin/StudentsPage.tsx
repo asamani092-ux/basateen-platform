@@ -72,6 +72,10 @@ import {
   parseStudentImportFile,
   validateStudentCreateForm,
 } from "../../lib/students-import";
+import {
+  facesToStructuredInput,
+  parseMemorizationTextToFaces,
+} from "../../lib/quran-memorization";
 
 const ALL_FILTER = "all";
 
@@ -693,8 +697,13 @@ function StudentEditDialog({
   const [error, setError] = useState<string | null>(null);
   const unassigned = !student.circle_name && !student.track_name;
 
-  const initialValues = useMemo<Partial<StudentUnifiedFormValues>>(
-    () => ({
+  const initialValues = useMemo<Partial<StudentUnifiedFormValues>>(() => {
+    const faces =
+      student.memorization_faces != null && student.memorization_faces > 0
+        ? student.memorization_faces
+        : parseMemorizationTextToFaces(student.memorization_amount);
+    const structured = facesToStructuredInput(faces);
+    return {
       full_name_ar: student.full_name_ar,
       national_id: student.national_id ?? "",
       nationality: student.nationality ?? "سعودي",
@@ -703,13 +712,14 @@ function StudentEditDialog({
       school_name: student.school_name ?? "",
       school_grade: student.school_grade ?? "",
       memorization_amount: student.memorization_amount ?? "",
+      memorization_value: structured.value,
+      memorization_unit: structured.unit,
       health_notes: student.health_notes ?? "",
       stage_id: student.stage_id != null ? String(student.stage_id) : "",
       age: student.age != null ? String(student.age) : "",
       placement: "",
-    }),
-    [student],
-  );
+    };
+  }, [student]);
 
   async function save(values: StudentUnifiedFormValues) {
     if (unassigned && !values.placement.trim()) {

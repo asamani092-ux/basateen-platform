@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { resolveMemorizationFields } from "./quran-memorization";
 
 /** يحوّل "" و null و undefined إلى null للحقول الاختيارية */
 export const optionalText = z.preprocess(
@@ -116,6 +117,9 @@ const studentCreateBaseSchema = z
     school_name: optionalText.optional(),
     school_grade: optionalText.optional(),
     memorization_amount: optionalText.optional(),
+    memorization_faces: z.unknown().optional().nullable(),
+    memorization_value: z.unknown().optional().nullable(),
+    memorization_unit: z.unknown().optional().nullable(),
     guardian_national_id: optionalText.optional(),
     guardian_work: optionalText.optional(),
     health_notes: optionalText.optional(),
@@ -157,6 +161,13 @@ export const studentCreateBodySchema = z.preprocess(
       if (Number.isFinite(n) && n >= 4 && n <= 25) age = n;
     }
 
+    const memorization = resolveMemorizationFields({
+      memorization_faces: body.memorization_faces,
+      memorization_value: body.memorization_value,
+      memorization_unit: body.memorization_unit,
+      memorization_amount: body.memorization_amount,
+    });
+
     return {
       full_name_ar: body.full_name_ar,
       national_id: body.national_id,
@@ -165,7 +176,8 @@ export const studentCreateBodySchema = z.preprocess(
       guardian_phone: body.guardian_phone,
       school_name: body.school_name ?? null,
       school_grade: body.school_grade ?? null,
-      memorization_amount: body.memorization_amount ?? null,
+      memorization_amount: memorization.text,
+      memorization_faces: memorization.faces,
       guardian_national_id: body.guardian_national_id ?? null,
       guardian_work: body.guardian_work ?? null,
       health_notes: body.health_notes ?? null,

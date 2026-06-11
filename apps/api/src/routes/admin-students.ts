@@ -143,6 +143,7 @@ export async function handleAdminStudentCreate(
           school_name: data.school_name,
           school_grade: data.school_grade,
           memorization_amount: data.memorization_amount,
+          memorization_faces: data.memorization_faces,
           guardian_national_id: data.guardian_national_id,
           guardian_work: data.guardian_work,
           health_notes: data.health_notes,

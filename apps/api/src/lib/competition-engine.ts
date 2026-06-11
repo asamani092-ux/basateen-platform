@@ -6,7 +6,9 @@ import {
   type LeaderboardRow,
   computeLeaderboardFromLogs,
   enabledCompetitionWeightSum,
+  facesToJuz,
   memorizationPointsToJuz,
+  parseMemorizationTextToFaces,
   sumMemorizationLogPoints,
 } from "./edu-evaluation-standard";
 import type { EvalCriterion } from "./evaluation-criteria";
@@ -69,12 +71,20 @@ export const STAGE_GRADE_KEYWORDS: Record<number, string[]> = {
 
 const AR_DIGITS = "٠١٢٣٤٥٦٧٨٩";
 
-/** O(n) on string length — n is short memorization text */
-export function parseMemorizationJuz(raw: string | null | undefined): number {
+/** O(n) on string length — prefer memorization_faces when available */
+export function parseMemorizationJuz(
+  raw: string | null | undefined,
+  memorizationFaces?: number | null,
+): number {
+  if (
+    memorizationFaces != null &&
+    Number.isFinite(memorizationFaces) &&
+    memorizationFaces > 0
+  ) {
+    return facesToJuz(memorizationFaces);
+  }
   if (!raw?.trim()) return 0;
-  const normalized = raw.replace(/[٠-٩]/g, (d) => String(AR_DIGITS.indexOf(d)));
-  const match = normalized.match(/(\d+(?:\.\d+)?)/);
-  return match ? Number(match[1]) : 0;
+  return facesToJuz(parseMemorizationTextToFaces(raw));
 }
 
 export function formatMemorizationJuz(juz: number): string {
@@ -1440,6 +1450,9 @@ export async function queryPreviewStudents(
   const memCol = (await tableHasColumn(env, "students", "memorization_amount"))
     ? "s.memorization_amount"
     : "NULL AS memorization_amount";
+  const memFacesCol = (await tableHasColumn(env, "students", "memorization_faces"))
+    ? "s.memorization_faces"
+    : "NULL AS memorization_faces";
   const stageCol = hasStageCol ? "s.stage_id" : "NULL AS stage_id";
   const targetCurrentCol =
     engineTargets && competitionId
@@ -1447,7 +1460,7 @@ export async function queryPreviewStudents(
       : "NULL AS saved_current_memorization, NULL AS saved_target_amount";
 
   const rows = await env.DB.prepare(
-    `SELECT DISTINCT s.id AS student_id, s.full_name_ar, ${memCol}, ${stageCol},
+    `SELECT DISTINCT s.id AS student_id, s.full_name_ar, ${memCol}, ${memFacesCol}, ${stageCol},
             c.name_ar AS circle_name, ${targetCurrentCol}
      FROM students s
      ${fromJoin}
@@ -1460,6 +1473,7 @@ export async function queryPreviewStudents(
       student_id: number;
       full_name_ar: string;
       memorization_amount: string | null;
+      memorization_faces: number | null;
       stage_id: number | null;
       circle_name: string | null;
       saved_current_memorization: number | null;
@@ -1467,7 +1481,7 @@ export async function queryPreviewStudents(
     }>();
 
   return (rows.results ?? []).map((r) => {
-    const parsed = parseMemorizationJuz(r.memorization_amount);
+    const parsed = parseMemorizationJuz(r.memorization_amount, r.memorization_faces);
     const current =
       r.saved_current_memorization != null
         ? Number(r.saved_current_memorization)
@@ -1882,6 +1896,8 @@ export type DashboardTargetRow = {
   current_memorization: number;
   target_amount: number;
   achieved_amount: number;
+  memorization_faces?: number | null;
+  memorization_amount?: string | null;
 };
 
 /** O(1) — update single student target_amount */
@@ -1973,9 +1989,15 @@ export async function loadCompetitionTargetRows(
   env: Env,
   competitionId: number,
 ): Promise<DashboardTargetRow[]> {
+  const hasMemFaces = await tableHasColumn(env, "students", "memorization_faces");
+  const hasMemAmount = await tableHasColumn(env, "students", "memorization_amount");
+  const memFacesCol = hasMemFaces ? "s.memorization_faces" : "NULL AS memorization_faces";
+  const memAmountCol = hasMemAmount
+    ? "s.memorization_amount"
+    : "NULL AS memorization_amount";
   const rows = await env.DB.prepare(
     `SELECT ct.student_id, ct.current_memorization, ct.target_amount,
-            ct.achieved_amount, s.full_name_ar
+            ct.achieved_amount, s.full_name_ar, ${memFacesCol}, ${memAmountCol}
      FROM competition_targets ct
      INNER JOIN students s ON s.id = ct.student_id
      WHERE ct.competition_id = ?`,

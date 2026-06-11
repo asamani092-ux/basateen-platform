@@ -13,6 +13,7 @@ import {
 import { matchesArabicName } from "../../lib/attendance-search";
 import { isReviewCategory, type MemorizationUnit } from "../../lib/competition-engine";
 import { ds, tajawal } from "../../lib/design-system";
+import { ActiveDayTabs } from "./ActiveDayTabs";
 import { TaskInputCell, type TaskInputCol } from "./TaskInputCell";
 
 type StudentRow = {
@@ -33,6 +34,9 @@ type Props = {
   students: StudentRow[];
   tasks: TaskInputCol[];
   audit: Record<number, AuditRow>;
+  activeDates?: string[];
+  logDate?: string;
+  onLogDateChange?: (isoDate: string) => void;
   saving: boolean;
   onPatchStudent: (
     studentId: number,
@@ -49,6 +53,9 @@ export function CompetitionLiveGrid({
   students,
   tasks,
   audit,
+  activeDates = [],
+  logDate = "",
+  onLogDateChange,
   saving,
   onPatchStudent,
   onSaveStudent,
@@ -76,6 +83,19 @@ export function CompetitionLiveGrid({
 
   return (
     <div className="space-y-4 max-w-6xl mx-auto">
+      {showDailyColumn && activeDates.length > 0 && onLogDateChange && (
+        <div className="space-y-2">
+          <p className="text-sm font-medium" style={tajawal}>
+            يوم التسميع
+          </p>
+          <ActiveDayTabs
+            activeDates={activeDates}
+            selectedDate={logDate}
+            disabled={saving}
+            onSelect={onLogDateChange}
+          />
+        </div>
+      )}
       <div className="relative">
         <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input

@@ -9,14 +9,18 @@ import {
   countCompetitionDays,
   competitionTaskSelectSql,
   computeSirdPeriodScore,
+  defaultActiveLogDate,
+  enumerateActiveCompetitionDates,
   hasEngineTargets,
   hasEngineTasks,
   hasSirdPeriodRecords,
   hasTaskInputType,
+  isMemorizationTrackingCategory,
   loadSirdPeriodsMatrix,
+  parseActiveWeekdays,
   parseMemorizationUnit,
   parseSirdSettings,
-  studentDailyFaces,
+  studentDailyFacesFromRules,
   targetHizbCount,
   upsertSirdPeriodRecord,
 } from "../lib/competition-engine";
@@ -212,7 +216,6 @@ export async function handleLiveLogRouter(
       });
     }
 
-    const logDate = new Date().toISOString().slice(0, 10);
     const engineTargets = await hasEngineTargets(env);
     const engineTasks = await hasEngineTasks(env);
     const compRow = await env.DB.prepare(
@@ -227,13 +230,26 @@ export async function handleLiveLogRouter(
       }>();
     const compRules = parseRulesJson(compRow?.rules_json);
     const memorizationUnit = parseMemorizationUnit(compRules.memorization_unit);
-    const competitionDays = countCompetitionDays(
-      String(compRow?.start_date ?? session.date),
-      String(compRow?.end_date ?? session.date),
-    );
+    const startDate = String(compRow?.start_date ?? session.date);
+    const endDate = String(compRow?.end_date ?? session.date);
     const compCategory = String(
       compRow?.category ?? (session as { category?: string }).category ?? "recitation",
     );
+    const activeWeekdays = parseActiveWeekdays(compRules);
+    const activeDates = isMemorizationTrackingCategory(compCategory)
+      ? enumerateActiveCompetitionDates(startDate, endDate, activeWeekdays)
+      : [];
+    const competitionDays =
+      compCategory === "recitation"
+        ? countCompetitionDays(startDate, endDate)
+        : activeDates.length;
+    const logDate = isMemorizationTrackingCategory(compCategory) && activeDates.length
+      ? defaultActiveLogDate(
+          activeDates,
+          url.searchParams.get("log_date")?.trim() ||
+            new Date().toISOString().slice(0, 10),
+        )
+      : new Date().toISOString().slice(0, 10);
     const activeSql = await studentIsActiveSql(env, "s");
 
     let students: { results?: unknown[] };
@@ -269,14 +285,14 @@ export async function handleLiveLogRouter(
         ...r,
         target_hizb:
           compCategory === "recitation" ? targetHizbCount(targetAmount) : undefined,
-        daily_faces:
-          compCategory === "new_memorization" || compCategory === "review"
-            ? studentDailyFaces(
-                compCategory === "new_memorization" ? memorizationUnit : "juz",
-                targetAmount,
-                competitionDays,
-              )
-            : undefined,
+        daily_faces: studentDailyFacesFromRules(
+          compCategory,
+          memorizationUnit,
+          targetAmount,
+          startDate,
+          endDate,
+          compRules,
+        ),
         memorization_unit:
           compCategory === "new_memorization" ? memorizationUnit : undefined,
       };
@@ -354,10 +370,15 @@ export async function handleLiveLogRouter(
         name_ar: session.name_ar,
         telemetry_type: session.telemetry_type,
         category: sess.category ?? compCategory,
-        start_date: compRow?.start_date ?? session.date,
-        end_date: compRow?.end_date ?? session.date,
+        start_date: startDate,
+        end_date: endDate,
         memorization_unit: memorizationUnit,
         competition_days: competitionDays,
+        active_weekdays: isMemorizationTrackingCategory(compCategory)
+          ? activeWeekdays
+          : undefined,
+        active_dates: activeDates.length ? activeDates : undefined,
+        log_date: logDate,
         sird_settings: isRecitation ? sirdSettings : undefined,
         rules: session.rules,
         tv_key: session.tv_key,
@@ -449,7 +470,35 @@ export async function handleLiveLogRouter(
       });
     }
 
-    const logDate = new Date().toISOString().slice(0, 10);
+    const compRowPost = await env.DB.prepare(
+      `SELECT start_date, end_date, rules_json, category FROM competitions WHERE id = ?`,
+    )
+      .bind(session.id)
+      .first<{
+        start_date: string;
+        end_date: string;
+        rules_json: string;
+        category: string;
+      }>();
+    const postRules = parseRulesJson(compRowPost?.rules_json);
+    const postCategory = String(
+      compRowPost?.category ??
+        (session as { category?: string }).category ??
+        "recitation",
+    );
+    let logDate =
+      (body as { log_date?: string }).log_date?.trim() ||
+      new Date().toISOString().slice(0, 10);
+    if (isMemorizationTrackingCategory(postCategory)) {
+      const activeDates = enumerateActiveCompetitionDates(
+        String(compRowPost?.start_date ?? session.date),
+        String(compRowPost?.end_date ?? session.date),
+        parseActiveWeekdays(postRules),
+      );
+      if (!activeDates.includes(logDate)) {
+        return json({ error: "inactive_day", active_dates: activeDates }, 400);
+      }
+    }
     const metrics = body.metrics ?? {
       juz_done: body.juz_done,
       hizb_done: body.hizb_done,

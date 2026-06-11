@@ -92,6 +92,85 @@ export const TASK_INPUT_TYPE_OPTIONS: Array<{ value: TaskInputType; label: strin
   { value: "counter", label: "عداد (+/−)" },
 ];
 
+export const WEEKDAY_OPTIONS = [
+  { value: 0, label: "الأحد" },
+  { value: 1, label: "الاثنين" },
+  { value: 2, label: "الثلاثاء" },
+  { value: 3, label: "الأربعاء" },
+  { value: 4, label: "الخميس" },
+  { value: 5, label: "الجمعة" },
+  { value: 6, label: "السبت" },
+] as const;
+
+export const DEFAULT_ACTIVE_WEEKDAYS: number[] = [0, 1, 2, 3, 4];
+
+const WEEKDAY_LABELS = WEEKDAY_OPTIONS.map((o) => o.label);
+
+/** O(n) — n ≤ 7 */
+export function parseActiveWeekdays(
+  rules: Record<string, unknown> | null | undefined,
+): number[] {
+  const raw = rules?.active_weekdays;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return [...DEFAULT_ACTIVE_WEEKDAYS];
+  }
+  const days = raw
+    .map((v) => Number(v))
+    .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6);
+  return days.length ? [...new Set(days)].sort((a, b) => a - b) : [...DEFAULT_ACTIVE_WEEKDAYS];
+}
+
+/** O(D) time, O(D) space */
+export function enumerateActiveCompetitionDates(
+  startDate: string,
+  endDate: string,
+  activeWeekdays: number[] = DEFAULT_ACTIVE_WEEKDAYS,
+): string[] {
+  const active = new Set(activeWeekdays);
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return [startDate];
+  }
+  const dates: string[] = [];
+  const cur = new Date(start);
+  while (cur.getTime() <= end.getTime()) {
+    if (active.has(cur.getDay())) {
+      dates.push(cur.toISOString().slice(0, 10));
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+  return dates.length ? dates : [startDate];
+}
+
+export function countActiveCompetitionDays(
+  startDate: string,
+  endDate: string,
+  activeWeekdays?: number[],
+): number {
+  return enumerateActiveCompetitionDates(
+    startDate,
+    endDate,
+    activeWeekdays ?? DEFAULT_ACTIVE_WEEKDAYS,
+  ).length;
+}
+
+export function defaultActiveLogDate(
+  activeDates: string[],
+  preferred = new Date().toISOString().slice(0, 10),
+): string {
+  if (!activeDates.length) return preferred;
+  if (activeDates.includes(preferred)) return preferred;
+  const past = activeDates.filter((d) => d <= preferred);
+  return past[past.length - 1] ?? activeDates[0];
+}
+
+export function formatActiveDayLabel(dayIndex: number, isoDate: string): string {
+  const d = new Date(`${isoDate}T00:00:00`);
+  const weekday = WEEKDAY_LABELS[d.getDay()] ?? "";
+  return `اليوم ${dayIndex} — ${weekday}`;
+}
+
 /** O(1) — inclusive calendar days between start and end (YYYY-MM-DD). */
 export function countCompetitionDays(startDate: string, endDate: string): number {
   const start = new Date(`${startDate}T00:00:00`);

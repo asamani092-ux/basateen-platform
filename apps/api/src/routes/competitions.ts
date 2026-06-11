@@ -20,8 +20,14 @@ import {
   normalizeTargetScope,
   queryPreviewStudents,
   countCompetitionDays,
+  countActiveCompetitionDays,
+  enumerateActiveCompetitionDates,
+  parseActiveWeekdays,
+  defaultActiveLogDate,
   seedCompetitionTasksFromCriteria,
   studentDailyFaces,
+  studentDailyFacesFromRules,
+  isMemorizationTrackingCategory,
   targetHizbCount,
   hasTaskInputType,
   hasCriterionId,
@@ -480,6 +486,11 @@ export async function handleEduCompetitionsRouter(
         ...DEFAULT_SIRD_SETTINGS,
         ...parseSirdSettings({ sird: sirdRaw }),
       };
+    }
+    if (catResult === "new_memorization" || catResult === "review") {
+      rules.active_weekdays = parseActiveWeekdays({
+        active_weekdays: body.rules?.active_weekdays,
+      });
     }
     const ins = await insertCompetitionRow(env, schema, {
       complexId: auth.complexId,
@@ -970,20 +981,30 @@ export async function handleEduCompetitionsRouter(
     const hasPoints = await tableHasColumn(env, "competition_logs", "points");
 
     if (request.method === "GET") {
-      const logDate =
-        url.searchParams.get("log_date")?.trim() ||
-        new Date().toISOString().slice(0, 10);
-
       const category = String(row.category ?? "recitation");
       const compRules = JSON.parse(String(row.rules_json ?? "{}")) as Record<
         string,
         unknown
       >;
       const memorizationUnit = memorizationUnitFromRules(compRules);
-      const competitionDays = countCompetitionDays(
-        String(row.start_date),
-        String(row.end_date),
-      );
+      const startDate = String(row.start_date);
+      const endDate = String(row.end_date);
+      const activeWeekdays = parseActiveWeekdays(compRules);
+      const activeDates = isMemorizationTrackingCategory(category)
+        ? enumerateActiveCompetitionDates(startDate, endDate, activeWeekdays)
+        : [];
+      const competitionDays =
+        category === "recitation"
+          ? countCompetitionDays(startDate, endDate)
+          : countActiveCompetitionDays(startDate, endDate, activeWeekdays);
+      const logDate = isMemorizationTrackingCategory(category) && activeDates.length
+        ? defaultActiveLogDate(
+            activeDates,
+            url.searchParams.get("log_date")?.trim() ||
+              new Date().toISOString().slice(0, 10),
+          )
+        : url.searchParams.get("log_date")?.trim() ||
+          new Date().toISOString().slice(0, 10);
       const sirdSettings = parseSirdSettings(compRules);
 
       const targetRows = engineTargets
@@ -1079,6 +1100,8 @@ export async function handleEduCompetitionsRouter(
         category,
         memorization_unit: memorizationUnit,
         competition_days: competitionDays,
+        active_weekdays: activeWeekdays,
+        active_dates: activeDates,
         start_date: row.start_date,
         end_date: row.end_date,
         tasks: tasksRes.results ?? [],
@@ -1090,14 +1113,14 @@ export async function handleEduCompetitionsRouter(
             target_amount: targetAmount,
             achieved_amount: Number(t.achieved_amount ?? 0),
             current_memorization: Number(t.current_memorization ?? 0),
-            daily_faces:
-              category === "new_memorization" || category === "review"
-                ? studentDailyFaces(
-                    category === "new_memorization" ? memorizationUnit : "juz",
-                    targetAmount,
-                    competitionDays,
-                  )
-                : undefined,
+            daily_faces: studentDailyFacesFromRules(
+              category,
+              memorizationUnit,
+              targetAmount,
+              startDate,
+              endDate,
+              compRules,
+            ),
           };
         }),
         scores: Object.fromEntries(scores),
@@ -1129,6 +1152,16 @@ export async function handleEduCompetitionsRouter(
         string,
         unknown
       >;
+      if (isMemorizationTrackingCategory(category)) {
+        const activeDates = enumerateActiveCompetitionDates(
+          String(row.start_date),
+          String(row.end_date),
+          parseActiveWeekdays(compRules),
+        );
+        if (!activeDates.includes(logDate)) {
+          return json({ error: "inactive_day", active_dates: activeDates }, 400);
+        }
+      }
       const sirdSettings = parseSirdSettings(compRules);
       const hasNotes = await tableHasColumn(env, "competition_logs", "notes");
 

@@ -84,6 +84,104 @@ export function formatMemorizationJuz(juz: number): string {
   return `${rounded} أجزاء`;
 }
 
+/** Sunday=0 … Saturday=6 (JavaScript getDay). */
+export const WEEKDAY_OPTIONS = [
+  { value: 0, label: "الأحد" },
+  { value: 1, label: "الاثنين" },
+  { value: 2, label: "الثلاثاء" },
+  { value: 3, label: "الأربعاء" },
+  { value: 4, label: "الخميس" },
+  { value: 5, label: "الجمعة" },
+  { value: 6, label: "السبت" },
+] as const;
+
+/** Default: Sun–Thu active, Fri–Sat off. */
+export const DEFAULT_ACTIVE_WEEKDAYS: number[] = [0, 1, 2, 3, 4];
+
+/** O(n) — n ≤ 7; parse active_weekdays from rules_json. */
+export function parseActiveWeekdays(
+  rules: Record<string, unknown> | null | undefined,
+): number[] {
+  const raw = rules?.active_weekdays;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return [...DEFAULT_ACTIVE_WEEKDAYS];
+  }
+  const days = raw
+    .map((v) => Number(v))
+    .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6);
+  return days.length ? [...new Set(days)].sort((a, b) => a - b) : [...DEFAULT_ACTIVE_WEEKDAYS];
+}
+
+/**
+ * O(D) time, O(D) space — D = calendar days in [start, end].
+ * Returns ISO dates matching active weekdays only.
+ */
+export function enumerateActiveCompetitionDates(
+  startDate: string,
+  endDate: string,
+  activeWeekdays: number[] = DEFAULT_ACTIVE_WEEKDAYS,
+): string[] {
+  const active = new Set(activeWeekdays);
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return [startDate];
+  }
+  const dates: string[] = [];
+  const cur = new Date(start);
+  while (cur.getTime() <= end.getTime()) {
+    if (active.has(cur.getDay())) {
+      dates.push(cur.toISOString().slice(0, 10));
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+  return dates.length ? dates : [startDate];
+}
+
+/** O(D) — count of active recitation days in range. */
+export function countActiveCompetitionDays(
+  startDate: string,
+  endDate: string,
+  activeWeekdays?: number[],
+): number {
+  return enumerateActiveCompetitionDates(
+    startDate,
+    endDate,
+    activeWeekdays ?? DEFAULT_ACTIVE_WEEKDAYS,
+  ).length;
+}
+
+/** O(D) — preferred date if active, else latest active ≤ preferred, else first active. */
+export function defaultActiveLogDate(
+  activeDates: string[],
+  preferred = new Date().toISOString().slice(0, 10),
+): string {
+  if (!activeDates.length) return preferred;
+  if (activeDates.includes(preferred)) return preferred;
+  const past = activeDates.filter((d) => d <= preferred);
+  return past[past.length - 1] ?? activeDates[0];
+}
+
+export function isMemorizationTrackingCategory(category: string): boolean {
+  return category === "new_memorization" || category === "review";
+}
+
+/** O(1) — daily faces using active-day count from rules (not calendar span). */
+export function studentDailyFacesFromRules(
+  category: string,
+  unit: MemorizationUnit,
+  targetAmount: number,
+  startDate: string,
+  endDate: string,
+  rules: Record<string, unknown>,
+): number | undefined {
+  if (!isMemorizationTrackingCategory(category)) return undefined;
+  const weekdays = parseActiveWeekdays(rules);
+  const dayCount = countActiveCompetitionDays(startDate, endDate, weekdays);
+  const u = category === "new_memorization" ? unit : "juz";
+  return studentDailyFaces(u, targetAmount, dayCount);
+}
+
 /** O(1) — inclusive calendar days between start and end (YYYY-MM-DD). */
 export function countCompetitionDays(startDate: string, endDate: string): number {
   const start = new Date(`${startDate}T00:00:00`);

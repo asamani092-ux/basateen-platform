@@ -68,6 +68,8 @@ export function LiveLogPage() {
   const [category, setCategory] = useState("recitation");
   const [memorizationUnit, setMemorizationUnit] = useState<MemorizationUnit>("juz");
   const [competitionDays, setCompetitionDays] = useState(1);
+  const [activeDates, setActiveDates] = useState<string[]>([]);
+  const [logDate, setLogDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [sirdSettings, setSirdSettings] = useState<SirdSettings>({
     ...DEFAULT_SIRD_SETTINGS,
   });
@@ -99,12 +101,16 @@ export function LiveLogPage() {
     setError(null);
   }, [token]);
 
-  const loadSession = useCallback(async () => {
+  const loadSession = useCallback(async (dateOverride?: string) => {
     if (!token || !pinVerified || !verifiedPinRef.current) return;
     setLoading(true);
     setError(null);
     try {
-      const data = await api.liveLogSession(token, verifiedPinRef.current);
+      const data = await api.liveLogSession(
+        token,
+        verifiedPinRef.current,
+        dateOverride,
+      );
       setKind(data.kind);
       setSessionId(Number(data.session.id ?? 0));
       setSessionName(String(data.session.name_ar ?? ""));
@@ -113,6 +119,13 @@ export function LiveLogPage() {
         data.session.memorization_unit === "hizb" ? "hizb" : "juz",
       );
       setCompetitionDays(Number(data.session.competition_days ?? 1));
+      const sessDates = data.session.active_dates;
+      if (Array.isArray(sessDates)) {
+        setActiveDates(sessDates as string[]);
+      }
+      if (data.session.log_date) {
+        setLogDate(String(data.session.log_date));
+      }
       const sess = data.session as {
         sird_settings?: SirdSettings;
         rules?: Record<string, unknown>;
@@ -402,6 +415,7 @@ export function LiveLogPage() {
         token,
         {
           student_id: studentId,
+          log_date: logDate,
           ...patch,
           metrics: {
             category,
@@ -572,6 +586,13 @@ export function LiveLogPage() {
           students={students}
           tasks={tasks}
           audit={audit}
+          activeDates={activeDates}
+          logDate={logDate}
+          onLogDateChange={(d) => {
+            setLogDate(d);
+            setAudit({});
+            void loadSession(d);
+          }}
           saving={saving}
           onPatchStudent={patchStudentAudit}
           onSaveStudent={(studentId) => saveAuditForStudent(studentId)}

@@ -468,8 +468,9 @@ export const api = {
       `/api/yom-himma/${sessionId}/live-log-token`,
       { method: "POST", body: "{}" },
     ),
-  liveLogSession: (token: string, pin: string) =>
-    request<{
+  liveLogSession: (token: string, pin: string, logDate?: string) => {
+    const qs = logDate ? `?log_date=${encodeURIComponent(logDate)}` : "";
+    return request<{
       kind: "yom_himma" | "competition";
       session: Record<string, unknown> & {
         category?: string;
@@ -477,14 +478,17 @@ export const api = {
         end_date?: string;
         memorization_unit?: string;
         competition_days?: number;
+        active_dates?: string[];
+        log_date?: string;
       };
       students: Array<Record<string, unknown>>;
       tasks?: Array<Record<string, unknown>>;
       audit?: Array<Record<string, unknown>>;
       logs?: Array<Record<string, unknown>>;
-    }>(`/api/live-log/${encodeURIComponent(token)}`, {
+    }>(`/api/live-log/${encodeURIComponent(token)}${qs}`, {
       headers: { "X-Live-Pin": pin },
-    }),
+    });
+  },
   liveLogUpsert: (
     token: string,
     body: Record<string, unknown>,

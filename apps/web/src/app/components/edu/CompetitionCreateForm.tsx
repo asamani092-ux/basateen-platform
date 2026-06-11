@@ -14,12 +14,17 @@ import {
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import {
+  ActiveDaysSelector,
+  defaultActiveWeekdaysState,
+} from "./ActiveDaysSelector";
+import {
   COMPETITION_CATEGORIES,
   COMPETITION_STAGE_OPTIONS,
-  countCompetitionDays,
+  countActiveCompetitionDays,
   DEFAULT_SIRD_SETTINGS,
   defaultTargetForCategory,
   isAdditiveCategory,
+  isMemorizationTrackingCategory,
   isRecitationCategory,
   studentDailyFaces,
   type SirdSettings,
@@ -92,6 +97,9 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
   const [sirdSettings, setSirdSettings] = useState<SirdSettings>({
     ...DEFAULT_SIRD_SETTINGS,
   });
+  const [activeWeekdays, setActiveWeekdays] = useState<number[]>(
+    defaultActiveWeekdaysState,
+  );
   const categoryRef = useRef(category);
   categoryRef.current = category;
 
@@ -251,10 +259,15 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
         target_scope: normalizeScopeForApi(targetScope),
         rules:
           category === "new_memorization"
-            ? { memorization_unit: memorizationUnit }
-            : category === "recitation"
-              ? { sird: sirdSettings }
-              : undefined,
+            ? {
+                memorization_unit: memorizationUnit,
+                active_weekdays: activeWeekdays,
+              }
+            : category === "review"
+              ? { active_weekdays: activeWeekdays }
+              : category === "recitation"
+                ? { sird: sirdSettings }
+                : undefined,
         targets: targets.map((t) => ({
           student_id: t.student_id,
           current_memorization: t.current_memorization,
@@ -269,11 +282,15 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
     }
   }
 
-  const competitionDays = countCompetitionDays(startDate, endDate);
+  const competitionDays = isMemorizationTrackingCategory(category)
+    ? countActiveCompetitionDays(startDate, endDate, activeWeekdays)
+    : 0;
   const sampleDailyFaces =
     category === "new_memorization" && targets.length > 0
       ? studentDailyFaces(memorizationUnit, targets[0].target_amount, competitionDays)
-      : null;
+      : category === "review" && targets.length > 0
+        ? studentDailyFaces("juz", targets[0].target_amount, competitionDays)
+        : null;
 
   const showCopyButton = !isAdditiveCategory(category);
 
@@ -412,6 +429,13 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
             </p>
           </div>
         )}
+        {isMemorizationTrackingCategory(category) && (
+          <ActiveDaysSelector
+            value={activeWeekdays}
+            onChange={setActiveWeekdays}
+            disabled={creating}
+          />
+        )}
         {category === "new_memorization" && (
           <div className="space-y-2">
             <Label style={tajawal}>وحدة الحفظ المستهدفة</Label>
@@ -429,8 +453,8 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
             </Select>
             <p className="text-xs text-muted-foreground" style={tajawal}>
               {memorizationUnit === "juz"
-                ? "كل جزء = 20 وجهًا · يُقسَّم على أيام المنافسة"
-                : "كل حزب = 10 وجوه · يُقسَّم على أيام المنافسة"}
+                ? "كل جزء = 20 وجهًا · يُقسَّم على أيام التسميع النشطة"
+                : "كل حزب = 10 وجوه · يُقسَّم على أيام التسميع النشطة"}
               {sampleDailyFaces != null
                 ? ` · مثال يومي: ${sampleDailyFaces} وجه`
                 : null}
@@ -625,9 +649,9 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
             </table>
             <p className="text-xs text-muted-foreground p-2" style={tajawal}>
               {isAdditiveCategory(category)
-                ? `حفظ جديد: العدد المستهدف = القيمة المضافة (${memorizationUnit === "juz" ? "أجزاء" : "أحزاب"}) · ${competitionDays} يومًا.`
+                ? `حفظ جديد: العدد المستهدف = القيمة المضافة (${memorizationUnit === "juz" ? "أجزاء" : "أحزاب"}) · ${competitionDays} يوم تسميع نشط.`
                 : category === "review"
-                  ? "مراجعة: المستهدف = أجزاء المراجعة من المحفوظ الحالي (قابل للتعديل)."
+                  ? `مراجعة: المستهدف = أجزاء المراجعة · ${competitionDays} يوم تسميع نشط.`
                   : "سرد: يمكن نسخ الحفظ الحالي أو تحديد رقم أقل — يُحوَّل تلقائيًا إلى أحزاب (جزء = حزبان)."}
             </p>
           </div>

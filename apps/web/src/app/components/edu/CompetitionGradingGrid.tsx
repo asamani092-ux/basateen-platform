@@ -11,6 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "../ui/table";
+import { ActiveDayTabs } from "./ActiveDayTabs";
 import { SirdPeriodGrid } from "./SirdPeriodGrid";
 import { TaskInputCell, type TaskInputCol } from "./TaskInputCell";
 import { api } from "../../lib/api-client";
@@ -72,6 +73,7 @@ function mapSirdPeriods(
 
 export function CompetitionGradingGrid({ competitionId }: Props) {
   const [logDate, setLogDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [activeDates, setActiveDates] = useState<string[]>([]);
   const [category, setCategory] = useState<CompetitionCategory>("recitation");
   const [competitionDays, setCompetitionDays] = useState(1);
   const [sirdSettings, setSirdSettings] = useState<SirdSettings>({
@@ -99,6 +101,11 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
       const res = await api.competitionsGradingGet(competitionId, logDate);
       setCategory((res.category as CompetitionCategory) ?? "recitation");
       setCompetitionDays(Number(res.competition_days ?? 1));
+      const dates = Array.isArray(res.active_dates)
+        ? (res.active_dates as string[])
+        : [];
+      setActiveDates(dates);
+      if (res.log_date) setLogDate(String(res.log_date));
       if (res.sird_settings) {
         setSirdSettings({
           base_hizb_score: Number(
@@ -280,15 +287,29 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
       )}
 
       <div className="flex flex-wrap gap-3 items-end">
-        <div className="space-y-1">
-          <Label style={tajawal}>تاريخ الرصد</Label>
-          <Input
-            type="date"
-            value={logDate}
-            onChange={(e) => setLogDate(e.target.value)}
-            className={ds.btnRound}
-          />
-        </div>
+        {isMemorizationTrackingCategory(category) && activeDates.length > 0 ? (
+          <div className="space-y-2 w-full">
+            <Label style={tajawal}>أيام التسميع</Label>
+            <ActiveDayTabs
+              activeDates={activeDates}
+              selectedDate={logDate}
+              disabled={loading || saving}
+              onSelect={(d) => {
+                setLogDate(d);
+              }}
+            />
+          </div>
+        ) : (
+          <div className="space-y-1">
+            <Label style={tajawal}>تاريخ الرصد</Label>
+            <Input
+              type="date"
+              value={logDate}
+              onChange={(e) => setLogDate(e.target.value)}
+              className={ds.btnRound}
+            />
+          </div>
+        )}
         <Button type="button" variant="outline" className={ds.btnRound} onClick={() => void load()} style={tajawal}>
           تحميل
         </Button>

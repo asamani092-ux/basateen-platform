@@ -16,6 +16,7 @@ import {
   type SirdSettings,
 } from "../../lib/competition-engine";
 import { CompetitionLiveGrid } from "../../components/edu/CompetitionLiveGrid";
+import { HizbSessionGrid } from "../../components/edu/HizbSessionGrid";
 import { SirdPeriodGrid } from "../../components/edu/SirdPeriodGrid";
 import { TaskInputCell, type TaskInputCol } from "../../components/edu/TaskInputCell";
 import { ds, tajawal } from "../../lib/design-system";

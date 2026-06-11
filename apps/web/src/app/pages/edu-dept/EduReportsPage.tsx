@@ -27,9 +27,9 @@ import {
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { cn } from "../../components/ui/utils";
-import { defaultDateRange } from "../../lib/local-iso-date";
-import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
-import { ds, tajawal } from "../../lib/design-system";
+import {
+  formatFacesToText,
+} from "../../lib/quran-memorization";
 
 type CircleReport = Awaited<ReturnType<typeof api.eduDeptReportsProgress>>;
 
@@ -52,6 +52,8 @@ export function EduReportsPage() {
 
   const [studentId, setStudentId] = useState<number | null>(null);
   const [profile, setProfile] = useState<EduEducationalProfile | null>(null);
+  const [profileMemorization, setProfileMemorization] =
+    useState<MemorizationProfileData | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
 
   const [startDate, setStartDate] = useState(initial.start);
@@ -95,6 +97,17 @@ export function EduReportsPage() {
     try {
       const res = await api.eduDeptEducationalProfile({ person_id: studentId });
       setProfile(res);
+      const person = res.person as EduEducationalProfile["person"];
+      const faces =
+        person.memorization_faces != null ? Number(person.memorization_faces) : null;
+      const text =
+        person.memorization_display?.trim() ||
+        person.memorization_amount?.trim() ||
+        (faces != null && faces > 0 ? formatFacesToText(faces) : null);
+      setProfileMemorization({
+        faces: faces != null && faces > 0 ? faces : null,
+        text: text || null,
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل تحميل الكشف التعليمي");
       setProfile(null);
@@ -181,6 +194,7 @@ export function EduReportsPage() {
                 onChange={(id) => {
                   setStudentId(id);
                   setProfile(null);
+                  setProfileMemorization(null);
                 }}
               />
             </div>
@@ -200,10 +214,13 @@ export function EduReportsPage() {
               جاري تحميل السجل التراكمي…
             </p>
           ) : profile ? (
-            <EduEducationalProfileReport
-              report={profile}
-              onPrint={() => printWithClass("printing-edu-detail-report")}
-            />
+            <div className="space-y-4">
+              <MemorizationProfileCard data={profileMemorization} />
+              <EduEducationalProfileReport
+                report={profile}
+                onPrint={() => printWithClass("printing-edu-detail-report")}
+              />
+            </div>
           ) : (
             <p className={`${ds.alert.info} print:hidden`} style={tajawal}>
               ابحث عن طالب ثم اعرض كشفه التعليمي الكامل.

@@ -9,6 +9,8 @@ export type AdminReportStudentRow = {
   stage_id: number | null;
   circle_name: string | null;
   track_name: string | null;
+  memorization_faces?: number | null;
+  memorization_amount?: string | null;
 };
 
 async function studentNameSelect(env: Env): Promise<string> {
@@ -51,9 +53,17 @@ export async function fetchStudentForAdminReport(
   const guardianSelect = await studentColumn(env, "guardian_phone");
   const stageSelect = await studentColumn(env, "stage_id");
 
+  const hasMemFaces = await tableHasColumn(env, "students", "memorization_faces");
+  const hasMemAmount = await tableHasColumn(env, "students", "memorization_amount");
+  const memFacesSelect = hasMemFaces ? "s.memorization_faces" : "NULL AS memorization_faces";
+  const memAmountSelect = hasMemAmount
+    ? "s.memorization_amount"
+    : "NULL AS memorization_amount";
+
   const baseSql = `
     SELECT s.id, ${nameSelect}, ${guardianSelect}, ${stageSelect},
-           c.name_ar AS circle_name, t.name_ar AS track_name
+           c.name_ar AS circle_name, t.name_ar AS track_name,
+           ${memFacesSelect}, ${memAmountSelect}
     FROM students s
     ${historyJoin}
     ${circleJoin}
@@ -63,14 +73,34 @@ export async function fetchStudentForAdminReport(
   const byId = await env.DB.prepare(`${baseSql} AND s.id = ?`)
     .bind(complexId, personId)
     .first<AdminReportStudentRow>();
-  if (byId) return byId;
+  if (byId) {
+    const mem = resolveMemorizationFields({
+      memorization_faces: byId.memorization_faces,
+      memorization_amount: byId.memorization_amount,
+    });
+    return {
+      ...byId,
+      memorization_faces: mem.faces,
+      memorization_amount: mem.text,
+    };
+  }
 
   if (!(await tableHasColumn(env, "students", "national_id"))) return null;
 
   const nationalRef = String(personRef).trim();
   if (!nationalRef) return null;
 
-  return env.DB.prepare(`${baseSql} AND s.national_id = ?`)
+  const byNational = await env.DB.prepare(`${baseSql} AND s.national_id = ?`)
     .bind(complexId, nationalRef)
     .first<AdminReportStudentRow>();
+  if (!byNational) return null;
+  const memNational = resolveMemorizationFields({
+    memorization_faces: byNational.memorization_faces,
+    memorization_amount: byNational.memorization_amount,
+  });
+  return {
+    ...byNational,
+    memorization_faces: memNational.faces,
+    memorization_amount: memNational.text,
+  };
 }

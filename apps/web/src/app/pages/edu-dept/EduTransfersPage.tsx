@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { ArrowLeftRight, ChevronDown, Plus } from "lucide-react";
 import {
   Dialog,
@@ -154,6 +155,7 @@ export function EduTransfersPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  const [rejectConfirmId, setRejectConfirmId] = useState<number | null>(null);
   const [approveReqId, setApproveReqId] = useState<number | null>(null);
   const [approvePlacementQ, setApprovePlacementQ] = useState("");
   const [approvePlacements, setApprovePlacements] = useState<PlacementOpt[]>([]);
@@ -306,6 +308,8 @@ export function EduTransfersPage() {
           : {}),
       });
       setSuccess(status === "approved" ? "تم اعتماد النقل." : "تم الرفض.");
+      toast.success(status === "approved" ? "تم اعتماد النقل" : "تم رفض الطلب");
+      setRejectConfirmId(null);
       await loadPending();
       if (historyOpen) await loadHistory(historyQ);
     } catch (e) {
@@ -337,6 +341,7 @@ export function EduTransfersPage() {
         note: reason.trim() || "نقل إداري",
       });
       setSuccess("تم حفظ النقل بنجاح.");
+      toast.success("تم حفظ النقل بنجاح");
       setStudentId(null);
       setSelectedPlacement(null);
       setCurrentPlacement(null);
@@ -440,8 +445,9 @@ export function EduTransfersPage() {
                       />
                       <TableIconAction
                         kind="reject"
+                        label="رفض"
                         disabled={busyId === r.id}
-                        onClick={() => resolveRequest(r.id, "rejected")}
+                        onClick={() => setRejectConfirmId(r.id)}
                       />
                     </TableActionsCell>
                   </TableRow>
@@ -630,6 +636,46 @@ export function EduTransfersPage() {
               style={tajawal}
             >
               اعتماد النقل
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={rejectConfirmId != null}
+        onOpenChange={(open) => {
+          if (!open) setRejectConfirmId(null);
+        }}
+      >
+        <DialogContent className="max-w-sm" dir="rtl">
+          <DialogHeader>
+            <DialogTitle style={tajawal}>تأكيد رفض الطلب</DialogTitle>
+            <DialogDescription style={tajawal}>
+              سيتم رفض طلب النقل ولن يُنفَّذ أي تغيير في الإسناد.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-2 justify-end pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              className={ds.btnRound}
+              onClick={() => setRejectConfirmId(null)}
+              style={tajawal}
+            >
+              إلغاء
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              className={ds.btnRound}
+              disabled={rejectConfirmId == null || busyId != null}
+              onClick={() => {
+                if (rejectConfirmId == null) return;
+                void resolveRequest(rejectConfirmId, "rejected");
+              }}
+              style={tajawal}
+            >
+              تأكيد الرفض
             </Button>
           </div>
         </DialogContent>

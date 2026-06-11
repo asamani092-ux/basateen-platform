@@ -1,6 +1,6 @@
 import type { Env } from "../types";
 import { hasTable, tableHasColumn, historyCircleColumn, activePlacementSql } from "../lib/db-schema";
-import type { ScopeMode } from "../lib/dept-scope";
+import { formatFacesToText } from "../lib/quran-memorization";
 import {
   buildStudentsInScopeWhere,
   loadUserScope,
@@ -120,15 +120,27 @@ export async function handleEduDeptExtendedRoutes(
       return json({ error: "student_out_of_scope" }, 403);
     }
 
+    const hasMemFaces = await tableHasColumn(env, "students", "memorization_faces");
+    const memFacesCol = hasMemFaces ? "s.memorization_faces" : "NULL AS memorization_faces";
+    const memAmountCol = (await tableHasColumn(env, "students", "memorization_amount"))
+      ? "s.memorization_amount"
+      : "NULL AS memorization_amount";
+
     const student = await env.DB.prepare(
       `SELECT s.id, s.full_name_ar, s.phone, s.stage_id, s.school_grade,
-              s.admission_status, s.memorization_amount, s.guardian_phone
+              s.admission_status, s.guardian_phone,
+              ${memAmountCol}, ${memFacesCol}
        FROM students s WHERE s.id = ? AND s.complex_id = ?`,
     )
       .bind(studentId, auth.complexId)
       .first<Record<string, unknown>>();
 
     if (!student) return json({ error: "not_found" }, 404);
+
+    const memorization = resolveMemorizationFields({
+      memorization_faces: student.memorization_faces,
+      memorization_amount: student.memorization_amount,
+    });
 
     const current = await env.DB.prepare(
       `SELECT h.circle_id, c.name_ar AS circle_name, t.name_ar AS track_name
@@ -181,7 +193,12 @@ export async function handleEduDeptExtendedRoutes(
       .all();
 
     return json({
-      student,
+      student: {
+        ...student,
+        memorization_faces: memorization.faces,
+        memorization_amount: memorization.text,
+        memorization_display: memorization.text,
+      },
       current: current ?? null,
       edu_plan: eduPlan
         ? {

@@ -22,6 +22,7 @@ import {
   resolvePlacementLabels,
 } from "../lib/edu-transfer-log";
 import { fetchStudentForAdminReport } from "../lib/admin-student-report";
+import { resolveMemorizationFields } from "../lib/quran-memorization";
 import { resolveAttendanceTableName } from "../lib/student-attendance-db";
 import {
   transferStudentCircle,
@@ -2081,6 +2082,11 @@ export async function handleEduDeptCoreRouter(
     const placementLabel =
       [student.circle_name, student.track_name].filter(Boolean).join(" · ") || null;
 
+    const memorization = resolveMemorizationFields({
+      memorization_faces: student.memorization_faces,
+      memorization_amount: student.memorization_amount,
+    });
+
     return json({
       type: "educational",
       complex_name: complex?.name_ar ?? null,
@@ -2088,6 +2094,9 @@ export async function handleEduDeptCoreRouter(
         id: student.id,
         full_name_ar: student.full_name_ar,
         current_placement: placementLabel,
+        memorization_faces: memorization.faces,
+        memorization_amount: memorization.text,
+        memorization_display: memorization.text,
       },
       criteria: criteria.map((c) => ({ id: c.id, name: c.name, type: c.type })),
       summary: {

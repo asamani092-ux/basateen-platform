@@ -57,6 +57,12 @@ export function EduSettingsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<TaskForm>(emptyForm());
 
+  useEffect(() => {
+    if (!success) return;
+    const t = window.setTimeout(() => setSuccess(null), 4000);
+    return () => window.clearTimeout(t);
+  }, [success]);
+
   const totalScore = useMemo(() => totalEnabledMaxScore(criteria), [criteria]);
   const positiveScore = useMemo(() => totalEnabledWeight(criteria), [criteria]);
 

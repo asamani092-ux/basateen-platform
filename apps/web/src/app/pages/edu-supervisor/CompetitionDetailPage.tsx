@@ -43,7 +43,10 @@ import {
   type SirdSettings,
 } from "../../lib/competition-engine";
 import { matchesArabicName } from "../../lib/attendance-search";
-import { defaultDateRange } from "../../lib/local-iso-date";
+import {
+  convertToFaces,
+  formatFacesToText,
+} from "../../lib/quran-memorization";
 import { ds, tajawal } from "../../lib/design-system";
 
 type TabId = "dashboard" | "targets" | "tasks" | "grading" | "live";
@@ -64,6 +67,11 @@ type TargetRow = {
   target_amount: number | string;
   achieved_amount?: number | string;
 };
+
+function memorizationJuzLabel(juz: number | string): string {
+  const faces = convertToFaces(Number(juz) || 0, "juz");
+  return formatFacesToText(faces) || "—";
+}
 
 function printCompetitionDashboard() {
   document.body.classList.add("printing-competition-dashboard");
@@ -866,7 +874,7 @@ export function CompetitionDetailPage() {
                     <thead className="bg-muted/40">
                       <tr>
                         <th className="text-right p-2">الطالب</th>
-                        <th className="text-right p-2">الحفظ عند البدء</th>
+                        <th className="text-right p-2">المحفوظ عند البدء</th>
                         <th className="text-right p-2">المستهدف</th>
                         <th className="text-right p-2">المُنجَز</th>
                         <th className="text-right p-2 print:hidden">إجراءات</th>
@@ -876,7 +884,9 @@ export function CompetitionDetailPage() {
                       {targets.map((t) => (
                         <tr key={t.student_id} className="border-t">
                           <td className="p-2">{t.full_name_ar}</td>
-                          <td className="p-2 tabular-nums">{String(t.current_memorization)}</td>
+                          <td className="p-2 tabular-nums">
+                            {memorizationJuzLabel(t.current_memorization)}
+                          </td>
                           <td className="p-2 tabular-nums">
                             {editingTargetId === t.student_id ? (
                               <Input

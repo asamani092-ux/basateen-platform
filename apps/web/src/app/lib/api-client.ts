@@ -782,7 +782,11 @@ export const api = {
     }>("/api/edu-dept/scope"),
   eduStudentProfile: (studentId: number) =>
     request<{
-      student: Record<string, unknown>;
+      student: Record<string, unknown> & {
+        memorization_faces?: number | null;
+        memorization_amount?: string | null;
+        memorization_display?: string | null;
+      };
       current: Record<string, unknown> | null;
       edu_plan: { targets: Record<string, unknown>; notes: string | null };
       teacher_marks: Array<Record<string, unknown>>;

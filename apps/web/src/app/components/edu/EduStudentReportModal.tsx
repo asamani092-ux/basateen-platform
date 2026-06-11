@@ -17,6 +17,9 @@ export type EduEducationalProfile = {
     id: number;
     full_name_ar: string;
     current_placement: string | null;
+    memorization_faces?: number | null;
+    memorization_amount?: string | null;
+    memorization_display?: string | null;
   };
   criteria: Array<{ id: string; name: string; type: string }>;
   summary: {
@@ -60,6 +63,11 @@ export function EduEducationalProfileReport({ report, onPrint }: Props) {
           {report.person.full_name_ar}
           {report.person.current_placement ? ` · ${report.person.current_placement}` : ""}
         </p>
+        {report.person.memorization_display ? (
+          <p className="text-xs text-muted-foreground mt-1" style={tajawal}>
+            المحفوظ: {report.person.memorization_display}
+          </p>
+        ) : null}
         {report.summary.first_record_date && (
           <p className="text-xs mt-1" style={tajawal}>
             من {report.summary.first_record_date} إلى {report.summary.last_record_date}

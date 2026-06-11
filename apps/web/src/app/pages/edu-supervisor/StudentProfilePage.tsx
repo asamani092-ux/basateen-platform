@@ -7,6 +7,10 @@ import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { stageLabel } from "../../lib/stages";
 import { ds, tajawal } from "../../lib/design-system";
+import {
+  MemorizationProfileCard,
+  type MemorizationProfileData,
+} from "../../components/edu/MemorizationProfileCard";
 
 type Targets = {
   hifz_pages?: number;
@@ -27,6 +31,7 @@ export function StudentProfilePage() {
   const [notes, setNotes] = useState("");
   const [marks, setMarks] = useState<Array<Record<string, unknown>>>([]);
   const [compSummary, setCompSummary] = useState<Array<Record<string, unknown>>>([]);
+  const [memorization, setMemorization] = useState<MemorizationProfileData | null>(null);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -38,6 +43,18 @@ export function StudentProfilePage() {
       const st = res.student as Record<string, unknown>;
       setName(String(st.full_name_ar ?? ""));
       setStageId(st.stage_id != null ? Number(st.stage_id) : null);
+      const faces =
+        st.memorization_faces != null ? Number(st.memorization_faces) : null;
+      const text =
+        typeof st.memorization_display === "string"
+          ? st.memorization_display
+          : typeof st.memorization_amount === "string"
+            ? st.memorization_amount
+            : null;
+      setMemorization({
+        faces: Number.isFinite(faces) && faces > 0 ? faces : null,
+        text,
+      });
       const cur = res.current as { circle_name?: string } | null;
       setCircleName(cur?.circle_name ?? null);
       const plan = res.edu_plan as { targets?: Targets; notes?: string | null };
@@ -97,18 +114,18 @@ export function StudentProfilePage() {
         {stageLabel(stageId)} · {circleName ?? "غير مسكّن"}
       </p>
 
+      <MemorizationProfileCard data={memorization} loading={loading} />
+
       <Card className={ds.card}>
-        <CardHeader>
-          <CardTitle style={tajawal}>الخطة التعليمية (مشرف تعليمي)</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <Field
-            label="حفظ (صفحات/يوم)"
+            label="حفظ (وجه/يوم)"
             value={targets.hifz_pages ?? ""}
             onChange={(v) => setTargets((t) => ({ ...t, hifz_pages: Number(v) || 0 }))}
           />
           <Field
-            label="مراجعة (صفحات/يوم)"
+            label="مراجعة (وجه/يوم)"
             value={targets.muraja_pages ?? ""}
             onChange={(v) =>
               setTargets((t) => ({ ...t, muraja_pages: Number(v) || 0 }))

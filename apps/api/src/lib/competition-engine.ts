@@ -1635,6 +1635,61 @@ export async function computeAchievedByStudent(
   return out;
 }
 
+/**
+ * O(L) time, O(S) space — L = log rows, S = students.
+ * For new_memorization close/sync: sum daily face achievement (metrics_json.juz_done)
+ * across all days, convert to juz; merge with memorization-task totals (max per student).
+ */
+export async function computeNewMemorizationAchievedJuzByStudent(
+  env: Env,
+  competitionId: number,
+  memorizationTaskId: number | null,
+): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+
+  if (await hasEngineLogs(env)) {
+    const hasMetricsJson = await tableHasColumn(env, "competition_logs", "metrics_json");
+    if (hasMetricsJson) {
+      const rows = await env.DB.prepare(
+        `SELECT student_id, metrics_json FROM competition_logs WHERE competition_id = ?`,
+      )
+        .bind(competitionId)
+        .all<{ student_id: number; metrics_json: string }>();
+
+      const faceSum = new Map<number, number>();
+      for (const row of rows.results ?? []) {
+        const sid = Number(row.student_id);
+        const metrics = parseCompetitionMetricsJson(row.metrics_json);
+        const faces = Math.max(0, Number(metrics.juz_done ?? 0));
+        if (faces > 0) {
+          faceSum.set(sid, (faceSum.get(sid) ?? 0) + faces);
+        }
+      }
+      for (const [sid, faces] of faceSum) {
+        out.set(sid, memorizationPointsToJuz(faces));
+      }
+    }
+  }
+
+  if (memorizationTaskId) {
+    const allLogs = await loadCompetitionLogsForLeaderboard(env, competitionId);
+    const memByStudent = sumMemorizationLogPoints(allLogs, memorizationTaskId);
+    for (const [sid, pts] of memByStudent) {
+      const fromTask = memorizationPointsToJuz(pts);
+      out.set(sid, Math.max(out.get(sid) ?? 0, fromTask));
+    }
+  }
+
+  if (!out.size) {
+    const fallback = await computeAchievedByStudent(env, competitionId);
+    for (const [sid, val] of fallback) {
+      if (val > 0) out.set(sid, val);
+    }
+  }
+
+  return out;
+}
+
 export type CompetitionDetailBundle = {
   targets: Array<Record<string, unknown>>;
   tasks: Array<Record<string, unknown>>;

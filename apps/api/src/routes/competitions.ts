@@ -2,7 +2,7 @@ import type { Env } from "../types";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 import { hasTable, tableHasColumn } from "../lib/db-schema";
 import {
-  computeAchievedByStudent,
+  computeNewMemorizationAchievedJuzByStudent,
   deleteCompetitionCascade,
   deleteCompetitionTask,
   deleteStudentTarget,
@@ -634,19 +634,11 @@ export async function handleEduCompetitionsRouter(
     const taskMeta = await loadCompetitionTaskMeta(env, competitionId);
     const memTask = taskMeta.find((t) => t.criterion_id === "memorization");
 
-    const allLogs = await loadCompetitionLogsForLeaderboard(env, competitionId);
-    const memByStudent = memTask
-      ? sumMemorizationLogPoints(allLogs, memTask.id)
-      : new Map<number, number>();
-
-    const achievedMap = memTask
-      ? new Map(
-          [...memByStudent.entries()].map(([sid, pts]) => [
-            sid,
-            memorizationPointsToJuz(pts),
-          ]),
-        )
-      : await computeAchievedByStudent(env, competitionId);
+    const achievedMap = await computeNewMemorizationAchievedJuzByStudent(
+      env,
+      competitionId,
+      memTask?.id ?? null,
+    );
 
     const hasMemCol = await tableHasColumn(env, "students", "memorization_amount");
     const updated: Array<{ student_id: number; new_memorization: number }> = [];

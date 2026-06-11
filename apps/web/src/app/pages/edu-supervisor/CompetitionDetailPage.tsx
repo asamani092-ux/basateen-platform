@@ -308,9 +308,12 @@ export function CompetitionDetailPage() {
 
   async function syncMemorization() {
     if (!id) return;
+    const alreadyClosed = comp?.status === "closed";
     if (
       !window.confirm(
-        "سيتم إنهاء المنافسة وتحديث مقدار الحفظ في سجل الطلاب للحفظ الجديد فقط. متابعة؟",
+        alreadyClosed
+          ? "سيتم إعادة حساب الإنجاز من سجلات الرصد وتحديث المحفوظ في ملفات الطلاب. متابعة؟"
+          : "سيتم إنهاء المنافسة وتحديث مقدار الحفظ في سجل الطلاب (من إنجاز اليوم + مهمة الحفظ). متابعة؟",
       )
     ) {
       return;
@@ -320,7 +323,13 @@ export function CompetitionDetailPage() {
     try {
       const res = await api.competitionsSyncMemorization(id);
       await load();
-      toast.success(`تم التحديث لـ ${res.updated_count} طالب`);
+      if (res.updated_count > 0) {
+        toast.success(`تم التحديث لـ ${res.updated_count} طالب`);
+      } else {
+        toast.warning(
+          "لم يُحدَّث أي طالب — تأكد من حفظ الرصد (إنجاز اليوم أو مهمة الحفظ) قبل المزامنة.",
+        );
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل التزامن");
     } finally {
@@ -481,7 +490,7 @@ export function CompetitionDetailPage() {
                 <Pencil className="w-4 h-4" />
                 {editOpen ? "إغلاق التعديل" : "تعديل البيانات"}
               </Button>
-            {isNewMemorization && comp.status !== "closed" && (
+            {isNewMemorization && (
               <Button
                 type="button"
                 variant="default"
@@ -491,7 +500,9 @@ export function CompetitionDetailPage() {
                 style={tajawal}
               >
                 <RefreshCw className="w-4 h-4" />
-                إنهاء المنافسة وتحديث المحفوظ
+                {comp.status === "closed"
+                  ? "إعادة مزامنة المحفوظ"
+                  : "إنهاء المنافسة وتحديث المحفوظ"}
               </Button>
             )}
             {canCloseWithoutSync && (

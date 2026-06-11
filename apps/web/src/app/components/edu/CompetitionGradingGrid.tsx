@@ -285,8 +285,14 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
           ? { day_achievement: dayAchievementPayload([studentId]) }
           : {}),
       });
+      setStudents((prev) =>
+        prev.map((s) =>
+          s.student_id === studentId
+            ? { ...s, target_amount: Number(targets[studentId] ?? s.target_amount) }
+            : s,
+        ),
+      );
       setSuccess("تم حفظ رصد الطالب.");
-      await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل حفظ الرصد");
     } finally {

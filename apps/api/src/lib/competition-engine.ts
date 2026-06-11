@@ -1189,6 +1189,37 @@ export async function upsertStudentTargets(
   }
 }
 
+/** O(T) time / O(1) extra space — upsert only provided targets; never removes other students */
+export async function patchStudentTargets(
+  env: Env,
+  competitionId: number,
+  targets: StudentTargetInput[],
+): Promise<void> {
+  const valid = targets.filter((t) => t.student_id);
+  if (!valid.length) return;
+
+  const chunkSize = 50;
+  for (let i = 0; i < valid.length; i += chunkSize) {
+    const chunk = valid.slice(i, i + chunkSize);
+    const stmts = chunk.map((t) =>
+      env.DB.prepare(
+        `INSERT INTO competition_targets
+         (competition_id, student_id, current_memorization, target_amount)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(competition_id, student_id) DO UPDATE SET
+           target_amount = excluded.target_amount,
+           current_memorization = COALESCE(excluded.current_memorization, current_memorization)`,
+      ).bind(
+        competitionId,
+        t.student_id,
+        Number(t.current_memorization) || 0,
+        Number(t.target_amount) || 0,
+      ),
+    );
+    await env.DB.batch(stmts);
+  }
+}
+
 /** O(L) — single JOIN query over competition_logs */
 export async function computeAchievedByStudent(
   env: Env,

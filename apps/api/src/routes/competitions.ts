@@ -55,6 +55,7 @@ import {
   type MemorizationUnit,
   type StudentTargetInput,
   type TargetScope,
+  patchStudentTargets,
   upsertStudentTargets,
   updateStudentTargetAmount,
 } from "../lib/competition-engine";
@@ -1440,7 +1441,7 @@ export async function handleEduCompetitionsRouter(
             target_amount: Number(t.target_amount ?? 0),
           };
         });
-        await upsertStudentTargets(env, id, merged);
+        await patchStudentTargets(env, id, merged);
       }
 
       const dayAchievement = body.day_achievement ?? [];

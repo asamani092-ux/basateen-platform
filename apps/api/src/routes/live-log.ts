@@ -23,9 +23,9 @@ import {
   parseSirdSettings,
   studentDailyFacesFromRules,
   targetHizbCount,
-  upsertCompetitionTaskLogRecords,
   upsertSirdPeriodRecord,
 } from "../lib/competition-engine";
+import { saveCompetitionGradingBulk } from "../lib/competition-grading-save";
 import { FIELD_EDU_ROLES } from "../lib/roles";
 
 type SessionKind = "yom_himma" | "competition";
@@ -558,10 +558,6 @@ export async function handleLiveLogRouter(
       }
     }
 
-    const hasMetricsJson = await tableHasColumn(env, "competition_logs", "metrics_json");
-    const hasTaskId = await tableHasColumn(env, "competition_logs", "task_id");
-    const hasPoints = await tableHasColumn(env, "competition_logs", "points");
-
     const taskPointsRaw = metrics.task_points as Record<string, number> | undefined;
     const records: Array<{ task_id: number; points: number }> = [];
     if (taskPointsRaw && typeof taskPointsRaw === "object") {
@@ -572,7 +568,7 @@ export async function handleLiveLogRouter(
     }
 
     const engineTasksPost = await hasEngineTasks(env);
-    if (hasTaskId && hasPoints && engineTasksPost) {
+    if (engineTasksPost) {
       const hasCritId = await tableHasColumn(env, "competition_tasks", "criterion_id");
       const critCol = hasCritId ? ", criterion_id" : "";
       const taskRows = await env.DB.prepare(
@@ -589,29 +585,24 @@ export async function handleLiveLogRouter(
         if (existing) existing.points = Math.max(existing.points, juzDone);
         else records.push({ task_id: memTask.id, points: juzDone });
       }
-      if (records.length) {
-        await upsertCompetitionTaskLogRecords(
-          env,
-          session.id,
-          studentId,
-          logDate,
-          records,
-          null,
-        );
-      }
-    }
 
-    if (hasMetricsJson) {
-      await env.DB.prepare(
-        `INSERT INTO competition_logs
-         (competition_id, student_id, log_date, metrics_json, source, recorded_by_user_id)
-         VALUES (?, ?, ?, ?, 'live_log', NULL)
-         ON CONFLICT(competition_id, student_id, log_date) DO UPDATE SET
-           metrics_json = excluded.metrics_json,
-           recorded_at = datetime('now')`,
-      )
-        .bind(session.id, studentId, logDate, JSON.stringify(metrics))
-        .run();
+      await saveCompetitionGradingBulk(
+        env,
+        session.id,
+        [
+          {
+            student_id: studentId,
+            records,
+            juz_done: juzDone > 0 ? juzDone : undefined,
+            metrics,
+          },
+        ],
+        {
+          logDate,
+          recordedByUserId: null,
+          source: "live_log",
+        },
+      );
     }
 
     if (await hasTable(env, "competition_audit_trail")) {

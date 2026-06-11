@@ -179,6 +179,8 @@ export type HydratedCompetitionAudit = {
   task_points: Record<number, number>;
 };
 
+export type CompetitionGradingSource = "edu_supervisor" | "live_log";
+
 /** O(T) — aggregate target juz/hizb/faces for unified metrics card. */
 export function aggregateTargetVolumeMetrics(
   category: string,
@@ -263,69 +265,129 @@ export async function loadCompetitionDayLogsHydrated(
   const out = new Map<number, HydratedCompetitionAudit>();
   if (!(await hasEngineLogs(env))) return out;
 
-  const hasTaskId = await tableHasColumn(env, "competition_logs", "task_id");
-  const hasPoints = await tableHasColumn(env, "competition_logs", "points");
   const hasMetricsJson = await tableHasColumn(env, "competition_logs", "metrics_json");
+  if (!hasMetricsJson) return out;
 
-  if (hasTaskId && hasPoints) {
-    const rows = await env.DB.prepare(
-      `SELECT student_id, task_id, points
-       FROM competition_logs
-       WHERE competition_id = ? AND log_date = ? AND task_id IS NOT NULL`,
-    )
-      .bind(competitionId, logDate)
-      .all<{ student_id: number; task_id: number; points: number }>();
+  const rows = await env.DB.prepare(
+    `SELECT student_id, metrics_json
+     FROM competition_logs
+     WHERE competition_id = ? AND log_date = ?`,
+  )
+    .bind(competitionId, logDate)
+    .all<{ student_id: number; metrics_json: string }>();
 
-    for (const r of rows.results ?? []) {
-      const sid = Number(r.student_id);
-      const cur = out.get(sid) ?? {
-        student_id: sid,
-        juz_done: 0,
-        task_points: {},
-      };
-      cur.task_points[Number(r.task_id)] = Number(r.points ?? 0);
-      out.set(sid, cur);
+  for (const r of rows.results ?? []) {
+    const sid = Number(r.student_id);
+    let metrics: Record<string, unknown> = {};
+    try {
+      metrics = JSON.parse(String(r.metrics_json ?? "{}")) as Record<string, unknown>;
+    } catch {
+      metrics = {};
     }
+    const taskPoints: Record<number, number> = {};
+    const tp = metrics.task_points as Record<string, number> | undefined;
+    if (tp && typeof tp === "object") {
+      for (const [k, v] of Object.entries(tp)) {
+        const tid = Number(k);
+        if (tid) taskPoints[tid] = Number(v) || 0;
+      }
+    }
+    out.set(sid, {
+      student_id: sid,
+      juz_done: Number(metrics.juz_done ?? 0) || 0,
+      task_points: taskPoints,
+    });
   }
 
-  if (hasMetricsJson) {
-    const rows = await env.DB.prepare(
-      `SELECT student_id, metrics_json
-       FROM competition_logs
-       WHERE competition_id = ? AND log_date = ?`,
-    )
-      .bind(competitionId, logDate)
-      .all<{ student_id: number; metrics_json: string }>();
+  return out;
+}
 
-    for (const r of rows.results ?? []) {
-      const sid = Number(r.student_id);
-      let metrics: Record<string, unknown> = {};
-      try {
-        metrics = JSON.parse(String(r.metrics_json ?? "{}")) as Record<string, unknown>;
-      } catch {
-        metrics = {};
+/**
+ * O(N) time / O(N) space — N = rows; batched INSERT ON CONFLICT per chunk (50).
+ * Single row per (competition_id, student_id, log_date); all task data in metrics_json.
+ */
+export async function bulkUpsertCompetitionDayLogs(
+  env: Env,
+  competitionId: number,
+  logDate: string,
+  rows: Array<{
+    student_id: number;
+    metrics: Record<string, unknown>;
+    tasks_snapshot?: string | null;
+  }>,
+  recordedByUserId: number | null = null,
+  source: CompetitionGradingSource = "edu_supervisor",
+): Promise<void> {
+  if (!(await hasEngineLogs(env))) return;
+  const hasMetricsJson = await tableHasColumn(env, "competition_logs", "metrics_json");
+  if (!hasMetricsJson || !rows.length) return;
+
+  const hasTasksSnapshot = await tableHasColumn(env, "competition_logs", "tasks_snapshot");
+  const hasSource = await tableHasColumn(env, "competition_logs", "source");
+  const chunkSize = 50;
+
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const chunk = rows.slice(i, i + chunkSize);
+    const stmts = chunk.map((row) => {
+      const snapshotCol = hasTasksSnapshot ? ", tasks_snapshot" : "";
+      const snapshotVal = hasTasksSnapshot ? ", ?" : "";
+      const snapshotUpd = hasTasksSnapshot
+        ? ", tasks_snapshot = COALESCE(excluded.tasks_snapshot, tasks_snapshot)"
+        : "";
+      const sourceCol = hasSource ? ", source" : "";
+      const sourceVal = hasSource ? ", ?" : "";
+      const sourceUpd = hasSource ? ", source = excluded.source" : "";
+
+      const binds: (string | number | null)[] = [
+        competitionId,
+        row.student_id,
+        logDate,
+        JSON.stringify(row.metrics),
+      ];
+      if (hasTasksSnapshot) binds.push(row.tasks_snapshot ?? null);
+      if (hasSource) binds.push(source);
+      binds.push(recordedByUserId);
+
+      return env.DB.prepare(
+        `INSERT INTO competition_logs
+         (competition_id, student_id, log_date, metrics_json${snapshotCol}${sourceCol}, recorded_by_user_id)
+         VALUES (?, ?, ?, ?${snapshotVal}${sourceVal}, ?)
+         ON CONFLICT(competition_id, student_id, log_date) DO UPDATE SET
+           metrics_json = excluded.metrics_json${snapshotUpd}${sourceUpd},
+           recorded_by_user_id = COALESCE(excluded.recorded_by_user_id, recorded_by_user_id),
+           recorded_at = datetime('now')`,
+      ).bind(...binds);
+    });
+    await env.DB.batch(stmts);
+  }
+}
+
+/** O(L) — expand one-row-per-day metrics_json into virtual per-task log rows for scoring. */
+export function expandMetricsJsonToCompLogRows(
+  rows: Array<{ student_id: number; log_date: string; metrics_json: string }>,
+): CompLogRow[] {
+  const out: CompLogRow[] = [];
+  for (const row of rows) {
+    let metrics: Record<string, unknown> = {};
+    try {
+      metrics = JSON.parse(String(row.metrics_json ?? "{}")) as Record<string, unknown>;
+    } catch {
+      metrics = {};
+    }
+    const tp = metrics.task_points as Record<string, number> | undefined;
+    if (tp && typeof tp === "object") {
+      for (const [k, v] of Object.entries(tp)) {
+        const tid = Number(k);
+        if (!tid) continue;
+        out.push({
+          student_id: Number(row.student_id),
+          task_id: tid,
+          log_date: String(row.log_date),
+          points: Number(v) || 0,
+        });
       }
-      const cur = out.get(sid) ?? {
-        student_id: sid,
-        juz_done: 0,
-        task_points: {},
-      };
-      const juzDone = Number(metrics.juz_done ?? 0);
-      if (juzDone > 0) cur.juz_done = juzDone;
-      const tp = metrics.task_points as Record<string, number> | undefined;
-      if (tp && typeof tp === "object") {
-        for (const [k, v] of Object.entries(tp)) {
-          const tid = Number(k);
-          if (!tid) continue;
-          if (cur.task_points[tid] == null) {
-            cur.task_points[tid] = Number(v) || 0;
-          }
-        }
-      }
-      out.set(sid, cur);
     }
   }
-
   return out;
 }
 
@@ -582,12 +644,52 @@ export async function loadCompetitionLogsForLeaderboard(
   dateTo?: string,
 ): Promise<CompLogRow[]> {
   if (!(await hasEngineLogs(env))) return [];
+  const hasMetricsJson = await tableHasColumn(env, "competition_logs", "metrics_json");
+
+  if (hasMetricsJson) {
+    let sql = `SELECT student_id, log_date, metrics_json
+               FROM competition_logs WHERE competition_id = ?`;
+    const binds: (string | number)[] = [competitionId];
+    if (dateFrom) {
+      sql += ` AND log_date >= ?`;
+      binds.push(dateFrom);
+    }
+    if (dateTo) {
+      sql += ` AND log_date <= ?`;
+      binds.push(dateTo);
+    }
+    const rows = await env.DB.prepare(sql)
+      .bind(...binds)
+      .all<{ student_id: number; log_date: string; metrics_json: string }>();
+    const expanded = expandMetricsJsonToCompLogRows(rows.results ?? []);
+
+    const hasTaskId = await tableHasColumn(env, "competition_logs", "task_id");
+    const hasPoints = await tableHasColumn(env, "competition_logs", "points");
+    if (!hasTaskId || !hasPoints || expanded.length > 0) return expanded;
+
+    let legacySql = `SELECT student_id, task_id, log_date, points
+                     FROM competition_logs WHERE competition_id = ? AND task_id IS NOT NULL`;
+    const legacyBinds: (string | number)[] = [competitionId];
+    if (dateFrom) {
+      legacySql += ` AND log_date >= ?`;
+      legacyBinds.push(dateFrom);
+    }
+    if (dateTo) {
+      legacySql += ` AND log_date <= ?`;
+      legacyBinds.push(dateTo);
+    }
+    const legacy = await env.DB.prepare(legacySql)
+      .bind(...legacyBinds)
+      .all<CompLogRow>();
+    return legacy.results ?? [];
+  }
+
   const hasTaskId = await tableHasColumn(env, "competition_logs", "task_id");
   const hasPoints = await tableHasColumn(env, "competition_logs", "points");
   if (!hasTaskId || !hasPoints) return [];
 
   let sql = `SELECT student_id, task_id, log_date, points
-             FROM competition_logs WHERE competition_id = ?`;
+             FROM competition_logs WHERE competition_id = ? AND task_id IS NOT NULL`;
   const binds: (string | number)[] = [competitionId];
   if (dateFrom) {
     sql += ` AND log_date >= ?`;
@@ -597,10 +699,7 @@ export async function loadCompetitionLogsForLeaderboard(
     sql += ` AND log_date <= ?`;
     binds.push(dateTo);
   }
-
-  const rows = await env.DB.prepare(sql)
-    .bind(...binds)
-    .all<CompLogRow>();
+  const rows = await env.DB.prepare(sql).bind(...binds).all<CompLogRow>();
   return rows.results ?? [];
 }
 
@@ -1228,11 +1327,38 @@ export async function computeAchievedByStudent(
   const out = new Map<number, number>();
 
   if (await hasEngineLogs(env)) {
+    const hasMetricsJson = await tableHasColumn(env, "competition_logs", "metrics_json");
+    if (hasMetricsJson) {
+      const [metricRows, tasks] = await Promise.all([
+        env.DB.prepare(
+          `SELECT student_id, log_date, metrics_json
+           FROM competition_logs WHERE competition_id = ?`,
+        )
+          .bind(competitionId)
+          .all<{ student_id: number; log_date: string; metrics_json: string }>(),
+        loadCompetitionTaskMeta(env, competitionId),
+      ]);
+      const taskMap = new Map(tasks.map((t) => [t.id, t]));
+      const expanded = expandMetricsJsonToCompLogRows(metricRows.results ?? []);
+      for (const log of expanded) {
+        const task = taskMap.get(log.task_id);
+        if (!task) continue;
+        const weight = Number(task.weight ?? 1);
+        const points = Number(log.points ?? 0);
+        const signed =
+          task.type === "deduction"
+            ? -Math.abs(points) * weight
+            : Math.abs(points) * weight;
+        out.set(log.student_id, (out.get(log.student_id) ?? 0) + signed);
+      }
+      if (expanded.length > 0) return out;
+    }
+
     const rows = await env.DB.prepare(
       `SELECT cl.student_id, cl.points, ct.type, ct.weight
        FROM competition_logs cl
        LEFT JOIN competition_tasks ct ON ct.id = cl.task_id
-       WHERE cl.competition_id = ?`,
+       WHERE cl.competition_id = ? AND cl.task_id IS NOT NULL`,
     )
       .bind(competitionId)
       .all<{

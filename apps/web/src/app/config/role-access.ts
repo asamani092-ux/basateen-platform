@@ -7,7 +7,7 @@ export const ROLE_HOME: Record<UserRole, string> = {
   prog_supervisor: "/prog-dept/quizzes",
   programs_supervisor: "/prog-dept/quizzes",
   track_supervisor: "/edu-dept/daily-recitation",
-  teacher: "/edu-dept/daily-recitation",
+  teacher: "/teacher",
 };
 
 /** مسار البداية الصحيح — يُصحّح الجلسات القديمة (general-supervisor وغيرها) */
@@ -83,8 +83,7 @@ export const LEGACY_REDIRECTS: Record<string, string | "home"> = {
   "/admin-dept/violations": "/admin-dept/pledges",
   "/prog-supervisor": "/prog-dept/quizzes",
   "/dashboard": "home",
-  "/teacher": "/edu-dept/daily-recitation",
-  "/teacher/daily-log": "/edu-dept/daily-recitation",
+  "/teacher/daily-log": "/teacher",
 };
 
 const TEACHER_ONLY_EDU_PATHS = ["/edu-dept/teacher-competitions"];

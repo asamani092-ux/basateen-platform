@@ -592,19 +592,39 @@ export const api = {
     return competitionRequest<{
       date_from: string;
       date_to: string;
+      category?: string;
       kpis: {
         discipline_pct: number;
         achievement_pct: number;
         participants: number;
         target_juz: number;
         achieved_juz: number;
+        mastery_pct?: number;
+        total_read?: number;
+        total_passed?: number;
       };
       leaders: Array<{
         student_id: number;
-        score: number;
+        score?: number;
         full_name_ar?: string;
         target_amount?: number;
         achievement_pct?: number;
+        read_count?: number;
+        passed_count?: number;
+        failed_count?: number;
+        total_mistakes?: number;
+        total_warnings?: number;
+        mastery_pct?: number;
+      }>;
+      sird_students?: Array<{
+        student_id: number;
+        full_name_ar: string;
+        read_count: number;
+        passed_count: number;
+        failed_count: number;
+        total_mistakes: number;
+        total_warnings: number;
+        mastery_pct: number;
       }>;
     }>(`/api/edu-dept/competitions/${id}/dashboard?${q.toString()}`);
   },
@@ -616,6 +636,23 @@ export const api = {
       competition_days?: number;
       start_date?: string;
       end_date?: string;
+      sird_settings?: {
+        base_hizb_score: number;
+        mistake_deduction: number;
+        warning_deduction: number;
+        pass_threshold: number;
+      };
+      sird_periods?: Record<
+        string,
+        Array<{
+          period_index: number;
+          hizb_number: number;
+          mistakes_count: number;
+          warnings_count: number;
+          is_passed: boolean;
+          score: number | null;
+        }>
+      >;
       tasks: Array<{
         id: number;
         name_ar: string;
@@ -645,6 +682,13 @@ export const api = {
         task_id: number;
         points: number;
         hizb_index?: number;
+      }>;
+      sird_records?: Array<{
+        student_id: number;
+        period_index: number;
+        hizb_number: number;
+        mistakes_count: number;
+        warnings_count: number;
       }>;
       targets?: Array<{ student_id: number; target_amount: number }>;
     },

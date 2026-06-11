@@ -7,12 +7,16 @@ import { Input } from "../../components/ui/input";
 import { api } from "../../lib/api-client";
 import { matchesArabicName } from "../../lib/attendance-search";
 import {
+  computeSirdPeriodScore,
+  DEFAULT_SIRD_SETTINGS,
   isMemorizationTrackingCategory,
   targetHizbCount,
   type MemorizationUnit,
+  type SirdPeriodData,
+  type SirdSettings,
 } from "../../lib/competition-engine";
 import { CompetitionLiveGrid } from "../../components/edu/CompetitionLiveGrid";
-import { HizbSessionGrid } from "../../components/edu/HizbSessionGrid";
+import { SirdPeriodGrid } from "../../components/edu/SirdPeriodGrid";
 import { TaskInputCell, type TaskInputCol } from "../../components/edu/TaskInputCell";
 import { ds, tajawal } from "../../lib/design-system";
 import {
@@ -64,6 +68,13 @@ export function LiveLogPage() {
   const [category, setCategory] = useState("recitation");
   const [memorizationUnit, setMemorizationUnit] = useState<MemorizationUnit>("juz");
   const [competitionDays, setCompetitionDays] = useState(1);
+  const [sirdSettings, setSirdSettings] = useState<SirdSettings>({
+    ...DEFAULT_SIRD_SETTINGS,
+  });
+  const [sirdPeriods, setSirdPeriods] = useState<
+    Record<number, Record<number, SirdPeriodData>>
+  >({});
+  const [activePeriod, setActivePeriod] = useState<number | null>(null);
   const [kind, setKind] = useState<"yom_himma" | "competition">("yom_himma");
   const [rules, setRules] = useState({
     fail_threshold_errors: 3,
@@ -102,6 +113,34 @@ export function LiveLogPage() {
         data.session.memorization_unit === "hizb" ? "hizb" : "juz",
       );
       setCompetitionDays(Number(data.session.competition_days ?? 1));
+      const sess = data.session as {
+        sird_settings?: SirdSettings;
+        rules?: Record<string, unknown>;
+      };
+      if (sess.sird_settings) {
+        setSirdSettings({
+          base_hizb_score: Number(
+            sess.sird_settings.base_hizb_score ?? DEFAULT_SIRD_SETTINGS.base_hizb_score,
+          ),
+          mistake_deduction: Number(
+            sess.sird_settings.mistake_deduction ?? DEFAULT_SIRD_SETTINGS.mistake_deduction,
+          ),
+          warning_deduction: Number(
+            sess.sird_settings.warning_deduction ?? DEFAULT_SIRD_SETTINGS.warning_deduction,
+          ),
+          pass_threshold: Number(
+            sess.sird_settings.pass_threshold ?? DEFAULT_SIRD_SETTINGS.pass_threshold,
+          ),
+        });
+      } else if (sess.rules?.sird) {
+        const s = sess.rules.sird as Record<string, number>;
+        setSirdSettings({
+          base_hizb_score: Number(s.base_hizb_score ?? DEFAULT_SIRD_SETTINGS.base_hizb_score),
+          mistake_deduction: Number(s.mistake_deduction ?? DEFAULT_SIRD_SETTINGS.mistake_deduction),
+          warning_deduction: Number(s.warning_deduction ?? DEFAULT_SIRD_SETTINGS.warning_deduction),
+          pass_threshold: Number(s.pass_threshold ?? DEFAULT_SIRD_SETTINGS.pass_threshold),
+        });
+      }
       if (data.session.rules) {
         const r = data.session.rules as Record<string, number>;
         setRules({
@@ -178,6 +217,29 @@ export function LiveLogPage() {
         }
       }
       setAudit(a);
+
+      const rawSird = (data as { sird_periods?: Record<string, Array<Record<string, unknown>>> })
+        .sird_periods;
+      if (rawSird) {
+        const map: Record<number, Record<number, SirdPeriodData>> = {};
+        for (const [sid, list] of Object.entries(rawSird)) {
+          const studentId = Number(sid);
+          map[studentId] = {};
+          for (const p of list) {
+            const idx = Number(p.period_index);
+            if (!idx) continue;
+            map[studentId][idx] = {
+              period_index: idx,
+              hizb_number: Number(p.hizb_number ?? 0),
+              mistakes_count: Number(p.mistakes_count ?? 0),
+              warnings_count: Number(p.warnings_count ?? 0),
+              is_passed: Boolean(p.is_passed),
+              score: p.score != null ? Number(p.score) : null,
+            };
+          }
+        }
+        setSirdPeriods(map);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "رابط غير صالح أو منتهي");
     } finally {
@@ -212,6 +274,7 @@ export function LiveLogPage() {
 
   function pickStudent(studentId: number) {
     setActiveId(studentId);
+    setActivePeriod(null);
     setSearchOpen(false);
   }
 
@@ -268,6 +331,66 @@ export function LiveLogPage() {
       });
       return { ...prev, [activeId]: next };
     });
+  }
+
+  function patchSirdPeriod(
+    studentId: number,
+    periodIndex: number,
+    patch: Partial<SirdPeriodData>,
+  ) {
+    setSirdPeriods((prev) => {
+      const cur = prev[studentId]?.[periodIndex] ?? {
+        period_index: periodIndex,
+        hizb_number: 0,
+        mistakes_count: 0,
+        warnings_count: 0,
+        is_passed: false,
+        score: null,
+      };
+      const next = { ...cur, ...patch };
+      const { score, is_passed } = computeSirdPeriodScore(
+        next.mistakes_count,
+        next.warnings_count,
+        sirdSettings,
+      );
+      return {
+        ...prev,
+        [studentId]: {
+          ...(prev[studentId] ?? {}),
+          [periodIndex]: { ...next, score, is_passed },
+        },
+      };
+    });
+  }
+
+  async function saveSirdPeriod(studentId: number, periodIndex: number) {
+    if (!token || !studentId || !periodIndex) return;
+    const period = sirdPeriods[studentId]?.[periodIndex];
+    if (!period) return;
+    setSaving(true);
+    try {
+      await api.liveLogUpsert(
+        token,
+        {
+          student_id: studentId,
+          metrics: {
+            category,
+            sird_period: {
+              period_index: periodIndex,
+              hizb_number: period.hizb_number,
+              mistakes_count: period.mistakes_count,
+              warnings_count: period.warnings_count,
+            },
+          },
+        },
+        verifiedPinRef.current,
+      );
+      toast.success("تم حفظ فترة السرد");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "فشل الحفظ");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function saveAuditForStudent(studentId: number, patch: Record<string, unknown> = {}) {
@@ -542,42 +665,38 @@ export function LiveLogPage() {
           </Button>
 
           {kind === "competition" && category === "recitation" ? (
-            <RecitationCard
-              student={active}
-              audit={activeAudit}
-              tasks={tasks}
-              competitionMode
-              saving={saving}
-              onSelectHizb={(hizb) => patchAudit({ active_hizb: hizb })}
-              onPatchHizbSession={(hizb, patch) => {
-                if (!activeId) return;
-                setAudit((prev) => {
-                  const cur = prev[activeId] ?? {};
-                  const sessions = { ...(cur.hizb_sessions ?? {}) };
-                  const key = String(hizb);
-                  sessions[key] = { ...(sessions[key] ?? {}), ...patch };
-                  const next = { ...cur, hizb_sessions: sessions, active_hizb: hizb };
-                  writeReciterDraft(sessionId, activeId, token!, {
-                    juz_done: next.juz_done,
-                    hizb_done: next.hizb_done,
-                    alerts_count: next.alerts_count,
-                    errors_count: next.errors_count,
-                    task_points: next.task_points,
-                    notes: next.notes,
-                  });
-                  return { ...prev, [activeId]: next };
-                });
-              }}
-              onNextHizb={() => {
-                if (!active || !activeAudit.active_hizb) return;
-                const total =
-                  active.target_hizb ??
-                  targetHizbCount(active.target_amount ?? active.target_juz ?? 0);
-                const next = Math.min(total, activeAudit.active_hizb + 1);
-                patchAudit({ active_hizb: next });
-              }}
-              onSave={() => void saveAudit({})}
-            />
+            <div className={`${ds.card} p-4`}>
+              <h2 className="text-lg font-bold mb-1 flex items-center gap-2" style={tajawal}>
+                <BookOpen className="w-5 h-5 text-primary" />
+                بطاقة السرد — {active.full_name_ar}
+              </h2>
+              <p className="text-sm text-muted-foreground mb-4" style={tajawal}>
+                {competitionDays} فترة · درجة أساس {sirdSettings.base_hizb_score}
+              </p>
+              <SirdPeriodGrid
+                totalPeriods={competitionDays}
+                activePeriod={activePeriod}
+                periods={activeId ? (sirdPeriods[activeId] ?? {}) : {}}
+                settings={sirdSettings}
+                disabled={saving}
+                onSelectPeriod={setActivePeriod}
+                onPatchPeriod={(period, patch) => {
+                  if (!activeId) return;
+                  patchSirdPeriod(activeId, period, patch);
+                }}
+              />
+              {activePeriod != null && (
+                <Button
+                  type="button"
+                  className={`${ds.btnRound} w-full mt-4 min-h-12`}
+                  disabled={saving}
+                  onClick={() => void saveSirdPeriod(activeId!, activePeriod)}
+                  style={tajawal}
+                >
+                  {saving ? "جاري الحفظ…" : "تأكيد وحفظ الفترة"}
+                </Button>
+              )}
+            </div>
           ) : (
             <RecitationCard
               student={active}

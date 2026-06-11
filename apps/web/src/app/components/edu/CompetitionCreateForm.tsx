@@ -17,9 +17,12 @@ import {
   COMPETITION_CATEGORIES,
   COMPETITION_STAGE_OPTIONS,
   countCompetitionDays,
+  DEFAULT_SIRD_SETTINGS,
   defaultTargetForCategory,
   isAdditiveCategory,
+  isRecitationCategory,
   studentDailyFaces,
+  type SirdSettings,
   type CompetitionCategory,
   type MemorizationUnit,
   type PreviewStudent,
@@ -86,6 +89,9 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sirdSettings, setSirdSettings] = useState<SirdSettings>({
+    ...DEFAULT_SIRD_SETTINGS,
+  });
   const categoryRef = useRef(category);
   categoryRef.current = category;
 
@@ -246,7 +252,9 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
         rules:
           category === "new_memorization"
             ? { memorization_unit: memorizationUnit }
-            : undefined,
+            : category === "recitation"
+              ? { sird: sirdSettings }
+              : undefined,
         targets: targets.map((t) => ({
           student_id: t.student_id,
           current_memorization: t.current_memorization,
@@ -328,6 +336,82 @@ export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
             </SelectContent>
           </Select>
         </div>
+        {isRecitationCategory(category) && (
+          <div className="space-y-3 rounded-xl border p-4 bg-muted/20">
+            <p className="font-semibold text-sm" style={tajawal}>
+              إعدادات أوزان السرد الافتراضية
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label style={tajawal}>درجة الحزب الأساسية</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  value={sirdSettings.base_hizb_score}
+                  onChange={(e) =>
+                    setSirdSettings((s) => ({
+                      ...s,
+                      base_hizb_score: Number(e.target.value),
+                    }))
+                  }
+                  className={ds.btnRound}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label style={tajawal}>خصم الخطأ</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={sirdSettings.mistake_deduction}
+                  onChange={(e) =>
+                    setSirdSettings((s) => ({
+                      ...s,
+                      mistake_deduction: Number(e.target.value),
+                    }))
+                  }
+                  className={ds.btnRound}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label style={tajawal}>خصم التنبيه</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={sirdSettings.warning_deduction}
+                  onChange={(e) =>
+                    setSirdSettings((s) => ({
+                      ...s,
+                      warning_deduction: Number(e.target.value),
+                    }))
+                  }
+                  className={ds.btnRound}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label style={tajawal}>حد الاجتياز (الحد الأدنى)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  value={sirdSettings.pass_threshold}
+                  onChange={(e) =>
+                    setSirdSettings((s) => ({
+                      ...s,
+                      pass_threshold: Number(e.target.value),
+                    }))
+                  }
+                  className={ds.btnRound}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground" style={tajawal}>
+              الدرجة = الأساس − (أخطاء × خصم الخطأ) − (تنبيهات × خصم التنبيه). لا مهام ديناميكية في السرد.
+            </p>
+          </div>
+        )}
         {category === "new_memorization" && (
           <div className="space-y-2">
             <Label style={tajawal}>وحدة الحفظ المستهدفة</Label>

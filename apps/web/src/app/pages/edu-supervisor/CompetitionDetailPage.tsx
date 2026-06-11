@@ -34,7 +34,15 @@ import { CompetitionGradingGrid } from "../../components/edu/CompetitionGradingG
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { normalizeAttendanceStatus } from "../../lib/attendance-status";
-import { categoryLabel, defaultInputTypeFromTaskType, TASK_INPUT_TYPE_OPTIONS } from "../../lib/competition-engine";
+import {
+  categoryLabel,
+  DEFAULT_SIRD_SETTINGS,
+  defaultInputTypeFromTaskType,
+  isRecitationCategory,
+  parseSirdSettings,
+  TASK_INPUT_TYPE_OPTIONS,
+  type SirdSettings,
+} from "../../lib/competition-engine";
 import { matchesArabicName } from "../../lib/attendance-search";
 import { defaultDateRange } from "../../lib/local-iso-date";
 import { ds, tajawal } from "../../lib/design-system";
@@ -110,6 +118,9 @@ export function CompetitionDetailPage() {
   const [editName, setEditName] = useState("");
   const [editStartDate, setEditStartDate] = useState("");
   const [editEndDate, setEditEndDate] = useState("");
+  const [sirdSettings, setSirdSettings] = useState<SirdSettings>({
+    ...DEFAULT_SIRD_SETTINGS,
+  });
 
   const load = useCallback(async () => {
     if (!canUseApi() || !id) return;
@@ -210,9 +221,18 @@ export function CompetitionDetailPage() {
     }
   }, [id, attDate]);
 
+  const comp = data?.competition as Record<string, unknown> | undefined;
+  const category = String(comp?.category ?? "recitation");
+
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (tab === "tasks" && isRecitationCategory(category)) {
+      setTab("dashboard");
+    }
+  }, [tab, category]);
 
   useEffect(() => {
     if (tab === "dashboard") void loadDashboard();
@@ -221,6 +241,12 @@ export function CompetitionDetailPage() {
   useEffect(() => {
     if (tab === "attendance") void loadAttendance();
   }, [tab, loadAttendance]);
+
+  useEffect(() => {
+    if (comp?.rules) {
+      setSirdSettings(parseSirdSettings(comp.rules as Record<string, unknown>));
+    }
+  }, [comp?.rules]);
 
   useEffect(() => {
     if (!id || !attendance) return;
@@ -233,16 +259,20 @@ export function CompetitionDetailPage() {
       /* quota exceeded */
     }
   }, [attendance, id, attDate]);
-
-  const comp = data?.competition as Record<string, unknown> | undefined;
   const logs = (data?.logs as Array<Record<string, unknown>>) ?? [];
   const kpis = (dashboard?.kpis ?? {}) as Record<string, number>;
   const leaders = (dashboard?.leaders ?? []) as Array<{
     student_id: number;
-    score: number;
+    score?: number;
     full_name_ar?: string;
     target_amount?: number;
     achievement_pct?: number;
+    read_count?: number;
+    passed_count?: number;
+    failed_count?: number;
+    total_mistakes?: number;
+    total_warnings?: number;
+    mastery_pct?: number;
   }>;
   const filteredLeaders = useMemo(
     () =>
@@ -251,9 +281,9 @@ export function CompetitionDetailPage() {
       ),
     [leaders, leaderSearch],
   );
-  const category = String(comp?.category ?? "recitation");
   const isNewMemorization = category === "new_memorization";
   const isReview = category === "review";
+  const isRecitation = isRecitationCategory(category);
   const canCloseWithoutSync =
     (isReview || category === "recitation") && comp?.status !== "closed";
 
@@ -470,11 +500,27 @@ export function CompetitionDetailPage() {
   const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
     { id: "dashboard", label: "مؤشرات المنافسة", icon: <BarChart3 className="w-4 h-4" /> },
     { id: "targets", label: "المستهدفون", icon: <Users className="w-4 h-4" /> },
-    { id: "tasks", label: "المهام والأوزان", icon: <ListChecks className="w-4 h-4" /> },
+    ...(!isRecitation
+      ? [{ id: "tasks" as TabId, label: "المهام والأوزان", icon: <ListChecks className="w-4 h-4" /> }]
+      : []),
     { id: "grading", label: "الرصد المباشر", icon: <Pencil className="w-4 h-4" /> },
     { id: "live", label: "الرصد والروابط", icon: <Link2 className="w-4 h-4" /> },
     { id: "attendance", label: "تحضير المنافسة", icon: <ClipboardCheck className="w-4 h-4" /> },
   ];
+
+  async function saveSirdSettings() {
+    if (!id) return;
+    setSaving(true);
+    try {
+      await api.competitionsPatch(id, { rules: { sird: sirdSettings } });
+      toast.success("تم حفظ إعدادات السرد");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "فشل الحفظ");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -689,9 +735,13 @@ export function CompetitionDetailPage() {
                     />
                     <EduKpiCard
                       icon={<Users className="w-4 h-4" />}
-                      label="الإنجاز مقابل المستهدف"
-                      value={`${kpis.achievement_pct ?? 0}%`}
-                      sub={`${kpis.achieved_juz ?? 0} / ${kpis.target_juz ?? 0} جزء`}
+                      label={isRecitation ? "نسبة الإتقان" : "الإنجاز مقابل المستهدف"}
+                      value={`${isRecitation ? (kpis.mastery_pct ?? kpis.achievement_pct ?? 0) : (kpis.achievement_pct ?? 0)}%`}
+                      sub={
+                        isRecitation
+                          ? `${kpis.total_passed ?? 0} مجتاز من ${kpis.total_read ?? 0} مقروء`
+                          : `${kpis.achieved_juz ?? 0} / ${kpis.target_juz ?? 0} جزء`
+                      }
                     />
                     <EduKpiCard
                       label="المشاركون"
@@ -699,6 +749,55 @@ export function CompetitionDetailPage() {
                       sub="طلاب مستهدفون"
                     />
                   </div>
+                  {isRecitation ? (
+                    <Card className={ds.card}>
+                      <CardHeader>
+                        <CardTitle style={tajawal}>مؤشرات السرد — جدول الطلاب</CardTitle>
+                      </CardHeader>
+                      <CardContent className="overflow-x-auto">
+                        <table className="w-full text-sm" style={tajawal}>
+                          <thead className="bg-muted/40">
+                            <tr>
+                              <th className="text-right p-2">الطالب</th>
+                              <th className="text-right p-2">المقروء</th>
+                              <th className="text-right p-2">المجتاز</th>
+                              <th className="text-right p-2">غير المجتاز</th>
+                              <th className="text-right p-2">مجموع الأخطاء</th>
+                              <th className="text-right p-2">مجموع التنبيهات</th>
+                              <th className="text-right p-2">نسبة الإتقان</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredLeaders.length === 0 ? (
+                              <tr>
+                                <td colSpan={7} className="p-4 text-muted-foreground">
+                                  لا بيانات سرد بعد.
+                                </td>
+                              </tr>
+                            ) : (
+                              filteredLeaders.map((l) => (
+                                <tr key={l.student_id} className="border-t">
+                                  <td className="p-2">
+                                    {l.full_name_ar ?? `طالب #${l.student_id}`}
+                                  </td>
+                                  <td className="p-2 tabular-nums">{l.read_count ?? 0}</td>
+                                  <td className="p-2 tabular-nums text-emerald-700">
+                                    {l.passed_count ?? 0}
+                                  </td>
+                                  <td className="p-2 tabular-nums text-destructive">
+                                    {l.failed_count ?? 0}
+                                  </td>
+                                  <td className="p-2 tabular-nums">{l.total_mistakes ?? 0}</td>
+                                  <td className="p-2 tabular-nums">{l.total_warnings ?? 0}</td>
+                                  <td className="p-2 tabular-nums">{l.mastery_pct ?? 0}%</td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </CardContent>
+                    </Card>
+                  ) : null}
                   <Card className={ds.card}>
                     <CardHeader className="space-y-3">
                       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -755,10 +854,16 @@ export function CompetitionDetailPage() {
                               {i + 1}. {l.full_name_ar ?? `طالب #${l.student_id}`}
                             </span>
                             <span className="text-muted-foreground tabular-nums text-left shrink-0">
-                              {Math.round(l.score * 100) / 100} جزء
-                              {l.achievement_pct != null ? (
-                                <span className="mr-2">· {l.achievement_pct}%</span>
-                              ) : null}
+                              {isRecitation ? (
+                                <span>{l.mastery_pct ?? 0}% إتقان</span>
+                              ) : (
+                                <>
+                                  {Math.round((l.score ?? 0) * 100) / 100} جزء
+                                  {l.achievement_pct != null ? (
+                                    <span className="mr-2">· {l.achievement_pct}%</span>
+                                  ) : null}
+                                </>
+                              )}
                             </span>
                           </div>
                         ))
@@ -873,7 +978,7 @@ export function CompetitionDetailPage() {
             </Card>
           )}
 
-          {tab === "tasks" && (
+          {tab === "tasks" && !isRecitation && (
             <div className="space-y-4">
               <Card className={ds.card}>
                 <CardHeader>
@@ -1007,6 +1112,89 @@ export function CompetitionDetailPage() {
                 </CardContent>
               </Card>
             </div>
+          )}
+
+          {isRecitation && tab === "grading" && (
+            <Card className={ds.card}>
+              <CardHeader>
+                <CardTitle style={tajawal}>إعدادات أوزان السرد</CardTitle>
+              </CardHeader>
+              <CardContent className="grid sm:grid-cols-2 gap-3 max-w-xl">
+                <div className="space-y-1">
+                  <Label style={tajawal}>درجة الحزب الأساسية</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step={0.5}
+                    value={sirdSettings.base_hizb_score}
+                    onChange={(e) =>
+                      setSirdSettings((s) => ({
+                        ...s,
+                        base_hizb_score: Number(e.target.value),
+                      }))
+                    }
+                    className={ds.btnRound}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label style={tajawal}>خصم الخطأ</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step={0.1}
+                    value={sirdSettings.mistake_deduction}
+                    onChange={(e) =>
+                      setSirdSettings((s) => ({
+                        ...s,
+                        mistake_deduction: Number(e.target.value),
+                      }))
+                    }
+                    className={ds.btnRound}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label style={tajawal}>خصم التنبيه</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step={0.1}
+                    value={sirdSettings.warning_deduction}
+                    onChange={(e) =>
+                      setSirdSettings((s) => ({
+                        ...s,
+                        warning_deduction: Number(e.target.value),
+                      }))
+                    }
+                    className={ds.btnRound}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label style={tajawal}>حد الاجتياز</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step={0.5}
+                    value={sirdSettings.pass_threshold}
+                    onChange={(e) =>
+                      setSirdSettings((s) => ({
+                        ...s,
+                        pass_threshold: Number(e.target.value),
+                      }))
+                    }
+                    className={ds.btnRound}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  className={`${ds.btnRound} sm:col-span-2`}
+                  disabled={saving}
+                  onClick={() => void saveSirdSettings()}
+                  style={tajawal}
+                >
+                  حفظ إعدادات السرد
+                </Button>
+              </CardContent>
+            </Card>
           )}
 
           {tab === "grading" && id > 0 && (

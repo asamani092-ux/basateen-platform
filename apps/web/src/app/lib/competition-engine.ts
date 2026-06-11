@@ -153,3 +153,60 @@ export function gradingScoreKey(
   }
   return `${studentId}:${taskId}`;
 }
+
+export type SirdSettings = {
+  base_hizb_score: number;
+  mistake_deduction: number;
+  warning_deduction: number;
+  pass_threshold: number;
+};
+
+export const DEFAULT_SIRD_SETTINGS: SirdSettings = {
+  base_hizb_score: 20,
+  mistake_deduction: 2.5,
+  warning_deduction: 0.5,
+  pass_threshold: 14,
+};
+
+export type SirdPeriodData = {
+  period_index: number;
+  hizb_number: number;
+  mistakes_count: number;
+  warnings_count: number;
+  is_passed: boolean;
+  score: number | null;
+};
+
+/** O(1) — parse sird settings from competition rules. */
+export function parseSirdSettings(
+  rules: Record<string, unknown> | null | undefined,
+): SirdSettings {
+  const raw = (rules?.sird ?? {}) as Record<string, unknown>;
+  return {
+    base_hizb_score: Number(raw.base_hizb_score ?? DEFAULT_SIRD_SETTINGS.base_hizb_score),
+    mistake_deduction: Number(raw.mistake_deduction ?? DEFAULT_SIRD_SETTINGS.mistake_deduction),
+    warning_deduction: Number(raw.warning_deduction ?? DEFAULT_SIRD_SETTINGS.warning_deduction),
+    pass_threshold: Number(raw.pass_threshold ?? DEFAULT_SIRD_SETTINGS.pass_threshold),
+  };
+}
+
+/** O(1) — client-side sird score + pass flag. */
+export function computeSirdPeriodScore(
+  mistakes: number,
+  warnings: number,
+  settings: SirdSettings,
+): { score: number; is_passed: boolean } {
+  const m = Math.max(0, Math.round(Number(mistakes) || 0));
+  const w = Math.max(0, Math.round(Number(warnings) || 0));
+  const score =
+    Math.round(
+      (settings.base_hizb_score -
+        m * settings.mistake_deduction -
+        w * settings.warning_deduction) *
+        100,
+    ) / 100;
+  return {
+    score,
+    is_passed: score >= settings.pass_threshold,
+  };
+}

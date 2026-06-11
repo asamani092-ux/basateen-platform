@@ -175,6 +175,227 @@ export async function hasEngineLogs(env: Env): Promise<boolean> {
   return await hasTable(env, "competition_logs");
 }
 
+export type SirdSettings = {
+  base_hizb_score: number;
+  mistake_deduction: number;
+  warning_deduction: number;
+  pass_threshold: number;
+};
+
+export const DEFAULT_SIRD_SETTINGS: SirdSettings = {
+  base_hizb_score: 20,
+  mistake_deduction: 2.5,
+  warning_deduction: 0.5,
+  pass_threshold: 14,
+};
+
+/** O(1) — parse sird weight settings from competition rules_json. */
+export function parseSirdSettings(rules: Record<string, unknown> | null | undefined): SirdSettings {
+  const raw = (rules?.sird ?? rules?.scoring?.sird ?? {}) as Record<string, unknown>;
+  return {
+    base_hizb_score: Number(raw.base_hizb_score ?? DEFAULT_SIRD_SETTINGS.base_hizb_score),
+    mistake_deduction: Number(raw.mistake_deduction ?? DEFAULT_SIRD_SETTINGS.mistake_deduction),
+    warning_deduction: Number(raw.warning_deduction ?? DEFAULT_SIRD_SETTINGS.warning_deduction),
+    pass_threshold: Number(raw.pass_threshold ?? DEFAULT_SIRD_SETTINGS.pass_threshold),
+  };
+}
+
+/** O(1) — score = base − mistakes×weight − warnings×weight; pass if score ≥ threshold. */
+export function computeSirdPeriodScore(
+  mistakes: number,
+  warnings: number,
+  settings: SirdSettings,
+): { score: number; is_passed: boolean } {
+  const m = Math.max(0, Math.round(Number(mistakes) || 0));
+  const w = Math.max(0, Math.round(Number(warnings) || 0));
+  const score =
+    Math.round(
+      (settings.base_hizb_score -
+        m * settings.mistake_deduction -
+        w * settings.warning_deduction) *
+        100,
+    ) / 100;
+  return {
+    score,
+    is_passed: score >= settings.pass_threshold,
+  };
+}
+
+export type SirdPeriodRecord = {
+  period_index: number;
+  hizb_number: number;
+  mistakes_count: number;
+  warnings_count: number;
+  is_passed: boolean;
+  score: number | null;
+};
+
+export async function hasSirdPeriodRecords(env: Env): Promise<boolean> {
+  return await hasTable(env, "sird_period_records");
+}
+
+/** O(P) — P = period rows for one student. */
+export async function loadSirdPeriodsForStudent(
+  env: Env,
+  competitionId: number,
+  studentId: number,
+): Promise<SirdPeriodRecord[]> {
+  if (!(await hasSirdPeriodRecords(env))) return [];
+  const rows = await env.DB.prepare(
+    `SELECT period_index, hizb_number, mistakes_count, warnings_count, is_passed, score
+     FROM sird_period_records
+     WHERE competition_id = ? AND student_id = ?
+     ORDER BY period_index`,
+  )
+    .bind(competitionId, studentId)
+    .all<{
+      period_index: number;
+      hizb_number: number;
+      mistakes_count: number;
+      warnings_count: number;
+      is_passed: number;
+      score: number | null;
+    }>();
+  return (rows.results ?? []).map((r) => ({
+    period_index: Number(r.period_index),
+    hizb_number: Number(r.hizb_number ?? 0),
+    mistakes_count: Number(r.mistakes_count ?? 0),
+    warnings_count: Number(r.warnings_count ?? 0),
+    is_passed: Number(r.is_passed) === 1,
+    score: r.score != null ? Number(r.score) : null,
+  }));
+}
+
+/** O(S×P) — all period rows for competition; Space O(S×P). */
+export async function loadSirdPeriodsMatrix(
+  env: Env,
+  competitionId: number,
+): Promise<Map<number, SirdPeriodRecord[]>> {
+  const out = new Map<number, SirdPeriodRecord[]>();
+  if (!(await hasSirdPeriodRecords(env))) return out;
+  const rows = await env.DB.prepare(
+    `SELECT student_id, period_index, hizb_number, mistakes_count, warnings_count, is_passed, score
+     FROM sird_period_records
+     WHERE competition_id = ?
+     ORDER BY student_id, period_index`,
+  )
+    .bind(competitionId)
+    .all<{
+      student_id: number;
+      period_index: number;
+      hizb_number: number;
+      mistakes_count: number;
+      warnings_count: number;
+      is_passed: number;
+      score: number | null;
+    }>();
+  for (const r of rows.results ?? []) {
+    const sid = Number(r.student_id);
+    const list = out.get(sid) ?? [];
+    list.push({
+      period_index: Number(r.period_index),
+      hizb_number: Number(r.hizb_number ?? 0),
+      mistakes_count: Number(r.mistakes_count ?? 0),
+      warnings_count: Number(r.warnings_count ?? 0),
+      is_passed: Number(r.is_passed) === 1,
+      score: r.score != null ? Number(r.score) : null,
+    });
+    out.set(sid, list);
+  }
+  return out;
+}
+
+export type SirdStudentStats = {
+  student_id: number;
+  full_name_ar: string;
+  read_count: number;
+  passed_count: number;
+  failed_count: number;
+  total_mistakes: number;
+  total_warnings: number;
+  mastery_pct: number;
+};
+
+/** O(P) per student — aggregate period matrix into dashboard columns. */
+export function aggregateSirdStudentStats(
+  studentId: number,
+  fullNameAr: string,
+  periods: SirdPeriodRecord[],
+): SirdStudentStats {
+  let read = 0;
+  let passed = 0;
+  let failed = 0;
+  let totalMistakes = 0;
+  let totalWarnings = 0;
+
+  for (const p of periods) {
+    const recited = Number(p.hizb_number) > 0;
+    if (!recited) continue;
+    read += 1;
+    totalMistakes += Number(p.mistakes_count) || 0;
+    totalWarnings += Number(p.warnings_count) || 0;
+    if (p.is_passed) passed += 1;
+    else failed += 1;
+  }
+
+  const masteryPct = read > 0 ? Math.round((passed / read) * 100) : 0;
+
+  return {
+    student_id: studentId,
+    full_name_ar: fullNameAr,
+    read_count: read,
+    passed_count: passed,
+    failed_count: failed,
+    total_mistakes: totalMistakes,
+    total_warnings: totalWarnings,
+    mastery_pct: masteryPct,
+  };
+}
+
+/** O(1) — upsert single period row (audit trail handled separately). */
+export async function upsertSirdPeriodRecord(
+  env: Env,
+  competitionId: number,
+  studentId: number,
+  periodIndex: number,
+  payload: {
+    hizb_number: number;
+    mistakes_count: number;
+    warnings_count: number;
+    is_passed: boolean;
+    score: number;
+  },
+  recordedByUserId?: number | null,
+): Promise<void> {
+  if (!(await hasSirdPeriodRecords(env))) return;
+  await env.DB.prepare(
+    `INSERT INTO sird_period_records
+     (competition_id, student_id, period_index, hizb_number, mistakes_count,
+      warnings_count, is_passed, score, recorded_by_user_id, recorded_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(competition_id, student_id, period_index) DO UPDATE SET
+       hizb_number = excluded.hizb_number,
+       mistakes_count = excluded.mistakes_count,
+       warnings_count = excluded.warnings_count,
+       is_passed = excluded.is_passed,
+       score = excluded.score,
+       recorded_by_user_id = excluded.recorded_by_user_id,
+       recorded_at = datetime('now')`,
+  )
+    .bind(
+      competitionId,
+      studentId,
+      periodIndex,
+      Number(payload.hizb_number) || 0,
+      Math.max(0, Math.round(Number(payload.mistakes_count) || 0)),
+      Math.max(0, Math.round(Number(payload.warnings_count) || 0)),
+      payload.is_passed ? 1 : 0,
+      payload.score,
+      recordedByUserId ?? null,
+    )
+    .run();
+}
+
 export async function hasCompetitionCategory(env: Env): Promise<boolean> {
   return await tableHasColumn(env, "competitions", "category");
 }
@@ -604,12 +825,13 @@ export async function deleteCompetitionCascade(
     .first();
   if (!row) return false;
 
-  const [hasLogs, hasTasks, hasTargets, hasAtt, hasLedger] = await Promise.all([
+  const [hasLogs, hasTasks, hasTargets, hasAtt, hasLedger, hasSird] = await Promise.all([
     hasTable(env, "competition_logs"),
     hasTable(env, "competition_tasks"),
     hasTable(env, "competition_targets"),
     hasTable(env, "competition_attendance"),
     hasTable(env, "quran_daily_ledger"),
+    hasSirdPeriodRecords(env),
   ]);
 
   const stmts: ReturnType<typeof env.DB.prepare>[] = [];
@@ -646,6 +868,13 @@ export async function deleteCompetitionCascade(
       env.DB.prepare(
         `DELETE FROM quran_daily_ledger WHERE context_type = 'competition' AND context_id = ?`,
       ).bind(competitionId),
+    );
+  }
+  if (hasSird) {
+    stmts.push(
+      env.DB.prepare(`DELETE FROM sird_period_records WHERE competition_id = ?`).bind(
+        competitionId,
+      ),
     );
   }
   stmts.push(

@@ -13,6 +13,7 @@ on:
           - upgrade
           - all
           - "051"
+          - "052"
           - skip
 
 concurrency:

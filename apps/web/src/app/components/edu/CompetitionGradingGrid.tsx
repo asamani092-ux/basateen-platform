@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Minus, Plus, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
@@ -11,18 +11,21 @@ import {
   TableHeader,
   TableRow,
 } from "../ui/table";
-import { HizbSessionGrid } from "./HizbSessionGrid";
+import { SirdPeriodGrid } from "./SirdPeriodGrid";
 import { TaskInputCell, type TaskInputCol } from "./TaskInputCell";
 import { api } from "../../lib/api-client";
 import { matchesArabicName } from "../../lib/attendance-search";
 import {
+  computeSirdPeriodScore,
+  DEFAULT_SIRD_SETTINGS,
   gradingScoreKey,
   isMemorizationTrackingCategory,
   isRecitationCategory,
   isReviewCategory,
   resolveTaskInputType,
-  targetHizbCount,
   type CompetitionCategory,
+  type SirdPeriodData,
+  type SirdSettings,
 } from "../../lib/competition-engine";
 import { ds, tajawal } from "../../lib/design-system";
 
@@ -32,7 +35,6 @@ type StudentRow = {
   target_amount: number;
   achieved_amount: number;
   current_memorization?: number;
-  target_hizb?: number;
   daily_faces?: number;
 };
 
@@ -47,16 +49,44 @@ function normalizePoints(task: TaskInputCol, raw: number): number {
   return Math.max(0, Math.round(raw));
 }
 
+function mapSirdPeriods(
+  raw: Record<string, Array<Record<string, unknown>>> | undefined,
+  studentId: number,
+): Record<number, SirdPeriodData> {
+  const list = raw?.[String(studentId)] ?? [];
+  const out: Record<number, SirdPeriodData> = {};
+  for (const p of list) {
+    const idx = Number(p.period_index);
+    if (!idx) continue;
+    out[idx] = {
+      period_index: idx,
+      hizb_number: Number(p.hizb_number ?? 0),
+      mistakes_count: Number(p.mistakes_count ?? 0),
+      warnings_count: Number(p.warnings_count ?? 0),
+      is_passed: Boolean(p.is_passed),
+      score: p.score != null ? Number(p.score) : null,
+    };
+  }
+  return out;
+}
+
 export function CompetitionGradingGrid({ competitionId }: Props) {
   const [logDate, setLogDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [category, setCategory] = useState<CompetitionCategory>("recitation");
+  const [competitionDays, setCompetitionDays] = useState(1);
+  const [sirdSettings, setSirdSettings] = useState<SirdSettings>({
+    ...DEFAULT_SIRD_SETTINGS,
+  });
   const [tasks, setTasks] = useState<TaskInputCol[]>([]);
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [targets, setTargets] = useState<Record<number, number>>({});
+  const [sirdPeriods, setSirdPeriods] = useState<
+    Record<number, Record<number, SirdPeriodData>>
+  >({});
   const [query, setQuery] = useState("");
   const [recitationStudentId, setRecitationStudentId] = useState<number | null>(null);
-  const [activeHizb, setActiveHizb] = useState<number | null>(null);
+  const [activePeriod, setActivePeriod] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +98,23 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
     try {
       const res = await api.competitionsGradingGet(competitionId, logDate);
       setCategory((res.category as CompetitionCategory) ?? "recitation");
+      setCompetitionDays(Number(res.competition_days ?? 1));
+      if (res.sird_settings) {
+        setSirdSettings({
+          base_hizb_score: Number(
+            res.sird_settings.base_hizb_score ?? DEFAULT_SIRD_SETTINGS.base_hizb_score,
+          ),
+          mistake_deduction: Number(
+            res.sird_settings.mistake_deduction ?? DEFAULT_SIRD_SETTINGS.mistake_deduction,
+          ),
+          warning_deduction: Number(
+            res.sird_settings.warning_deduction ?? DEFAULT_SIRD_SETTINGS.warning_deduction,
+          ),
+          pass_threshold: Number(
+            res.sird_settings.pass_threshold ?? DEFAULT_SIRD_SETTINGS.pass_threshold,
+          ),
+        });
+      }
       setTasks(
         (res.tasks ?? []).map((t) => ({
           id: Number(t.id),
@@ -84,11 +131,16 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
           target_amount: Number(s.target_amount ?? 0),
           achieved_amount: Number(s.achieved_amount ?? 0),
           current_memorization: Number(s.current_memorization ?? 0),
-          target_hizb: s.target_hizb != null ? Number(s.target_hizb) : undefined,
           daily_faces: s.daily_faces != null ? Number(s.daily_faces) : undefined,
         })),
       );
       setScores(res.scores ?? {});
+      const periodMap: Record<number, Record<number, SirdPeriodData>> = {};
+      for (const s of res.students ?? []) {
+        const sid = Number(s.student_id);
+        periodMap[sid] = mapSirdPeriods(res.sird_periods, sid);
+      }
+      setSirdPeriods(periodMap);
       const targetMap: Record<number, number> = {};
       for (const s of res.students ?? []) {
         targetMap[Number(s.student_id)] = Number(s.target_amount ?? 0);
@@ -114,14 +166,10 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
     ? students.find((s) => s.student_id === recitationStudentId)
     : null;
 
-  const recitationHizbTotal = recitationStudent
-    ? recitationStudent.target_hizb ?? targetHizbCount(recitationStudent.target_amount)
-    : 0;
-
-  function patchScore(studentId: number, taskId: number, value: number, hizbIndex?: number) {
+  function patchScore(studentId: number, taskId: number, value: number) {
     setScores((prev) => ({
       ...prev,
-      [gradingScoreKey(studentId, taskId, hizbIndex)]: value,
+      [gradingScoreKey(studentId, taskId)]: value,
     }));
   }
 
@@ -129,30 +177,63 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
     setTargets((prev) => ({ ...prev, [studentId]: value }));
   }
 
+  function patchSirdPeriod(
+    studentId: number,
+    periodIndex: number,
+    patch: Partial<SirdPeriodData>,
+  ) {
+    setSirdPeriods((prev) => {
+      const cur = prev[studentId]?.[periodIndex] ?? {
+        period_index: periodIndex,
+        hizb_number: 0,
+        mistakes_count: 0,
+        warnings_count: 0,
+        is_passed: false,
+        score: null,
+      };
+      const next = { ...cur, ...patch };
+      const { score, is_passed } = computeSirdPeriodScore(
+        next.mistakes_count,
+        next.warnings_count,
+        sirdSettings,
+      );
+      return {
+        ...prev,
+        [studentId]: {
+          ...(prev[studentId] ?? {}),
+          [periodIndex]: { ...next, score, is_passed },
+        },
+      };
+    });
+  }
+
   async function saveGrading() {
     setSaving(true);
     setError(null);
     setSuccess(null);
     try {
-      const records: Array<{
-        student_id: number;
-        task_id: number;
-        points: number;
-        hizb_index?: number;
-      }> = [];
-
-      if (isRecitationCategory(category) && recitationStudentId && activeHizb) {
-        for (const task of tasks) {
-          const key = gradingScoreKey(recitationStudentId, task.id, activeHizb);
-          const raw = Number(scores[key] ?? 0);
-          records.push({
-            student_id: recitationStudentId,
-            task_id: task.id,
-            hizb_index: activeHizb,
-            points: normalizePoints(task, raw),
-          });
-        }
+      if (isRecitationCategory(category) && recitationStudentId && activePeriod) {
+        const period = sirdPeriods[recitationStudentId]?.[activePeriod];
+        if (!period) return;
+        await api.competitionsGradingSave(competitionId, {
+          log_date: logDate,
+          records: [],
+          sird_records: [
+            {
+              student_id: recitationStudentId,
+              period_index: activePeriod,
+              hizb_number: period.hizb_number,
+              mistakes_count: period.mistakes_count,
+              warnings_count: period.warnings_count,
+            },
+          ],
+        });
       } else {
+        const records: Array<{
+          student_id: number;
+          task_id: number;
+          points: number;
+        }> = [];
         for (const student of students) {
           for (const task of tasks) {
             const key = gradingScoreKey(student.student_id, task.id);
@@ -164,20 +245,18 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
             });
           }
         }
+        const targetUpdates = students
+          .filter((s) => targets[s.student_id] != null)
+          .map((s) => ({
+            student_id: s.student_id,
+            target_amount: Number(targets[s.student_id] ?? 0),
+          }));
+        await api.competitionsGradingSave(competitionId, {
+          log_date: logDate,
+          records,
+          targets: targetUpdates,
+        });
       }
-
-      const targetUpdates = students
-        .filter((s) => targets[s.student_id] != null)
-        .map((s) => ({
-          student_id: s.student_id,
-          target_amount: Number(targets[s.student_id] ?? 0),
-        }));
-
-      await api.competitionsGradingSave(competitionId, {
-        log_date: logDate,
-        records,
-        targets: targetUpdates,
-      });
       setSuccess("تم حفظ الرصد بنجاح.");
       await load();
     } catch (e) {
@@ -232,10 +311,6 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
         <p className="text-sm text-muted-foreground" style={tajawal}>
           جاري التحميل…
         </p>
-      ) : tasks.length === 0 ? (
-        <p className={ds.alert.info} style={tajawal}>
-          أضف مهام المنافسة أولاً من تبويب «المهام والأوزان».
-        </p>
       ) : students.length === 0 ? (
         <p className={ds.alert.info} style={tajawal}>
           لا مستهدفين في هذه المنافسة.
@@ -263,7 +338,7 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
                   className={ds.btnRound}
                   onClick={() => {
                     setRecitationStudentId(s.student_id);
-                    setActiveHizb(null);
+                    setActivePeriod(null);
                     setQuery(s.full_name_ar);
                   }}
                   style={tajawal}
@@ -276,49 +351,26 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
           {recitationStudent && (
             <>
               <p className="text-sm text-muted-foreground" style={tajawal}>
-                {recitationStudent.full_name_ar} · مستهدف {recitationStudent.target_amount} جزء
-                ({recitationHizbTotal} حزب)
+                {recitationStudent.full_name_ar} · {competitionDays} فترة
               </p>
-              <HizbSessionGrid
-                totalHizbs={recitationHizbTotal}
-                activeHizb={activeHizb}
-                onSelect={setActiveHizb}
+              <SirdPeriodGrid
+                totalPeriods={competitionDays}
+                activePeriod={activePeriod}
+                periods={sirdPeriods[recitationStudent.student_id] ?? {}}
+                settings={sirdSettings}
+                disabled={saving}
+                onSelectPeriod={setActivePeriod}
+                onPatchPeriod={(period, patch) =>
+                  patchSirdPeriod(recitationStudent.student_id, period, patch)
+                }
               />
-              {activeHizb && (
-                <div className="rounded-xl border p-4 space-y-3">
-                  <p className="font-semibold" style={tajawal}>
-                    تقييم الحزب {activeHizb}
-                  </p>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                    {tasks.map((task) => {
-                      const key = gradingScoreKey(
-                        recitationStudent.student_id,
-                        task.id,
-                        activeHizb,
-                      );
-                      const raw = Number(scores[key] ?? 0);
-                      return (
-                        <div key={task.id} className="text-center">
-                          <p className="text-xs mb-2" style={tajawal}>
-                            {task.name_ar}
-                          </p>
-                          <TaskInputCell
-                            task={task}
-                            value={raw}
-                            compact
-                            onChange={(v) =>
-                              patchScore(recitationStudent.student_id, task.id, v, activeHizb)
-                            }
-                          />
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
             </>
           )}
         </div>
+      ) : tasks.length === 0 ? (
+        <p className={ds.alert.info} style={tajawal}>
+          أضف مهام المنافسة أولاً من تبويب «المهام والأوزان».
+        </p>
       ) : (
         <div className="overflow-x-auto max-h-[70vh] border rounded-xl">
           <Table className={`${ds.tableMin} text-right edu-recitation-grid`}>
@@ -394,15 +446,16 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
         </div>
       )}
 
-      {!loading && tasks.length > 0 && students.length > 0 && (
+      {!loading && students.length > 0 && (
         <div className="flex justify-end">
           <Button
             type="button"
             className={ds.btnRound}
             disabled={
               saving ||
-              (isRecitationCategory(category) &&
-                (!recitationStudentId || !activeHizb))
+              (isRecitationCategory(category)
+                ? !recitationStudentId || !activePeriod
+                : tasks.length === 0)
             }
             onClick={() => void saveGrading()}
             style={tajawal}

@@ -26,6 +26,13 @@ import {
   hasTaskInputType,
   competitionTaskSelectSql,
   parseTaskInputType,
+  parseSirdSettings,
+  computeSirdPeriodScore,
+  loadSirdPeriodsMatrix,
+  upsertSirdPeriodRecord,
+  aggregateSirdStudentStats,
+  hasSirdPeriodRecords,
+  DEFAULT_SIRD_SETTINGS,
   type CompetitionCategory,
   type MemorizationUnit,
   type StudentTargetInput,
@@ -459,6 +466,13 @@ export async function handleEduCompetitionsRouter(
     const rules = { ...defaultRules(), ...(body.rules ?? {}) };
     if (catResult === "new_memorization" && body.rules?.memorization_unit) {
       rules.memorization_unit = parseMemorizationUnit(body.rules.memorization_unit);
+    }
+    if (catResult === "recitation") {
+      const sirdRaw = (body.rules?.sird ?? {}) as Record<string, unknown>;
+      rules.sird = {
+        ...DEFAULT_SIRD_SETTINGS,
+        ...parseSirdSettings({ sird: sirdRaw }),
+      };
     }
     const ins = await insertCompetitionRow(env, schema, {
       complexId: auth.complexId,
@@ -937,7 +951,7 @@ export async function handleEduCompetitionsRouter(
   const gradingMatch = path.match(
     /^\/api\/edu-dept\/competitions\/(\d+)\/grading$/,
   );
-  if (gradingMatch && engineLogs && engineTasks) {
+  if (gradingMatch && (engineLogs || (await hasSirdPeriodRecords(env)))) {
     const id = Number(gradingMatch[1]);
     const row = await competitionExists(env, id, auth.complexId);
     if (!row) return json({ error: "not_found" }, 404);
@@ -960,37 +974,74 @@ export async function handleEduCompetitionsRouter(
         String(row.start_date),
         String(row.end_date),
       );
+      const sirdSettings = parseSirdSettings(compRules);
 
-      const [targetRows, tasksRes] = await Promise.all([
-        engineTargets
-          ? loadCompetitionTargetRows(env, id)
-          : Promise.resolve([]),
-        (async () => {
-          const hasInputType = await hasTaskInputType(env);
-          const taskCols = competitionTaskSelectSql(hasInputType).replace(
-            ", created_at",
-            "",
-          );
-          return env.DB.prepare(
-            `SELECT ${taskCols}
-             FROM competition_tasks WHERE competition_id = ?
-             ORDER BY sort_order, id`,
-          )
-            .bind(id)
-            .all<{
-              id: number;
-              name_ar: string;
-              weight: number;
-              type: string;
-              input_type?: string;
-              sort_order: number;
-            }>();
-        })(),
-      ]);
+      const targetRows = engineTargets
+        ? await loadCompetitionTargetRows(env, id)
+        : [];
+
+      if (category === "recitation" && (await hasSirdPeriodRecords(env))) {
+        const matrix = await loadSirdPeriodsMatrix(env, id);
+        const periodsByStudent: Record<string, Array<Record<string, unknown>>> = {};
+        for (const t of targetRows) {
+          periodsByStudent[String(t.student_id)] = (
+            matrix.get(t.student_id) ?? []
+          ).map((p) => ({
+            period_index: p.period_index,
+            hizb_number: p.hizb_number,
+            mistakes_count: p.mistakes_count,
+            warnings_count: p.warnings_count,
+            is_passed: p.is_passed,
+            score: p.score,
+          }));
+        }
+        return json({
+          log_date: logDate,
+          category,
+          competition_days: competitionDays,
+          start_date: row.start_date,
+          end_date: row.end_date,
+          sird_settings: sirdSettings,
+          tasks: [],
+          students: targetRows.map((t) => ({
+            student_id: t.student_id,
+            full_name_ar: t.full_name_ar,
+            target_amount: Number(t.target_amount ?? 0),
+            achieved_amount: Number(t.achieved_amount ?? 0),
+            current_memorization: Number(t.current_memorization ?? 0),
+          })),
+          sird_periods: periodsByStudent,
+          scores: {},
+        });
+      }
+
+      const tasksRes = engineTasks
+        ? await (async () => {
+            const hasInputType = await hasTaskInputType(env);
+            const taskCols = competitionTaskSelectSql(hasInputType).replace(
+              ", created_at",
+              "",
+            );
+            return env.DB.prepare(
+              `SELECT ${taskCols}
+               FROM competition_tasks WHERE competition_id = ?
+               ORDER BY sort_order, id`,
+            )
+              .bind(id)
+              .all<{
+                id: number;
+                name_ar: string;
+                weight: number;
+                type: string;
+                input_type?: string;
+                sort_order: number;
+              }>();
+          })()
+        : { results: [] };
 
       const scores = new Map<string, number>();
       const hasNotes = await tableHasColumn(env, "competition_logs", "notes");
-      if (hasTaskId && hasPoints) {
+      if (hasTaskId && hasPoints && engineLogs) {
         const logCols = hasNotes
           ? "student_id, task_id, points, notes"
           : "student_id, task_id, points";
@@ -1007,19 +1058,7 @@ export async function handleEduCompetitionsRouter(
             notes?: string;
           }>();
         for (const r of logRows.results ?? []) {
-          let hizbIndex = 0;
-          if (hasNotes && r.notes) {
-            try {
-              const parsed = JSON.parse(r.notes) as { hizb_index?: number };
-              hizbIndex = Number(parsed.hizb_index ?? 0);
-            } catch {
-              hizbIndex = 0;
-            }
-          }
-          const key =
-            category === "recitation" && hizbIndex > 0
-              ? `${r.student_id}:${hizbIndex}:${r.task_id}`
-              : `${r.student_id}:${r.task_id}`;
+          const key = `${r.student_id}:${r.task_id}`;
           scores.set(key, Number(r.points ?? 0));
         }
       }
@@ -1040,8 +1079,6 @@ export async function handleEduCompetitionsRouter(
             target_amount: targetAmount,
             achieved_amount: Number(t.achieved_amount ?? 0),
             current_memorization: Number(t.current_memorization ?? 0),
-            target_hizb:
-              category === "recitation" ? targetHizbCount(targetAmount) : undefined,
             daily_faces:
               category === "new_memorization" || category === "review"
                 ? studentDailyFaces(
@@ -1077,9 +1114,75 @@ export async function handleEduCompetitionsRouter(
         body.log_date?.trim() || new Date().toISOString().slice(0, 10);
       const records = body.records ?? [];
       const category = String(row.category ?? "recitation");
+      const compRules = JSON.parse(String(row.rules_json ?? "{}")) as Record<
+        string,
+        unknown
+      >;
+      const sirdSettings = parseSirdSettings(compRules);
       const hasNotes = await tableHasColumn(env, "competition_logs", "notes");
 
-      if (hasTaskId && hasPoints && records.length > 0) {
+      const sirdRecords = (
+        body as {
+          sird_records?: Array<{
+            student_id: number;
+            period_index: number;
+            hizb_number: number;
+            mistakes_count: number;
+            warnings_count: number;
+          }>;
+        }
+      ).sird_records;
+
+      if (
+        category === "recitation" &&
+        sirdRecords?.length &&
+        (await hasSirdPeriodRecords(env))
+      ) {
+        for (const rec of sirdRecords) {
+          const { score, is_passed } = computeSirdPeriodScore(
+            rec.mistakes_count,
+            rec.warnings_count,
+            sirdSettings,
+          );
+          await upsertSirdPeriodRecord(
+            env,
+            id,
+            rec.student_id,
+            rec.period_index,
+            {
+              hizb_number: Number(rec.hizb_number) || 0,
+              mistakes_count: rec.mistakes_count,
+              warnings_count: rec.warnings_count,
+              is_passed,
+              score,
+            },
+            auth.userId,
+          );
+          if (await hasTable(env, "competition_audit_trail")) {
+            await env.DB.prepare(
+              `INSERT INTO competition_audit_trail
+               (competition_id, student_id, action, payload_json, source, recorded_at)
+               VALUES (?, ?, 'sird_period_upsert', ?, 'edu_supervisor', datetime('now'))`,
+            )
+              .bind(
+                id,
+                rec.student_id,
+                JSON.stringify({
+                  period_index: rec.period_index,
+                  hizb_number: rec.hizb_number,
+                  mistakes_count: rec.mistakes_count,
+                  warnings_count: rec.warnings_count,
+                  is_passed,
+                  score,
+                }),
+              )
+              .run();
+          }
+        }
+        return json({ ok: true, saved: sirdRecords.length });
+      }
+
+      if (hasTaskId && hasPoints && records.length > 0 && engineTasks) {
         for (const rec of records) {
           const hizbIndex = Number(rec.hizb_index ?? 0);
           const notesPayload =
@@ -1235,6 +1338,57 @@ export async function handleEduCompetitionsRouter(
         totalMarks > 0 ? Math.round((presentMarks / totalMarks) * 100) : 0;
     }
 
+    const category = String(row.category ?? "recitation");
+    const compRules = JSON.parse(String(row.rules_json ?? "{}")) as Record<string, unknown>;
+    const sirdSettings = parseSirdSettings(compRules);
+
+    if (category === "recitation" && (await hasSirdPeriodRecords(env))) {
+      const targetRows = engineTargets ? await loadCompetitionTargetRows(env, id) : [];
+      const matrix = await loadSirdPeriodsMatrix(env, id);
+      const sirdRows = targetRows.map((t) =>
+        aggregateSirdStudentStats(
+          t.student_id,
+          t.full_name_ar,
+          matrix.get(t.student_id) ?? [],
+        ),
+      );
+      const sorted = [...sirdRows].sort((a, b) => b.mastery_pct - a.mastery_pct);
+      const leaders =
+        leaderboardMode === "all" ? sorted : sorted.slice(0, 5);
+      const totalRead = sirdRows.reduce((s, r) => s + r.read_count, 0);
+      const totalPassed = sirdRows.reduce((s, r) => s + r.passed_count, 0);
+      const masteryPct =
+        totalRead > 0 ? Math.round((totalPassed / totalRead) * 100) : 0;
+
+      return json({
+        date_from: dateFrom,
+        date_to: dateTo,
+        category,
+        sird_settings: sirdSettings,
+        kpis: {
+          discipline_pct: disciplinePct,
+          achievement_pct: masteryPct,
+          participants: totalStudents,
+          target_juz: 0,
+          achieved_juz: 0,
+          mastery_pct: masteryPct,
+          total_read: totalRead,
+          total_passed: totalPassed,
+        },
+        sird_students: sorted,
+        leaders: sorted.map((r) => ({
+          student_id: r.student_id,
+          full_name_ar: r.full_name_ar,
+          read_count: r.read_count,
+          passed_count: r.passed_count,
+          failed_count: r.failed_count,
+          total_mistakes: r.total_mistakes,
+          total_warnings: r.total_warnings,
+          mastery_pct: r.mastery_pct,
+        })),
+      });
+    }
+
     const achievedByStudent = await computeAchievedByStudent(env, id);
     let targetSum = 0;
     let achievedSum = 0;
@@ -1272,7 +1426,7 @@ export async function handleEduCompetitionsRouter(
       .sort((a, b) => b[1] - a[1])
       .map(([student_id, score]) => {
         const targetAmount = targetByStudent.get(student_id) ?? 0;
-        const achievementPct =
+        const rowAchievementPct =
           targetAmount > 0
             ? Math.min(100, Math.round((score / targetAmount) * 100))
             : score > 0
@@ -1283,7 +1437,7 @@ export async function handleEduCompetitionsRouter(
           score: Math.round(score * 100) / 100,
           full_name_ar: nameMap.get(student_id),
           target_amount: targetAmount,
-          achievement_pct: achievementPct,
+          achievement_pct: rowAchievementPct,
         };
       });
 
@@ -1293,6 +1447,7 @@ export async function handleEduCompetitionsRouter(
     return json({
       date_from: dateFrom,
       date_to: dateTo,
+      category,
       kpis: {
         discipline_pct: disciplinePct,
         achievement_pct: achievementPct,

@@ -8,12 +8,17 @@ import {
 import {
   countCompetitionDays,
   competitionTaskSelectSql,
+  computeSirdPeriodScore,
   hasEngineTargets,
   hasEngineTasks,
+  hasSirdPeriodRecords,
   hasTaskInputType,
+  loadSirdPeriodsMatrix,
   parseMemorizationUnit,
+  parseSirdSettings,
   studentDailyFaces,
   targetHizbCount,
+  upsertSirdPeriodRecord,
 } from "../lib/competition-engine";
 import { FIELD_EDU_ROLES } from "../lib/roles";
 
@@ -277,22 +282,44 @@ export async function handleLiveLogRouter(
       };
     });
 
-    const tasks = engineTasks
-      ? await (async () => {
-          const hasInputType = await hasTaskInputType(env);
-          const taskCols = competitionTaskSelectSql(hasInputType).replace(
-            ", created_at",
-            "",
-          );
-          return env.DB.prepare(
-            `SELECT ${taskCols}
-             FROM competition_tasks WHERE competition_id = ?
-             ORDER BY sort_order, id`,
-          )
-            .bind(session.id)
-            .all();
-        })()
-      : { results: [] };
+    const sirdSettings = parseSirdSettings(compRules);
+    const isRecitation = compCategory === "recitation";
+
+    const tasks =
+      isRecitation && (await hasSirdPeriodRecords(env))
+        ? { results: [] }
+        : engineTasks
+          ? await (async () => {
+              const hasInputType = await hasTaskInputType(env);
+              const taskCols = competitionTaskSelectSql(hasInputType).replace(
+                ", created_at",
+                "",
+              );
+              return env.DB.prepare(
+                `SELECT ${taskCols}
+                 FROM competition_tasks WHERE competition_id = ?
+                 ORDER BY sort_order, id`,
+              )
+                .bind(session.id)
+                .all();
+            })()
+          : { results: [] };
+
+    let sirdPeriods: Record<string, Array<Record<string, unknown>>> | undefined;
+    if (isRecitation && (await hasSirdPeriodRecords(env))) {
+      const matrix = await loadSirdPeriodsMatrix(env, session.id);
+      sirdPeriods = {};
+      for (const [sid, periods] of matrix.entries()) {
+        sirdPeriods[String(sid)] = periods.map((p) => ({
+          period_index: p.period_index,
+          hizb_number: p.hizb_number,
+          mistakes_count: p.mistakes_count,
+          warnings_count: p.warnings_count,
+          is_passed: p.is_passed,
+          score: p.score,
+        }));
+      }
+    }
 
     const hasMetricsJson = await tableHasColumn(env, "competition_logs", "metrics_json");
     const hasPoints = await tableHasColumn(env, "competition_logs", "points");
@@ -331,11 +358,13 @@ export async function handleLiveLogRouter(
         end_date: compRow?.end_date ?? session.date,
         memorization_unit: memorizationUnit,
         competition_days: competitionDays,
+        sird_settings: isRecitation ? sirdSettings : undefined,
         rules: session.rules,
         tv_key: session.tv_key,
       },
       students: enrichedStudents,
       tasks: tasks.results ?? [],
+      sird_periods: sirdPeriods,
       logs: logs.results ?? [],
     });
   }
@@ -428,6 +457,63 @@ export async function handleLiveLogRouter(
       errors: body.delta_error,
       category: (session as { category?: string }).category,
     };
+
+    const compCategory = String((session as { category?: string }).category ?? "recitation");
+    if (compCategory === "recitation" && (await hasSirdPeriodRecords(env))) {
+      const compRow = await env.DB.prepare(
+        `SELECT rules_json FROM competitions WHERE id = ?`,
+      )
+        .bind(session.id)
+        .first<{ rules_json: string }>();
+      const sirdSettings = parseSirdSettings(parseRulesJson(compRow?.rules_json));
+      const sirdPayload = metrics.sird_period as
+        | {
+            period_index?: number;
+            hizb_number?: number;
+            mistakes_count?: number;
+            warnings_count?: number;
+          }
+        | undefined;
+      const periodIndex = Number(sirdPayload?.period_index ?? metrics.period_index ?? 0);
+      if (periodIndex > 0) {
+        const mistakes = Number(sirdPayload?.mistakes_count ?? metrics.mistakes_count ?? 0);
+        const warnings = Number(sirdPayload?.warnings_count ?? metrics.warnings_count ?? 0);
+        const hizbNumber = Number(sirdPayload?.hizb_number ?? metrics.hizb_number ?? 0);
+        const { score, is_passed } = computeSirdPeriodScore(
+          mistakes,
+          warnings,
+          sirdSettings,
+        );
+        await upsertSirdPeriodRecord(env, session.id, studentId, periodIndex, {
+          hizb_number: hizbNumber,
+          mistakes_count: mistakes,
+          warnings_count: warnings,
+          is_passed,
+          score,
+        });
+        if (await hasTable(env, "competition_audit_trail")) {
+          await env.DB.prepare(
+            `INSERT INTO competition_audit_trail
+             (competition_id, student_id, action, payload_json, source, recorded_at)
+             VALUES (?, ?, 'sird_period_upsert', ?, 'live_log', datetime('now'))`,
+          )
+            .bind(
+              session.id,
+              studentId,
+              JSON.stringify({
+                period_index: periodIndex,
+                hizb_number: hizbNumber,
+                mistakes_count: mistakes,
+                warnings_count: warnings,
+                is_passed,
+                score,
+              }),
+            )
+            .run();
+        }
+        return json({ ok: true, is_passed, score, tv_key: session.tv_key });
+      }
+    }
 
     const hasMetricsJson = await tableHasColumn(env, "competition_logs", "metrics_json");
     const hasPoints = await tableHasColumn(env, "competition_logs", "points");

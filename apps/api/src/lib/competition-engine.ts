@@ -166,6 +166,215 @@ export function isMemorizationTrackingCategory(category: string): boolean {
   return category === "new_memorization" || category === "review";
 }
 
+export type CompetitionVolumeMetrics = {
+  target_juz: number;
+  target_hizb: number;
+  target_faces: number;
+  read_faces: number;
+};
+
+export type HydratedCompetitionAudit = {
+  student_id: number;
+  juz_done: number;
+  task_points: Record<number, number>;
+};
+
+/** O(T) — aggregate target juz/hizb/faces for unified metrics card. */
+export function aggregateTargetVolumeMetrics(
+  category: string,
+  unit: MemorizationUnit,
+  targets: Array<{ target_amount: number }>,
+): Pick<CompetitionVolumeMetrics, "target_juz" | "target_hizb" | "target_faces"> {
+  let targetJuz = 0;
+  let targetFaces = 0;
+  for (const t of targets) {
+    const amt = Number(t.target_amount) || 0;
+    if (category === "new_memorization") {
+      targetFaces += totalFacesFromUnit(unit, amt);
+      targetJuz += unit === "juz" ? amt : amt / 2;
+    } else {
+      targetJuz += amt;
+      targetFaces += amt * 20;
+    }
+  }
+  return {
+    target_juz: Math.round(targetJuz * 100) / 100,
+    target_hizb: Math.max(0, Math.ceil(targetJuz * 2)),
+    target_faces: Math.round(targetFaces * 100) / 100,
+  };
+}
+
+/** O(L) — sum memorization numeric task logs; fallback to metrics juz_done sum. */
+export function sumReadFacesFromTaskLogs(
+  logs: CompLogRow[],
+  memorizationTaskId: number | null,
+  metricsJuzFallback = 0,
+): number {
+  if (memorizationTaskId) {
+    let total = 0;
+    for (const log of logs) {
+      if (log.task_id === memorizationTaskId) {
+        total += Math.max(0, Number(log.points) || 0);
+      }
+    }
+    return Math.round(total * 100) / 100;
+  }
+  return Math.round(Math.max(0, metricsJuzFallback) * 100) / 100;
+}
+
+/** O(S×P) — sird periods with hizb_number > 0 → faces (10 per hizb). */
+export function sumSirdReadFaces(
+  matrix: Map<number, SirdPeriodRecord[]>,
+): number {
+  let hizbs = 0;
+  for (const periods of matrix.values()) {
+    for (const p of periods) {
+      if (Number(p.hizb_number) > 0) hizbs += 1;
+    }
+  }
+  return hizbs * 10;
+}
+
+/** O(L) — discipline % from attendance task logs (checkbox present = points > 0). */
+export function disciplinePctFromAttendanceLogs(
+  logs: CompLogRow[],
+  attendanceTaskId: number | null,
+): number {
+  if (!attendanceTaskId) return 0;
+  let total = 0;
+  let present = 0;
+  for (const log of logs) {
+    if (log.task_id !== attendanceTaskId) continue;
+    total += 1;
+    if (Number(log.points) > 0) present += 1;
+  }
+  return total > 0 ? Math.round((present / total) * 100) : 0;
+}
+
+/**
+ * O(R) — merge task_id rows + metrics_json into one audit map per student for a day.
+ * Time O(R); Space O(S).
+ */
+export async function loadCompetitionDayLogsHydrated(
+  env: Env,
+  competitionId: number,
+  logDate: string,
+): Promise<Map<number, HydratedCompetitionAudit>> {
+  const out = new Map<number, HydratedCompetitionAudit>();
+  if (!(await hasEngineLogs(env))) return out;
+
+  const hasTaskId = await tableHasColumn(env, "competition_logs", "task_id");
+  const hasPoints = await tableHasColumn(env, "competition_logs", "points");
+  const hasMetricsJson = await tableHasColumn(env, "competition_logs", "metrics_json");
+
+  if (hasTaskId && hasPoints) {
+    const rows = await env.DB.prepare(
+      `SELECT student_id, task_id, points
+       FROM competition_logs
+       WHERE competition_id = ? AND log_date = ? AND task_id IS NOT NULL`,
+    )
+      .bind(competitionId, logDate)
+      .all<{ student_id: number; task_id: number; points: number }>();
+
+    for (const r of rows.results ?? []) {
+      const sid = Number(r.student_id);
+      const cur = out.get(sid) ?? {
+        student_id: sid,
+        juz_done: 0,
+        task_points: {},
+      };
+      cur.task_points[Number(r.task_id)] = Number(r.points ?? 0);
+      out.set(sid, cur);
+    }
+  }
+
+  if (hasMetricsJson) {
+    const rows = await env.DB.prepare(
+      `SELECT student_id, metrics_json
+       FROM competition_logs
+       WHERE competition_id = ? AND log_date = ?`,
+    )
+      .bind(competitionId, logDate)
+      .all<{ student_id: number; metrics_json: string }>();
+
+    for (const r of rows.results ?? []) {
+      const sid = Number(r.student_id);
+      let metrics: Record<string, unknown> = {};
+      try {
+        metrics = JSON.parse(String(r.metrics_json ?? "{}")) as Record<string, unknown>;
+      } catch {
+        metrics = {};
+      }
+      const cur = out.get(sid) ?? {
+        student_id: sid,
+        juz_done: 0,
+        task_points: {},
+      };
+      const juzDone = Number(metrics.juz_done ?? 0);
+      if (juzDone > 0) cur.juz_done = juzDone;
+      const tp = metrics.task_points as Record<string, number> | undefined;
+      if (tp && typeof tp === "object") {
+        for (const [k, v] of Object.entries(tp)) {
+          const tid = Number(k);
+          if (!tid) continue;
+          if (cur.task_points[tid] == null) {
+            cur.task_points[tid] = Number(v) || 0;
+          }
+        }
+      }
+      out.set(sid, cur);
+    }
+  }
+
+  return out;
+}
+
+/** O(K) — upsert per-task grading rows (supervisor + reciter shared path). */
+export async function upsertCompetitionTaskLogRecords(
+  env: Env,
+  competitionId: number,
+  studentId: number,
+  logDate: string,
+  records: Array<{ task_id: number; points: number }>,
+  recordedByUserId: number | null = null,
+): Promise<void> {
+  if (!(await hasEngineLogs(env))) return;
+  const hasTaskId = await tableHasColumn(env, "competition_logs", "task_id");
+  const hasPoints = await tableHasColumn(env, "competition_logs", "points");
+  if (!hasTaskId || !hasPoints) return;
+
+  for (const rec of records) {
+    const taskId = Number(rec.task_id);
+    if (!taskId) continue;
+    const points = Number(rec.points ?? 0);
+    const existing = await env.DB.prepare(
+      `SELECT id FROM competition_logs
+       WHERE competition_id = ? AND student_id = ? AND task_id = ? AND log_date = ?`,
+    )
+      .bind(competitionId, studentId, taskId, logDate)
+      .first<{ id: number }>();
+
+    if (existing) {
+      await env.DB.prepare(
+        `UPDATE competition_logs
+         SET points = ?, recorded_by_user_id = COALESCE(?, recorded_by_user_id),
+             recorded_at = datetime('now')
+         WHERE id = ?`,
+      )
+        .bind(points, recordedByUserId, existing.id)
+        .run();
+    } else {
+      await env.DB.prepare(
+        `INSERT INTO competition_logs
+         (competition_id, student_id, task_id, log_date, points, recorded_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+        .bind(competitionId, studentId, taskId, logDate, points, recordedByUserId)
+        .run();
+    }
+  }
+}
+
 /** O(1) — daily faces using active-day count from rules (not calendar span). */
 export function studentDailyFacesFromRules(
   category: string,

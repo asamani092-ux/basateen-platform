@@ -3,7 +3,6 @@ import { Link, useParams } from "react-router";
 import { toast } from "sonner";
 import {
   BarChart3,
-  ClipboardCheck,
   Copy,
   Link2,
   ListChecks,
@@ -29,12 +28,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../components/ui/select";
-import { AttendanceStatusButtons } from "../../components/attendance/AttendanceStatusButtons";
 import { EduKpiCard } from "../../components/edu/EduKpiCard";
 import { CompetitionGradingGrid } from "../../components/edu/CompetitionGradingGrid";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
-import { normalizeAttendanceStatus } from "../../lib/attendance-status";
 import {
   buildCompetitionWhatsAppUrl,
   categoryLabel,
@@ -49,7 +46,7 @@ import { matchesArabicName } from "../../lib/attendance-search";
 import { defaultDateRange } from "../../lib/local-iso-date";
 import { ds, tajawal } from "../../lib/design-system";
 
-type TabId = "dashboard" | "targets" | "tasks" | "grading" | "live" | "attendance";
+type TabId = "dashboard" | "targets" | "tasks" | "grading" | "live";
 type LeaderboardMode = "top" | "all";
 
 type TaskRow = {
@@ -68,15 +65,6 @@ type TargetRow = {
   achieved_amount?: number | string;
 };
 
-type AttendanceItem = {
-  student_id: number;
-  full_name_ar: string;
-  status: "present" | "excused" | "absent";
-};
-
-const ATTENDANCE_STORAGE_KEY = (compId: number, date: string) =>
-  `basateen-competition-attendance-${compId}-${date}`;
-
 function printCompetitionDashboard() {
   document.body.classList.add("printing-competition-dashboard");
   window.print();
@@ -91,14 +79,9 @@ export function CompetitionDetailPage() {
   const [tab, setTab] = useState<TabId>("dashboard");
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [dashboard, setDashboard] = useState<Record<string, unknown> | null>(null);
-  const [attendance, setAttendance] = useState<{
-    date: string;
-    items: AttendanceItem[];
-  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [dashboardLoading, setDashboardLoading] = useState(false);
-  const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [liveLink, setLiveLink] = useState<string | null>(null);
   const [accessPin, setAccessPin] = useState("");
@@ -112,7 +95,6 @@ export function CompetitionDetailPage() {
   const [newTaskInputType, setNewTaskInputType] = useState<
     "boolean" | "numeric" | "counter"
   >("boolean");
-  const [attDate, setAttDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [dashRange, setDashRange] = useState(defaultDateRange(7));
   const [leaderboardMode, setLeaderboardMode] = useState<LeaderboardMode>("top");
   const [leaderSearch, setLeaderSearch] = useState("");
@@ -184,45 +166,6 @@ export function CompetitionDetailPage() {
     }
   }, [id, dashRange.start, dashRange.end, leaderboardMode]);
 
-  const loadAttendance = useCallback(async () => {
-    if (!canUseApi() || !id) return;
-    setAttendanceLoading(true);
-    setError(null);
-    try {
-      const res = await api.competitionsAttendanceGet(id, attDate);
-      const items: AttendanceItem[] = (
-        res.items as Array<Record<string, unknown>>
-      ).map((i) => ({
-        student_id: Number(i.student_id),
-        full_name_ar: String(i.full_name_ar),
-        status: normalizeAttendanceStatus(
-          String(i.status ?? (i.present ? "present" : "absent")),
-        ) as AttendanceItem["status"],
-      }));
-
-      const storageKey = ATTENDANCE_STORAGE_KEY(id, attDate);
-      try {
-        const cached = localStorage.getItem(storageKey);
-        if (cached) {
-          const parsed = JSON.parse(cached) as AttendanceItem[];
-          const map = new Map(parsed.map((p) => [p.student_id, p.status]));
-          for (const item of items) {
-            const st = map.get(item.student_id);
-            if (st) item.status = st;
-          }
-        }
-      } catch {
-        /* ignore corrupt cache */
-      }
-
-      setAttendance({ date: res.date, items });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل تحميل التحضير");
-    } finally {
-      setAttendanceLoading(false);
-    }
-  }, [id, attDate]);
-
   const comp = data?.competition as Record<string, unknown> | undefined;
   const category = String(comp?.category ?? "recitation");
 
@@ -241,26 +184,10 @@ export function CompetitionDetailPage() {
   }, [tab, loadDashboard]);
 
   useEffect(() => {
-    if (tab === "attendance") void loadAttendance();
-  }, [tab, loadAttendance]);
-
-  useEffect(() => {
     if (comp?.rules) {
       setSirdSettings(parseSirdSettings(comp.rules as Record<string, unknown>));
     }
   }, [comp?.rules]);
-
-  useEffect(() => {
-    if (!id || !attendance) return;
-    try {
-      localStorage.setItem(
-        ATTENDANCE_STORAGE_KEY(id, attDate),
-        JSON.stringify(attendance.items),
-      );
-    } catch {
-      /* quota exceeded */
-    }
-  }, [attendance, id, attDate]);
   const logs = (data?.logs as Array<Record<string, unknown>>) ?? [];
   const kpis = (dashboard?.kpis ?? {}) as Record<string, number>;
   const leaders = (dashboard?.leaders ?? []) as Array<{
@@ -482,26 +409,6 @@ export function CompetitionDetailPage() {
     }
   }
 
-  async function saveAttendance() {
-    if (!id || !attendance) return;
-    setSaving(true);
-    try {
-      await api.competitionsAttendanceSave(id, {
-        date: attDate,
-        records: attendance.items.map((i) => ({
-          student_id: i.student_id,
-          status: i.status,
-        })),
-      });
-      localStorage.removeItem(ATTENDANCE_STORAGE_KEY(id, attDate));
-      toast.success("تم حفظ التحضير");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل حفظ التحضير");
-    } finally {
-      setSaving(false);
-    }
-  }
-
   const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
     { id: "dashboard", label: "مؤشرات المنافسة", icon: <BarChart3 className="w-4 h-4" /> },
     { id: "targets", label: "المستهدفون", icon: <Users className="w-4 h-4" /> },
@@ -510,7 +417,6 @@ export function CompetitionDetailPage() {
       : []),
     { id: "grading", label: "الرصد المباشر", icon: <Pencil className="w-4 h-4" /> },
     { id: "live", label: "الرصد والروابط", icon: <Link2 className="w-4 h-4" /> },
-    { id: "attendance", label: "تحضير المنافسة", icon: <ClipboardCheck className="w-4 h-4" /> },
   ];
 
   async function saveSirdSettings() {
@@ -731,12 +637,39 @@ export function CompetitionDetailPage() {
                 </div>
               ) : (
                 <>
+                  <Card className={ds.card}>
+                    <CardHeader>
+                      <CardTitle style={tajawal}>بطاقة المؤشرات الشاملة</CardTitle>
+                    </CardHeader>
+                    <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                      <EduKpiCard
+                        label="الأجزاء المستهدفة"
+                        value={kpis.target_juz ?? 0}
+                        sub="إجمالي المستهدفين"
+                      />
+                      <EduKpiCard
+                        label="الأحزاب المستهدفة"
+                        value={kpis.target_hizb ?? 0}
+                        sub="جزء = حزبان"
+                      />
+                      <EduKpiCard
+                        label="الأوجه المستهدفة"
+                        value={kpis.target_faces ?? 0}
+                        sub="إجمالي الحجم"
+                      />
+                      <EduKpiCard
+                        label="الأوجه المقروءة"
+                        value={kpis.read_faces ?? 0}
+                        sub="مجموع الرصد الفعلي"
+                      />
+                    </CardContent>
+                  </Card>
                   <div className="grid gap-4 sm:grid-cols-3">
                     <EduKpiCard
                       icon={<BarChart3 className="w-4 h-4" />}
                       label="نسبة الانضباط"
                       value={`${kpis.discipline_pct ?? 0}%`}
-                      sub="حضور المنافسة فقط"
+                      sub="من مهمة الحضور في شبكة الرصد"
                     />
                     <EduKpiCard
                       icon={<Users className="w-4 h-4" />}
@@ -1338,108 +1271,6 @@ export function CompetitionDetailPage() {
             </Card>
           )}
 
-          {tab === "attendance" && (
-            <Card className={ds.card}>
-              <CardHeader>
-                <CardTitle style={tajawal}>تحضير المنافسة (مستقل)</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-muted-foreground" style={tajawal}>
-                  كشف حضور خاص بهذه المنافسة فقط — لا يؤثر على التحضير الإداري اليومي.
-                </p>
-                <div className="flex flex-wrap gap-3 items-end">
-                  <div className="space-y-1">
-                    <Label style={tajawal}>التاريخ</Label>
-                    <Input
-                      type="date"
-                      value={attDate}
-                      onChange={(e) => setAttDate(e.target.value)}
-                      className={ds.btnRound}
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={ds.btnRound}
-                    disabled={attendanceLoading}
-                    onClick={() => void loadAttendance()}
-                    style={tajawal}
-                  >
-                    {attendanceLoading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        جاري التحميل…
-                      </>
-                    ) : (
-                      "تحميل الأسماء"
-                    )}
-                  </Button>
-                </div>
-                {attendanceLoading && !attendance && (
-                  <div className="flex items-center gap-2 text-muted-foreground py-4">
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    <span style={tajawal}>جاري جلب قائمة الطلاب…</span>
-                  </div>
-                )}
-                {attendance && (
-                  <div className="space-y-2">
-                    {attendance.items.length === 0 ? (
-                      <p className="text-sm text-muted-foreground" style={tajawal}>
-                        لا مستهدفين في هذه المنافسة.
-                      </p>
-                    ) : (
-                      attendance.items.map((item) => (
-                        <div
-                          key={item.student_id}
-                          className="flex flex-wrap items-center justify-between gap-3 py-2 border-b"
-                          style={tajawal}
-                        >
-                          <span
-                            className={
-                              item.status === "absent"
-                                ? "text-muted-foreground line-through"
-                                : item.status === "excused"
-                                  ? "text-amber-700"
-                                  : ""
-                            }
-                          >
-                            {item.full_name_ar}
-                          </span>
-                          <AttendanceStatusButtons
-                            value={item.status}
-                            disabled={saving}
-                            onChange={(status) => {
-                              setAttendance((prev) =>
-                                prev
-                                  ? {
-                                      ...prev,
-                                      items: prev.items.map((i) =>
-                                        i.student_id === item.student_id
-                                          ? { ...i, status }
-                                          : i,
-                                      ),
-                                    }
-                                  : prev,
-                              );
-                            }}
-                          />
-                        </div>
-                      ))
-                    )}
-                    <Button
-                      type="button"
-                      className={ds.btnRound}
-                      disabled={saving || attendance.items.length === 0}
-                      onClick={() => void saveAttendance()}
-                      style={tajawal}
-                    >
-                      {saving ? "جاري الحفظ…" : "حفظ التحضير"}
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
         </>
       )}
     </div>

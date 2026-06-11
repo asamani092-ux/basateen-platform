@@ -43,7 +43,11 @@ import {
   loadSirdPeriodsMatrix,
   upsertSirdPeriodRecord,
   aggregateSirdStudentStats,
+  aggregateTargetVolumeMetrics,
+  disciplinePctFromAttendanceLogs,
   hasSirdPeriodRecords,
+  sumReadFacesFromTaskLogs,
+  sumSirdReadFaces,
   DEFAULT_SIRD_SETTINGS,
   type CompetitionCategory,
   type MemorizationUnit,
@@ -1359,8 +1363,37 @@ export async function handleEduCompetitionsRouter(
     );
     const totalStudents = studentIds.length;
 
-    let disciplinePct = 0;
-    if (hasCompAttendance && totalStudents > 0) {
+    const category = String(row.category ?? "recitation");
+    const compRules = JSON.parse(String(row.rules_json ?? "{}")) as Record<string, unknown>;
+    const memorizationUnit = memorizationUnitFromRules(compRules);
+    const sirdSettings = parseSirdSettings(compRules);
+
+    let targetRowsEarly: Awaited<ReturnType<typeof loadCompetitionTargetRows>> = [];
+    if (engineTargets) {
+      targetRowsEarly = await loadCompetitionTargetRows(env, id);
+    }
+    const volumeTargets = aggregateTargetVolumeMetrics(
+      category,
+      memorizationUnit,
+      targetRowsEarly.map((t) => ({ target_amount: Number(t.target_amount ?? 0) })),
+    );
+
+    const taskMetaEarly = engineTasks
+      ? await loadCompetitionTaskMeta(env, id)
+      : [];
+    const attendanceTaskId =
+      taskMetaEarly.find((t) => t.criterion_id === "attendance")?.id ?? null;
+    const memorizationTaskId =
+      taskMetaEarly.find((t) => t.criterion_id === "memorization")?.id ?? null;
+    const logsForMetrics = engineLogs
+      ? await loadCompetitionLogsForLeaderboard(env, id, dateFrom, dateTo)
+      : [];
+
+    let disciplinePct = disciplinePctFromAttendanceLogs(
+      logsForMetrics,
+      attendanceTaskId,
+    );
+    if (disciplinePct === 0 && hasCompAttendance && totalStudents > 0) {
       const hasAttStatus = await tableHasColumn(env, "competition_attendance", "status");
       const att = await env.DB.prepare(
         hasAttStatus
@@ -1382,9 +1415,30 @@ export async function handleEduCompetitionsRouter(
         totalMarks > 0 ? Math.round((presentMarks / totalMarks) * 100) : 0;
     }
 
-    const category = String(row.category ?? "recitation");
-    const compRules = JSON.parse(String(row.rules_json ?? "{}")) as Record<string, unknown>;
-    const sirdSettings = parseSirdSettings(compRules);
+    let metricsJuzFallback = 0;
+    if (
+      !memorizationTaskId &&
+      (await tableHasColumn(env, "competition_logs", "metrics_json"))
+    ) {
+      const mjRows = await env.DB.prepare(
+        `SELECT metrics_json
+         FROM competition_logs
+         WHERE competition_id = ? AND log_date >= ? AND log_date <= ?`,
+      )
+        .bind(id, dateFrom, dateTo)
+        .all<{ metrics_json: string }>();
+      for (const r of mjRows.results ?? []) {
+        try {
+          const m = JSON.parse(String(r.metrics_json ?? "{}")) as Record<
+            string,
+            unknown
+          >;
+          metricsJuzFallback += Math.max(0, Number(m.juz_done ?? 0));
+        } catch {
+          /* skip */
+        }
+      }
+    }
 
     if (category === "recitation" && (await hasSirdPeriodRecords(env))) {
       const targetRows = engineTargets ? await loadCompetitionTargetRows(env, id) : [];
@@ -1404,6 +1458,8 @@ export async function handleEduCompetitionsRouter(
       const masteryPct =
         totalRead > 0 ? Math.round((totalPassed / totalRead) * 100) : 0;
 
+      const sirdReadFaces = sumSirdReadFaces(matrix);
+
       return json({
         date_from: dateFrom,
         date_to: dateTo,
@@ -1413,7 +1469,10 @@ export async function handleEduCompetitionsRouter(
           discipline_pct: disciplinePct,
           achievement_pct: masteryPct,
           participants: totalStudents,
-          target_juz: 0,
+          target_juz: volumeTargets.target_juz,
+          target_hizb: volumeTargets.target_hizb,
+          target_faces: volumeTargets.target_faces,
+          read_faces: sirdReadFaces,
           achieved_juz: 0,
           mastery_pct: masteryPct,
           total_read: totalRead,
@@ -1504,17 +1563,18 @@ export async function handleEduCompetitionsRouter(
     for (const t of targetRows) {
       targetSum += Number(t.target_amount) || 0;
     }
-    if (category === "new_memorization") {
-      const taskMeta = await loadCompetitionTaskMeta(env, id);
-      const memTask = taskMeta.find((tk) => tk.criterion_id === "memorization");
-      if (memTask) {
-        const logs = await loadCompetitionLogsForLeaderboard(env, id, dateFrom, dateTo);
-        const memPts = sumMemorizationLogPoints(logs, memTask.id);
-        for (const t of targetRows) {
-          achievedSum += memorizationPointsToJuz(memPts.get(t.student_id) ?? 0);
-        }
+    if (category === "new_memorization" && memorizationTaskId) {
+      const memPts = sumMemorizationLogPoints(logsForMetrics, memorizationTaskId);
+      for (const t of targetRows) {
+        achievedSum += memorizationPointsToJuz(memPts.get(t.student_id) ?? 0);
       }
     }
+
+    const readFaces = sumReadFacesFromTaskLogs(
+      logsForMetrics,
+      memorizationTaskId,
+      metricsJuzFallback,
+    );
 
     return json({
       date_from: dateFrom,
@@ -1525,7 +1585,10 @@ export async function handleEduCompetitionsRouter(
         achievement_pct: avgOverall,
         overall_pct: avgOverall,
         participants: totalStudents,
-        target_juz: Math.round(targetSum * 100) / 100,
+        target_juz: volumeTargets.target_juz,
+        target_hizb: volumeTargets.target_hizb,
+        target_faces: volumeTargets.target_faces,
+        read_faces: readFaces,
         achieved_juz: Math.round(achievedSum * 100) / 100,
       },
       leaders,

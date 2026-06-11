@@ -16,12 +16,14 @@ import {
   hasSirdPeriodRecords,
   hasTaskInputType,
   isMemorizationTrackingCategory,
+  loadCompetitionDayLogsHydrated,
   loadSirdPeriodsMatrix,
   parseActiveWeekdays,
   parseMemorizationUnit,
   parseSirdSettings,
   studentDailyFacesFromRules,
   targetHizbCount,
+  upsertCompetitionTaskLogRecords,
   upsertSirdPeriodRecord,
 } from "../lib/competition-engine";
 import { FIELD_EDU_ROLES } from "../lib/roles";
@@ -337,29 +339,21 @@ export async function handleLiveLogRouter(
       }
     }
 
-    const hasMetricsJson = await tableHasColumn(env, "competition_logs", "metrics_json");
-    const hasPoints = await tableHasColumn(env, "competition_logs", "points");
-    let logs: { results?: unknown[] };
-    if (hasMetricsJson) {
-      logs = await env.DB.prepare(
-        `SELECT student_id, log_date, metrics_json, recorded_at
-         FROM competition_logs WHERE competition_id = ? AND log_date = ?`,
-      )
-        .bind(session.id, logDate)
-        .all();
-    } else if (hasPoints) {
-      logs = await env.DB.prepare(
-        `SELECT cl.student_id, cl.log_date, cl.points, cl.notes, cl.task_id,
-                ct.name_ar AS task_name, cl.recorded_at
-         FROM competition_logs cl
-         LEFT JOIN competition_tasks ct ON ct.id = cl.task_id
-         WHERE cl.competition_id = ? AND cl.log_date = ?`,
-      )
-        .bind(session.id, logDate)
-        .all();
-    } else {
-      logs = { results: [] };
-    }
+    const hydrated = await loadCompetitionDayLogsHydrated(
+      env,
+      session.id,
+      logDate,
+    );
+    const logs = {
+      results: [...hydrated.values()].map((a) => ({
+        student_id: a.student_id,
+        log_date: logDate,
+        metrics_json: JSON.stringify({
+          juz_done: a.juz_done,
+          task_points: a.task_points,
+        }),
+      })),
+    };
 
     const sess = session as { category?: string };
 
@@ -565,7 +559,47 @@ export async function handleLiveLogRouter(
     }
 
     const hasMetricsJson = await tableHasColumn(env, "competition_logs", "metrics_json");
+    const hasTaskId = await tableHasColumn(env, "competition_logs", "task_id");
     const hasPoints = await tableHasColumn(env, "competition_logs", "points");
+
+    const taskPointsRaw = metrics.task_points as Record<string, number> | undefined;
+    const records: Array<{ task_id: number; points: number }> = [];
+    if (taskPointsRaw && typeof taskPointsRaw === "object") {
+      for (const [k, v] of Object.entries(taskPointsRaw)) {
+        const tid = Number(k);
+        if (tid) records.push({ task_id: tid, points: Number(v) || 0 });
+      }
+    }
+
+    const engineTasksPost = await hasEngineTasks(env);
+    if (hasTaskId && hasPoints && engineTasksPost) {
+      const hasCritId = await tableHasColumn(env, "competition_tasks", "criterion_id");
+      const critCol = hasCritId ? ", criterion_id" : "";
+      const taskRows = await env.DB.prepare(
+        `SELECT id${critCol} FROM competition_tasks WHERE competition_id = ?`,
+      )
+        .bind(session.id)
+        .all<{ id: number; criterion_id?: string }>();
+      const memTask = (taskRows.results ?? []).find(
+        (t) => t.criterion_id === "memorization",
+      );
+      const juzDone = Number(metrics.juz_done ?? body.juz_done ?? 0);
+      if (memTask && juzDone > 0) {
+        const existing = records.find((r) => r.task_id === memTask.id);
+        if (existing) existing.points = Math.max(existing.points, juzDone);
+        else records.push({ task_id: memTask.id, points: juzDone });
+      }
+      if (records.length) {
+        await upsertCompetitionTaskLogRecords(
+          env,
+          session.id,
+          studentId,
+          logDate,
+          records,
+          null,
+        );
+      }
+    }
 
     if (hasMetricsJson) {
       await env.DB.prepare(
@@ -577,23 +611,6 @@ export async function handleLiveLogRouter(
            recorded_at = datetime('now')`,
       )
         .bind(session.id, studentId, logDate, JSON.stringify(metrics))
-        .run();
-    } else if (hasPoints) {
-      const taskId = body.metrics?.task_id != null ? Number(body.metrics.task_id) : null;
-      const points = Number(body.metrics?.points ?? body.juz_done ?? body.hizb_done ?? 0);
-      await env.DB.prepare(
-        `INSERT INTO competition_logs
-         (competition_id, student_id, task_id, log_date, points, notes, recorded_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, NULL)`,
-      )
-        .bind(
-          session.id,
-          studentId,
-          taskId,
-          logDate,
-          points,
-          JSON.stringify(metrics),
-        )
         .run();
     }
 

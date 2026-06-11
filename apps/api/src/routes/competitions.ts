@@ -1465,12 +1465,12 @@ export async function handleEduCompetitionsRouter(
       targetRows.map((t) => [t.student_id, Number(t.target_amount ?? 0)]),
     );
 
-    const studentIds =
+    const leaderStudentIds =
       targetRows.length > 0
         ? targetRows.map((t) => t.student_id)
         : [...leaderboardMap.keys()];
 
-    const allLeaders = studentIds
+    const allLeaders = leaderStudentIds
       .map((student_id) => {
         const lb = leaderboardMap.get(student_id);
         const overallPct = lb?.overall_pct ?? 0;

@@ -98,8 +98,12 @@ case "$MODE" in
     echo "D1 remote migrate: 054 tasks_snapshot columns"
     npm run db:remote:054
     ;;
+  055)
+    echo "D1 remote migrate: 055 competition_logs metrics_json"
+    npm run db:remote:055
+    ;;
   *)
-    echo "Usage: $0 upgrade|all|demo|051|052|053|054"
+    echo "Usage: $0 upgrade|all|demo|051|052|053|054|055"
     exit 1
     ;;
 esac

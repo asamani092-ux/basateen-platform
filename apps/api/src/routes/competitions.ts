@@ -1253,7 +1253,7 @@ export async function handleEduCompetitionsRouter(
       }
 
       let saved = 0;
-      if (byStudent.size > 0 && engineTasks) {
+      if (byStudent.size > 0) {
         saved = await saveCompetitionGradingBulk(
           env,
           id,

@@ -114,7 +114,11 @@ export async function saveCompetitionGradingBulk(
         ...taskPoints,
       },
     };
-    if (row.juz_done != null) metrics.juz_done = Number(row.juz_done) || 0;
+    if (row.juz_done !== undefined) {
+      metrics.juz_done = Number(row.juz_done) || 0;
+    } else if (row.metrics?.juz_done !== undefined) {
+      metrics.juz_done = Number(row.metrics.juz_done) || 0;
+    }
 
     upsertRows.push({
       student_id: row.student_id,

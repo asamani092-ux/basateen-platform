@@ -302,9 +302,39 @@ export async function loadCompetitionDayLogsHydrated(
   return out;
 }
 
+/** O(1) — parse metrics_json safely */
+export function parseCompetitionMetricsJson(
+  raw: string | null | undefined,
+): Record<string, unknown> {
+  if (!raw?.trim()) return {};
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+/** O(1) — merge incoming day metrics over existing (preserves unset fields). */
+export function mergeCompetitionDayMetrics(
+  existing: Record<string, unknown>,
+  incoming: Record<string, unknown>,
+): Record<string, unknown> {
+  const prevTp = (existing.task_points as Record<string, number>) ?? {};
+  const incTp = (incoming.task_points as Record<string, number>) ?? {};
+  const out: Record<string, unknown> = {
+    ...existing,
+    ...incoming,
+    task_points: { ...prevTp, ...incTp },
+  };
+  if (incoming.juz_done !== undefined) {
+    out.juz_done = incoming.juz_done;
+  }
+  return out;
+}
+
 /**
- * O(N) time / O(N) space — N = rows; batched INSERT ON CONFLICT per chunk (50).
- * Single row per (competition_id, student_id, log_date); all task data in metrics_json.
+ * O(N) time / O(N) space — upsert one canonical row per (competition, student, day).
+ * Merges legacy per-task rows into metrics_json; works with or without UNIQUE index.
  */
 export async function bulkUpsertCompetitionDayLogs(
   env: Env,
@@ -324,41 +354,108 @@ export async function bulkUpsertCompetitionDayLogs(
 
   const hasTasksSnapshot = await tableHasColumn(env, "competition_logs", "tasks_snapshot");
   const hasSource = await tableHasColumn(env, "competition_logs", "source");
-  const chunkSize = 50;
+  const hasTaskId = await tableHasColumn(env, "competition_logs", "task_id");
 
-  for (let i = 0; i < rows.length; i += chunkSize) {
-    const chunk = rows.slice(i, i + chunkSize);
-    const stmts = chunk.map((row) => {
-      const snapshotCol = hasTasksSnapshot ? ", tasks_snapshot" : "";
-      const snapshotVal = hasTasksSnapshot ? ", ?" : "";
-      const snapshotUpd = hasTasksSnapshot
-        ? ", tasks_snapshot = COALESCE(excluded.tasks_snapshot, tasks_snapshot)"
-        : "";
-      const sourceCol = hasSource ? ", source" : "";
-      const sourceVal = hasSource ? ", ?" : "";
-      const sourceUpd = hasSource ? ", source = excluded.source" : "";
+  for (const row of rows) {
+    const sid = Number(row.student_id);
+    if (!sid) continue;
 
-      const binds: (string | number | null)[] = [
-        competitionId,
-        row.student_id,
-        logDate,
-        JSON.stringify(row.metrics),
-      ];
-      if (hasTasksSnapshot) binds.push(row.tasks_snapshot ?? null);
-      if (hasSource) binds.push(source);
-      binds.push(recordedByUserId);
+    const existingRows = await env.DB.prepare(
+      `SELECT id, metrics_json, task_id, points
+       FROM competition_logs
+       WHERE competition_id = ? AND student_id = ? AND log_date = ?
+       ORDER BY CASE WHEN task_id IS NULL THEN 0 ELSE 1 END, id ASC`,
+    )
+      .bind(competitionId, sid, logDate)
+      .all<{
+        id: number;
+        metrics_json: string | null;
+        task_id: number | null;
+        points: number | null;
+      }>();
 
-      return env.DB.prepare(
-        `INSERT INTO competition_logs
-         (competition_id, student_id, log_date, metrics_json${snapshotCol}${sourceCol}, recorded_by_user_id)
-         VALUES (?, ?, ?, ?${snapshotVal}${sourceVal}, ?)
-         ON CONFLICT(competition_id, student_id, log_date) DO UPDATE SET
-           metrics_json = excluded.metrics_json${snapshotUpd}${sourceUpd},
-           recorded_by_user_id = COALESCE(excluded.recorded_by_user_id, recorded_by_user_id),
-           recorded_at = datetime('now')`,
-      ).bind(...binds);
-    });
-    await env.DB.batch(stmts);
+    let merged = { ...row.metrics };
+    const legacyIds: number[] = [];
+    let keeperId: number | null = null;
+
+    for (const er of existingRows.results ?? []) {
+      if (!keeperId) keeperId = er.id;
+      else legacyIds.push(er.id);
+
+      const parsed = parseCompetitionMetricsJson(er.metrics_json);
+      merged = mergeCompetitionDayMetrics(parsed, merged);
+
+      if (hasTaskId && er.task_id != null) {
+        const tp = (merged.task_points as Record<string, number>) ?? {};
+        tp[String(er.task_id)] = Number(er.points ?? 0);
+        merged.task_points = tp;
+      }
+    }
+
+    const metricsStr = JSON.stringify(merged);
+
+    if (keeperId != null) {
+      const sets = ["metrics_json = ?"];
+      const binds: (string | number | null)[] = [metricsStr];
+      if (hasTasksSnapshot && row.tasks_snapshot != null) {
+        sets.push("tasks_snapshot = ?");
+        binds.push(row.tasks_snapshot);
+      }
+      if (hasSource) {
+        sets.push("source = ?");
+        binds.push(source);
+      }
+      if (hasTaskId) {
+        sets.push("task_id = NULL");
+      }
+      sets.push("recorded_by_user_id = COALESCE(?, recorded_by_user_id)");
+      sets.push("recorded_at = datetime('now')");
+      binds.push(recordedByUserId, keeperId);
+
+      await env.DB.prepare(
+        `UPDATE competition_logs SET ${sets.join(", ")} WHERE id = ?`,
+      )
+        .bind(...binds)
+        .run();
+
+      if (legacyIds.length) {
+        const ph = legacyIds.map(() => "?").join(",");
+        await env.DB.prepare(
+          `DELETE FROM competition_logs WHERE id IN (${ph})`,
+        )
+          .bind(...legacyIds)
+          .run();
+      }
+      continue;
+    }
+
+    const cols = ["competition_id", "student_id", "log_date", "metrics_json"];
+    const vals = ["?", "?", "?", "?"];
+    const binds: (string | number | null)[] = [
+      competitionId,
+      sid,
+      logDate,
+      metricsStr,
+    ];
+    if (hasTasksSnapshot) {
+      cols.push("tasks_snapshot");
+      vals.push("?");
+      binds.push(row.tasks_snapshot ?? null);
+    }
+    if (hasSource) {
+      cols.push("source");
+      vals.push("?");
+      binds.push(source);
+    }
+    cols.push("recorded_by_user_id");
+    vals.push("?");
+    binds.push(recordedByUserId);
+
+    await env.DB.prepare(
+      `INSERT INTO competition_logs (${cols.join(", ")}) VALUES (${vals.join(", ")})`,
+    )
+      .bind(...binds)
+      .run();
   }
 }
 

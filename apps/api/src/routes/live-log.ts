@@ -593,8 +593,8 @@ export async function handleLiveLogRouter(
           {
             student_id: studentId,
             records,
-            juz_done: juzDone > 0 ? juzDone : undefined,
-            metrics,
+            juz_done: juzDone,
+            metrics: { ...metrics, juz_done: juzDone },
           },
         ],
         {

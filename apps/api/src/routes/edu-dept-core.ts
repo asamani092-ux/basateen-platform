@@ -1616,10 +1616,7 @@ export async function handleEduDeptCoreRouter(
         .first<{ id: number; name_ar: string }>();
       if (!targetTrack) return json({ error: "track_not_found" }, 404);
 
-      if (
-        current?.current_track_id === trackId &&
-        (current?.current_circle_id == null || current.current_circle_id === 0)
-      ) {
+      if (current?.current_track_id === trackId) {
         return json({ error: "already_in_track" }, 409);
       }
 
@@ -1652,16 +1649,6 @@ export async function handleEduDeptCoreRouter(
           reason: note,
           resolvedByUserId: auth.userId,
         });
-        const hasSupervisor = await tableHasColumn(env, "tracks", "supervisor_id");
-        let supervisorUserId: number | null = null;
-        if (hasSupervisor) {
-          const sup = await env.DB.prepare(
-            `SELECT supervisor_id FROM tracks WHERE id = ?`,
-          )
-            .bind(trackId)
-            .first<{ supervisor_id: number | null }>();
-          supervisorUserId = sup?.supervisor_id ?? null;
-        }
         await notifyTransferRecipients(env, {
           complexId: auth.complexId,
           studentName: current?.full_name_ar ?? "طالب",

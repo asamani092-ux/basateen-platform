@@ -4,7 +4,7 @@ import {
   getCircleCapacity,
   capacityWarningMessage,
 } from "../lib/circle-capacity";
-import { canManageCircle } from "../lib/dept-scope";
+import { canManageCircle, teacherCanAccessStudent } from "../lib/dept-scope";
 import {
   activePlacementSql,
   hasTable,
@@ -295,7 +295,17 @@ export async function handleStudentTransfer(
         : null;
 
   if (current?.circle_id) {
-    if (!(await canManageCircle(env, auth, current.circle_id))) {
+    const staffRole =
+      auth.role === "teacher" || auth.role === "track_supervisor";
+    if (staffRole) {
+      if (
+        !(await teacherCanAccessStudent(env, auth.userId, studentId, {
+          complexId: auth.complexId,
+        }))
+      ) {
+        return json({ error: "forbidden_student" }, 403);
+      }
+    } else if (!(await canManageCircle(env, auth, current.circle_id))) {
       return json({ error: "forbidden_current_circle" }, 403);
     }
     const sameCircle = current.circle_id === targetCircleId;
@@ -303,6 +313,14 @@ export async function handleStudentTransfer(
       (current.track_id ?? null) === (trackId ?? null);
     if (sameCircle && sameTrack) {
       return json({ error: "already_in_circle" }, 409);
+    }
+  } else if (auth.role === "teacher" || auth.role === "track_supervisor") {
+    if (
+      !(await teacherCanAccessStudent(env, auth.userId, studentId, {
+        complexId: auth.complexId,
+      }))
+    ) {
+      return json({ error: "forbidden_student" }, 403);
     }
   }
 

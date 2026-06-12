@@ -13,6 +13,7 @@ import {
   studentsInScopeBinds,
   studentsInScopeWhere,
 } from "../lib/dept-scope";
+import { upsertStudentAttendance } from "../lib/student-attendance-db";
 import { handleEduDeptExtendedRoutes } from "./edu-dept-extended";
 
 const ACCEPT_ASSIGN_PATHS = new Set([
@@ -227,33 +228,22 @@ export async function handleEduDeptRouter(
     if (!allowed) return json({ error: "student_out_of_scope" }, 403);
 
     const circleRow = await env.DB.prepare(
-      `SELECT current_circle_id FROM students WHERE id = ?`,
+      `SELECT current_circle_id, current_track_id FROM students WHERE id = ?`,
     )
       .bind(studentId)
-      .first<{ current_circle_id: number | null }>();
+      .first<{ current_circle_id: number | null; current_track_id: number | null }>();
 
-    await env.DB.prepare(
-      `INSERT INTO student_attendance
-       (complex_id, student_id, attendance_date, status, source, circle_id, recorded_by_user_id, notes)
-       VALUES (?, ?, ?, ?, 'edu_supervisor', ?, ?, ?)
-       ON CONFLICT(student_id, attendance_date) DO UPDATE SET
-         status = excluded.status,
-         source = 'edu_supervisor',
-         circle_id = COALESCE(excluded.circle_id, student_attendance.circle_id),
-         recorded_by_user_id = excluded.recorded_by_user_id,
-         notes = excluded.notes,
-         recorded_at = datetime('now')`,
-    )
-      .bind(
-        auth.complexId,
-        studentId,
-        date,
-        status,
-        circleRow?.current_circle_id ?? null,
-        auth.userId,
-        body.notes?.trim() ?? null,
-      )
-      .run();
+    await upsertStudentAttendance(env, {
+      complexId: auth.complexId,
+      studentId,
+      attendanceDate: date,
+      status,
+      source: "edu_supervisor",
+      circleId: circleRow?.current_circle_id ?? null,
+      trackId: circleRow?.current_track_id ?? null,
+      recordedByUserId: auth.userId,
+      notes: body.notes?.trim() ?? null,
+    });
 
     return json({ ok: true, student_id: studentId, status, attendance_date: date });
   }

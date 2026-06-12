@@ -28,8 +28,13 @@ import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { cn } from "../../components/ui/utils";
 import {
-  formatFacesToText,
-} from "../../lib/quran-memorization";
+  MemorizationProfileCard,
+  type MemorizationProfileData,
+} from "../../components/edu/MemorizationProfileCard";
+import { formatFacesToText } from "../../lib/quran-memorization";
+import { defaultDateRange } from "../../lib/local-iso-date";
+import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
+import { ds, tajawal } from "../../lib/design-system";
 
 type CircleReport = Awaited<ReturnType<typeof api.eduDeptReportsProgress>>;
 

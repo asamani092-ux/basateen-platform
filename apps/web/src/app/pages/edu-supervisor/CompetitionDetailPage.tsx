@@ -47,6 +47,7 @@ import {
   convertToFaces,
   formatFacesToText,
 } from "../../lib/quran-memorization";
+import { defaultDateRange } from "../../lib/local-iso-date";
 import { ds, tajawal } from "../../lib/design-system";
 
 type TabId = "dashboard" | "targets" | "tasks" | "grading" | "live";

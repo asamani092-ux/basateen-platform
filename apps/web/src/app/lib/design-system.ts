@@ -73,4 +73,14 @@ export const ds = {
     "border-sky-500/35 bg-sky-500/10 text-sky-800 dark:border-sky-400/40 dark:bg-sky-500/15 dark:text-sky-200",
   /** زر حفظ/رصد — توسيط على الجوال */
   saveActionWrap: "flex flex-col items-center justify-center gap-2",
+  /** Toast — بطاقة نظيفة + دلالة لونية على الحد والأيقونة فقط */
+  toast: {
+    base: "rounded-2xl border bg-card text-card-foreground shadow-lg",
+    title: "text-sm font-semibold text-right text-foreground",
+    description: "text-sm text-right text-muted-foreground",
+    success:
+      "border-emerald-600/40 dark:border-emerald-500/45 [&_[data-icon]]:!text-emerald-600 dark:[&_[data-icon]]:!text-emerald-400",
+    error:
+      "border-destructive/45 dark:border-destructive/50 [&_[data-icon]]:!text-destructive dark:[&_[data-icon]]:!text-red-400",
+  },
 } as const;

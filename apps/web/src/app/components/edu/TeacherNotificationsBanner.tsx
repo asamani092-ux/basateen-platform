@@ -32,7 +32,7 @@ export function TeacherNotificationsBanner() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [trackSupervisorItems, setTrackSupervisorItems] = useState<Notice[]>([]);
-  const [trackSupervisorHasScope, setTrackSupervisorHasScope] = useState(false);
+  const [trackSupervisorHasTrack, setTrackSupervisorHasTrack] = useState(false);
 
   const isTeacher = user?.role === "teacher";
   const isTrackSupervisor = user?.role === "track_supervisor";
@@ -65,17 +65,16 @@ export function TeacherNotificationsBanner() {
 
   useEffect(() => {
     if (!canUseApi() || !isTrackSupervisor) {
-      setTrackSupervisorHasScope(false);
+      setTrackSupervisorHasTrack(false);
       return;
     }
     void api
       .eduDeptFilterScopes()
       .then((res) => {
-        const hasCircles = res.circles.length > 0;
-        const hasTracksFromCircles = res.circles.some((c) => c.track_id != null);
-        setTrackSupervisorHasScope(hasCircles || hasTracksFromCircles || res.tracks.length > 0);
+        const assigned = res.assigned_track_ids ?? [];
+        setTrackSupervisorHasTrack(assigned.length > 0);
       })
-      .catch(() => setTrackSupervisorHasScope(false));
+      .catch(() => setTrackSupervisorHasTrack(false));
   }, [isTrackSupervisor]);
 
   const teacherItems: Notice[] = useMemo(
@@ -91,11 +90,11 @@ export function TeacherNotificationsBanner() {
   const items = isTeacher ? teacherItems : trackSupervisorItems;
 
   const visibleItems = useMemo(() => {
-    if (!isTrackSupervisor || !trackSupervisorHasScope) {
+    if (!isTrackSupervisor || !trackSupervisorHasTrack) {
       return items;
     }
     return items.filter((n) => !isNoCircleNotice(n));
-  }, [items, isTrackSupervisor, trackSupervisorHasScope]);
+  }, [items, isTrackSupervisor, trackSupervisorHasTrack]);
 
   if (visibleItems.length === 0) return null;
 

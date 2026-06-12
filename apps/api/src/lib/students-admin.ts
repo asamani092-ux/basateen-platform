@@ -124,9 +124,6 @@ export async function applyStudentPlacement(
     sets.push("current_track_id = ?");
     binds.push(placement.id);
   }
-  if (await tableHasColumn(env, "students", "current_circle_id")) {
-    sets.push("current_circle_id = NULL");
-  }
   if (sets.length === 0) return;
   binds.push(studentId);
   await env.DB.prepare(`UPDATE students SET ${sets.join(", ")} WHERE id = ?`)

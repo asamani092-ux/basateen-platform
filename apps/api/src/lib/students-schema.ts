@@ -159,10 +159,8 @@ function transformStudentBody(body: z.infer<typeof studentCreateBaseSchema>) {
     const id = parsePositiveIntField(idStr);
     if (id && kind === "circle") {
       circle_id = id;
-      track_id = null;
     } else if (id && kind === "track") {
       track_id = id;
-      circle_id = null;
     }
   }
 

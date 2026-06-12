@@ -1915,6 +1915,7 @@ export const api = {
         student_id: number;
         full_name_ar: string;
         track_name?: string | null;
+        circle_name?: string | null;
         task_scores?: Record<string, boolean | number>;
         listened?: boolean;
         repeated?: boolean;
@@ -2040,6 +2041,7 @@ export const api = {
     request<{
       circles: Array<{ id: number; name_ar: string; track_id: number | null }>;
       tracks: Array<{ id: number; name_ar: string }>;
+      assigned_track_ids?: number[];
     }>("/api/edu-dept/filter-scopes"),
   eduDeptTransferHistory: (q?: string) =>
     request<{

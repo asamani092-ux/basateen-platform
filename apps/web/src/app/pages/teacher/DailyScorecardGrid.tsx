@@ -1,27 +1,42 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { StudentTrackBadge } from "../../components/edu/StudentTrackBadge";
 import { CounterField } from "../../components/teacher/CounterField";
 import { DatePickerField } from "../../components/teacher/DatePickerField";
 import { Switch } from "../../components/ui/switch";
 import { Button } from "../../components/ui/button";
-import { api, type EduMatrixEntryGridResponse } from "../../lib/api-client";
+import { api } from "../../lib/api-client";
 import { ds, tajawal } from "../../lib/design-system";
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
-type RowState = NonNullable<EduMatrixEntryGridResponse["items"][0]["log"]> & {
+type RowState = {
+  id: number;
   has_memorized: number;
   has_repeated: number;
   has_reviewed: number;
   has_linked: number;
+  memorization_errors: number;
+  memorization_warnings: number;
+  review_errors: number;
 };
 
-function defaultLog(): RowState {
+type ScorecardRow = {
+  id: number;
+  name: string;
+  academic_grade: string;
+  national_id: string;
+  track_name?: string | null;
+  attendance_status?: string | null;
+  log: RowState;
+};
+
+function defaultLog(id: number): RowState {
   return {
-    id: 0,
+    id,
     has_memorized: 0,
     has_repeated: 0,
     has_reviewed: 0,
@@ -32,26 +47,79 @@ function defaultLog(): RowState {
   };
 }
 
+function taskScoreBool(
+  scores: Record<string, boolean | number> | undefined,
+  keys: string[],
+): number {
+  if (!scores) return 0;
+  return keys.some((k) => Boolean(scores[k])) ? 1 : 0;
+}
+
+function taskScoreNumber(
+  scores: Record<string, boolean | number> | undefined,
+  keys: string[],
+): number {
+  if (!scores) return 0;
+  for (const k of keys) {
+    const v = scores[k];
+    if (typeof v === "number") return Math.max(0, v);
+    if (v) return 1;
+  }
+  return 0;
+}
+
+function rowFromBootstrap(item: {
+  student_id: number;
+  full_name_ar: string;
+  track_name?: string | null;
+  admin_present?: boolean;
+  task_scores?: Record<string, boolean | number>;
+}): ScorecardRow {
+  const scores = item.task_scores;
+  return {
+    id: item.student_id,
+    name: item.full_name_ar,
+    academic_grade: "—",
+    national_id: "—",
+    track_name: item.track_name ?? null,
+    attendance_status: item.admin_present ? "present" : null,
+    log: {
+      id: item.student_id,
+      has_memorized: taskScoreBool(scores, ["listening", "has_memorized", "memorized"]),
+      has_repeated: taskScoreBool(scores, ["repeat", "has_repeated", "repeated"]),
+      has_reviewed: taskScoreBool(scores, ["revision", "has_reviewed", "reviewed"]),
+      has_linked: taskScoreBool(scores, ["linking", "has_linked", "linked"]),
+      memorization_errors: taskScoreNumber(scores, ["error", "memorization_errors"]),
+      memorization_warnings: taskScoreNumber(scores, ["tune", "memorization_warnings"]),
+      review_errors: taskScoreNumber(scores, ["review_errors"]),
+    },
+  };
+}
+
 export function DailyScorecardGrid() {
   const [date, setDate] = useState(todayIso);
   const [loading, setLoading] = useState(true);
-  const [grid, setGrid] = useState<EduMatrixEntryGridResponse | null>(null);
+  const [contextLabel, setContextLabel] = useState<string | null>(null);
+  const [items, setItems] = useState<ScorecardRow[]>([]);
   const [draft, setDraft] = useState<Record<number, RowState>>({});
   const [savingId, setSavingId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.eduMatrixEntryGrid({ date });
-      setGrid(data);
+      const data = await api.eduDeptTeacherBootstrap({ date });
+      const rows = (data.items ?? []).map(rowFromBootstrap);
+      setContextLabel(data.circle_name ?? data.teacher_circle?.name_ar ?? null);
+      setItems(rows);
       const next: Record<number, RowState> = {};
-      for (const row of data.items) {
-        next[row.id] = row.log ? { ...row.log } : defaultLog();
+      for (const row of rows) {
+        next[row.id] = { ...row.log };
       }
       setDraft(next);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "تعذّر تحميل الشبكة");
-      setGrid(null);
+      setItems([]);
+      setContextLabel(null);
     } finally {
       setLoading(false);
     }
@@ -62,19 +130,25 @@ export function DailyScorecardGrid() {
   }, [load]);
 
   async function saveRow(studentId: number) {
-    const log = draft[studentId] ?? defaultLog();
+    const log = draft[studentId] ?? defaultLog(studentId);
     setSavingId(studentId);
     try {
-      await api.eduMatrixUpsertLog({
-        student_id: studentId,
-        date,
-        has_memorized: log.has_memorized,
-        has_repeated: log.has_repeated,
-        has_reviewed: log.has_reviewed,
-        has_linked: log.has_linked,
-        memorization_errors: log.memorization_errors,
-        memorization_warnings: log.memorization_warnings,
-        review_errors: log.review_errors,
+      await api.eduDeptDailyRecitationSave({
+        recitation_date: date,
+        rows: [
+          {
+            student_id: studentId,
+            task_scores: {
+              listening: log.has_memorized === 1,
+              repeat: log.has_repeated === 1,
+              revision: log.has_reviewed === 1,
+              linking: log.has_linked === 1,
+              error: log.memorization_errors,
+              tune: log.memorization_warnings,
+              review_errors: log.review_errors,
+            },
+          },
+        ],
       });
       toast.success("تم الحفظ");
       await load();
@@ -88,11 +162,11 @@ export function DailyScorecardGrid() {
   function patchRow(studentId: number, patch: Partial<RowState>) {
     setDraft((prev) => ({
       ...prev,
-      [studentId]: { ...(prev[studentId] ?? defaultLog()), ...patch },
+      [studentId]: { ...(prev[studentId] ?? defaultLog(studentId)), ...patch },
     }));
   }
 
-  if (loading && !grid) {
+  if (loading && items.length === 0) {
     return (
       <div className="flex justify-center py-12">
         <Loader2 className="size-8 animate-spin text-primary" />
@@ -104,19 +178,19 @@ export function DailyScorecardGrid() {
     <div className="space-y-4">
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border border-border rounded-2xl p-3 space-y-2">
         <p className="text-xs text-muted-foreground" style={tajawal}>
-          {grid?.context.role_label ?? "—"} — أي رصد = حضور تلقائي
+          {contextLabel ? `الحلقة: ${contextLabel}` : "—"} — أي رصد = حضور تلقائي
         </p>
         <DatePickerField value={date} onChange={setDate} maxDate={todayIso()} />
       </div>
 
-      {!grid?.items.length ? (
+      {!items.length ? (
         <p className="text-center text-muted-foreground py-8" style={tajawal}>
-          لا يوجد طلاب في هذه الشبكة. شغّل ترحيل 022 ثم seed-edu-matrix.
+          لا يوجد طلاب في هذه الشبكة.
         </p>
       ) : (
         <div className="space-y-3">
-          {grid.items.map((row) => {
-            const log = draft[row.id] ?? defaultLog();
+          {items.map((row) => {
+            const log = draft[row.id] ?? row.log;
             const busy = savingId === row.id;
             return (
               <article
@@ -124,11 +198,14 @@ export function DailyScorecardGrid() {
                 className="border border-border rounded-2xl p-3 space-y-3 bg-card shadow-sm"
               >
                 <div className="flex items-start justify-between gap-2">
-                  <div>
+                  <div className="min-w-0">
                     <h3 className="font-bold text-sm" style={tajawal}>
                       {row.name}
                     </h3>
-                    <p className="text-xs text-muted-foreground">
+                    {row.track_name ? (
+                      <StudentTrackBadge trackName={row.track_name} className="mt-1" />
+                    ) : null}
+                    <p className="text-xs text-muted-foreground mt-1">
                       {row.academic_grade} — {row.national_id}
                     </p>
                   </div>

@@ -95,7 +95,10 @@ export async function transferStudentCircle(
       complexId,
       newTrackId,
     );
-    const trackId = resolvedTrack ?? newTrackId ?? current?.current_track_id ?? null;
+    const explicitTrack =
+      newTrackId != null && Number.isFinite(newTrackId) ? newTrackId : null;
+    const trackId =
+      explicitTrack ?? current?.current_track_id ?? resolvedTrack ?? null;
 
     if (
       current?.current_circle_id === newCircleId &&

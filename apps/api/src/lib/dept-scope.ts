@@ -1,5 +1,12 @@
 import type { Env } from "../types";
-import { hasTable, tableHasColumn, studentIsActiveSql } from "./db-schema";
+import {
+  activePlacementSql,
+  hasTable,
+  historyCircleColumn,
+  studentIsActiveSql,
+  tableHasColumn,
+} from "./db-schema";
+import { resolveTrackSupervisorTrackIds } from "./student-placement";
 
 export const STAGE_LABELS: Record<number, string> = {
   1: "تلقين",
@@ -158,48 +165,95 @@ export function staffScopeBinds(
   return [complexId, ...ids.map(String)];
 }
 
+async function staffHasCircleAccess(
+  env: Env,
+  staffUserId: number,
+  circleId: number,
+): Promise<boolean> {
+  if (await hasTable(env, "teacher_assignments")) {
+    const ta = await env.DB.prepare(
+      `SELECT 1 AS ok FROM teacher_assignments
+       WHERE user_id = ? AND circle_id = ? LIMIT 1`,
+    )
+      .bind(staffUserId, circleId)
+      .first<{ ok: number }>();
+    if (ta?.ok) return true;
+  }
+  if (await tableHasColumn(env, "circles", "teacher_id")) {
+    const ct = await env.DB.prepare(
+      `SELECT 1 AS ok FROM circles
+       WHERE id = ? AND teacher_id = ? LIMIT 1`,
+    )
+      .bind(circleId, staffUserId)
+      .first<{ ok: number }>();
+    if (ct?.ok) return true;
+  }
+  return false;
+}
+
+/**
+ * Teacher / track supervisor access — circle OR track placement (dual enrollment safe).
+ * Time O(1) queries; Space O(1).
+ */
 export async function teacherCanAccessStudent(
   env: Env,
-  teacherUserId: number,
+  staffUserId: number,
   studentId: number,
+  opts?: { complexId?: number },
 ): Promise<boolean> {
-  const hasTa = await hasTable(env, "teacher_assignments");
-  if (!hasTa) {
-    const row = await env.DB.prepare(
-      `SELECT 1 AS ok FROM students WHERE id = ? AND is_active = 1 LIMIT 1`,
-    )
-      .bind(studentId)
-      .first<{ ok: number }>();
-    return Boolean(row?.ok);
+  const activeSql = await studentIsActiveSql(env, "s");
+  const binds: number[] = [studentId];
+  let sql = `SELECT s.id, s.complex_id, s.current_circle_id, s.current_track_id
+             FROM students s
+             WHERE s.id = ? AND ${activeSql}`;
+  if (opts?.complexId != null) {
+    sql += ` AND s.complex_id = ?`;
+    binds.push(opts.complexId);
+  }
+  const student = await env.DB.prepare(sql)
+    .bind(...binds)
+    .first<{
+      id: number;
+      complex_id: number;
+      current_circle_id: number | null;
+      current_track_id: number | null;
+    }>();
+  if (!student) return false;
+
+  const circleId = Number(student.current_circle_id ?? 0);
+  if (circleId > 0 && (await staffHasCircleAccess(env, staffUserId, circleId))) {
+    return true;
   }
 
-  const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
-  if (hasCurrentCircle) {
-    const row = await env.DB.prepare(
-      `SELECT 1 AS ok
-       FROM students s
-       JOIN teacher_assignments ta
-         ON ta.circle_id = s.current_circle_id AND ta.user_id = ?
-       WHERE s.id = ? AND s.is_active = 1
-       LIMIT 1`,
-    )
-      .bind(teacherUserId, studentId)
-      .first<{ ok: number }>();
-    return Boolean(row?.ok);
+  const trackId = Number(student.current_track_id ?? 0);
+  if (trackId > 0) {
+    const supervised = await resolveTrackSupervisorTrackIds(
+      env,
+      staffUserId,
+      student.complex_id,
+    );
+    if (supervised.includes(trackId)) return true;
   }
 
-  const row = await env.DB.prepare(
-    `SELECT 1 AS ok
-     FROM students s
-     JOIN student_circle_history h
-       ON h.student_id = s.id AND ${ACTIVE_PLACEMENT}
-     JOIN teacher_assignments ta ON ta.circle_id = h.circle_id AND ta.user_id = ?
-     WHERE s.id = ? AND s.is_active = 1
-     LIMIT 1`,
-  )
-    .bind(teacherUserId, studentId)
-    .first<{ ok: number }>();
-  return Boolean(row?.ok);
+  if (await hasTable(env, "teacher_assignments")) {
+    const circleHistCol = await historyCircleColumn(env, "h");
+    if (circleHistCol) {
+      const active = await activePlacementSql(env, "h");
+      const hist = await env.DB.prepare(
+        `SELECT 1 AS ok
+         FROM student_circle_history h
+         INNER JOIN teacher_assignments ta
+           ON ta.circle_id = CAST(${circleHistCol} AS INTEGER) AND ta.user_id = ?
+         WHERE h.student_id = ? AND ${active}
+         LIMIT 1`,
+      )
+        .bind(staffUserId, studentId)
+        .first<{ ok: number }>();
+      if (hist?.ok) return true;
+    }
+  }
+
+  return false;
 }
 
 export async function canManageCircle(

@@ -1,5 +1,5 @@
 import type { Env } from "../types";
-import { hasTable } from "./db-schema";
+import { hasTable, tableHasColumn } from "./db-schema";
 
 export type TransferEventStatus = "success" | "failed";
 export type TransferEventSource = "teacher_request" | "manual" | "direct";
@@ -128,6 +128,41 @@ export async function circleTeacherUserId(
   return row?.teacher_id ?? null;
 }
 
+export async function trackSupervisorUserId(
+  env: Env,
+  trackId: number | null | undefined,
+): Promise<number | null> {
+  if (!trackId || trackId <= 0) return null;
+  if (!(await tableHasColumn(env, "tracks", "supervisor_id"))) return null;
+  const row = await env.DB.prepare(
+    `SELECT supervisor_id FROM tracks WHERE id = ? AND supervisor_id IS NOT NULL`,
+  )
+    .bind(trackId)
+    .first<{ supervisor_id: number }>();
+  return row?.supervisor_id ?? null;
+}
+
+/** O(1) — teachers/supervisors affected by a placement change only */
+export async function resolveTransferNotificationRecipientUserIds(
+  env: Env,
+  params: {
+    oldCircleId?: number | null;
+    newCircleId?: number | null;
+    oldTrackId?: number | null;
+    newTrackId?: number | null;
+  },
+): Promise<number[]> {
+  const ids = new Set<number>();
+  const oldTeacher = await circleTeacherUserId(env, params.oldCircleId);
+  const newTeacher = await circleTeacherUserId(env, params.newCircleId);
+  const oldSupervisor = await trackSupervisorUserId(env, params.oldTrackId);
+  const newSupervisor = await trackSupervisorUserId(env, params.newTrackId);
+  for (const uid of [oldTeacher, newTeacher, oldSupervisor, newSupervisor]) {
+    if (uid != null && uid > 0) ids.add(uid);
+  }
+  return [...ids];
+}
+
 export async function notifyTransferRecipients(
   env: Env,
   params: {
@@ -139,9 +174,10 @@ export async function notifyTransferRecipients(
     referenceId?: number | null;
   },
 ): Promise<void> {
-  const dest = params.newTrackName
-    ? `${params.newCircleName} / ${params.newTrackName}`
-    : params.newCircleName;
+  const dest =
+    params.newTrackName && params.newCircleName !== params.newTrackName
+      ? `${params.newCircleName} / ${params.newTrackName}`
+      : params.newTrackName ?? params.newCircleName;
   const bodyAr = `تم نقل الطالب (${params.studentName}) بنجاح إلى (${dest})`;
   const unique = [...new Set(params.recipientUserIds.filter((id) => id > 0))];
   for (const uid of unique) {

@@ -316,7 +316,11 @@ export function StudentsPage() {
               </div>
             </div>
             <p className="text-xs text-muted-foreground" style={tajawal}>
-              {loading ? "جاري التحميل…" : `يعرض ${items.length} طالب`}
+              {loading
+                ? "جاري التحميل…"
+                : pageInfo
+                  ? `${pageInfo.total} طالب — صفحة ${pageInfo.page} من ${pageInfo.total_pages}`
+                  : `يعرض ${items.length} طالب`}
             </p>
           </div>
         </CardHeader>
@@ -413,6 +417,9 @@ export function StudentsPage() {
                 )}
               </TableBody>
             </Table>
+            {pageInfo && (
+              <TablePagination page={pageInfo} onPageChange={setPage} />
+            )}
             </div>
           )}
         </CardContent>

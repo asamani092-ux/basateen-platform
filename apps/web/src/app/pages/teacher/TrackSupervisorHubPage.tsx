@@ -1,12 +1,11 @@
-import { ClipboardList, Trophy } from "lucide-react";
+import { ClipboardList } from "lucide-react";
 import {
   RecitationHubShell,
   type RecitationHubTab,
 } from "../../components/edu/RecitationHubShell";
 import { DailyRecitationPage } from "../edu-dept/DailyRecitationPage";
-import { TeacherCompetitionsPage } from "../edu-dept/TeacherCompetitionsPage";
 
-type HubTab = "daily" | "competitions";
+type HubTab = "daily";
 
 const TABS: RecitationHubTab<HubTab>[] = [
   {
@@ -16,24 +15,17 @@ const TABS: RecitationHubTab<HubTab>[] = [
     icon: ClipboardList,
     panel: <DailyRecitationPage embedded />,
   },
-  {
-    id: "competitions",
-    label: "منافسات الحلقة",
-    shortLabel: "المنافسات",
-    icon: Trophy,
-    panel: <TeacherCompetitionsPage embedded />,
-  },
 ];
 
-function parseTab(raw: string | null): HubTab {
-  return raw === "competitions" ? "competitions" : "daily";
+function parseTab(_raw: string | null): HubTab {
+  return "daily";
 }
 
 export function TrackSupervisorHubPage() {
   return (
     <RecitationHubShell
       title="بوابة مشرف المسار"
-      description="رصد حلقات مسارك ومنافساتها — من مكان واحد."
+      description="رصد حلقات مسارك — من مكان واحد."
       navAriaLabel="تنقل بوابة مشرف المسار"
       tabs={TABS}
       defaultTab="daily"

@@ -55,6 +55,7 @@ import {
 import { ds, tajawal } from "../../lib/design-system";
 import { cn } from "../../components/ui/utils";
 import { StudentTrackBadge } from "../../components/edu/StudentTrackBadge";
+import { StudentCircleBadge } from "../../components/edu/StudentCircleBadge";
 import { queryKeys } from "../../lib/query-keys";
 import { RecitationTableSkeleton } from "../../components/shared/RecitationTableSkeleton";
 import { teacherBootstrapToRecitationPayload } from "../../lib/teacher-bootstrap";
@@ -64,6 +65,7 @@ type Row = {
   student_id: number;
   full_name_ar: string;
   track_name?: string | null;
+  circle_name?: string | null;
   admin_present?: boolean;
   task_scores: Record<string, boolean | number>;
   notes: string;
@@ -96,6 +98,7 @@ function normalizeRow(
     student_id: number;
     full_name_ar: string;
     track_name?: string | null;
+    circle_name?: string | null;
     admin_present?: boolean;
     task_scores?: Record<string, boolean | number>;
     notes?: string;
@@ -124,6 +127,7 @@ function normalizeRow(
     student_id: item.student_id,
     full_name_ar: item.full_name_ar,
     track_name: item.track_name ?? null,
+    circle_name: item.circle_name ?? null,
     admin_present: Boolean(item.admin_present),
     task_scores: applyDependentScores({ ...base, ...legacyScores }, criteria),
     notes: item.notes ?? "",
@@ -207,15 +211,9 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
     setTracks(scopesQuery.data.tracks);
     setCircles(scopesQuery.data.circles);
     if (isTrackSupervisor) {
-      const trackIds = [
-        ...new Set(
-          scopesQuery.data.circles
-            .map((c) => c.track_id)
-            .filter((id): id is number => id != null && id > 0),
-        ),
-      ];
-      if (trackIds.length >= 1) {
-        setTrackId((prev) => prev ?? trackIds[0]);
+      const assigned = scopesQuery.data.assigned_track_ids ?? [];
+      if (assigned.length >= 1) {
+        setTrackId(assigned[0]);
       }
     }
   }, [scopesQuery.data, isSupervisor, isTrackSupervisor]);
@@ -604,7 +602,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                       {rows.map((r) => (
                         <TableRow key={r.student_id} className="print:break-inside-avoid">
                           <TableCell className={ds.table.cell} style={tajawal}>
-                            <StudentNameCell row={r} />
+                            <StudentNameCell row={r} showCircleBadge={isTrackSupervisor} />
                           </TableCell>
                           {editableCriteria.map((c, idx) => (
                             <TableCell key={c.id} className="text-center align-middle">
@@ -686,7 +684,11 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                       <p className="font-bold text-sm" style={tajawal}>
                         {r.full_name_ar}
                       </p>
-                      {r.track_name ? <StudentTrackBadge trackName={r.track_name} /> : null}
+                      {isTrackSupervisor && r.circle_name ? (
+                        <StudentCircleBadge circleName={r.circle_name} />
+                      ) : r.track_name ? (
+                        <StudentTrackBadge trackName={r.track_name} />
+                      ) : null}
                       <div className="space-y-2 text-sm" style={tajawal}>
                         {editableCriteria.map((c, idx) => (
                           <div key={c.id} className="flex items-center justify-between gap-2">
@@ -753,7 +755,12 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                         <div className="flex flex-1 items-center justify-between gap-2 min-w-0">
                           <div className="min-w-0 text-right flex-1">
                             <p className="font-semibold text-sm truncate">{r.full_name_ar}</p>
-                            {r.track_name ? (
+                            {isTrackSupervisor && r.circle_name ? (
+                              <StudentCircleBadge
+                                circleName={r.circle_name}
+                                className="mt-1 max-w-full"
+                              />
+                            ) : r.track_name ? (
                               <StudentTrackBadge trackName={r.track_name} className="mt-1 max-w-full" />
                             ) : null}
                             {r.admin_present && (
@@ -946,11 +953,21 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
   );
 }
 
-function StudentNameCell({ row }: { row: Row }) {
+function StudentNameCell({
+  row,
+  showCircleBadge = false,
+}: {
+  row: Row;
+  showCircleBadge?: boolean;
+}) {
   return (
     <div className="min-w-0 flex flex-col items-start gap-1 text-right max-w-full">
       <span className="truncate max-w-full">{row.full_name_ar}</span>
-      {row.track_name ? <StudentTrackBadge trackName={row.track_name} /> : null}
+      {showCircleBadge && row.circle_name ? (
+        <StudentCircleBadge circleName={row.circle_name} />
+      ) : row.track_name ? (
+        <StudentTrackBadge trackName={row.track_name} />
+      ) : null}
       {row.admin_present && (
         <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
           حضور إداري

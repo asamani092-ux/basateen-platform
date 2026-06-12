@@ -90,7 +90,11 @@ export async function handleTeacherRouter(
     const studentId = Number(planMatch[1]);
     if (!Number.isFinite(studentId)) return json({ error: "invalid_id" }, 400);
 
-    if (!(await teacherCanAccessStudent(env, auth.userId, studentId))) {
+    if (
+      !(await teacherCanAccessStudent(env, auth.userId, studentId, {
+        complexId: auth.complexId,
+      }))
+    ) {
       return json({ error: "forbidden_student" }, 403);
     }
 

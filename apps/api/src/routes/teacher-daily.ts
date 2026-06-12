@@ -112,7 +112,11 @@ export async function handleTeacherDailyUpsert(
 
   if (!body.student_id) return json({ error: "student_id_required" }, 400);
 
-  if (!(await teacherCanAccessStudent(env, auth.userId, body.student_id))) {
+  if (
+    !(await teacherCanAccessStudent(env, auth.userId, body.student_id, {
+      complexId: auth.complexId,
+    }))
+  ) {
     return json({ error: "forbidden_student" }, 403);
   }
 

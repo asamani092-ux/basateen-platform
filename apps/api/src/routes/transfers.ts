@@ -503,13 +503,16 @@ export async function handleStudentPatch(
         .first<{ id: number; track_id: number | null }>();
       if (!targetCircle) return json({ error: "circle_not_found" }, 404);
       const trackId =
-        body.track_id != null ? Number(body.track_id) : targetCircle.track_id;
+        body.track_id != null && Number.isFinite(Number(body.track_id))
+          ? Number(body.track_id)
+          : null;
       await transferStudentCircle(env, {
         studentId,
         newCircleId: circleId,
-        newTrackId: Number.isFinite(trackId) ? trackId : targetCircle.track_id,
+        newTrackId: trackId,
         movedByUserId: auth.userId,
         reason: "تعديل إسناد من بيانات الطلاب",
+        complexId: auth.complexId,
       });
     } else if (trackOnlyId != null && Number.isFinite(trackOnlyId) && trackOnlyId > 0) {
       const track = await env.DB.prepare(

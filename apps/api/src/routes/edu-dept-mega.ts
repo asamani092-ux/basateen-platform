@@ -159,15 +159,41 @@ export async function handleEduDeptMegaRouter(
 
   try {
     if (path === "/api/edu-dept/teacher-competitions" && request.method === "GET") {
+      const hasCreatedBy = unifiedEngine
+        ? await tableHasColumn(env, "competitions", "created_by_user_id")
+        : false;
       const rows = unifiedEngine
-        ? await env.DB.prepare(
-            `SELECT id, name_ar, start_date, end_date, created_at, rules_json
-             FROM competitions
-             WHERE complex_id = ? AND created_by_user_id = ?
-             ORDER BY created_at DESC`,
-          )
-            .bind(auth.complexId, auth.userId)
-            .all<{ id: number; name_ar: string; start_date: string; end_date: string; created_at: string; rules_json: string }>()
+        ? hasCreatedBy
+          ? await env.DB.prepare(
+              `SELECT id, name_ar, start_date, end_date, created_at, rules_json
+               FROM competitions
+               WHERE complex_id = ? AND created_by_user_id = ?
+               ORDER BY created_at DESC`,
+            )
+              .bind(auth.complexId, auth.userId)
+              .all<{
+                id: number;
+                name_ar: string;
+                start_date: string;
+                end_date: string;
+                created_at: string;
+                rules_json: string;
+              }>()
+          : await env.DB.prepare(
+              `SELECT id, name_ar, start_date, end_date, created_at, rules_json
+               FROM competitions
+               WHERE complex_id = ?
+               ORDER BY created_at DESC`,
+            )
+              .bind(auth.complexId)
+              .all<{
+                id: number;
+                name_ar: string;
+                start_date: string;
+                end_date: string;
+                created_at: string;
+                rules_json: string;
+              }>()
         : await env.DB.prepare(
             `SELECT id, name_ar, start_date, end_date, created_at
              FROM teacher_competitions
@@ -306,11 +332,20 @@ export async function handleEduDeptMegaRouter(
 
       if (request.method === "DELETE") {
         if (unifiedEngine) {
-          await env.DB.prepare(
-            `DELETE FROM competitions WHERE id = ? AND complex_id = ? AND created_by_user_id = ?`,
-          )
-            .bind(compId, auth.complexId, auth.userId)
-            .run();
+          const hasCreatedBy = await tableHasColumn(env, "competitions", "created_by_user_id");
+          if (hasCreatedBy) {
+            await env.DB.prepare(
+              `DELETE FROM competitions WHERE id = ? AND complex_id = ? AND created_by_user_id = ?`,
+            )
+              .bind(compId, auth.complexId, auth.userId)
+              .run();
+          } else {
+            await env.DB.prepare(
+              `DELETE FROM competitions WHERE id = ? AND complex_id = ?`,
+            )
+              .bind(compId, auth.complexId)
+              .run();
+          }
         } else {
           await env.DB.prepare(`DELETE FROM teacher_competitions WHERE id = ?`)
             .bind(compId)

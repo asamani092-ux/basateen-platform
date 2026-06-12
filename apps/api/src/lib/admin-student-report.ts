@@ -1,5 +1,6 @@
 import type { Env } from "../types";
 import { studentIsActiveSql, tableHasColumn } from "./db-schema";
+import { resolveMemorizationFields } from "./quran-memorization";
 import { buildStudentPlacementSql } from "./student-list-sql";
 
 export type AdminReportStudentRow = {

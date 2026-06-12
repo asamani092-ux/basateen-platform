@@ -498,6 +498,48 @@
     print-color-adjust: exact;
   }
 
+  body.printing-competition-dashboard .competition-leaderboard-card {
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+    overflow: visible !important;
+  }
+
+  body.printing-competition-dashboard .competition-leaderboard-card [data-slot="card-content"] {
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+    overflow: visible !important;
+  }
+
+  body.printing-competition-dashboard .competition-leaderboard-table {
+    width: 100% !important;
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+  }
+
+  body.printing-competition-dashboard .competition-leaderboard-table thead {
+    display: table-header-group !important;
+  }
+
+  body.printing-competition-dashboard .competition-leaderboard-table th,
+  body.printing-competition-dashboard .competition-leaderboard-table td {
+    border: 1px solid #000 !important;
+    padding: 0.35rem 0.5rem !important;
+    text-align: right !important;
+    vertical-align: middle !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+  }
+
+  body.printing-competition-dashboard .competition-leaderboard-table thead th {
+    background: #e8e8e8 !important;
+    font-weight: 700 !important;
+  }
+
+  body.printing-competition-dashboard .competition-leaderboard-table tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
   /* Teacher competition leaderboard print */
   body.printing-teacher-competition aside,
   body.printing-teacher-competition header,

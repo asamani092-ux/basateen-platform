@@ -43,12 +43,19 @@ export async function assertTeacherOwnsUnifiedCompetition(
   teacherUserId: number,
   complexId: number,
 ): Promise<boolean> {
-  const row = await env.DB.prepare(
-    `SELECT id, rules_json FROM competitions
-     WHERE id = ? AND complex_id = ? AND created_by_user_id = ?`,
-  )
-    .bind(competitionId, complexId, teacherUserId)
-    .first<{ id: number; rules_json: string }>();
+  const hasCreatedBy = await tableHasColumn(env, "competitions", "created_by_user_id");
+  const row = hasCreatedBy
+    ? await env.DB.prepare(
+        `SELECT id, rules_json FROM competitions
+         WHERE id = ? AND complex_id = ? AND created_by_user_id = ?`,
+      )
+        .bind(competitionId, complexId, teacherUserId)
+        .first<{ id: number; rules_json: string }>()
+    : await env.DB.prepare(
+        `SELECT id, rules_json FROM competitions WHERE id = ? AND complex_id = ?`,
+      )
+        .bind(competitionId, complexId)
+        .first<{ id: number; rules_json: string }>();
   return Boolean(row && isTeacherCircleCompetition(row.rules_json));
 }
 

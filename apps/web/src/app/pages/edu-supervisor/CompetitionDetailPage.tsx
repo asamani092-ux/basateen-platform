@@ -756,7 +756,7 @@ export function CompetitionDetailPage() {
                       </CardContent>
                     </Card>
                   ) : null}
-                  <Card className={ds.card}>
+                  <Card className={`${ds.card} competition-leaderboard-card`}>
                     <CardHeader className="space-y-3">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <CardTitle style={tajawal}>
@@ -799,60 +799,68 @@ export function CompetitionDetailPage() {
                         </div>
                       )}
                     </CardHeader>
-                    <CardContent className="space-y-2 text-sm" style={tajawal}>
-                      {filteredLeaders.length === 0 ? (
-                        <p className="text-muted-foreground">لا بيانات إنجاز بعد.</p>
-                      ) : (
-                        filteredLeaders.map((l, i) => {
-                          const rank = i + 1;
-                          const name = l.full_name_ar ?? `طالب #${l.student_id}`;
-                          const overallPct = isRecitation
-                            ? (l.mastery_pct ?? 0)
-                            : (l.overall_pct ?? l.achievement_pct ?? 0);
-                          const waUrl = buildCompetitionWhatsAppUrl(
-                            l.guardian_phone,
-                            name,
-                            overallPct,
-                            rank,
-                          );
-                          return (
-                            <div
-                              key={l.student_id}
-                              className="flex justify-between items-center border-b py-2 gap-4"
-                            >
-                              <span>
-                                {rank}. {name}
-                              </span>
-                              <span className="flex items-center gap-2 text-muted-foreground tabular-nums text-left shrink-0">
-                                {isRecitation ? (
-                                  <span>{overallPct}% إتقان</span>
-                                ) : (
-                                  <span>{overallPct}% إتقان</span>
-                                )}
-                                {waUrl ? (
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    className={`${ds.btnRound} print:hidden gap-1`}
-                                    asChild
-                                  >
-                                    <a
-                                      href={waUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      title="إرسال التقرير لولي الأمر"
-                                    >
-                                      <MessageCircle className="w-3.5 h-3.5" />
-                                      إرسال التقرير
-                                    </a>
-                                  </Button>
-                                ) : null}
-                              </span>
-                            </div>
-                          );
-                        })
-                      )}
+                    <CardContent className="overflow-x-auto text-sm" style={tajawal}>
+                      <table className="w-full text-sm edu-print-table competition-leaderboard-table">
+                        <thead className="bg-muted/40">
+                          <tr>
+                            <th className="text-right p-2 w-12">#</th>
+                            <th className="text-right p-2">الطالب</th>
+                            <th className="text-right p-2">نسبة الإتقان</th>
+                            <th className="text-right p-2 print:hidden w-36">إجراء</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredLeaders.length === 0 ? (
+                            <tr>
+                              <td colSpan={4} className="p-4 text-muted-foreground">
+                                لا بيانات إنجاز بعد.
+                              </td>
+                            </tr>
+                          ) : (
+                            filteredLeaders.map((l, i) => {
+                              const rank = i + 1;
+                              const name = l.full_name_ar ?? `طالب #${l.student_id}`;
+                              const overallPct = isRecitation
+                                ? (l.mastery_pct ?? 0)
+                                : (l.overall_pct ?? l.achievement_pct ?? 0);
+                              const waUrl = buildCompetitionWhatsAppUrl(
+                                l.guardian_phone,
+                                name,
+                                overallPct,
+                                rank,
+                              );
+                              return (
+                                <tr key={l.student_id} className="border-t">
+                                  <td className="p-2 tabular-nums">{rank}</td>
+                                  <td className="p-2">{name}</td>
+                                  <td className="p-2 tabular-nums">{overallPct}%</td>
+                                  <td className="p-2 print:hidden">
+                                    {waUrl ? (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className={`${ds.btnRound} gap-1`}
+                                        asChild
+                                      >
+                                        <a
+                                          href={waUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          title="إرسال التقرير لولي الأمر"
+                                        >
+                                          <MessageCircle className="w-3.5 h-3.5" />
+                                          إرسال التقرير
+                                        </a>
+                                      </Button>
+                                    ) : null}
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
                     </CardContent>
                   </Card>
                 </>

@@ -1,6 +1,6 @@
 import type { Env } from "../types";
 import { hasTable, tableHasColumn, historyCircleColumn, activePlacementSql } from "../lib/db-schema";
-import { formatFacesToText } from "../lib/quran-memorization";
+import { resolveMemorizationFields } from "../lib/quran-memorization";
 import {
   buildStudentsInScopeWhere,
   loadUserScope,

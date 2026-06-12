@@ -12,6 +12,8 @@ on:
         options:
           - upgrade
           - all
+          - "048"
+          - competition-stack
           - "051"
           - "052"
           - "053"

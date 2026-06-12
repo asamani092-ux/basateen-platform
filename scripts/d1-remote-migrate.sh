@@ -82,6 +82,16 @@ case "$MODE" in
     echo "D1 remote migrate: demo examples only (018)"
     run_sql "018_edu_demo_examples.sql"
     ;;
+  048)
+    echo "D1 remote migrate: 048 competition engine (teacher tasks rename + platform tables)"
+    cd "$API_DIR"
+    npm run db:remote:048
+    ;;
+  competition-stack)
+    echo "D1 remote migrate: 045–056 competition engine stack"
+    cd "$API_DIR"
+    npm run db:remote:competition-stack
+    ;;
   051)
     echo "D1 remote migrate: 051 competition task input_type"
     npm run db:remote:051
@@ -107,7 +117,7 @@ case "$MODE" in
     npm run db:remote:056
     ;;
   *)
-    echo "Usage: $0 upgrade|all|demo|051|052|053|054|055|056"
+    echo "Usage: $0 upgrade|all|demo|048|competition-stack|051|052|053|054|055|056"
     exit 1
     ;;
 esac

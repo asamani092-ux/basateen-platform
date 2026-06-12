@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pencil, Plus, Settings2, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "../../components/ui/button";
 import {
   Dialog,
@@ -52,16 +53,9 @@ export function EduSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<TaskForm>(emptyForm());
-
-  useEffect(() => {
-    if (!success) return;
-    const t = window.setTimeout(() => setSuccess(null), 4000);
-    return () => window.clearTimeout(t);
-  }, [success]);
 
   const totalScore = useMemo(() => totalEnabledMaxScore(criteria), [criteria]);
   const positiveScore = useMemo(() => totalEnabledWeight(criteria), [criteria]);
@@ -91,11 +85,10 @@ export function EduSettingsPage() {
   async function persist(next: EvalCriterion[]) {
     setSaving(true);
     setError(null);
-    setSuccess(null);
     try {
       await api.eduDeptSettingsPatch({ evaluation_criteria: next });
       setCriteria(next);
-      setSuccess("تم حفظ مهام التقييم.");
+      toast.success("تم حفظ مهام التقييم.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "فشل الحفظ");
     } finally {
@@ -159,11 +152,6 @@ export function EduSettingsPage() {
       {error && (
         <p className={ds.alert.error} style={tajawal}>
           {error}
-        </p>
-      )}
-      {success && (
-        <p className={ds.alert.success} style={tajawal}>
-          {success}
         </p>
       )}
 

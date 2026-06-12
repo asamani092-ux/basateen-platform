@@ -83,4 +83,19 @@ export const ds = {
     error:
       "border-destructive/45 dark:border-destructive/50 [&_[data-icon]]:!text-destructive dark:[&_[data-icon]]:!text-red-400",
   },
+  /** غلاف صفحات البوابات (معلم / مشرف مسار) */
+  pageShell: "space-y-4 max-w-[1200px]",
+  hubTabsList:
+    "w-full justify-start gap-1 rounded-xl border border-border bg-muted/50 p-1 h-auto flex-wrap",
+  hubTabTrigger:
+    "rounded-lg px-4 py-2 text-sm data-[state=active]:bg-primary data-[state=active]:text-primary-foreground",
+  hubBottomNav:
+    "fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/90 md:hidden print:hidden",
+  hubBottomNavInner:
+    "mx-auto flex max-w-lg items-stretch justify-around px-2 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))]",
+  hubBottomNavBtn:
+    "flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl px-2 py-2 text-[11px] font-medium transition-colors touch-manipulation text-muted-foreground hover:text-foreground hover:bg-muted/60",
+  hubBottomNavBtnActive: "text-primary bg-primary/10",
+  /** جداول الطباعة الموحّدة */
+  printTable: "print-table w-full text-right",
 } as const;

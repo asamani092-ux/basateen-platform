@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GuardedForm } from "../../components/ui/guarded-form";
 import {
   Check,
@@ -188,20 +188,21 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
               .filter((id): id is number => id != null && id > 0),
           ),
         ];
-        if (trackIds.length === 1) {
-          setTrackId(trackIds[0]);
-        } else if (trackIds.length > 1 && trackId == null) {
-          setTrackId(trackIds[0]);
+        if (trackIds.length >= 1) {
+          setTrackId((prev) => prev ?? trackIds[0]);
         }
       }
     } catch {
       /* ignore */
     }
-  }, [isSupervisor, isTrackSupervisor, trackId]);
+  }, [isSupervisor, isTrackSupervisor]);
 
   useEffect(() => {
     void loadScopes();
   }, [loadScopes]);
+
+  const circleIdRef = useRef(circleId);
+  circleIdRef.current = circleId;
 
   const load = useCallback(async () => {
     if (!canUseApi()) {
@@ -211,10 +212,11 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
     setLoading(true);
     setError(null);
     try {
+      const requestCircleId = isSupervisor ? circleIdRef.current : null;
       const res = isSupervisor
         ? await api.eduDeptMyStudents({
             date,
-            ...(circleId != null ? { circle_id: circleId } : {}),
+            ...(requestCircleId != null ? { circle_id: requestCircleId } : {}),
             ...(trackId != null ? { track_id: trackId } : {}),
           })
         : await api.eduDeptMyStudents({ date });
@@ -235,7 +237,9 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
         setRows([]);
         return;
       }
-      setCircleId(res.circle_id);
+      if (!isSupervisor && res.circle_id != null) {
+        setCircleId((prev) => (prev === res.circle_id ? prev : res.circle_id ?? prev));
+      }
       setCircleName(res.circle_name ?? "");
       setRows((res.items ?? []).map((item) => normalizeRow(item, evalCriteria)));
     } catch (e) {
@@ -251,11 +255,13 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
     } finally {
       setLoading(false);
     }
-  }, [date, circleId, trackId, isSupervisor, isTrackSupervisor, circles.length, tracks.length]);
+  }, [date, trackId, isSupervisor, isTrackSupervisor, circles.length, tracks.length]);
+
+  const supervisorCircle = isSupervisor ? circleId : null;
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, supervisorCircle]);
 
   function patchTaskScore(studentId: number, taskId: string, value: boolean | number) {
     setRows((prev) =>

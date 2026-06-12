@@ -52,7 +52,7 @@ export const SUPERVISOR_EDU_NAV: NavItem[] = [
   },
 ];
 
-/** بوابة المعلم — رابط واحد؛ مشرف المسار يبقى على الرصد المباشر */
+/** بوابة المعلم — رابط واحد */
 const TEACHER_EDU_NAV: NavItem[] = [
   {
     id: "teacher-hub",
@@ -60,16 +60,14 @@ const TEACHER_EDU_NAV: NavItem[] = [
     path: "/teacher",
     roles: ["teacher"],
   },
+];
+
+/** بوابة مشرف المسار — رابط واحد */
+const TRACK_SUPERVISOR_EDU_NAV: NavItem[] = [
   {
-    id: "daily-recitation",
-    label: "الرصد اليومي",
-    path: "/edu-dept/daily-recitation",
-    roles: ["track_supervisor"],
-  },
-  {
-    id: "teacher-competitions",
-    label: "منافسات الحلقة",
-    path: "/edu-dept/teacher-competitions",
+    id: "track-supervisor-hub",
+    label: "بوابة مشرف المسار",
+    path: "/track-supervisor",
     roles: ["track_supervisor"],
   },
 ];
@@ -78,7 +76,7 @@ export const EDU_DEPT_GROUP: NavGroup = {
   id: "edu-dept",
   label: "القسم التعليمي",
   roles: ["edu_supervisor", "super_admin", "teacher", "track_supervisor"],
-  children: [...SUPERVISOR_EDU_NAV, ...TEACHER_EDU_NAV],
+  children: [...SUPERVISOR_EDU_NAV, ...TEACHER_EDU_NAV, ...TRACK_SUPERVISOR_EDU_NAV],
 };
 
 /** القسم الإداري — مسارات v2.6 (كل التبويبات داخل القائمة المنسدلة) */
@@ -232,6 +230,9 @@ export function navGroupIsActive(group: NavGroup, pathname: string): boolean {
 export function isNavActive(path: string, pathname: string): boolean {
   if (path === "/teacher") {
     return pathname === "/teacher" || pathname.startsWith("/teacher/");
+  }
+  if (path === "/track-supervisor") {
+    return pathname === "/track-supervisor" || pathname.startsWith("/track-supervisor/");
   }
   if (path === "/edu-dept/daily-recitation") {
     return (

@@ -6,7 +6,7 @@ export const ROLE_HOME: Record<UserRole, string> = {
   admin_supervisor: "/admin-dept/staff-attendance",
   prog_supervisor: "/prog-dept/quizzes",
   programs_supervisor: "/prog-dept/quizzes",
-  track_supervisor: "/edu-dept/daily-recitation",
+  track_supervisor: "/track-supervisor",
   teacher: "/teacher",
 };
 
@@ -20,6 +20,13 @@ export function normalizeStoredHomePath(role: UserRole, homePath: string): strin
   if (role === "teacher") {
     if (homePath === "/teacher" || homePath.startsWith("/teacher/")) return homePath;
     return ROLE_HOME.teacher;
+  }
+
+  if (role === "track_supervisor") {
+    if (homePath === "/track-supervisor" || homePath.startsWith("/track-supervisor/")) {
+      return homePath;
+    }
+    return ROLE_HOME.track_supervisor;
   }
 
   if (
@@ -48,6 +55,7 @@ const PATH_RULES: Array<{ prefix: string; roles: UserRole[] }> = [
   { prefix: "/prog-dept", roles: ["programs_supervisor", "super_admin"] },
   { prefix: "/display-dept", roles: ["super_admin"] },
   { prefix: "/teacher", roles: ["teacher"] },
+  { prefix: "/track-supervisor", roles: ["track_supervisor"] },
   { prefix: "/tv-live", roles: STAFF_ROLES },
   { prefix: "/live-log", roles: STAFF_ROLES },
   {
@@ -149,6 +157,21 @@ export function resolveLegacyRedirect(
       pathname.startsWith("/edu-dept/teacher-competitions/")
     ) {
       return "/teacher?tab=competitions";
+    }
+  }
+
+  if (role === "track_supervisor") {
+    if (
+      pathname === "/edu-dept/daily-recitation" ||
+      pathname.startsWith("/edu-dept/daily-recitation/")
+    ) {
+      return "/track-supervisor";
+    }
+    if (
+      pathname === "/edu-dept/teacher-competitions" ||
+      pathname.startsWith("/edu-dept/teacher-competitions/")
+    ) {
+      return "/track-supervisor?tab=competitions";
     }
   }
 

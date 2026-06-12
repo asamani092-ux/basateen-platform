@@ -1,8 +1,8 @@
-# BUG: منافسات المعلم على D1 (teacher-competitions)
+# تقرير عطل — منافسات الحلقة (معلم)
 
 **التاريخ:** 2026-06-11  
 **الأولوية:** عالية — يمنع المعلم من فتح تبويب «منافسات الحلقة»  
-**النطاق:** Backend / D1
+**النطاق:** Backend / D1 — لا يُحل من الواجهة
 
 ---
 
@@ -12,72 +12,103 @@
 D1_ERROR: no such column: created_by_user_id at offset 134: SQLITE_ERROR
 ```
 
+يظهر عند استدعاء:
+
 ```
-503 migration_required
+GET /api/edu-dept/teacher-competitions
 ```
 
-يظهر عند `GET /api/edu-dept/teacher-competitions` من `/teacher?tab=competitions`.
+من تبويب **منافسات الحلقة** في بوابة المعلم (`/teacher?tab=competitions`).
 
 ---
 
-## الأسباب الجذرية
+## السبب الجذري
 
-### 1) عمود `created_by_user_id` مفقود (الخطأ المباشر)
+1. الدالة `useUnifiedTeacherCompetitions()` في `apps/api/src/lib/teacher-competition-unified.ts` تُفعِّل المسار الموحّد عندما توجد أعمدة/جداول محرك المنافسات (`category` + `competition_targets` من migration **048**).
 
-- `useUnifiedTeacherCompetitions()` يُفعّل المسار الموحّد عند وجود `category` + `competition_targets.current_memorization` (048).
-- GET/DELETE في `edu-dept-mega.ts` كانا يستخدمان `WHERE created_by_user_id = ?` **دون** التحقق من وجود العمود.
-- جدول `competitions` في v25 (`023`) لا يحتوي العمود؛ `048_competition_engine.sql` لا يضيفه.
-- **تناقض:** `createTeacherCircleCompetition()` تتحقق من العمود قبل INSERT؛ GET/DELETE لا.
+2. عند تفعيل المسار الموحّد، الاستعلام في `apps/api/src/routes/edu-dept-mega.ts` (سطر ~164) يستخدم **دائماً**:
 
-### 2) تعارض اسم `competition_tasks`
+   ```sql
+   SELECT ... FROM competitions
+   WHERE complex_id = ? AND created_by_user_id = ?
+   ```
 
-- `027`: `competition_tasks` لصندوق المعلم (`title_ar`, FK → `teacher_competitions`).
-- `048`: جدول منصة بنفس الاسم (`name_ar`, `type`).
-- بدون إعادة تسمية → `teacher_competition_tasks`، يفشل 048 أو يُعطّل مسار المعلم.
+3. جدول `competitions` في baseline **v25** (`023_rebuild_v25.sql`) **لا يحتوي** عمود `created_by_user_id`.
 
-### 3) ترحيل 045–056 خارج `upgrade` الافتراضي
+4. migration **048** يضيف `category` و`target_scope` فقط — **لا يضيف** `created_by_user_id`.
 
-- GitHub Actions `upgrade` يصل إلى `032` فقط؛ محرك المنافسات يحتاج `045`–`056`.
+5. النتيجة: بيئة D1 نفّذت 048 (أو ما بعده) دون أن يكون عمود `created_by_user_id` موجوداً → SQLite error.
 
-### 4) `competition_targets` قديم (016)
-
-- إن وُجد بدون `current_memorization`، `CREATE TABLE IF NOT EXISTS` في 048 لا يستبدله.
+6. **تناقض داخلي:** `createTeacherCircleCompetition()` تتحقق من `tableHasColumn(..., "created_by_user_id")` قبل INSERT، لكن **GET/DELETE** لا يتحققان من وجود العمود.
 
 ---
 
-## الإصلاح المُطبَّق
+## الملفات المتأثرة
 
-| خطوة | الملف |
-|------|--------|
-| استيراد `resolveMemorizationFields` | `admin-student-report.ts`, `edu-dept-extended.ts` |
-| طباعة جدول «الأوائل» | `CompetitionDetailPage.tsx`, `index.css` |
-| preflight 048: rename tasks + archive targets + `ADD created_by_user_id` | `migrate-048-remote.mjs` |
-| استعلامات مرنة عند غياب العمود | `edu-dept-mega.ts`, `teacher-competition-unified.ts` |
-| خيار Actions **`competition-stack`** (045→056) | `d1-remote-migrate.sh`, workflows |
+| الملف | المشكلة |
+|-------|---------|
+| `apps/api/src/routes/edu-dept-mega.ts` | GET/DELETE يفترضان وجود `created_by_user_id` |
+| `apps/api/src/lib/teacher-competition-unified.ts` | `assertTeacherOwnsUnifiedCompetition()` نفس الافتراض |
+| `packages/database/schema/023_rebuild_v25.sql` | competitions بدون `created_by_user_id` |
+| `packages/database/schema/048_competition_engine.sql` | لا يضيف العمود الناقص |
 
 ---
 
-## التشغيل على الإنتاج
+## الحلول المقترحة (للمبرمج)
 
-1. **Actions** → **D1 Production Migrate** → **`competition-stack`**
-2. **Actions** → **Production Release** → `competition-stack` أو `skip` إن رُحّل D1
-3. الدفع إلى `main` ينشر API + Web تلقائياً
+### الحل A — ترحيل D1 (موصى به)
 
 ```sql
--- يُنفَّذ تلقائياً ضمن migrate-048-remote.mjs إن لزم:
 ALTER TABLE competitions ADD COLUMN created_by_user_id INTEGER;
-CREATE INDEX IF NOT EXISTS idx_competitions_created_by ON competitions(created_by_user_id);
+CREATE INDEX IF NOT EXISTS idx_competitions_created_by
+  ON competitions(created_by_user_id);
 ```
+
+تضمينه في migration جديد (مثلاً `057_competitions_created_by.sql`) وتشغيله على **D1 remote**.
+
+### الحل B — دفاع برمجي (فوري + آمن)
+
+في `edu-dept-mega.ts` و`teacher-competition-unified.ts`:
+
+- قبل استخدام `created_by_user_id` في SELECT/WHERE/DELETE، استدعِ `tableHasColumn(env, "competitions", "created_by_user_id")`.
+- إذا العمود غائب: إما fallback إلى جدول `teacher_competitions`، أو فلترة بـ `rules_json` + `complex_id` فقط (مع تقييد ملكية المعلم عبر `rules_json.ownership = "teacher_circle"`).
+
+### الحل C — تشديد شرط المسار الموحّد
+
+```ts
+export async function useUnifiedTeacherCompetitions(env: Env): Promise<boolean> {
+  return (
+    (await hasCompetitionCategory(env)) &&
+    (await hasEngineTargets(env)) &&
+    (await tableHasColumn(env, "competitions", "created_by_user_id"))
+  );
+}
+```
+
+يُعيد المعلم تلقائياً لجدول `teacher_competitions` حتى يُطبَّق الحل A.
 
 ---
 
-## التحقق
+## التحقق بعد الإصلاح
 
-1. `GET /api/edu-dept/teacher-competitions` → 200 + `{ items: [...] }`
-2. `POST` إنشاء منافسة → مهام → حفظ درجات → 200
-3. `GET /api/edu-dept/reports/educational-profile?person_id=…` → بدون `resolveMemorizationFields is not defined`
+1. `GET /api/edu-dept/teacher-competitions` — 200 + `{ items: [...] }`
+2. `POST /api/edu-dept/teacher-competitions` — إنشاء منافسة حلقة
+3. تسجيل دخول معلم مربوط بحلقة → تبويب المنافسات يعمل بدون D1_ERROR
 
-## Big O
+---
 
-- PRAGMA فحص المخطط: O(1) لكل جدول.
-- rename/archive: O(1) metadata؛ O(n) فقط إن نُقلت بيانات targets.
+## ملاحظة للواجهة
+
+الواجهة تعرض رسالة ودية عند هذا الخطأ حتى يُصلح الـ Backend؛ لا يمكن تجاوز العطل من Frontend فقط.
+
+---
+
+## حالة الإصلاح في المستودع
+
+| الحل | الحالة | الملف |
+|------|--------|-------|
+| A | ✅ `057_competitions_created_by.sql` + `migrate-057-remote.mjs`؛ يُشغَّل أيضاً ضمن `migrate-048-remote.mjs` preflight | `packages/database/schema/057_…` |
+| B | ✅ `tableHasColumn` قبل SELECT/WHERE/DELETE | `edu-dept-mega.ts`, `teacher-competition-unified.ts` |
+| C | ✅ شرط ثالث في `useUnifiedTeacherCompetitions()` | `teacher-competition-unified.ts` |
+
+**تشغيل على الإنتاج:** GitHub Actions → **D1 Production Migrate** → `057` أو `competition-stack` (045→057).

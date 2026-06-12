@@ -116,8 +116,13 @@ case "$MODE" in
     echo "D1 remote migrate: 056 student memorization_faces"
     npm run db:remote:056
     ;;
+  057)
+    echo "D1 remote migrate: 057 competitions.created_by_user_id"
+    cd "$API_DIR"
+    npm run db:remote:057
+    ;;
   *)
-    echo "Usage: $0 upgrade|all|demo|048|competition-stack|051|052|053|054|055|056"
+    echo "Usage: $0 upgrade|all|demo|048|competition-stack|051|052|053|054|055|056|057"
     exit 1
     ;;
 esac

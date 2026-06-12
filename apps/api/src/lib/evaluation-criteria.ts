@@ -1,5 +1,6 @@
 import type { Env } from "../types";
 import { tableHasColumn } from "./db-schema";
+import { getOrLoadCached, WORKER_CACHE_TTL_MS } from "./worker-memory-cache";
 
 export type EvalCriterionType = "points" | "penalty";
 /** Unified input mode stored in evaluation_criteria_json */
@@ -454,7 +455,7 @@ export function parseTaskScoresJson(
   return {};
 }
 
-export async function loadEvaluationCriteria(
+async function loadEvaluationCriteriaFromDb(
   env: Env,
   complexId: number,
 ): Promise<EvalCriterion[]> {
@@ -492,6 +493,17 @@ export async function loadEvaluationCriteria(
     return parseEvaluationCriteria(row.evaluation_criteria_json);
   }
   return criteriaFromLegacyWeights(row ?? {});
+}
+
+export async function loadEvaluationCriteria(
+  env: Env,
+  complexId: number,
+): Promise<EvalCriterion[]> {
+  return getOrLoadCached(
+    `evaluation_criteria:${complexId}`,
+    () => loadEvaluationCriteriaFromDb(env, complexId),
+    WORKER_CACHE_TTL_MS,
+  );
 }
 
 export function newCriterionId(): string {

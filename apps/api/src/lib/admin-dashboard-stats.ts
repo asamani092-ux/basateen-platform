@@ -59,14 +59,14 @@ export async function fetchAdminDashboardStats(
   env: Env,
   complexId: number,
 ): Promise<AdminDashboardStats> {
-  const semester = await fetchSemesterPeriod(env, complexId);
-  const month = semester.active
-    ? semesterQueryRange(semester)
-    : currentMonthRange();
+  const semesterP = fetchSemesterPeriod(env, complexId);
 
   const circlesActiveP = (async () => {
-    if (!(await hasTable(env, "circles"))) return 0;
-    const hasIsActive = await tableHasColumn(env, "circles", "is_active");
+    const [hasCircles, hasIsActive] = await Promise.all([
+      hasTable(env, "circles"),
+      tableHasColumn(env, "circles", "is_active"),
+    ]);
+    if (!hasCircles) return 0;
     const activeFilter = hasIsActive
       ? ` AND ${sqliteActiveEq1("is_active")}`
       : "";
@@ -79,8 +79,11 @@ export async function fetchAdminDashboardStats(
   })();
 
   const tracksActiveP = (async () => {
-    if (!(await hasTable(env, "tracks"))) return 0;
-    const hasIsActive = await tableHasColumn(env, "tracks", "is_active");
+    const [hasTracks, hasIsActive] = await Promise.all([
+      hasTable(env, "tracks"),
+      tableHasColumn(env, "tracks", "is_active"),
+    ]);
+    if (!hasTracks) return 0;
     const activeFilter = hasIsActive
       ? ` AND ${sqliteActiveEq1("is_active")}`
       : "";
@@ -94,6 +97,10 @@ export async function fetchAdminDashboardStats(
 
   const pledgesP = (async () => {
     if (!(await hasTable(env, "student_pledges"))) return null;
+    const semester = await semesterP;
+    const month = semester.active
+      ? semesterQueryRange(semester)
+      : currentMonthRange();
     const [totalRow, monthRow, studentsRow] = await Promise.all([
       env.DB.prepare(
         `SELECT COUNT(*) AS c FROM student_pledges WHERE complex_id = ?`,
@@ -121,52 +128,45 @@ export async function fetchAdminDashboardStats(
 
   const attendanceP = (async () => {
     const today = todayIso();
-    const attTable = await resolveAttendanceTableName(env);
-
-    const studentMarkedP = attTable
-      ? env.DB.prepare(
-          `SELECT COUNT(DISTINCT student_id) AS c FROM ${attTable}
-           WHERE complex_id = ? AND attendance_date = ?`,
-        )
-          .bind(complexId, today)
-          .first<{ c: number }>()
-      : Promise.resolve({ c: 0 } as { c: number });
-
-    const studentPresentP = attTable
-      ? env.DB.prepare(
-          `SELECT COUNT(DISTINCT student_id) AS c FROM ${attTable}
-           WHERE complex_id = ? AND attendance_date = ? AND status = 'present'`,
-        )
-          .bind(complexId, today)
-          .first<{ c: number }>()
-      : Promise.resolve({ c: 0 } as { c: number });
-
-    const staffMarkedP =
-      (await hasTable(env, "staff_attendance"))
-        ? env.DB.prepare(
-            `SELECT COUNT(*) AS c FROM staff_attendance
-             WHERE complex_id = ? AND attendance_date = ?`,
-          )
-            .bind(complexId, today)
-            .first<{ c: number }>()
-        : Promise.resolve({ c: 0 } as { c: number });
-
-    const staffPresentP =
-      (await hasTable(env, "staff_attendance"))
-        ? env.DB.prepare(
-            `SELECT COUNT(*) AS c FROM staff_attendance
-             WHERE complex_id = ? AND attendance_date = ? AND status = 'present'`,
-          )
-            .bind(complexId, today)
-            .first<{ c: number }>()
-        : Promise.resolve({ c: 0 } as { c: number });
+    const [attTable, hasStaffAtt] = await Promise.all([
+      resolveAttendanceTableName(env),
+      hasTable(env, "staff_attendance"),
+    ]);
 
     const [studentMarked, studentPresent, staffMarked, staffPresent] =
       await Promise.all([
-        studentMarkedP,
-        studentPresentP,
-        staffMarkedP,
-        staffPresentP,
+        attTable
+          ? env.DB.prepare(
+              `SELECT COUNT(DISTINCT student_id) AS c FROM ${attTable}
+               WHERE complex_id = ? AND attendance_date = ?`,
+            )
+              .bind(complexId, today)
+              .first<{ c: number }>()
+          : Promise.resolve({ c: 0 } as { c: number }),
+        attTable
+          ? env.DB.prepare(
+              `SELECT COUNT(DISTINCT student_id) AS c FROM ${attTable}
+               WHERE complex_id = ? AND attendance_date = ? AND status = 'present'`,
+            )
+              .bind(complexId, today)
+              .first<{ c: number }>()
+          : Promise.resolve({ c: 0 } as { c: number }),
+        hasStaffAtt
+          ? env.DB.prepare(
+              `SELECT COUNT(*) AS c FROM staff_attendance
+               WHERE complex_id = ? AND attendance_date = ?`,
+            )
+              .bind(complexId, today)
+              .first<{ c: number }>()
+          : Promise.resolve({ c: 0 } as { c: number }),
+        hasStaffAtt
+          ? env.DB.prepare(
+              `SELECT COUNT(*) AS c FROM staff_attendance
+               WHERE complex_id = ? AND attendance_date = ? AND status = 'present'`,
+            )
+              .bind(complexId, today)
+              .first<{ c: number }>()
+          : Promise.resolve({ c: 0 } as { c: number }),
       ]);
 
     return {

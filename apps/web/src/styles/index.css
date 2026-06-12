@@ -586,4 +586,29 @@
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
+
+  .edu-print-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10pt;
+  }
+
+  .edu-print-table th,
+  .edu-print-table td {
+    border: 1px solid #ccc;
+    padding: 4px 8px;
+    text-align: right;
+  }
+
+  .edu-print-table thead {
+    display: table-header-group;
+    background: #f5f5f5 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .edu-print-table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
 }

@@ -1,16 +1,29 @@
 import type { Env } from "../types";
+import { getOrLoadCached, WORKER_CACHE_TTL_MS } from "./worker-memory-cache";
 
-let cachedTables: Set<string> | null = null;
-const cachedColumns = new Map<string, Set<string>>();
+const TABLES_CACHE_KEY = "schema:sqlite_master_tables";
 
-export async function hasTable(env: Env, table: string): Promise<boolean> {
-  if (!cachedTables) {
+async function loadTableNames(env: Env): Promise<Set<string>> {
+  return getOrLoadCached(TABLES_CACHE_KEY, async () => {
     const rows = await env.DB.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table'",
     ).all<{ name: string }>();
-    cachedTables = new Set((rows.results ?? []).map((r) => r.name));
-  }
-  return cachedTables.has(table);
+    return new Set((rows.results ?? []).map((r) => r.name));
+  }, WORKER_CACHE_TTL_MS);
+}
+
+async function loadTableColumns(env: Env, table: string): Promise<Set<string>> {
+  return getOrLoadCached(`schema:columns:${table}`, async () => {
+    const rows = await env.DB.prepare(`PRAGMA table_info(${table})`).all<{
+      name: string;
+    }>();
+    return new Set((rows.results ?? []).map((r) => r.name));
+  }, WORKER_CACHE_TTL_MS);
+}
+
+export async function hasTable(env: Env, table: string): Promise<boolean> {
+  const tables = await loadTableNames(env);
+  return tables.has(table);
 }
 
 export async function tableHasColumn(
@@ -18,14 +31,7 @@ export async function tableHasColumn(
   table: string,
   column: string,
 ): Promise<boolean> {
-  let cols = cachedColumns.get(table);
-  if (!cols) {
-    const rows = await env.DB.prepare(`PRAGMA table_info(${table})`).all<{
-      name: string;
-    }>();
-    cols = new Set((rows.results ?? []).map((r) => r.name));
-    cachedColumns.set(table, cols);
-  }
+  const cols = await loadTableColumns(env, table);
   return cols.has(column);
 }
 

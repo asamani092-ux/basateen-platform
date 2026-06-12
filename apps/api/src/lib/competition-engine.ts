@@ -986,6 +986,14 @@ export {
   type LeaderboardRow,
 };
 
+export {
+  buildCompetitionMetricsAggregationSql,
+  fetchStudentCompetitionMetricsMap,
+  fetchStudentCompetitionMetricsTotals,
+  type CompetitionMetricsQueryParams,
+  type StudentCompetitionMetricsTotals,
+} from "./competition-metrics-query";
+
 export function studentDailyFaces(
   unit: MemorizationUnit,
   targetAmount: number,

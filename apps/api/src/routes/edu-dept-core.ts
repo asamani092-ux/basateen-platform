@@ -89,6 +89,47 @@ async function studentsInCircle(
   return queryStudentsInCircle(env, complexId, circleId);
 }
 
+async function loadStudentTrackNames(
+  env: Env,
+  studentIds: number[],
+): Promise<Map<number, string | null>> {
+  const out = new Map<number, string | null>();
+  if (studentIds.length === 0) return out;
+  if (!(await tableHasColumn(env, "students", "current_track_id"))) return out;
+  if (!(await hasTable(env, "tracks"))) return out;
+  const ph = studentIds.map(() => "?").join(",");
+  const rows = await env.DB.prepare(
+    `SELECT s.id, t.name_ar AS track_name
+     FROM students s
+     LEFT JOIN tracks t ON t.id = s.current_track_id
+     WHERE s.id IN (${ph})`,
+  )
+    .bind(...studentIds)
+    .all<{ id: number; track_name: string | null }>();
+  for (const r of rows.results ?? []) {
+    const name = r.track_name?.trim();
+    out.set(r.id, name || null);
+  }
+  return out;
+}
+
+async function loadUnreadEduNotifications(
+  env: Env,
+  complexId: number,
+  userId: number,
+): Promise<Array<Record<string, unknown>>> {
+  if (!(await hasTable(env, "edu_notifications"))) return [];
+  const items = await env.DB.prepare(
+    `SELECT id, title_ar, body_ar, is_read, created_at
+     FROM edu_notifications
+     WHERE complex_id = ? AND recipient_user_id = ? AND is_read = 0
+     ORDER BY created_at DESC LIMIT 50`,
+  )
+    .bind(complexId, userId)
+    .all();
+  return (items.results ?? []) as Array<Record<string, unknown>>;
+}
+
 async function resolveTeacherPrimaryCircle(
   env: Env,
   teacherUserId: number,
@@ -328,22 +369,27 @@ async function loadDailyRecitationItems(
   complexId: number,
   circleId: number,
   date: string,
+  criteria: EvalCriterion[],
 ) {
   const students = await studentsInCircle(env, complexId, circleId);
-  const criteria = await loadEvaluationCriteria(env, complexId);
+  const trackNames = await loadStudentTrackNames(
+    env,
+    students.map((s) => s.id),
+  );
   const attCriterionId = attendanceCriterionId(criteria);
   const attCriterion = criteria.find((c) => c.id === attCriterionId);
-  const presentIds =
+  const [presentIds, hasFace, hasTaskScores] = await Promise.all([
     attCriterionId != null
-      ? await presentStudentIdsForDate(
+      ? presentStudentIdsForDate(
           env,
           complexId,
           date,
           students.map((s) => s.id),
         )
-      : new Set<number>();
-  const hasFace = await tableHasColumn(env, "edu_daily_recitation", "face_count");
-  const hasTaskScores = await tableHasColumn(env, "edu_daily_recitation", "task_scores_json");
+      : Promise.resolve(new Set<number>()),
+    tableHasColumn(env, "edu_daily_recitation", "face_count"),
+    tableHasColumn(env, "edu_daily_recitation", "task_scores_json"),
+  ]);
   const extraCols = [
     hasTaskScores ? "task_scores_json" : null,
     hasFace ? "face_count" : null,
@@ -392,6 +438,7 @@ async function loadDailyRecitationItems(
     return {
       student_id: s.id,
       full_name_ar: s.full_name_ar,
+      track_name: trackNames.get(s.id) ?? null,
       admin_present: presentIds.has(s.id),
       task_scores,
       listened: Boolean(m?.listened),
@@ -599,6 +646,62 @@ export async function handleEduDeptCoreRouter(
     }
   }
 
+  // --- Teacher bootstrap (single round-trip for hub entry) ---
+  if (path === "/api/edu-dept/teacher-bootstrap" && request.method === "GET") {
+    if (!requireRoles(auth, ["teacher"])) {
+      return json({ error: "forbidden" }, 403);
+    }
+    if (!(await hasTable(env, "edu_daily_recitation"))) return migrationRequired();
+
+    try {
+      const date = url.searchParams.get("date")?.trim() || todayIso();
+      const criteriaPromise = loadEvaluationCriteria(env, auth.complexId);
+      const circlePromise = resolveTeacherPrimaryCircle(
+        env,
+        auth.userId,
+        auth.complexId,
+      );
+
+      const [teacherCircle, evaluation_criteria, notifications, items] =
+        await Promise.all([
+          circlePromise,
+          criteriaPromise,
+          loadUnreadEduNotifications(env, auth.complexId, auth.userId),
+          Promise.all([circlePromise, criteriaPromise]).then(
+            ([circle, criteria]) =>
+              circle
+                ? loadDailyRecitationItems(
+                    env,
+                    auth.complexId,
+                    circle.id,
+                    date,
+                    criteria,
+                  )
+                : [],
+          ),
+        ]);
+
+      if (!teacherCircle) {
+        return json({ error: TEACHER_NO_CIRCLE_MSG }, 400);
+      }
+
+      return json({
+        generated_at: new Date().toISOString(),
+        date,
+        teacher_circle: teacherCircle,
+        circle_id: teacherCircle.id,
+        circle_name: teacherCircle.name_ar,
+        circles: [teacherCircle],
+        needs_circle_selection: false,
+        evaluation_criteria,
+        items,
+        notifications: { items: notifications },
+      });
+    } catch (err) {
+      return serverError("teacher-bootstrap", err);
+    }
+  }
+
   // --- My students (auto circle for teacher; scoped circles for supervisors) ---
   if (path === "/api/edu-dept/my-students" && request.method === "GET") {
     if (!requireRoles(auth, [...RECITATION_ROLES])) {
@@ -666,9 +769,18 @@ export async function handleEduDeptCoreRouter(
         circleName = circles.find((c) => c.id === circleId)?.name_ar ?? "";
       }
 
-      const [items, evaluation_criteria] = await Promise.all([
-        loadDailyRecitationItems(env, auth.complexId, circleId, date),
-        loadEvaluationCriteria(env, auth.complexId),
+      const criteriaPromise = loadEvaluationCriteria(env, auth.complexId);
+      const [evaluation_criteria, items] = await Promise.all([
+        criteriaPromise,
+        criteriaPromise.then((evaluation_criteria) =>
+          loadDailyRecitationItems(
+            env,
+            auth.complexId,
+            circleId,
+            date,
+            evaluation_criteria,
+          ),
+        ),
       ]);
       return json({
         date,
@@ -714,9 +826,18 @@ export async function handleEduDeptCoreRouter(
         if (!(await canAccessRecitationCircle(env, auth, circleId))) {
           return json({ error: "forbidden" }, 403);
         }
-        const [items, evaluation_criteria] = await Promise.all([
-          loadDailyRecitationItems(env, auth.complexId, circleId, date),
-          loadEvaluationCriteria(env, auth.complexId),
+        const criteriaPromise = loadEvaluationCriteria(env, auth.complexId);
+        const [evaluation_criteria, items] = await Promise.all([
+          criteriaPromise,
+          criteriaPromise.then((evaluation_criteria) =>
+            loadDailyRecitationItems(
+              env,
+              auth.complexId,
+              circleId,
+              date,
+              evaluation_criteria,
+            ),
+          ),
         ]);
         return json({ items, date, circle_id: circleId, evaluation_criteria });
       } catch (err) {
@@ -1940,16 +2061,12 @@ export async function handleEduDeptCoreRouter(
     if (!requireRoles(auth, ["teacher", "track_supervisor"])) {
       return json({ error: "forbidden" }, 403);
     }
-    if (!(await hasTable(env, "edu_notifications"))) return json({ items: [] });
-    const items = await env.DB.prepare(
-      `SELECT id, title_ar, body_ar, is_read, created_at
-       FROM edu_notifications
-       WHERE complex_id = ? AND recipient_user_id = ? AND is_read = 0
-       ORDER BY created_at DESC LIMIT 50`,
-    )
-      .bind(auth.complexId, auth.userId)
-      .all();
-    return json({ items: items.results ?? [] });
+    const items = await loadUnreadEduNotifications(
+      env,
+      auth.complexId,
+      auth.userId,
+    );
+    return json({ items });
   }
 
   const notifRead = path.match(/^\/api\/edu-dept\/notifications\/(\d+)\/read$/);

@@ -1842,6 +1842,51 @@ export const api = {
     request<{ items: Array<{ id: number; name_ar: string }> }>(
       "/api/edu-dept/teacher/circles",
     ),
+  eduDeptTeacherBootstrap: (params?: { date?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.date) q.set("date", params.date);
+    const qs = q.toString();
+    return request<{
+      generated_at: string;
+      date: string;
+      teacher_circle: { id: number; name_ar: string };
+      circle_id: number;
+      circle_name: string;
+      circles: Array<{ id: number; name_ar: string }>;
+      needs_circle_selection: false;
+      evaluation_criteria: Array<{
+        id: string;
+        name: string;
+        type: "points" | "penalty";
+        max_weight: number;
+        input?: "boolean" | "number";
+        requires_all?: string[];
+      }>;
+      items: Array<{
+        student_id: number;
+        full_name_ar: string;
+        track_name?: string | null;
+        admin_present?: boolean;
+        task_scores?: Record<string, boolean | number>;
+        listened?: boolean;
+        repeated?: boolean;
+        revised?: boolean;
+        error_count?: number;
+        tune_errors?: number;
+        face_count?: number;
+        notes: string;
+      }>;
+      notifications: {
+        items: Array<{
+          id: number;
+          title_ar: string;
+          body_ar: string;
+          is_read: number;
+          created_at: string;
+        }>;
+      };
+    }>(`/api/edu-dept/teacher-bootstrap${qs ? `?${qs}` : ""}`);
+  },
   eduDeptMyStudents: (params?: {
     date?: string;
     circle_id?: number;

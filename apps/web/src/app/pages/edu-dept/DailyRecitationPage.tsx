@@ -57,6 +57,8 @@ import { cn } from "../../components/ui/utils";
 import { StudentTrackBadge } from "../../components/edu/StudentTrackBadge";
 import { queryKeys } from "../../lib/query-keys";
 import { RecitationTableSkeleton } from "../../components/shared/RecitationTableSkeleton";
+import { teacherBootstrapToRecitationPayload } from "../../lib/teacher-bootstrap";
+import { invalidateTeacherBootstrapQueries } from "../../hooks/use-teacher-bootstrap";
 
 type Row = {
   student_id: number;
@@ -181,13 +183,15 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
 
   const supervisorCircle = isSupervisor ? circleId : null;
 
+  const isTeacher = user?.role === "teacher";
+
   const criteriaQuery = useQuery({
     queryKey: queryKeys.evaluationCriteria,
     queryFn: async () => {
       const res = await api.eduDeptSettingsGet();
       return res.settings.evaluation_criteria;
     },
-    enabled: canUseApi(),
+    enabled: canUseApi() && isBroadSupervisor,
     staleTime: 600_000,
   });
 
@@ -217,13 +221,19 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
   }, [scopesQuery.data, isSupervisor, isTrackSupervisor]);
 
   const studentsQuery = useQuery({
-    queryKey: queryKeys.eduDept.myStudents({
-      date,
-      trackId: isSupervisor ? trackId : null,
-      circleId: isSupervisor ? supervisorCircle : null,
-      isSupervisor,
-    }),
+    queryKey: isTeacher
+      ? queryKeys.eduDept.teacherBootstrap(date)
+      : queryKeys.eduDept.myStudents({
+          date,
+          trackId: isSupervisor ? trackId : null,
+          circleId: isSupervisor ? supervisorCircle : null,
+          isSupervisor,
+        }),
     queryFn: async () => {
+      if (isTeacher) {
+        const boot = await api.eduDeptTeacherBootstrap({ date });
+        return teacherBootstrapToRecitationPayload(boot);
+      }
       const requestCircleId = isSupervisor ? circleIdRef.current : null;
       return isSupervisor
         ? await api.eduDeptMyStudents({
@@ -333,6 +343,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
       });
       toast.success(`تم حفظ رصد ${row.full_name_ar}`);
       await queryClient.invalidateQueries({ queryKey: queryKeys.eduDept.myStudentsAll });
+      await invalidateTeacherBootstrapQueries(queryClient);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "فشل الحفظ";
       setError(msg);
@@ -359,6 +370,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
       });
       toast.success("تم حفظ الرصد اليومي");
       await queryClient.invalidateQueries({ queryKey: queryKeys.eduDept.myStudentsAll });
+      await invalidateTeacherBootstrapQueries(queryClient);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "فشل الحفظ";
       setError(msg);

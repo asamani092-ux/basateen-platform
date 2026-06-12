@@ -12,5 +12,8 @@ export const queryKeys = {
     teacherCompetitions: ["edu-dept", "teacher-competitions"] as const,
     teacherCompetitionDetail: (id: number) =>
       ["edu-dept", "teacher-competition", id] as const,
+    teacherBootstrap: (date: string) =>
+      ["edu-dept", "teacher-bootstrap", date] as const,
+    teacherBootstrapAll: ["edu-dept", "teacher-bootstrap"] as const,
   },
 } as const;

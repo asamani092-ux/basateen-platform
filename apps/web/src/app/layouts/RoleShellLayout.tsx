@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, LogOut, Menu, X } from "lucide-react";
 import { Button } from "../components/ui/button";
 import {
@@ -18,6 +19,8 @@ import { DevPreviewBanner } from "../components/DevPreviewBanner";
 import { TeacherNotificationsBanner } from "../components/edu/TeacherNotificationsBanner";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { ds, tajawal } from "../lib/design-system";
+import { canUseApi } from "../lib/api-access";
+import { prefetchTeacherBootstrap } from "../hooks/use-teacher-bootstrap";
 
 function NavLinkItem({
   item,
@@ -185,6 +188,13 @@ export function RoleShellLayout() {
   }
 
   const visibleNav = user ? navForRole(user.role) : [];
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (user?.role === "teacher" && canUseApi()) {
+      void prefetchTeacherBootstrap(queryClient);
+    }
+  }, [user?.role, queryClient]);
 
   const nav = renderNav(
     visibleNav,

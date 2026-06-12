@@ -713,6 +713,60 @@ export function resolveDevPreviewMock<T>(
       })),
     } as T;
   }
+  if (p === "/api/edu-dept/teacher-bootstrap" && m === "GET") {
+    const students = previewStore.getStudents().slice(0, 6);
+    const evaluation_criteria = [
+      { id: "listening", name: "السماع", type: "points", max_weight: 1, input: "boolean" },
+      { id: "repeat", name: "التكرار", type: "points", max_weight: 1, input: "boolean" },
+      { id: "revision", name: "المراجعة", type: "points", max_weight: 1, input: "boolean" },
+      {
+        id: "rabt",
+        name: "الربط",
+        type: "points",
+        max_weight: 1,
+        input: "boolean",
+        requires_all: ["listening", "repeat", "revision"],
+      },
+      { id: "error", name: "الخطأ", type: "penalty", max_weight: 0.5, input: "number" },
+      { id: "tune", name: "اللحن", type: "penalty", max_weight: 0.5, input: "number" },
+    ];
+    const circle = { id: 1, name_ar: "حلقة تجريبية" };
+    return {
+      generated_at: new Date().toISOString(),
+      date,
+      teacher_circle: circle,
+      circle_id: circle.id,
+      circle_name: circle.name_ar,
+      needs_circle_selection: false,
+      circles: PREVIEW_CIRCLES.slice(0, 3).map((c) => ({ id: c.id, name_ar: c.name_ar })),
+      evaluation_criteria,
+      items: students.map((s, i) => ({
+        student_id: s.id,
+        full_name_ar: s.full_name_ar,
+        track_name: i === 0 ? "مسار الحفظ المتقدم" : i === 2 ? "مسار المراجعة" : null,
+        task_scores: {
+          listening: i % 2 === 0,
+          repeat: true,
+          revision: false,
+          rabt: false,
+          error: i,
+          tune: 0,
+        },
+        notes: "",
+      })),
+      notifications: {
+        items: [
+          {
+            id: 1,
+            title_ar: "تنبيه تجريبي",
+            body_ar: "مرحباً بك في معاينة بوابة المعلم.",
+            is_read: 0,
+            created_at: new Date().toISOString(),
+          },
+        ],
+      },
+    } as T;
+  }
   if (p === "/api/edu-dept/daily-recitation" && m === "POST") {
     return { ok: true, saved: 1 } as T;
   }

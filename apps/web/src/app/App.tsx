@@ -5,19 +5,14 @@ import { RequireAuth } from "./components/RequireAuth";
 import { RequireRole } from "./components/RequireRole";
 import { RequirePathAccess } from "./components/RequirePathAccess";
 import { AuthHomeRedirect } from "./components/AuthHomeRedirect";
+import { LazyRoute } from "./components/shared/LazyRoute";
 import { LoginPage } from "./pages/auth/LoginPage";
 import { WelcomePage } from "./pages/WelcomePage";
 import { TvLivePage } from "./pages/tv/TvLivePage";
 import { LiveLogPage } from "./pages/live-log/LiveLogPage";
-import { EduSettingsPage } from "./pages/edu-dept/EduSettingsPage";
 import { DailyRecitationPage } from "./pages/edu-dept/DailyRecitationPage";
-import { EduTransfersPage } from "./pages/edu-dept/EduTransfersPage";
 import { TeacherCompetitionsPage } from "./pages/edu-dept/TeacherCompetitionsPage";
-import { EduReportsPage } from "./pages/edu-dept/EduReportsPage";
 import { PublicQuranicDayPage } from "./pages/public/PublicQuranicDayPage";
-import { CompetitionsPage } from "./pages/edu-supervisor/CompetitionsPage";
-import { StudentsPage } from "./pages/admin/StudentsPage";
-import { CompetitionDetailPage } from "./pages/edu-supervisor/CompetitionDetailPage";
 import { ProgSupervisorLayout } from "./layouts/ProgSupervisorLayout";
 import { QuizBuilderPage } from "./pages/prog-dept/QuizBuilderPage";
 import { ProgramsArchivePage } from "./pages/prog-dept/ProgramsArchivePage";
@@ -29,14 +24,22 @@ import { PublicQuizPage } from "./pages/public/PublicQuizPage";
 import { PublicLiveDisplayPage } from "./pages/public/PublicLiveDisplayPage";
 import { QuizPublicPage } from "./pages/quiz/QuizPublicPage";
 import { PublicMagicLinkPage } from "./pages/public/PublicMagicLinkPage";
-import { StaffAttendancePage } from "./pages/admin-dept/StaffAttendancePage";
-import { StudentDailyAttendancePage } from "./pages/admin-dept/StudentDailyAttendancePage";
-import { AbsentWhatsappPage } from "./pages/admin-dept/AbsentWhatsappPage";
-import { PledgesPage } from "./pages/admin-dept/PledgesPage";
-import { AdminReportsPage } from "./pages/admin-dept/AdminReportsPage";
-import { StaffManagementPage } from "./pages/admin/StaffManagementPage";
-import { CirclesSetupPage } from "./pages/admin/CirclesSetupPage";
-import { AdminGeneralSettingsPage } from "./pages/admin/AdminGeneralSettingsPage";
+import {
+  AbsentWhatsappPage,
+  AdminGeneralSettingsPage,
+  AdminReportsPage,
+  CirclesSetupPage,
+  CompetitionDetailPage,
+  CompetitionsPage,
+  EduReportsPage,
+  EduSettingsPage,
+  EduTransfersPage,
+  PledgesPage,
+  StaffAttendancePage,
+  StaffManagementPage,
+  StudentDailyAttendancePage,
+  StudentsPage,
+} from "./lib/lazy-pages";
 import { STAFF_ROLES } from "./config/role-access";
 import { TeacherHubPage } from "./pages/teacher/TeacherHubPage";
 import { TrackSupervisorHubPage } from "./pages/teacher/TrackSupervisorHubPage";
@@ -61,13 +64,34 @@ export default function App() {
         <Route element={<RequireRole roles={[...STAFF_ROLES, "teacher"]} />}>
           <Route element={<RequirePathAccess />}>
             <Route element={<RoleShellLayout />}>
-              <Route path="super-admin/staff" element={<StaffManagementPage />} />
+              <Route
+                path="super-admin/staff"
+                element={
+                  <LazyRoute>
+                    <StaffManagementPage />
+                  </LazyRoute>
+                }
+              />
               <Route
                 path="super-admin/staff-management"
                 element={<Navigate to="/super-admin/staff" replace />}
               />
-              <Route path="super-admin/circles-setup" element={<CirclesSetupPage />} />
-              <Route path="super-admin/settings" element={<AdminGeneralSettingsPage />} />
+              <Route
+                path="super-admin/circles-setup"
+                element={
+                  <LazyRoute>
+                    <CirclesSetupPage />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="super-admin/settings"
+                element={
+                  <LazyRoute>
+                    <AdminGeneralSettingsPage />
+                  </LazyRoute>
+                }
+              />
               <Route
                 path="super-admin/statistics"
                 element={<Navigate to="/admin-dept/reports" replace />}
@@ -75,14 +99,28 @@ export default function App() {
 
               <Route path="edu-dept" element={<EduSupervisorLayout />}>
                 <Route index element={<Navigate to="reports" replace />} />
-                <Route path="settings" element={<EduSettingsPage />} />
+                <Route
+                  path="settings"
+                  element={
+                    <LazyRoute>
+                      <EduSettingsPage />
+                    </LazyRoute>
+                  }
+                />
                 <Route path="daily-recitation" element={<DailyRecitationPage />} />
                 <Route path="teacher-competitions" element={<TeacherCompetitionsPage />} />
                 <Route
                   path="quranic-days"
                   element={<Navigate to="/edu-dept/competitions" replace />}
                 />
-                <Route path="reports" element={<EduReportsPage />} />
+                <Route
+                  path="reports"
+                  element={
+                    <LazyRoute>
+                      <EduReportsPage />
+                    </LazyRoute>
+                  }
+                />
                 <Route
                   path="transfer-requests"
                   element={<Navigate to="/edu-dept/transfers" replace />}
@@ -103,19 +141,37 @@ export default function App() {
                   path="students/:studentId"
                   element={<Navigate to="/admin-dept/students" replace />}
                 />
-                <Route path="transfers" element={<EduTransfersPage />} />
+                <Route
+                  path="transfers"
+                  element={
+                    <LazyRoute>
+                      <EduTransfersPage />
+                    </LazyRoute>
+                  }
+                />
                 <Route
                   path="circles"
                   element={<Navigate to="/super-admin/circles-setup" replace />}
                 />
-                <Route path="competitions" element={<CompetitionsPage />} />
+                <Route
+                  path="competitions"
+                  element={
+                    <LazyRoute>
+                      <CompetitionsPage />
+                    </LazyRoute>
+                  }
+                />
                 <Route
                   path="events-engine"
                   element={<Navigate to="/edu-dept/competitions" replace />}
                 />
                 <Route
                   path="competitions/:competitionId"
-                  element={<CompetitionDetailPage />}
+                  element={
+                    <LazyRoute>
+                      <CompetitionDetailPage />
+                    </LazyRoute>
+                  }
                 />
               </Route>
 
@@ -125,16 +181,58 @@ export default function App() {
               <Route path="track-supervisor" element={<TrackSupervisorHubPage />} />
               <Route path="track-supervisor/*" element={<TrackSupervisorHubPage />} />
 
-              <Route path="admin-dept/students" element={<StudentsPage />} />
-              <Route path="admin-dept/staff-attendance" element={<StaffAttendancePage />} />
-              <Route path="admin-dept/student-attendance" element={<StudentDailyAttendancePage />} />
-              <Route path="admin-dept/absent-whatsapp" element={<AbsentWhatsappPage />} />
+              <Route
+                path="admin-dept/students"
+                element={
+                  <LazyRoute>
+                    <StudentsPage />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="admin-dept/staff-attendance"
+                element={
+                  <LazyRoute>
+                    <StaffAttendancePage />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="admin-dept/student-attendance"
+                element={
+                  <LazyRoute>
+                    <StudentDailyAttendancePage />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="admin-dept/absent-whatsapp"
+                element={
+                  <LazyRoute>
+                    <AbsentWhatsappPage />
+                  </LazyRoute>
+                }
+              />
               <Route
                 path="admin-dept/admissions"
                 element={<Navigate to="/admin-dept/students" replace />}
               />
-              <Route path="admin-dept/pledges" element={<PledgesPage />} />
-              <Route path="admin-dept/reports" element={<AdminReportsPage />} />
+              <Route
+                path="admin-dept/pledges"
+                element={
+                  <LazyRoute>
+                    <PledgesPage />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="admin-dept/reports"
+                element={
+                  <LazyRoute>
+                    <AdminReportsPage />
+                  </LazyRoute>
+                }
+              />
               <Route
                 path="admin-dept/magic-links"
                 element={<Navigate to="/admin-dept/student-attendance" replace />}

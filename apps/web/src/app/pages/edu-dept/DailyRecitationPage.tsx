@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { GuardedForm } from "../../components/ui/guarded-form";
 import {
   Check,
@@ -54,6 +55,8 @@ import {
 import { ds, tajawal } from "../../lib/design-system";
 import { cn } from "../../components/ui/utils";
 import { StudentTrackBadge } from "../../components/edu/StudentTrackBadge";
+import { queryKeys } from "../../lib/query-keys";
+import { RecitationTableSkeleton } from "../../components/shared/RecitationTableSkeleton";
 
 type Row = {
   student_id: number;
@@ -127,6 +130,7 @@ function normalizeRow(
 
 export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }) {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const isSupervisor = user ? SUPERVISOR_ROLES.has(user.role) : false;
   const isTrackSupervisor = user?.role === "track_supervisor";
   const isBroadSupervisor = isSupervisor && !isTrackSupervisor;
@@ -140,10 +144,8 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
   const [circleId, setCircleId] = useState<number | null>(null);
   const [circleName, setCircleName] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [criteria, setCriteria] = useState<EvalCriterion[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingStudentId, setSavingStudentId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -174,94 +176,128 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
     return tracks.find((t) => t.id === trackId)?.name_ar ?? null;
   }, [isTrackSupervisor, trackId, tracks]);
 
-  const loadScopes = useCallback(async () => {
-    if (!canUseApi() || !isSupervisor) return;
-    try {
-      const res = await api.eduDeptFilterScopes();
-      setTracks(res.tracks);
-      setCircles(res.circles);
-      if (isTrackSupervisor) {
-        const trackIds = [
-          ...new Set(
-            res.circles
-              .map((c) => c.track_id)
-              .filter((id): id is number => id != null && id > 0),
-          ),
-        ];
-        if (trackIds.length >= 1) {
-          setTrackId((prev) => prev ?? trackIds[0]);
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-  }, [isSupervisor, isTrackSupervisor]);
-
-  useEffect(() => {
-    void loadScopes();
-  }, [loadScopes]);
-
   const circleIdRef = useRef(circleId);
   circleIdRef.current = circleId;
 
-  const load = useCallback(async () => {
-    if (!canUseApi()) {
-      setLoading(false);
-      return;
+  const supervisorCircle = isSupervisor ? circleId : null;
+
+  const criteriaQuery = useQuery({
+    queryKey: queryKeys.evaluationCriteria,
+    queryFn: async () => {
+      const res = await api.eduDeptSettingsGet();
+      return res.settings.evaluation_criteria;
+    },
+    enabled: canUseApi(),
+    staleTime: 600_000,
+  });
+
+  const scopesQuery = useQuery({
+    queryKey: queryKeys.eduDept.filterScopes,
+    queryFn: () => api.eduDeptFilterScopes(),
+    enabled: canUseApi() && isSupervisor,
+    staleTime: 60_000,
+  });
+
+  useEffect(() => {
+    if (!scopesQuery.data || !isSupervisor) return;
+    setTracks(scopesQuery.data.tracks);
+    setCircles(scopesQuery.data.circles);
+    if (isTrackSupervisor) {
+      const trackIds = [
+        ...new Set(
+          scopesQuery.data.circles
+            .map((c) => c.track_id)
+            .filter((id): id is number => id != null && id > 0),
+        ),
+      ];
+      if (trackIds.length >= 1) {
+        setTrackId((prev) => prev ?? trackIds[0]);
+      }
     }
-    setLoading(true);
-    setError(null);
-    try {
+  }, [scopesQuery.data, isSupervisor, isTrackSupervisor]);
+
+  const studentsQuery = useQuery({
+    queryKey: queryKeys.eduDept.myStudents({
+      date,
+      trackId: isSupervisor ? trackId : null,
+      circleId: isSupervisor ? supervisorCircle : null,
+      isSupervisor,
+    }),
+    queryFn: async () => {
       const requestCircleId = isSupervisor ? circleIdRef.current : null;
-      const res = isSupervisor
+      return isSupervisor
         ? await api.eduDeptMyStudents({
             date,
             ...(requestCircleId != null ? { circle_id: requestCircleId } : {}),
             ...(trackId != null ? { track_id: trackId } : {}),
           })
         : await api.eduDeptMyStudents({ date });
+    },
+    enabled: canUseApi(),
+    staleTime: 60_000,
+  });
 
-      const evalCriteria = res.evaluation_criteria ?? [];
-      setCriteria(evalCriteria);
-      if (isSupervisor && res.circles?.length) {
-        setCircles((prev) => {
-          const trackMap = new Map(prev.map((c) => [c.id, c.track_id]));
-          return res.circles!.map((c) => ({
-            id: c.id,
-            name_ar: c.name_ar,
-            track_id: trackMap.get(c.id) ?? null,
-          }));
-        });
-      }
-      if (res.needs_circle_selection && isSupervisor) {
-        setRows([]);
-        return;
-      }
-      if (!isSupervisor && res.circle_id != null) {
-        setCircleId((prev) => (prev === res.circle_id ? prev : res.circle_id ?? prev));
-      }
-      setCircleName(res.circle_name ?? "");
-      setRows((res.items ?? []).map((item) => normalizeRow(item, evalCriteria)));
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "فشل التحميل";
-      const isNoCircleErr = /no_circle_assigned|لم يتم ربط حلقة/i.test(msg);
-      if (isTrackSupervisor && isNoCircleErr && (tracks.length > 0 || circles.length > 0)) {
-        setError(null);
-        setRows([]);
-      } else {
-        setError(msg.includes("لم يتم ربط حلقة") ? msg : msg);
-        setRows([]);
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [date, trackId, isSupervisor, isTrackSupervisor, circles.length, tracks.length]);
-
-  const supervisorCircle = isSupervisor ? circleId : null;
+  const criteria = useMemo(
+    () =>
+      criteriaQuery.data ??
+      studentsQuery.data?.evaluation_criteria ??
+      [],
+    [criteriaQuery.data, studentsQuery.data?.evaluation_criteria],
+  );
 
   useEffect(() => {
-    void load();
-  }, [load, supervisorCircle]);
+    const res = studentsQuery.data;
+    if (!res) return;
+
+    const evalCriteria =
+      criteria.length > 0 ? criteria : (res.evaluation_criteria ?? []);
+
+    if (isSupervisor && res.circles?.length) {
+      setCircles((prev) => {
+        const trackMap = new Map(prev.map((c) => [c.id, c.track_id]));
+        return res.circles!.map((c) => ({
+          id: c.id,
+          name_ar: c.name_ar,
+          track_id: trackMap.get(c.id) ?? null,
+        }));
+      });
+    }
+    if (res.needs_circle_selection && isSupervisor) {
+      setRows([]);
+      return;
+    }
+    if (!isSupervisor && res.circle_id != null) {
+      setCircleId((prev) => (prev === res.circle_id ? prev : res.circle_id ?? prev));
+    }
+    setCircleName(res.circle_name ?? "");
+    setRows((res.items ?? []).map((item) => normalizeRow(item, evalCriteria)));
+  }, [studentsQuery.data, criteria, isSupervisor]);
+
+  useEffect(() => {
+    if (!studentsQuery.isError) return;
+    const e = studentsQuery.error;
+    const msg = e instanceof Error ? e.message : "فشل التحميل";
+    const isNoCircleErr = /no_circle_assigned|لم يتم ربط حلقة/i.test(msg);
+    if (isTrackSupervisor && isNoCircleErr && (tracks.length > 0 || circles.length > 0)) {
+      setError(null);
+      setRows([]);
+      return;
+    }
+    setError(msg.includes("لم يتم ربط حلقة") ? msg : msg);
+    setRows([]);
+  }, [
+    studentsQuery.isError,
+    studentsQuery.error,
+    isTrackSupervisor,
+    tracks.length,
+    circles.length,
+  ]);
+
+  useEffect(() => {
+    if (studentsQuery.isSuccess) setError(null);
+  }, [studentsQuery.isSuccess, studentsQuery.dataUpdatedAt]);
+
+  const loading = studentsQuery.isPending && !studentsQuery.data;
 
   function patchTaskScore(studentId: number, taskId: string, value: boolean | number) {
     setRows((prev) =>
@@ -296,6 +332,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
         ],
       });
       toast.success(`تم حفظ رصد ${row.full_name_ar}`);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.eduDept.myStudentsAll });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "فشل الحفظ";
       setError(msg);
@@ -321,6 +358,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
         })),
       });
       toast.success("تم حفظ الرصد اليومي");
+      await queryClient.invalidateQueries({ queryKey: queryKeys.eduDept.myStudentsAll });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "فشل الحفظ";
       setError(msg);
@@ -490,9 +528,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
 
       <div className={ds.card}>
         {loading ? (
-          <p className="p-4 text-muted-foreground text-sm" style={tajawal}>
-            جاري التحميل…
-          </p>
+          <RecitationTableSkeleton showFilters={false} columns={editableCriteria.length || 4} />
         ) : isSupervisor && circleId == null ? (
           <p className={`p-4 ${ds.alert.info}`} style={tajawal}>
             {isTrackSupervisor

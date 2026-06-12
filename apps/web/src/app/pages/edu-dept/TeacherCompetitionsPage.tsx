@@ -1,5 +1,6 @@
 import { GuardedForm } from "../../components/ui/guarded-form";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Medal, Pencil, Plus, Printer, Trash2, Trophy, Users } from "lucide-react";
 import { toast } from "sonner";
 import { useGuardedVoidAction } from "../../lib/guarded-async";
@@ -35,6 +36,8 @@ import { canUseApi } from "../../lib/api-access";
 import { cn } from "../../components/ui/utils";
 import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import { ds, tajawal } from "../../lib/design-system";
+import { queryKeys } from "../../lib/query-keys";
+import { RecitationTableSkeleton } from "../../components/shared/RecitationTableSkeleton";
 
 type Comp = { id: number; name_ar: string; start_date: string | null; end_date: string | null };
 
@@ -67,18 +70,12 @@ type TeacherCompetitionsPageProps = {
 };
 
 export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetitionsPageProps) {
-  const [items, setItems] = useState<Comp[]>([]);
+  const queryClient = useQueryClient();
   const [activeCompetitionId, setActiveCompetitionId] = useState<number | null>(null);
-  const [tasks, setTasks] = useState<
-    Array<{ id: number; title_ar: string; weight_points: number }>
-  >([]);
-  const [students, setStudents] = useState<Array<{ id: number; full_name_ar: string }>>([]);
   const [scores, setScores] = useState<Record<string, number>>({});
-  const [leaderboard, setLeaderboard] = useState<LeaderRow[]>([]);
   const [tab, setTab] = useState<"scores" | "leaderboard">("scores");
-  const [loading, setLoading] = useState(true);
-  const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [defaultTaskWeight, setDefaultTaskWeight] = useState(1);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -93,72 +90,99 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
   const [taskTitle, setTaskTitle] = useState("");
   const [taskWeight, setTaskWeight] = useState(1);
 
+  const listQuery = useQuery({
+    queryKey: queryKeys.eduDept.teacherCompetitions,
+    queryFn: () => api.eduDeptTeacherCompetitionsList(),
+    enabled: canUseApi(),
+    staleTime: 60_000,
+  });
+
+  const items = listQuery.data?.items ?? [];
+
+  useEffect(() => {
+    if (!listQuery.data) return;
+    if (typeof listQuery.data.default_task_weight === "number") {
+      setDefaultTaskWeight(listQuery.data.default_task_weight);
+    }
+    setActiveCompetitionId((prev) => {
+      if (prev != null && listQuery.data!.items.some((c) => c.id === prev)) return prev;
+      return listQuery.data!.items[0]?.id ?? null;
+    });
+  }, [listQuery.data]);
+
+  useEffect(() => {
+    if (listQuery.isError) {
+      const msg = getFriendlyTeacherCompetitionError(listQuery.error);
+      setError(msg);
+      toast.error(msg);
+    } else if (listQuery.isSuccess) {
+      setError(null);
+    }
+  }, [listQuery.isError, listQuery.isSuccess, listQuery.error]);
+
+  const detailQuery = useQuery({
+    queryKey:
+      activeCompetitionId != null
+        ? queryKeys.eduDept.teacherCompetitionDetail(activeCompetitionId)
+        : ["edu-dept", "teacher-competition", "none"],
+    queryFn: async () => {
+      const id = activeCompetitionId!;
+      const [res, lb] = await Promise.all([
+        api.eduDeptTeacherCompetitionDetail(id),
+        api.eduDeptTeacherCompetitionLeaderboard(id),
+      ]);
+      return { detail: res, leaderboard: lb.items };
+    },
+    enabled: canUseApi() && activeCompetitionId != null,
+    staleTime: 60_000,
+  });
+
+  const tasks = detailQuery.data?.detail.tasks ?? [];
+  const students = detailQuery.data?.detail.students ?? [];
+  const leaderboard = detailQuery.data?.leaderboard ?? [];
+
+  useEffect(() => {
+    const res = detailQuery.data?.detail;
+    if (!res || activeCompetitionId == null) return;
+    const map: Record<string, number> = {};
+    for (const s of res.scores) {
+      map[`${s.task_id}-${s.student_id}`] = s.points;
+    }
+    setScores(map);
+  }, [detailQuery.data, activeCompetitionId]);
+
+  useEffect(() => {
+    if (detailQuery.isError) {
+      const msg = getFriendlyTeacherCompetitionError(detailQuery.error);
+      setError(msg);
+      toast.error(msg);
+    }
+  }, [detailQuery.isError, detailQuery.error]);
+
+  useEffect(() => {
+    if (activeCompetitionId == null) {
+      setScores({});
+    }
+  }, [activeCompetitionId]);
+
+  const loading = listQuery.isPending && !listQuery.data;
+  const detailLoading = activeCompetitionId != null && detailQuery.isPending;
+
+  async function invalidateCompetitionQueries(competitionId?: number | null) {
+    await queryClient.invalidateQueries({ queryKey: queryKeys.eduDept.teacherCompetitions });
+    if (competitionId != null) {
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.eduDept.teacherCompetitionDetail(competitionId),
+      });
+    }
+  }
+
   const activeCompetition = useMemo(
     () => items.find((c) => c.id === activeCompetitionId) ?? null,
     [items, activeCompetitionId],
   );
 
   const topLeaderPoints = leaderboard[0]?.total_points ?? 0;
-
-  const loadList = useCallback(async () => {
-    if (!canUseApi()) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.eduDeptTeacherCompetitionsList();
-      setItems(res.items);
-      if (typeof res.default_task_weight === "number") {
-        setTaskWeight(res.default_task_weight);
-      }
-      setActiveCompetitionId((prev) => {
-        if (prev != null && res.items.some((c) => c.id === prev)) return prev;
-        return res.items[0]?.id ?? null;
-      });
-    } catch (e) {
-      const msg = getFriendlyTeacherCompetitionError(e);
-      setError(msg);
-      toast.error(msg);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const loadDetail = useCallback(async (id: number) => {
-    if (!canUseApi()) return;
-    setDetailLoading(true);
-    try {
-      const [res, lb] = await Promise.all([
-        api.eduDeptTeacherCompetitionDetail(id),
-        api.eduDeptTeacherCompetitionLeaderboard(id),
-      ]);
-      setTasks(res.tasks);
-      setStudents(res.students);
-      setLeaderboard(lb.items);
-      const map: Record<string, number> = {};
-      for (const s of res.scores) {
-        map[`${s.task_id}-${s.student_id}`] = s.points;
-      }
-      setScores(map);
-      setItems((prev) =>
-        prev.map((c) =>
-          c.id === id
-            ? {
-                ...c,
-                name_ar: res.competition.name_ar,
-                start_date: res.competition.start_date,
-                end_date: res.competition.end_date,
-              }
-            : c,
-        ),
-      );
-    } catch (e) {
-      const msg = getFriendlyTeacherCompetitionError(e);
-      setError(msg);
-      toast.error(msg);
-    } finally {
-      setDetailLoading(false);
-    }
-  }, []);
 
   const deleteTaskIdRef = useRef<number | null>(null);
 
@@ -168,17 +192,11 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
     try {
       await api.eduDeptTeacherCompetitionDelete(deletedId);
       setDeleteOpen(false);
+      await invalidateCompetitionQueries(deletedId);
       const res = await api.eduDeptTeacherCompetitionsList();
-      setItems(res.items);
       const nextId = res.items[0]?.id ?? null;
       setActiveCompetitionId(nextId);
-      if (nextId != null) await loadDetail(nextId);
-      else {
-        setTasks([]);
-        setStudents([]);
-        setScores({});
-        setLeaderboard([]);
-      }
+      if (nextId == null) setScores({});
       toast.success("تم حذف المنافسة وجميع سجلاتها.");
     } catch (err) {
       const msg = getFriendlyTeacherCompetitionError(err);
@@ -197,7 +215,7 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
       });
       await api.eduDeptTeacherCompetitionSaveScores(activeCompetitionId, payload);
       toast.success("تم حفظ النقاط.");
-      await loadDetail(activeCompetitionId);
+      await invalidateCompetitionQueries(activeCompetitionId);
     } catch (err) {
       const msg = getFriendlyTeacherCompetitionError(err);
       setError(msg);
@@ -210,7 +228,7 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
     if (activeCompetitionId == null || taskId == null) return;
     try {
       await api.eduDeptTeacherCompetitionDeleteTask(activeCompetitionId, taskId);
-      await loadDetail(activeCompetitionId);
+      await invalidateCompetitionQueries(activeCompetitionId);
       toast.success("تم حذف المهمة.");
     } catch (err) {
       const msg = getFriendlyTeacherCompetitionError(err);
@@ -230,28 +248,14 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
       });
       setTaskOpen(false);
       setTaskTitle("");
-      setTaskWeight(1);
-      await loadDetail(activeCompetitionId);
+      setTaskWeight(defaultTaskWeight);
+      await invalidateCompetitionQueries(activeCompetitionId);
     } catch (err) {
       const msg = getFriendlyTeacherCompetitionError(err);
       setError(msg);
       toast.error(msg);
     }
   });
-
-  useEffect(() => {
-    void loadList();
-  }, [loadList]);
-
-  useEffect(() => {
-    if (activeCompetitionId != null) void loadDetail(activeCompetitionId);
-    else {
-      setTasks([]);
-      setStudents([]);
-      setScores({});
-      setLeaderboard([]);
-    }
-  }, [activeCompetitionId, loadDetail]);
 
   function onCompetitionChange(raw: string) {
     const id = raw ? Number(raw) : null;
@@ -268,8 +272,7 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
       setCreateOpen(false);
       setNewName("");
       setActiveCompetitionId(res.id);
-      await loadList();
-      await loadDetail(res.id);
+      await invalidateCompetitionQueries(res.id);
       toast.success("تم إنشاء المنافسة مع مهام افتراضية.");
     } catch (err) {
       const msg = getFriendlyTeacherCompetitionError(err);
@@ -294,11 +297,7 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
         name_ar: editName.trim(),
       });
       setEditOpen(false);
-      setItems((prev) =>
-        prev.map((c) =>
-          c.id === activeCompetitionId ? { ...c, name_ar: editName.trim() } : c,
-        ),
-      );
+      await invalidateCompetitionQueries(activeCompetitionId);
       toast.success("تم تحديث المنافسة.");
     } catch (err) {
       const msg = getFriendlyTeacherCompetitionError(err);
@@ -380,6 +379,10 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
         </p>
       )}
 
+      {loading ? (
+        <RecitationTableSkeleton showFilters={false} rows={4} columns={4} />
+      ) : (
+        <>
       {!loading && !error && (
         <div className={`${ds.kpiStrip} print:hidden`}>
           <EduKpiCard
@@ -442,11 +445,9 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
           )}
         </div>
         {(loading || detailLoading) && (
-          <p className="text-xs text-muted-foreground" style={tajawal}>
-            {loading ? "جاري تحميل القائمة…" : "جاري تحميل تفاصيل المنافسة…"}
-          </p>
+          <RecitationTableSkeleton showFilters={false} rows={3} columns={3} />
         )}
-        {activeCompetitionId != null && tab === "scores" && (
+        {!detailLoading && activeCompetitionId != null && tab === "scores" && (
           <div className="flex flex-wrap gap-2 pt-1">
             <Button
               type="button"
@@ -955,6 +956,8 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
         destructive
         onConfirm={deleteCompetition}
       />
+        </>
+      )}
     </div>
   );
 }

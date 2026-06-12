@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Medal, Pencil, Plus, Printer, Trash2, Trophy } from "lucide-react";
+import { Medal, Pencil, Plus, Printer, Trash2, Trophy, Users } from "lucide-react";
+import { toast } from "sonner";
 import { TableIconAction } from "../../components/admin/TableIconAction";
 import { DoubleConfirmDialog } from "../../components/shared/DoubleConfirmDialog";
+import { EduKpiCard } from "../../components/edu/EduKpiCard";
 import { Button } from "../../components/ui/button";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "../../components/ui/accordion";
 import {
   Dialog,
   DialogContent,
@@ -43,7 +51,20 @@ function printTeacherCompetition() {
   }, 500);
 }
 
-export function TeacherCompetitionsPage() {
+function getFriendlyTeacherCompetitionError(raw: unknown): string {
+  const msg = raw instanceof Error ? raw.message : String(raw ?? "فشل غير معروف");
+  if (/created_by_user_id|no such column|SQLITE_ERROR/i.test(msg)) {
+    return ds.dbMigrationErrorHint;
+  }
+  return msg;
+}
+
+type TeacherCompetitionsPageProps = {
+  /** داخل بوابة المعلم — يخفي العنوان المكرر */
+  embedded?: boolean;
+};
+
+export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetitionsPageProps) {
   const [items, setItems] = useState<Comp[]>([]);
   const [activeCompetitionId, setActiveCompetitionId] = useState<number | null>(null);
   const [tasks, setTasks] = useState<
@@ -57,7 +78,6 @@ export function TeacherCompetitionsPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -77,6 +97,8 @@ export function TeacherCompetitionsPage() {
     [items, activeCompetitionId],
   );
 
+  const topLeaderPoints = leaderboard[0]?.total_points ?? 0;
+
   const loadList = useCallback(async () => {
     if (!canUseApi()) return;
     setLoading(true);
@@ -92,7 +114,9 @@ export function TeacherCompetitionsPage() {
         return res.items[0]?.id ?? null;
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل التحميل");
+      const msg = getFriendlyTeacherCompetitionError(e);
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -127,7 +151,9 @@ export function TeacherCompetitionsPage() {
         ),
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل تحميل التفاصيل");
+      const msg = getFriendlyTeacherCompetitionError(e);
+      setError(msg);
+      toast.error(msg);
     } finally {
       setDetailLoading(false);
     }
@@ -150,7 +176,6 @@ export function TeacherCompetitionsPage() {
   function onCompetitionChange(raw: string) {
     const id = raw ? Number(raw) : null;
     setActiveCompetitionId(Number.isFinite(id) ? id : null);
-    setSuccess(null);
     setError(null);
   }
 
@@ -165,9 +190,11 @@ export function TeacherCompetitionsPage() {
       setActiveCompetitionId(res.id);
       await loadList();
       await loadDetail(res.id);
-      setSuccess("تم إنشاء المنافسة مع مهام افتراضية.");
+      toast.success("تم إنشاء المنافسة مع مهام افتراضية.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "فشل الإنشاء");
+      const msg = getFriendlyTeacherCompetitionError(err);
+      setError(msg);
+      toast.error(msg);
     }
   }
 
@@ -192,9 +219,11 @@ export function TeacherCompetitionsPage() {
           c.id === activeCompetitionId ? { ...c, name_ar: editName.trim() } : c,
         ),
       );
-      setSuccess("تم تحديث المنافسة.");
+      toast.success("تم تحديث المنافسة.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "فشل التحديث");
+      const msg = getFriendlyTeacherCompetitionError(err);
+      setError(msg);
+      toast.error(msg);
     } finally {
       setEditSaving(false);
     }
@@ -203,20 +232,26 @@ export function TeacherCompetitionsPage() {
   async function deleteCompetition() {
     if (activeCompetitionId == null) return;
     const deletedId = activeCompetitionId;
-    await api.eduDeptTeacherCompetitionDelete(deletedId);
-    setDeleteOpen(false);
-    const res = await api.eduDeptTeacherCompetitionsList();
-    setItems(res.items);
-    const nextId = res.items[0]?.id ?? null;
-    setActiveCompetitionId(nextId);
-    if (nextId != null) await loadDetail(nextId);
-    else {
-      setTasks([]);
-      setStudents([]);
-      setScores({});
-      setLeaderboard([]);
+    try {
+      await api.eduDeptTeacherCompetitionDelete(deletedId);
+      setDeleteOpen(false);
+      const res = await api.eduDeptTeacherCompetitionsList();
+      setItems(res.items);
+      const nextId = res.items[0]?.id ?? null;
+      setActiveCompetitionId(nextId);
+      if (nextId != null) await loadDetail(nextId);
+      else {
+        setTasks([]);
+        setStudents([]);
+        setScores({});
+        setLeaderboard([]);
+      }
+      toast.success("تم حذف المنافسة وجميع سجلاتها.");
+    } catch (err) {
+      const msg = getFriendlyTeacherCompetitionError(err);
+      setError(msg);
+      toast.error(msg);
     }
-    setSuccess("تم حذف المنافسة وجميع سجلاتها.");
   }
 
   async function addTask(e: React.FormEvent) {
@@ -232,7 +267,9 @@ export function TeacherCompetitionsPage() {
       setTaskWeight(1);
       await loadDetail(activeCompetitionId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "فشل إضافة المهمة");
+      const msg = getFriendlyTeacherCompetitionError(err);
+      setError(msg);
+      toast.error(msg);
     }
   }
 
@@ -242,9 +279,11 @@ export function TeacherCompetitionsPage() {
     try {
       await api.eduDeptTeacherCompetitionDeleteTask(activeCompetitionId, taskId);
       await loadDetail(activeCompetitionId);
-      setSuccess("تم حذف المهمة.");
+      toast.success("تم حذف المهمة.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "فشل الحذف");
+      const msg = getFriendlyTeacherCompetitionError(err);
+      setError(msg);
+      toast.error(msg);
     }
   }
 
@@ -260,17 +299,18 @@ export function TeacherCompetitionsPage() {
     if (activeCompetitionId == null) return;
     setSaving(true);
     setError(null);
-    setSuccess(null);
     try {
       const payload = Object.entries(scores).map(([key, points]) => {
         const [taskId, studentId] = key.split("-").map(Number);
         return { task_id: taskId, student_id: studentId, points: Number(points) || 0 };
       });
       await api.eduDeptTeacherCompetitionSaveScores(activeCompetitionId, payload);
-      setSuccess("تم حفظ النقاط.");
+      toast.success("تم حفظ النقاط.");
       await loadDetail(activeCompetitionId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "فشل الحفظ");
+      const msg = getFriendlyTeacherCompetitionError(err);
+      setError(msg);
+      toast.error(msg);
     } finally {
       setSaving(false);
     }
@@ -278,37 +318,83 @@ export function TeacherCompetitionsPage() {
 
   return (
     <div dir="rtl" className="space-y-6 max-w-[1400px] text-right">
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 print:hidden">
-        <div className="text-right">
-          <h2 className={`${ds.page.title} flex items-center gap-2 justify-start`} style={tajawal}>
-            <Trophy className="w-7 h-7 text-primary shrink-0" />
-            منافسات الحلقة
-          </h2>
-          <p className={ds.page.description} style={tajawal}>
-            منافسات مع مهام جاهزة — رصد النقاط ومتابعة لوحة الصدارة.
-          </p>
+      {!embedded && (
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 print:hidden">
+          <div className="text-right">
+            <h2 className={`${ds.page.title} flex items-center gap-2 justify-start`} style={tajawal}>
+              <Trophy className="w-7 h-7 text-primary shrink-0" />
+              منافسات الحلقة
+            </h2>
+            <p className={ds.page.description} style={tajawal}>
+              منافسات مع مهام جاهزة — رصد النقاط ومتابعة لوحة الصدارة.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="default"
+            className={cn(ds.btnRound, "rounded-full")}
+            onClick={() => setCreateOpen(true)}
+            style={tajawal}
+          >
+            <Plus className="w-4 h-4" />
+            منافسة جديدة
+          </Button>
         </div>
-        <Button
-          type="button"
-          variant="default"
-          className={cn(ds.btnRound, "rounded-full")}
-          onClick={() => setCreateOpen(true)}
-          style={tajawal}
-        >
-          <Plus className="w-4 h-4" />
-          منافسة جديدة
-        </Button>
-      </div>
+      )}
+
+      {embedded && (
+        <div className="flex items-center justify-between gap-3 print:hidden">
+          <p className="text-sm text-muted-foreground" style={tajawal}>
+            رصد نقاط طلاب حلقتك ومتابعة الترتيب.
+          </p>
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            className={cn(ds.btnRound, "rounded-full shrink-0")}
+            onClick={() => setCreateOpen(true)}
+            style={tajawal}
+          >
+            <Plus className="w-4 h-4" />
+            جديد
+          </Button>
+        </div>
+      )}
 
       {error && (
         <p className={`${ds.alert.error} print:hidden`} style={tajawal}>
           {error}
         </p>
       )}
-      {success && (
-        <p className={`${ds.alert.success} print:hidden`} style={tajawal}>
-          {success}
-        </p>
+
+      {!loading && !error && (
+        <div className={`${ds.kpiStrip} print:hidden`}>
+          <EduKpiCard
+            icon={<Trophy className="w-4 h-4 text-primary" />}
+            label="المنافسات"
+            value={items.length}
+            sub={activeCompetition ? activeCompetition.name_ar : "لا منافسة محددة"}
+          />
+          <EduKpiCard
+            icon={<Medal className="w-4 h-4 text-primary" />}
+            label="المهام"
+            value={tasks.length}
+            sub={activeCompetitionId != null ? "في المنافسة النشطة" : "—"}
+          />
+          <EduKpiCard
+            icon={<Users className="w-4 h-4 text-primary" />}
+            label="الطلاب"
+            value={students.length}
+            sub="في حلقتك"
+          />
+          <EduKpiCard
+            icon={<Medal className="w-4 h-4 text-amber-600" />}
+            label="أعلى نقاط"
+            value={topLeaderPoints}
+            sub={leaderboard[0]?.full_name_ar ?? "لا نقاط بعد"}
+            highlight={topLeaderPoints > 0}
+          />
+        </div>
       )}
 
       <div className={`${ds.card} p-4 space-y-3 text-right print:hidden`} dir="rtl">
@@ -362,7 +448,7 @@ export function TeacherCompetitionsPage() {
             <Button
               type="button"
               variant="default"
-              className={cn(ds.btnRound, "rounded-full")}
+              className={cn(ds.btnRound, ds.primaryActionBtn, "rounded-full w-full sm:w-auto")}
               disabled={saving || tasks.length === 0}
               onClick={() => saveScores()}
               style={tajawal}
@@ -437,59 +523,139 @@ export function TeacherCompetitionsPage() {
               )}
 
               {tasks.length > 0 && students.length > 0 ? (
-                <div className={`${ds.card} overflow-x-auto text-right`} dir="rtl">
-                  <Table className={`${ds.tableMin} text-right`}>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead
-                          className={`${ds.table.head} sticky right-0 bg-card z-10 min-w-[140px]`}
-                          style={tajawal}
-                        >
-                          الطالب
-                        </TableHead>
-                        {tasks.map((t) => (
+                <>
+                  {/* Desktop — wide table */}
+                  <div className={`${ds.card} overflow-x-auto text-right hidden md:block`} dir="rtl">
+                    <Table className={`${ds.tableMin} text-right`}>
+                      <TableHeader>
+                        <TableRow>
                           <TableHead
-                            key={t.id}
-                            className={`${ds.table.head} min-w-[100px] text-center`}
+                            className={`${ds.table.head} sticky right-0 bg-card z-10 min-w-[140px]`}
                             style={tajawal}
                           >
-                            {t.title_ar}
-                            <span className="block text-[10px] text-muted-foreground font-normal">
-                              ({t.weight_points})
-                            </span>
+                            الطالب
                           </TableHead>
-                        ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {students.map((st) => (
-                        <TableRow key={st.id}>
-                          <TableCell
-                            className={`${ds.table.cell} sticky right-0 bg-card font-medium`}
-                            style={tajawal}
-                          >
-                            {st.full_name_ar}
-                          </TableCell>
                           {tasks.map((t) => (
-                            <TableCell key={t.id} className={ds.table.cell}>
-                              <Input
-                                type="number"
-                                min={0}
-                                step="0.5"
-                                dir="ltr"
-                                className={`${ds.btnRound} w-20 mx-auto text-center`}
-                                value={scores[scoreKey(t.id, st.id)] ?? 0}
-                                onChange={(e) =>
-                                  setScore(t.id, st.id, Number(e.target.value) || 0)
-                                }
-                              />
-                            </TableCell>
+                            <TableHead
+                              key={t.id}
+                              className={`${ds.table.head} min-w-[100px] text-center`}
+                              style={tajawal}
+                            >
+                              {t.title_ar}
+                              <span className="block text-[10px] text-muted-foreground font-normal">
+                                ({t.weight_points})
+                              </span>
+                            </TableHead>
                           ))}
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
+                      </TableHeader>
+                      <TableBody>
+                        {students.map((st) => (
+                          <TableRow key={st.id}>
+                            <TableCell
+                              className={`${ds.table.cell} sticky right-0 bg-card font-medium`}
+                              style={tajawal}
+                            >
+                              {st.full_name_ar}
+                            </TableCell>
+                            {tasks.map((t) => (
+                              <TableCell key={t.id} className={ds.table.cell}>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  step="0.5"
+                                  dir="ltr"
+                                  className={`${ds.btnRound} w-20 mx-auto text-center`}
+                                  value={scores[scoreKey(t.id, st.id)] ?? 0}
+                                  onChange={(e) =>
+                                    setScore(t.id, st.id, Number(e.target.value) || 0)
+                                  }
+                                />
+                              </TableCell>
+                            ))}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  {/* Mobile — accordion cards per student */}
+                  <div className="md:hidden space-y-2">
+                    <Accordion type="single" collapsible className="space-y-2">
+                      {students.map((st) => {
+                        const studentTotal = tasks.reduce(
+                          (sum, t) => sum + (Number(scores[scoreKey(t.id, st.id)]) || 0),
+                          0,
+                        );
+                        return (
+                          <AccordionItem
+                            key={st.id}
+                            value={String(st.id)}
+                            className={`${ds.card} border border-border rounded-2xl px-3 overflow-hidden`}
+                          >
+                            <AccordionTrigger
+                              className="py-2.5 hover:no-underline text-right [&>svg]:mr-auto [&>svg]:ml-0"
+                              style={tajawal}
+                            >
+                              <div className="flex flex-1 items-center justify-between gap-2 min-w-0">
+                                <p className="font-semibold text-sm truncate">{st.full_name_ar}</p>
+                                <span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold tabular-nums text-primary">
+                                  {studentTotal}
+                                </span>
+                              </div>
+                            </AccordionTrigger>
+                            <AccordionContent className="pb-3 pt-0">
+                              <div className="space-y-2 border-t border-border/80 pt-2">
+                                {tasks.map((t) => (
+                                  <div
+                                    key={t.id}
+                                    className="flex items-center justify-between gap-2 min-h-10"
+                                  >
+                                    <span
+                                      className="text-xs font-medium truncate flex-1"
+                                      style={tajawal}
+                                      title={t.title_ar}
+                                    >
+                                      {t.title_ar}
+                                      <span className="text-muted-foreground ms-1">
+                                        ({t.weight_points})
+                                      </span>
+                                    </span>
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      step="0.5"
+                                      dir="ltr"
+                                      className={`${ds.btnRound} w-20 text-center shrink-0`}
+                                      value={scores[scoreKey(t.id, st.id)] ?? 0}
+                                      onChange={(e) =>
+                                        setScore(t.id, st.id, Number(e.target.value) || 0)
+                                      }
+                                    />
+                                  </div>
+                                ))}
+                                <Button
+                                  type="button"
+                                  variant="default"
+                                  className={cn(
+                                    ds.btnRound,
+                                    ds.primaryActionBtn,
+                                    "rounded-full w-full mt-1",
+                                  )}
+                                  disabled={saving}
+                                  onClick={() => saveScores()}
+                                  style={tajawal}
+                                >
+                                  {saving ? "جاري الحفظ…" : "حفظ النقاط"}
+                                </Button>
+                              </div>
+                            </AccordionContent>
+                          </AccordionItem>
+                        );
+                      })}
+                    </Accordion>
+                  </div>
+                </>
               ) : (
                 <p className={ds.alert.info} style={tajawal}>
                   {tasks.length === 0

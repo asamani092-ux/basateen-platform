@@ -61,4 +61,11 @@ export const ds = {
   filterRow:
     "flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:gap-4",
   loading: "flex min-h-[12rem] items-center justify-center",
+  /** شريط KPI — عمودان على الجوال، أربعة على الشاشات الأوسع */
+  kpiStrip: "grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4",
+  /** زر حفظ/إرسال أساسي — إبهام واضح على الجوال */
+  primaryActionBtn: "min-h-11 px-6 font-semibold",
+  /** رسالة خطأ ترحيل قاعدة البيانات (API/D1) */
+  dbMigrationErrorHint:
+    "خطأ في قاعدة البيانات: يرجى إبلاغ الإدارة التقنية. قد تحتاج المنصة إلى تحديث ترحيل.",
 } as const;

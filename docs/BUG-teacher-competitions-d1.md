@@ -1,56 +1,83 @@
 # BUG: منافسات المعلم على D1 (teacher-competitions)
 
-## الأعراض
+**التاريخ:** 2026-06-11  
+**الأولوية:** عالية — يمنع المعلم من فتح تبويب «منافسات الحلقة»  
+**النطاق:** Backend / D1
 
-- صفحة **منافسات المعلم** (`/teacher` → تبويب المنافسات) تعيد `503 migration_required` أو `500 api_internal_crash`.
-- عند حفظ الدرجات: `migration_required` أو فشل FK عند الإدراج في `competition_tasks`.
-- بعد تطبيق ترحيل جزئي: قائمة المهام فارغة رغم وجود منافسة، أو `teacherTasksTable()` يعيد `null`.
+---
 
-## السبب الجذري
+## الخطأ الظاهر للمستخدم
 
-1. **تعارض اسم الجدول `competition_tasks`**
-   - ترحيل `027` أنشأ `competition_tasks` لصندوق المعلم (أعمدة `title_ar`, `weight_points`) مرتبطاً بـ `teacher_competitions`.
-   - ترحيل `048` ينشئ جدول منصة جديد بنفس الاسم (أعمدة `name_ar`, `type`, `weight`).
-   - بدون **إعادة تسمية** الجدول القديم إلى `teacher_competition_tasks` أولاً، يفشل 048 أو يُعطّل مسار المعلم.
+```
+D1_ERROR: no such column: created_by_user_id at offset 134: SQLITE_ERROR
+```
 
-2. **ترحيل 048–056 غير مضمن في `upgrade` الافتراضي**
-   - GitHub Actions `D1 Production Migrate` كان يصل إلى `032` فقط + خيارات منفصلة `051`–`056`.
-   - الإنتاج يفتقر أعمدة `competitions.category`, `competition_targets.current_memorization`, و`competitions.created_by_user_id` المطلوبة لمحرك المنافسات الموحّد.
+```
+503 migration_required
+```
 
-3. **جدول `competition_targets` القديم (016)**
-   - إن وُجد بدون عمود `current_memorization`، `hasEngineTargets()` يعيد `false` ويُعطّل المحرك الموحّد.
-   - `CREATE TABLE IF NOT EXISTS` في 048 لا يستبدل الجدول القديم.
+يظهر عند `GET /api/edu-dept/teacher-competitions` من `/teacher?tab=competitions`.
 
-4. **عمود `created_by_user_id` على `competitions` (Schema v25 / 023)**
-   - جدول `competitions` بعد 023 لا يحتوي العمود؛ مسار المعلم الموحّد يعتمد عليه للملكية.
+---
 
-## الإصلاح (كود + ترحيل)
+## الأسباب الجذرية
 
-| خطوة | الملف / الأمر |
-|------|----------------|
-| إعادة تسمية مهام المعلم | `migrate-048-remote.mjs` → `competition_tasks` → `teacher_competition_tasks` |
-| أرشفة targets قديم | نفس السكربت → `competition_targets` → `competition_targets_legacy_v16` إن نقص `current_memorization` |
-| ملكية المعلم | `ALTER TABLE competitions ADD COLUMN created_by_user_id` |
-| تطبيق 048 | `048_competition_engine.sql` |
-| باقي المحرك | `045`–`056` عبر خيار **`competition-stack`** في Actions |
-| API | `teacher-competition-unified.ts` + `edu-dept-mega.ts` — استعلامات مرنة عند غياب العمود |
+### 1) عمود `created_by_user_id` مفقود (الخطأ المباشر)
+
+- `useUnifiedTeacherCompetitions()` يُفعّل المسار الموحّد عند وجود `category` + `competition_targets.current_memorization` (048).
+- GET/DELETE في `edu-dept-mega.ts` كانا يستخدمان `WHERE created_by_user_id = ?` **دون** التحقق من وجود العمود.
+- جدول `competitions` في v25 (`023`) لا يحتوي العمود؛ `048_competition_engine.sql` لا يضيفه.
+- **تناقض:** `createTeacherCircleCompetition()` تتحقق من العمود قبل INSERT؛ GET/DELETE لا.
+
+### 2) تعارض اسم `competition_tasks`
+
+- `027`: `competition_tasks` لصندوق المعلم (`title_ar`, FK → `teacher_competitions`).
+- `048`: جدول منصة بنفس الاسم (`name_ar`, `type`).
+- بدون إعادة تسمية → `teacher_competition_tasks`، يفشل 048 أو يُعطّل مسار المعلم.
+
+### 3) ترحيل 045–056 خارج `upgrade` الافتراضي
+
+- GitHub Actions `upgrade` يصل إلى `032` فقط؛ محرك المنافسات يحتاج `045`–`056`.
+
+### 4) `competition_targets` قديم (016)
+
+- إن وُجد بدون `current_memorization`، `CREATE TABLE IF NOT EXISTS` في 048 لا يستبدله.
+
+---
+
+## الإصلاح المُطبَّق
+
+| خطوة | الملف |
+|------|--------|
+| استيراد `resolveMemorizationFields` | `admin-student-report.ts`, `edu-dept-extended.ts` |
+| طباعة جدول «الأوائل» | `CompetitionDetailPage.tsx`, `index.css` |
+| preflight 048: rename tasks + archive targets + `ADD created_by_user_id` | `migrate-048-remote.mjs` |
+| استعلامات مرنة عند غياب العمود | `edu-dept-mega.ts`, `teacher-competition-unified.ts` |
+| خيار Actions **`competition-stack`** (045→056) | `d1-remote-migrate.sh`, workflows |
+
+---
 
 ## التشغيل على الإنتاج
 
-1. **Actions** → **D1 Production Migrate** → `competition-stack` (أو `048` ثم `051`–`056` على دفعات).
-2. **Actions** → **Production Release (D1 + API)** → `competition-stack` أو `skip` إن رُحّل D1 مسبقاً.
-3. الدفع إلى `main` ينشر API + Web تلقائياً.
+1. **Actions** → **D1 Production Migrate** → **`competition-stack`**
+2. **Actions** → **Production Release** → `competition-stack` أو `skip` إن رُحّل D1
+3. الدفع إلى `main` ينشر API + Web تلقائياً
+
+```sql
+-- يُنفَّذ تلقائياً ضمن migrate-048-remote.mjs إن لزم:
+ALTER TABLE competitions ADD COLUMN created_by_user_id INTEGER;
+CREATE INDEX IF NOT EXISTS idx_competitions_created_by ON competitions(created_by_user_id);
+```
+
+---
 
 ## التحقق
 
-```bash
-curl https://winter-term-cb93.a-samani092.workers.dev/api/health
-```
-
-- تسجيل دخول معلم → `/api/edu-dept/teacher-competitions` → `200` مع `items`.
-- إنشاء منافسة → مهام افتراضية → حفظ درجات → `200`.
+1. `GET /api/edu-dept/teacher-competitions` → 200 + `{ items: [...] }`
+2. `POST` إنشاء منافسة → مهام → حفظ درجات → 200
+3. `GET /api/edu-dept/reports/educational-profile?person_id=…` → بدون `resolveMemorizationFields is not defined`
 
 ## Big O
 
-- فحص المخطط (PRAGMA): O(1) لكل جدول.
-- ترحيل البيانات: O(n) على صفوف `competition_targets` عند إعادة التسمية فقط.
+- PRAGMA فحص المخطط: O(1) لكل جدول.
+- rename/archive: O(1) metadata؛ O(n) فقط إن نُقلت بيانات targets.

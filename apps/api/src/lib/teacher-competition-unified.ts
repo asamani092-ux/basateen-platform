@@ -16,7 +16,11 @@ import { studentsInTeacherCircle } from "./teacher-circle";
 export const TEACHER_CIRCLE_OWNERSHIP = "teacher_circle";
 
 export async function useUnifiedTeacherCompetitions(env: Env): Promise<boolean> {
-  return (await hasCompetitionCategory(env)) && (await hasEngineTargets(env));
+  return (
+    (await hasCompetitionCategory(env)) &&
+    (await hasEngineTargets(env)) &&
+    (await tableHasColumn(env, "competitions", "created_by_user_id"))
+  );
 }
 
 export function teacherCircleRules(extra?: Record<string, unknown>): Record<string, unknown> {

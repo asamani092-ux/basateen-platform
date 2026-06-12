@@ -99,7 +99,7 @@ export function TeacherHubPage() {
           <SemesterPlanPlaceholder />
         </TabsContent>
         <TabsContent value="competitions" className="mt-4 focus-visible:outline-none">
-          <TeacherCompetitionsPage />
+          <TeacherCompetitionsPage embedded />
         </TabsContent>
       </Tabs>
 
@@ -107,7 +107,7 @@ export function TeacherHubPage() {
       <div className="md:hidden space-y-4">
         {tab === "daily" && <DailyRecitationPage embedded />}
         {tab === "plans" && <SemesterPlanPlaceholder />}
-        {tab === "competitions" && <TeacherCompetitionsPage />}
+        {tab === "competitions" && <TeacherCompetitionsPage embedded />}
       </div>
 
       <nav

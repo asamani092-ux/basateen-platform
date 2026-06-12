@@ -25,7 +25,7 @@ export function TrackSupervisorHubPage() {
   return (
     <RecitationHubShell
       title="بوابة مشرف المسار"
-      description="رصد حلقات مسارك — من مكان واحد."
+      description="رصد طلاب مسارك — تظهر حلقة كل طالب تلقائياً."
       navAriaLabel="تنقل بوابة مشرف المسار"
       tabs={TABS}
       defaultTab="daily"

@@ -7,6 +7,7 @@ export const queryKeys = {
       trackId: number | null;
       circleId: number | null;
       isSupervisor: boolean;
+      isTrackSupervisor?: boolean;
     }) => ["edu-dept", "my-students", params] as const,
     myStudentsAll: ["edu-dept", "my-students"] as const,
     teacherCompetitions: ["edu-dept", "teacher-competitions"] as const,

@@ -214,22 +214,22 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
       : queryKeys.eduDept.myStudents({
           date,
           trackId: isSupervisor ? trackId : null,
-          circleId: isSupervisor ? supervisorCircle : null,
+          circleId: isBroadSupervisor ? supervisorCircle : null,
           isSupervisor,
+          isTrackSupervisor,
         }),
     queryFn: async () => {
       if (isTeacher) {
         const boot = await api.eduDeptTeacherBootstrap({ date });
         return teacherBootstrapToRecitationPayload(boot);
       }
-      const requestCircleId = isSupervisor ? circleIdRef.current : null;
-      return isSupervisor
-        ? await api.eduDeptMyStudents({
-            date,
-            ...(requestCircleId != null ? { circle_id: requestCircleId } : {}),
-            ...(trackId != null ? { track_id: trackId } : {}),
-          })
-        : await api.eduDeptMyStudents({ date });
+      const requestCircleId = isBroadSupervisor ? circleIdRef.current : null;
+      const requestTrackId = isSupervisor ? trackId : null;
+      return await api.eduDeptMyStudents({
+        date,
+        ...(requestCircleId != null ? { circle_id: requestCircleId } : {}),
+        ...(requestTrackId != null ? { track_id: requestTrackId } : {}),
+      });
     },
     enabled: canUseApi(),
     staleTime: 60_000,
@@ -270,7 +270,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
         }));
       });
     }
-    if (res.needs_circle_selection && isSupervisor) {
+    if (res.needs_circle_selection && isBroadSupervisor) {
       setRows([]);
       return;
     }
@@ -324,7 +324,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
     const row = rows.find((r) => r.student_id === studentId);
     if (!row) return;
     if (!isSupervisor && rows.length === 0) return;
-    if (isSupervisor && circleId == null) return;
+    if (isBroadSupervisor && circleId == null) return;
     setSavingStudentId(studentId);
     setError(null);
     try {
@@ -353,7 +353,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
 
   async function save() {
     if (!isSupervisor && rows.length === 0) return;
-    if (isSupervisor && circleId == null) return;
+    if (isBroadSupervisor && circleId == null) return;
     setSaving(true);
     setError(null);
     try {
@@ -405,7 +405,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
     }
   }
 
-  const canSave = rows.length > 0 && (isSupervisor ? circleId != null : true);
+  const canSave = rows.length > 0 && (isBroadSupervisor ? circleId != null : true);
 
   return (
     <div
@@ -426,7 +426,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                   ? "متابعة أو رصد حلقات المسار — المهام تُولَّد تلقائياً من إعدادات التقييم."
                   : "سجّل إنجاز الطلاب وفق مهام التقييم المحددة من المشرف."}
             </p>
-            {teacherLikeUi && circleName && (
+            {teacherLikeUi && !isTrackSupervisor && circleName && (
               <p className="text-sm font-semibold text-primary mt-1" style={tajawal}>
                 الحلقة: {circleName}
               </p>
@@ -459,7 +459,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
         </div>
       )}
 
-      {embedded && teacherLikeUi && circleName && (
+      {embedded && teacherLikeUi && !isTrackSupervisor && circleName && (
         <p className="text-sm font-semibold text-primary" style={tajawal}>
           الحلقة: {circleName}
         </p>
@@ -505,7 +505,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
             </p>
           </div>
         )}
-        {isSupervisor && (
+        {isBroadSupervisor && (
           <div className="space-y-1 w-full md:max-w-xs">
             <Label style={tajawal}>الحلقة</Label>
             <select
@@ -539,15 +539,15 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
       <div className={ds.card}>
         {loading ? (
           <RecitationTableSkeleton showFilters={false} columns={editableCriteria.length || 4} />
-        ) : isSupervisor && circleId == null ? (
+        ) : isBroadSupervisor && circleId == null ? (
           <p className={`p-4 ${ds.alert.info}`} style={tajawal}>
-            {isTrackSupervisor
-              ? "اختر حلقة من مسارك لعرض الطلاب."
-              : "اختر حلقة من قائمة مسارك لعرض الطلاب."}
+            اختر حلقة من قائمة مسارك لعرض الطلاب.
           </p>
         ) : rows.length === 0 ? (
           <p className={`p-4 ${ds.alert.info}`} style={tajawal}>
-            لا يوجد طلاب في هذه الحلقة.
+            {isTrackSupervisor
+              ? "لا يوجد طلاب في مسارك حالياً."
+              : "لا يوجد طلاب في هذه الحلقة."}
           </p>
         ) : (
           <>

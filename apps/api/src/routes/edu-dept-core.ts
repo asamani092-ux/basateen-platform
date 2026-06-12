@@ -5,7 +5,12 @@ import {
   requireAuth,
   requireRoles,
 } from "../middleware/auth";
-import { hasTable, tableHasColumn } from "../lib/db-schema";
+import {
+  activePlacementSql,
+  hasTable,
+  historyCircleColumn,
+  tableHasColumn,
+} from "../lib/db-schema";
 import { resolveCircleTrackId } from "../lib/circle-track";
 import {
   buildStudentsInScopeWhere,
@@ -115,11 +120,11 @@ async function loadStudentTrackNames(
   return out;
 }
 
-async function loadStudentCircleNames(
+async function loadStudentCircleMeta(
   env: Env,
   studentIds: number[],
-): Promise<Map<number, string | null>> {
-  const out = new Map<number, string | null>();
+): Promise<Map<number, { circle_id: number | null; circle_name: string | null }>> {
+  const out = new Map<number, { circle_id: number | null; circle_name: string | null }>();
   if (studentIds.length === 0) return out;
   if (!(await hasTable(env, "circles"))) return out;
 
@@ -127,16 +132,18 @@ async function loadStudentCircleNames(
   if (hasCurrent) {
     const ph = studentIds.map(() => "?").join(",");
     const rows = await env.DB.prepare(
-      `SELECT s.id, c.name_ar AS circle_name
+      `SELECT s.id, s.current_circle_id AS circle_id, c.name_ar AS circle_name
        FROM students s
        LEFT JOIN circles c ON c.id = s.current_circle_id
        WHERE s.id IN (${ph})`,
     )
       .bind(...studentIds)
-      .all<{ id: number; circle_name: string | null }>();
+      .all<{ id: number; circle_id: number | null; circle_name: string | null }>();
     for (const r of rows.results ?? []) {
+      const circleId =
+        r.circle_id != null && Number(r.circle_id) > 0 ? Number(r.circle_id) : null;
       const name = r.circle_name?.trim();
-      out.set(r.id, name || null);
+      out.set(r.id, { circle_id: circleId, circle_name: name || null });
     }
     return out;
   }
@@ -146,7 +153,7 @@ async function loadStudentCircleNames(
   const active = await activePlacementSql(env, "h");
   const ph = studentIds.map(() => "?").join(",");
   const rows = await env.DB.prepare(
-    `SELECT s.id, c.name_ar AS circle_name
+    `SELECT s.id, CAST(${circleHistCol} AS INTEGER) AS circle_id, c.name_ar AS circle_name
      FROM students s
      INNER JOIN student_circle_history h
        ON h.student_id = s.id AND ${active}
@@ -154,11 +161,23 @@ async function loadStudentCircleNames(
      WHERE s.id IN (${ph})`,
   )
     .bind(...studentIds)
-    .all<{ id: number; circle_name: string | null }>();
+    .all<{ id: number; circle_id: number | null; circle_name: string | null }>();
   for (const r of rows.results ?? []) {
+    const circleId =
+      r.circle_id != null && Number(r.circle_id) > 0 ? Number(r.circle_id) : null;
     const name = r.circle_name?.trim();
-    out.set(r.id, name || null);
+    out.set(r.id, { circle_id: circleId, circle_name: name || null });
   }
+  return out;
+}
+
+async function loadStudentCircleNames(
+  env: Env,
+  studentIds: number[],
+): Promise<Map<number, string | null>> {
+  const meta = await loadStudentCircleMeta(env, studentIds);
+  const out = new Map<number, string | null>();
+  for (const [id, m] of meta) out.set(id, m.circle_name);
   return out;
 }
 
@@ -446,9 +465,9 @@ async function loadDailyRecitationItemsForStudents(
 ) {
   if (students.length === 0) return [];
   const studentIdsForPlacement = students.map((s) => s.id);
-  const [trackNames, circleNames] = await Promise.all([
+  const [circleMeta, trackNames] = await Promise.all([
+    loadStudentCircleMeta(env, studentIdsForPlacement),
     loadStudentTrackNames(env, studentIdsForPlacement),
-    loadStudentCircleNames(env, studentIdsForPlacement),
   ]);
   const attCriterionId = attendanceCriterionId(criteria);
   const attCriterion = criteria.find((c) => c.id === attCriterionId);
@@ -506,11 +525,13 @@ async function loadDailyRecitationItemsForStudents(
         task_scores[attCriterionId] = true;
       }
     }
+    const placement = circleMeta.get(s.id);
     return {
       student_id: s.id,
       full_name_ar: s.full_name_ar,
       track_name: trackNames.get(s.id) ?? null,
-      circle_name: circleNames.get(s.id) ?? null,
+      circle_id: placement?.circle_id ?? null,
+      circle_name: placement?.circle_name ?? null,
       admin_present: presentIds.has(s.id),
       task_scores,
       listened: Boolean(m?.listened),
@@ -852,43 +873,11 @@ export async function handleEduDeptCoreRouter(
           );
         }
 
-        let students = await queryStudentsInTracks(
+        const students = await queryStudentsInTracks(
           env,
           auth.complexId,
           activeTrackIds,
         );
-
-        const requested = circleParam != null ? Number(circleParam) : NaN;
-        if (Number.isFinite(requested) && requested > 0) {
-          if (!(await canAccessRecitationCircle(env, auth, requested))) {
-            return json({ error: "forbidden" }, 403);
-          }
-          circleId = requested;
-          circleName = circles.find((c) => c.id === circleId)?.name_ar ?? "";
-          const inCircleIds = new Set(
-            (await studentsInCircle(env, auth.complexId, circleId)).map((s) => s.id),
-          );
-          students = students.filter((s) => inCircleIds.has(s.id));
-        } else if (circles.length === 1) {
-          circleId = circles[0].id;
-          circleName = circles[0].name_ar;
-          const inCircleIds = new Set(
-            (await studentsInCircle(env, auth.complexId, circleId)).map((s) => s.id),
-          );
-          students = students.filter((s) => inCircleIds.has(s.id));
-        } else if (circles.length > 1) {
-          return json({
-            date,
-            circle_id: null,
-            circle_name: null,
-            circles,
-            items: [],
-            needs_circle_selection: true,
-          });
-        } else {
-          circleId = 0;
-          circleName = "";
-        }
 
         const criteriaPromise = loadEvaluationCriteria(env, auth.complexId);
         const [evaluation_criteria, items] = await Promise.all([
@@ -906,8 +895,8 @@ export async function handleEduDeptCoreRouter(
 
         return json({
           date,
-          circle_id: circleId > 0 ? circleId : null,
-          circle_name: circleName || null,
+          circle_id: null,
+          circle_name: null,
           circles,
           needs_circle_selection: false,
           evaluation_criteria,
@@ -1047,33 +1036,71 @@ export async function handleEduDeptCoreRouter(
           return json({ error: "invalid_json" }, 400);
         }
 
-        let cid = Number(body.circle_id);
-        if (auth.role === "teacher") {
-          const teacherCircle = await resolveTeacherPrimaryCircle(
-            env,
-            auth.userId,
-            auth.complexId,
-          );
-          if (!teacherCircle) {
-            return json({ error: TEACHER_NO_CIRCLE_MSG }, 400);
-          }
-          cid = teacherCircle.id;
-        }
         const recDate = body.recitation_date?.trim() || todayIso();
-        if (!Number.isFinite(cid) || cid <= 0) {
-          return json({ error: "circle_id_required" }, 400);
-        }
-        if (!(await canAccessRecitationCircle(env, auth, cid))) {
-          return json({ error: "forbidden" }, 403);
-        }
-
         const rawRows = body.rows;
         if (rawRows != null && !Array.isArray(rawRows)) {
           return json({ error: "rows_must_be_array" }, 400);
         }
         const rows = Array.isArray(rawRows) ? rawRows : [];
-        const students = await studentsInCircle(env, auth.complexId, cid);
-        const studentIds = new Set(students.map((s) => s.id));
+
+        type ResolvedRecitationRow = {
+          row: (typeof rows)[number];
+          cid: number;
+        };
+        let resolvedRows: ResolvedRecitationRow[] = [];
+        let responseCircleId: number | null = null;
+
+        if (auth.role === "track_supervisor") {
+          const trackIds = await resolveTrackSupervisorTrackIds(
+            env,
+            auth.userId,
+            auth.complexId,
+          );
+          if (trackIds.length === 0) {
+            return json({ error: "no_circle_assigned" }, 404);
+          }
+          const allowed = await queryStudentsInTracks(
+            env,
+            auth.complexId,
+            trackIds,
+          );
+          const allowedIds = new Set(allowed.map((s) => s.id));
+          const saveIds = rows
+            .map((r) => Number(r.student_id))
+            .filter((id) => id > 0 && allowedIds.has(id));
+          const circleByStudent = await loadStudentCircleMeta(env, saveIds);
+          for (const r of rows) {
+            const sid = Number(r.student_id);
+            if (!allowedIds.has(sid)) continue;
+            const rowCid = circleByStudent.get(sid)?.circle_id ?? 0;
+            if (rowCid > 0) resolvedRows.push({ row: r, cid: rowCid });
+          }
+        } else {
+          let cid = Number(body.circle_id);
+          if (auth.role === "teacher") {
+            const teacherCircle = await resolveTeacherPrimaryCircle(
+              env,
+              auth.userId,
+              auth.complexId,
+            );
+            if (!teacherCircle) {
+              return json({ error: TEACHER_NO_CIRCLE_MSG }, 400);
+            }
+            cid = teacherCircle.id;
+          }
+          if (!Number.isFinite(cid) || cid <= 0) {
+            return json({ error: "circle_id_required" }, 400);
+          }
+          if (!(await canAccessRecitationCircle(env, auth, cid))) {
+            return json({ error: "forbidden" }, 403);
+          }
+          responseCircleId = cid;
+          const students = await studentsInCircle(env, auth.complexId, cid);
+          const studentIds = new Set(students.map((s) => s.id));
+          resolvedRows = rows
+            .filter((r) => studentIds.has(Number(r.student_id)))
+            .map((r) => ({ row: r, cid }));
+        }
 
         const hasFace = await tableHasColumn(env, "edu_daily_recitation", "face_count");
         const hasTaskScores = await tableHasColumn(
@@ -1088,9 +1115,8 @@ export async function handleEduDeptCoreRouter(
         );
         const criteria = await loadEvaluationCriteria(env, auth.complexId);
         const snapshotJson = buildTasksSnapshot(criteria);
-        const stmts = rows
-          .filter((r) => studentIds.has(Number(r.student_id)))
-          .map((r) => {
+        const stmts = resolvedRows
+          .map(({ row: r, cid: rowCid }) => {
             const taskScores: TaskScores =
               r.task_scores ??
               legacyRowToTaskScores({
@@ -1115,7 +1141,7 @@ export async function handleEduDeptCoreRouter(
               const binds: (string | number | null)[] = [
                 r.student_id,
                 auth.userId,
-                cid,
+                rowCid,
                 recDate,
                 legacy.listened,
                 legacy.repeated,
@@ -1156,7 +1182,7 @@ export async function handleEduDeptCoreRouter(
               const binds: (string | number | null)[] = [
                 r.student_id,
                 auth.userId,
-                cid,
+                rowCid,
                 recDate,
                 legacy.listened,
                 legacy.repeated,
@@ -1192,7 +1218,7 @@ export async function handleEduDeptCoreRouter(
             const binds: (string | number | null)[] = [
               r.student_id,
               auth.userId,
-              cid,
+              rowCid,
               recDate,
               legacy.listened,
               legacy.repeated,
@@ -1225,7 +1251,7 @@ export async function handleEduDeptCoreRouter(
             await env.DB.batch(stmts.slice(i, i + chunkSize));
           }
         }
-        return json({ ok: true, saved: stmts.length, circle_id: cid });
+        return json({ ok: true, saved: stmts.length, circle_id: responseCircleId });
       } catch (err) {
         return serverError("daily-recitation-post", err);
       }

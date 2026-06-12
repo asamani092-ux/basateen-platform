@@ -1,10 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
-import { BarChart3, BookOpen, Printer, Search, Users } from "lucide-react";
+import {
+  BarChart3,
+  BookOpen,
+  ClipboardList,
+  Printer,
+  Search,
+  Trophy,
+  UserPlus,
+  Users,
+} from "lucide-react";
 import { AdminStudentSearchCombobox } from "../../components/admin/AdminStudentSearchCombobox";
 import {
   EduEducationalProfileReport,
   type EduEducationalProfile,
 } from "../../components/edu/EduStudentReportModal";
+import { EduKpiCard } from "../../components/edu/EduKpiCard";
 import { Button } from "../../components/ui/button";
 import {
   Card,
@@ -72,6 +82,27 @@ export function EduReportsPage() {
 
   const [error, setError] = useState<string | null>(null);
 
+  const [dashboard, setDashboard] = useState<Awaited<
+    ReturnType<typeof api.eduDashboard>
+  > | null>(null);
+  const [dashboardLoading, setDashboardLoading] = useState(true);
+
+  const loadDashboard = useCallback(async () => {
+    if (!canUseApi()) {
+      setDashboardLoading(false);
+      return;
+    }
+    setDashboardLoading(true);
+    try {
+      const res = await api.eduDashboard();
+      setDashboard(res);
+    } catch {
+      /* KPI strip optional — page still usable */
+    } finally {
+      setDashboardLoading(false);
+    }
+  }, []);
+
   const loadScopes = useCallback(async () => {
     if (!canUseApi()) return;
     try {
@@ -90,7 +121,8 @@ export function EduReportsPage() {
 
   useEffect(() => {
     void loadScopes();
-  }, [loadScopes]);
+    void loadDashboard();
+  }, [loadScopes, loadDashboard]);
 
   async function loadStudentProfile() {
     if (studentId == null) {
@@ -178,6 +210,43 @@ export function EduReportsPage() {
         <p className={ds.alert.error} style={tajawal}>
           {error}
         </p>
+      )}
+
+      {!dashboardLoading && dashboard && (
+        <div className="space-y-2 print:hidden">
+          <p className="text-xs text-muted-foreground" style={tajawal}>
+            ملخص {dashboard.scope_label} — {dashboard.today}
+          </p>
+          <div className={ds.kpiStrip}>
+            <EduKpiCard
+              icon={<Users className="w-4 h-4 text-primary" />}
+              label="طلاب نشطون"
+              value={dashboard.kpis.active_students}
+            />
+            <EduKpiCard
+              icon={<ClipboardList className="w-4 h-4 text-primary" />}
+              label="رصد اليوم"
+              value={dashboard.kpis.teacher_marks_today}
+              sub="سجل معلم اليوم"
+            />
+            <EduKpiCard
+              icon={<Trophy className="w-4 h-4 text-primary" />}
+              label="منافسات نشطة"
+              value={dashboard.kpis.active_competitions}
+            />
+            <EduKpiCard
+              icon={<UserPlus className="w-4 h-4 text-primary" />}
+              label="بانتظار التسكين"
+              value={dashboard.kpis.pending_placement}
+              highlight={dashboard.kpis.pending_placement > 0}
+              sub={
+                dashboard.active_himma
+                  ? `يوم همّة: ${dashboard.active_himma.name_ar}`
+                  : undefined
+              }
+            />
+          </div>
+        </div>
       )}
 
       <Card className={ds.card}>

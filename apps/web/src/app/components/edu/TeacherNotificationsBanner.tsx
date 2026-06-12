@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { Button } from "../ui/button";
 import { api } from "../../lib/api-client";
@@ -12,9 +12,20 @@ type Notice = {
   body_ar: string;
 };
 
+function isNoCircleNotice(n: Notice): boolean {
+  const blob = `${n.title_ar} ${n.body_ar}`.toLowerCase();
+  return (
+    blob.includes("no_circle_assigned") ||
+    blob.includes("لم يتم ربط حلقة") ||
+    blob.includes("لم يتم ربط") ||
+    blob.includes("no circle")
+  );
+}
+
 export function TeacherNotificationsBanner() {
   const { user } = useAuth();
   const [items, setItems] = useState<Notice[]>([]);
+  const [trackSupervisorHasScope, setTrackSupervisorHasScope] = useState(false);
 
   const load = useCallback(async () => {
     if (!canUseApi()) return;
@@ -33,7 +44,29 @@ export function TeacherNotificationsBanner() {
     return () => clearInterval(t);
   }, [load]);
 
-  if (items.length === 0) return null;
+  useEffect(() => {
+    if (!canUseApi() || user?.role !== "track_supervisor") {
+      setTrackSupervisorHasScope(false);
+      return;
+    }
+    void api
+      .eduDeptFilterScopes()
+      .then((res) => {
+        const hasCircles = res.circles.length > 0;
+        const hasTracksFromCircles = res.circles.some((c) => c.track_id != null);
+        setTrackSupervisorHasScope(hasCircles || hasTracksFromCircles || res.tracks.length > 0);
+      })
+      .catch(() => setTrackSupervisorHasScope(false));
+  }, [user?.role]);
+
+  const visibleItems = useMemo(() => {
+    if (user?.role !== "track_supervisor" || !trackSupervisorHasScope) {
+      return items;
+    }
+    return items.filter((n) => !isNoCircleNotice(n));
+  }, [items, trackSupervisorHasScope, user?.role]);
+
+  if (visibleItems.length === 0) return null;
 
   async function dismiss(id: number) {
     try {
@@ -46,7 +79,7 @@ export function TeacherNotificationsBanner() {
 
   return (
     <div className="space-y-2 mb-4 print:hidden">
-      {items.map((n) => (
+      {visibleItems.map((n) => (
         <div
           key={n.id}
           className={`${ds.alert.success} flex items-start justify-between gap-3`}

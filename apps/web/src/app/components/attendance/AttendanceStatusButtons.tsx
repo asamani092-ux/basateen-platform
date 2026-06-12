@@ -17,8 +17,10 @@ const OPTIONS: Array<{
     label: "حاضر",
     activeVariant: "default",
     idleVariant: "outline",
-    activeClass: "",
-    idleClass: "border-primary/40 text-primary hover:bg-primary/10",
+    activeClass:
+      "bg-emerald-600 text-white hover:bg-emerald-600/90 border-emerald-600 ring-2 ring-emerald-500/80 dark:bg-emerald-600 dark:border-emerald-500 dark:hover:bg-emerald-600/90",
+    idleClass:
+      "border-emerald-500/45 text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-400/40 dark:hover:bg-emerald-500/15",
   },
   {
     value: "excused",
@@ -26,17 +28,19 @@ const OPTIONS: Array<{
     activeVariant: "default",
     idleVariant: "outline",
     activeClass:
-      "bg-amber-500 text-white hover:bg-amber-500/90 border-amber-500 ring-2 ring-amber-500",
+      "bg-amber-500 text-white hover:bg-amber-500/90 border-amber-500 ring-2 ring-amber-500/80 dark:bg-amber-500 dark:border-amber-400",
     idleClass:
-      "border-amber-500/40 text-foreground hover:bg-amber-500/15",
+      "border-amber-500/45 text-amber-800 hover:bg-amber-500/12 dark:text-amber-200 dark:border-amber-400/40 dark:hover:bg-amber-500/15",
   },
   {
     value: "absent",
     label: "غائب",
     activeVariant: "destructive",
     idleVariant: "outline",
-    activeClass: "",
-    idleClass: "border-destructive/40 text-destructive hover:bg-destructive/10",
+    activeClass:
+      "bg-destructive text-destructive-foreground hover:bg-destructive/90 border-destructive ring-2 ring-destructive/50",
+    idleClass:
+      "border-destructive/45 text-destructive hover:bg-destructive/10 dark:border-destructive/50 dark:text-red-300 dark:hover:bg-destructive/15",
   },
 ];
 

@@ -68,4 +68,9 @@ export const ds = {
   /** رسالة خطأ ترحيل قاعدة البيانات (API/D1) */
   dbMigrationErrorHint:
     "خطأ في قاعدة البيانات: يرجى إبلاغ الإدارة التقنية. قد تحتاج المنصة إلى تحديث ترحيل.",
+  /** شارة مسار الطالب */
+  trackBadge:
+    "border-sky-500/35 bg-sky-500/10 text-sky-800 dark:border-sky-400/40 dark:bg-sky-500/15 dark:text-sky-200",
+  /** زر حفظ/رصد — توسيط على الجوال */
+  saveActionWrap: "flex flex-col items-center justify-center gap-2",
 } as const;

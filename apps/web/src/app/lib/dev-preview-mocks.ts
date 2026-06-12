@@ -700,6 +700,7 @@ export function resolveDevPreviewMock<T>(
       items: students.map((s, i) => ({
         student_id: s.id,
         full_name_ar: s.full_name_ar,
+        track_name: i === 0 ? "مسار الحفظ المتقدم" : i === 2 ? "مسار المراجعة" : null,
         task_scores: {
           listening: i % 2 === 0,
           repeat: true,

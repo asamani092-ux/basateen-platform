@@ -52,10 +52,12 @@ import {
 } from "../../lib/evaluation-criteria";
 import { ds, tajawal } from "../../lib/design-system";
 import { cn } from "../../components/ui/utils";
+import { StudentTrackBadge } from "../../components/edu/StudentTrackBadge";
 
 type Row = {
   student_id: number;
   full_name_ar: string;
+  track_name?: string | null;
   admin_present?: boolean;
   task_scores: Record<string, boolean | number>;
   notes: string;
@@ -87,6 +89,7 @@ function normalizeRow(
   item: {
     student_id: number;
     full_name_ar: string;
+    track_name?: string | null;
     admin_present?: boolean;
     task_scores?: Record<string, boolean | number>;
     notes?: string;
@@ -114,6 +117,7 @@ function normalizeRow(
   return {
     student_id: item.student_id,
     full_name_ar: item.full_name_ar,
+    track_name: item.track_name ?? null,
     admin_present: Boolean(item.admin_present),
     task_scores: applyDependentScores({ ...base, ...legacyScores }, criteria),
     notes: item.notes ?? "",
@@ -123,6 +127,9 @@ function normalizeRow(
 export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }) {
   const { user } = useAuth();
   const isSupervisor = user ? SUPERVISOR_ROLES.has(user.role) : false;
+  const isTrackSupervisor = user?.role === "track_supervisor";
+  const isBroadSupervisor = isSupervisor && !isTrackSupervisor;
+  const teacherLikeUi = !isSupervisor || isTrackSupervisor;
 
   const [circles, setCircles] = useState<
     Array<{ id: number; name_ar: string; track_id?: number | null }>
@@ -161,16 +168,35 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
     return circles.filter((c) => c.track_id === trackId);
   }, [circles, isSupervisor, trackId]);
 
+  const assignedTrackName = useMemo(() => {
+    if (!isTrackSupervisor || trackId == null) return null;
+    return tracks.find((t) => t.id === trackId)?.name_ar ?? null;
+  }, [isTrackSupervisor, trackId, tracks]);
+
   const loadScopes = useCallback(async () => {
     if (!canUseApi() || !isSupervisor) return;
     try {
       const res = await api.eduDeptFilterScopes();
       setTracks(res.tracks);
       setCircles(res.circles);
+      if (isTrackSupervisor) {
+        const trackIds = [
+          ...new Set(
+            res.circles
+              .map((c) => c.track_id)
+              .filter((id): id is number => id != null && id > 0),
+          ),
+        ];
+        if (trackIds.length === 1) {
+          setTrackId(trackIds[0]);
+        } else if (trackIds.length > 1 && trackId == null) {
+          setTrackId(trackIds[0]);
+        }
+      }
     } catch {
       /* ignore */
     }
-  }, [isSupervisor]);
+  }, [isSupervisor, isTrackSupervisor, trackId]);
 
   useEffect(() => {
     void loadScopes();
@@ -213,12 +239,18 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
       setRows((res.items ?? []).map((item) => normalizeRow(item, evalCriteria)));
     } catch (e) {
       const msg = e instanceof Error ? e.message : "فشل التحميل";
-      setError(msg.includes("لم يتم ربط حلقة") ? msg : msg);
-      setRows([]);
+      const isNoCircleErr = /no_circle_assigned|لم يتم ربط حلقة/i.test(msg);
+      if (isTrackSupervisor && isNoCircleErr && (tracks.length > 0 || circles.length > 0)) {
+        setError(null);
+        setRows([]);
+      } else {
+        setError(msg.includes("لم يتم ربط حلقة") ? msg : msg);
+        setRows([]);
+      }
     } finally {
       setLoading(false);
     }
-  }, [date, circleId, trackId, isSupervisor]);
+  }, [date, circleId, trackId, isSupervisor, isTrackSupervisor, circles.length, tracks.length]);
 
   useEffect(() => {
     void load();
@@ -333,17 +365,25 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
               الرصد اليومي
             </h2>
             <p className={ds.page.description} style={tajawal}>
-              {isSupervisor
-                ? "متابعة أو رصد حلقات المسار — المهام تُولَّد تلقائياً من إعدادات التقييم."
-                : "سجّل إنجاز الطلاب وفق مهام التقييم المحددة من المشرف."}
+              {isTrackSupervisor
+                ? "رصد إنجاز طلاب حلقات مسارك — نفس تجربة المعلم."
+                : isSupervisor
+                  ? "متابعة أو رصد حلقات المسار — المهام تُولَّد تلقائياً من إعدادات التقييم."
+                  : "سجّل إنجاز الطلاب وفق مهام التقييم المحددة من المشرف."}
             </p>
-            {!isSupervisor && circleName && (
+            {teacherLikeUi && circleName && (
               <p className="text-sm font-semibold text-primary mt-1" style={tajawal}>
                 الحلقة: {circleName}
               </p>
             )}
+            {isTrackSupervisor && assignedTrackName && (
+              <p className="text-sm font-medium text-sky-700 dark:text-sky-300 mt-0.5" style={tajawal}>
+                المسار: {assignedTrackName}
+              </p>
+            )}
           </div>
           <div className="hidden md:flex flex-wrap items-center gap-2">
+            {isBroadSupervisor && (
             <ToggleGroup
               type="single"
               value={viewMode}
@@ -359,11 +399,12 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                 بطاقات
               </ToggleGroupItem>
             </ToggleGroup>
+            )}
           </div>
         </div>
       )}
 
-      {embedded && !isSupervisor && circleName && (
+      {embedded && teacherLikeUi && circleName && (
         <p className="text-sm font-semibold text-primary" style={tajawal}>
           الحلقة: {circleName}
         </p>
@@ -376,7 +417,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
       )}
 
       <div className={`${ds.card} p-4 flex flex-col md:flex-row flex-wrap gap-4 md:items-end`}>
-        {isSupervisor && tracks.length > 0 && (
+        {isBroadSupervisor && tracks.length > 0 && (
           <div className="space-y-1 w-full md:max-w-xs">
             <Label style={tajawal}>المسار التعليمي</Label>
             <select
@@ -396,6 +437,17 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                 </option>
               ))}
             </select>
+          </div>
+        )}
+        {isTrackSupervisor && assignedTrackName && (
+          <div className="space-y-1 w-full md:max-w-xs">
+            <Label style={tajawal}>المسار المسند</Label>
+            <p
+              className={`${ds.field} flex items-center min-h-9 bg-muted/40 text-sm font-medium`}
+              style={tajawal}
+            >
+              {assignedTrackName}
+            </p>
           </div>
         )}
         {isSupervisor && (
@@ -436,7 +488,9 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
           </p>
         ) : isSupervisor && circleId == null ? (
           <p className={`p-4 ${ds.alert.info}`} style={tajawal}>
-            اختر حلقة من قائمة مسارك لعرض الطلاب.
+            {isTrackSupervisor
+              ? "اختر حلقة من مسارك لعرض الطلاب."
+              : "اختر حلقة من قائمة مسارك لعرض الطلاب."}
           </p>
         ) : rows.length === 0 ? (
           <p className={`p-4 ${ds.alert.info}`} style={tajawal}>
@@ -495,12 +549,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                       {rows.map((r) => (
                         <TableRow key={r.student_id} className="print:break-inside-avoid">
                           <TableCell className={ds.table.cell} style={tajawal}>
-                            <span>{r.full_name_ar}</span>
-                            {r.admin_present && (
-                              <span className="mr-2 text-[10px] text-emerald-600 font-medium">
-                                حضور إداري
-                              </span>
-                            )}
+                            <StudentNameCell row={r} />
                           </TableCell>
                           {editableCriteria.map((c, idx) => (
                             <TableCell key={c.id} className="text-center align-middle">
@@ -582,6 +631,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                       <p className="font-bold text-sm" style={tajawal}>
                         {r.full_name_ar}
                       </p>
+                      {r.track_name ? <StudentTrackBadge trackName={r.track_name} /> : null}
                       <div className="space-y-2 text-sm" style={tajawal}>
                         {editableCriteria.map((c, idx) => (
                           <div key={c.id} className="flex items-center justify-between gap-2">
@@ -604,15 +654,15 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                           </div>
                         ))}
                       </div>
-                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-border">
-                        <span className="text-sm font-semibold tabular-nums" style={tajawal}>
+                      <div className={`${ds.saveActionWrap} pt-2 border-t border-border`}>
+                        <span className="text-sm font-semibold tabular-nums w-full text-center" style={tajawal}>
                           الجودة: {computeQualityFromCriteria(r.task_scores, criteria)}%
                         </span>
                         <Button
                           type="button"
                           size="sm"
                           variant="outline"
-                          className={ds.btnRound}
+                          className={cn(ds.btnRound, "min-w-[8rem]")}
                           disabled={saving || savingStudentId != null || !canSave}
                           onClick={() => void saveStudent(r.student_id)}
                           style={tajawal}
@@ -646,10 +696,13 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                         style={tajawal}
                       >
                         <div className="flex flex-1 items-center justify-between gap-2 min-w-0">
-                          <div className="min-w-0 text-right">
+                          <div className="min-w-0 text-right flex-1">
                             <p className="font-semibold text-sm truncate">{r.full_name_ar}</p>
+                            {r.track_name ? (
+                              <StudentTrackBadge trackName={r.track_name} className="mt-1 max-w-full" />
+                            ) : null}
                             {r.admin_present && (
-                              <span className="text-[10px] text-emerald-600 font-medium">
+                              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
                                 حضور إداري
                               </span>
                             )}
@@ -713,14 +766,15 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                             </div>
                           ))}
 
-                          <div className="flex flex-col items-center gap-2 border-t border-border/70 pt-3 mt-1">
+                          <div className={cn(ds.saveActionWrap, "border-t border-border/70 pt-3 mt-1")}>
                             <Button
                               type="button"
                               size="lg"
                               variant="default"
                               className={cn(
                                 ds.btnRound,
-                                "h-11 w-full max-w-[11.5rem] min-h-[44px] shadow-md touch-manipulation",
+                                ds.primaryActionBtn,
+                                "h-11 w-full max-w-[11.5rem] shadow-md touch-manipulation",
                               )}
                               disabled={saving || savingStudentId != null || !canSave}
                               onClick={() => void saveStudent(r.student_id)}
@@ -819,12 +873,12 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
       )}
 
       <div className="sticky bottom-0 z-20 -mx-4 border-t border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 px-4 py-3 print:hidden md:mx-0 md:rounded-2xl md:border">
-        <div className="max-w-[1200px] mx-auto flex justify-end">
+        <div className="max-w-[1200px] mx-auto flex justify-center">
           <Button
             type="button"
             variant="default"
             size="lg"
-            className={`${ds.btnRound} min-w-[160px] shadow-lg`}
+            className={cn(ds.btnRound, ds.primaryActionBtn, "min-w-[160px] shadow-lg")}
             disabled={saving || savingStudentId != null || !canSave}
             onClick={() => save()}
             style={tajawal}
@@ -833,6 +887,20 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
           </Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function StudentNameCell({ row }: { row: Row }) {
+  return (
+    <div className="min-w-0 flex flex-col items-start gap-1 text-right max-w-full">
+      <span className="truncate max-w-full">{row.full_name_ar}</span>
+      {row.track_name ? <StudentTrackBadge trackName={row.track_name} /> : null}
+      {row.admin_present && (
+        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
+          حضور إداري
+        </span>
+      )}
     </div>
   );
 }

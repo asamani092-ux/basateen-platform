@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { GuardedForm } from "../../components/ui/guarded-form";
 import { Archive, Plus, Search } from "lucide-react";
 import { TableIconAction } from "../../components/admin/TableIconAction";
 import { DoubleConfirmDialog } from "../../components/shared/DoubleConfirmDialog";
@@ -281,7 +282,7 @@ export function ProgramsArchivePage() {
           <DialogHeader className="text-right">
             <DialogTitle style={tajawal}>إضافة للأرشيف</DialogTitle>
           </DialogHeader>
-          <form onSubmit={saveItem} className="space-y-4">
+          <GuardedForm onSubmit={saveItem} className="space-y-4">
             <div className="space-y-2">
               <Label style={tajawal}>العنوان</Label>
               <Input className={ds.field} value={title} onChange={(e) => setTitle(e.target.value)} required />
@@ -339,7 +340,7 @@ export function ProgramsArchivePage() {
                 إلغاء
               </Button>
             </DialogFooter>
-          </form>
+          </GuardedForm>
         </DialogContent>
       </Dialog>
 

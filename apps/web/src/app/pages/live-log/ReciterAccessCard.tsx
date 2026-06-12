@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { GuardedForm } from "../../components/ui/guarded-form";
 import { Lock } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -84,7 +85,7 @@ export function ReciterAccessCard({ liveToken, onSuccess }: Props) {
           أدخل رمز دخول المقرئين الممنوح من المشرف
         </p>
 
-        <form onSubmit={submit} className="space-y-4">
+        <GuardedForm onSubmit={submit} className="space-y-4">
           <Input
             type="password"
             inputMode="numeric"
@@ -109,7 +110,7 @@ export function ReciterAccessCard({ liveToken, onSuccess }: Props) {
           >
             {loading ? "جاري التحقق…" : "دخول شبكة الرصد"}
           </Button>
-        </form>
+        </GuardedForm>
       </div>
     </div>
   );

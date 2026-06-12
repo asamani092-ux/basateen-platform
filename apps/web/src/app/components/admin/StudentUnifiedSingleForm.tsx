@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { GuardedForm } from "../ui/guarded-form";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
@@ -150,7 +151,7 @@ export function StudentUnifiedSingleForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <GuardedForm onSubmit={handleSubmit} className="space-y-4">
       {missingRequired.length > 0 && (
         <p className={ds.alert.error} style={tajawal}>
           أكمل الحقول الإلزامية المحددة بالنجمة (*)
@@ -340,7 +341,7 @@ export function StudentUnifiedSingleForm({
       >
         {submitting ? "جاري الحفظ…" : (submitLabel ?? "حفظ الطالب ➕")}
       </Button>
-    </form>
+    </GuardedForm>
   );
 }
 

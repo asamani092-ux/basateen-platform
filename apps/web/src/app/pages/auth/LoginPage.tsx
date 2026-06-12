@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { GuardedForm } from "../../components/ui/guarded-form";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -139,7 +140,7 @@ export function LoginPage() {
         </CardHeader>
         <CardContent>
           {!useEmail ? (
-            <form onSubmit={onSubmitMobile} className="space-y-4">
+            <GuardedForm onSubmit={onSubmitMobile} className="space-y-4">
               <div>
                 <label
                   className="block text-sm font-semibold mb-2 text-foreground"
@@ -173,9 +174,9 @@ export function LoginPage() {
               >
                 {loading ? "جاري الدخول..." : "دخول"}
               </Button>
-            </form>
+            </GuardedForm>
           ) : (
-            <form onSubmit={onSubmitEmail} className="space-y-4">
+            <GuardedForm onSubmit={onSubmitEmail} className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold mb-2" style={tajawal}>
                   الإيميل
@@ -218,7 +219,7 @@ export function LoginPage() {
               >
                 {loading ? "جاري الدخول..." : "دخول بالإيميل"}
               </Button>
-            </form>
+            </GuardedForm>
           )}
 
           <Button

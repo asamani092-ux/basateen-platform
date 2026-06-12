@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { GuardedForm } from "../../components/ui/guarded-form";
 import { toast } from "sonner";
 import { ArrowLeftRight, ChevronDown, Plus } from "lucide-react";
 import {
@@ -480,7 +481,7 @@ export function EduTransfersPage() {
         </CardHeader>
         {formOpen && (
           <CardContent>
-            <form onSubmit={submitTransfer} className="space-y-5">
+            <GuardedForm onSubmit={submitTransfer} className="space-y-5">
               <div className="space-y-2">
                 <Label style={tajawal}>1. البحث عن الطالب</Label>
                 <AdminStudentSearchCombobox
@@ -584,7 +585,7 @@ export function EduTransfersPage() {
                   إلغاء
                 </Button>
               </div>
-            </form>
+            </GuardedForm>
           </CardContent>
         )}
       </Card>

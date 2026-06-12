@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { GuardedForm } from "../../components/ui/guarded-form";
 import {
   Check,
   ClipboardList,
@@ -828,7 +829,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                 {reqStudent?.full_name_ar}
               </DialogDescription>
             </DialogHeader>
-            <form onSubmit={submitRequest} className="space-y-4">
+            <GuardedForm onSubmit={submitRequest} className="space-y-4">
               <div className="flex gap-2">
                 <Button
                   type="button"
@@ -867,7 +868,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
               >
                 {reqSubmitting ? "جاري الإرسال…" : "إرسال الطلب"}
               </Button>
-            </form>
+            </GuardedForm>
           </DialogContent>
         </Dialog>
       )}

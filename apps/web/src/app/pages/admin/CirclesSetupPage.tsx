@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { GuardedForm } from "../../components/ui/guarded-form";
 import { toast } from "sonner";
 import { Layers } from "lucide-react";
 import { AdminEntityActionModal } from "../../components/admin/AdminEntityActionModal";
@@ -516,7 +517,7 @@ function GroupFormDialog({
             اختر نوع الكيان ثم أكمل البيانات
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={submit} className="grid gap-4">
+        <GuardedForm onSubmit={submit} className="grid gap-4">
           <fieldset className="space-y-2" disabled={isEdit}>
             <legend className="text-sm font-semibold mb-2" style={tajawal}>
               نوع الكيان *
@@ -667,7 +668,7 @@ function GroupFormDialog({
           <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
             {saving ? "جاري الحفظ…" : isEdit ? "حفظ التعديلات" : "حفظ"}
           </Button>
-        </form>
+        </GuardedForm>
       </DialogContent>
     </Dialog>
   );

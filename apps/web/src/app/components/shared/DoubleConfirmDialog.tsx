@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,6 +33,7 @@ export function DoubleConfirmDialog({
 }: Props) {
   const [step, setStep] = useState<1 | 2>(1);
   const [busy, setBusy] = useState(false);
+  const confirmLockRef = useRef(false);
 
   function handleOpenChange(next: boolean) {
     if (!next) setStep(1);
@@ -40,12 +41,15 @@ export function DoubleConfirmDialog({
   }
 
   async function handleFinalConfirm() {
+    if (confirmLockRef.current) return;
+    confirmLockRef.current = true;
     setBusy(true);
     try {
       await onConfirm();
       setStep(1);
       onOpenChange(false);
     } finally {
+      confirmLockRef.current = false;
       setBusy(false);
     }
   }

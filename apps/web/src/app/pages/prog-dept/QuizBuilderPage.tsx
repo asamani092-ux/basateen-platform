@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { GuardedForm } from "../../components/ui/guarded-form";
 import { Plus, Trash2, ClipboardList } from "lucide-react";
 import {
   TableIconAction,
@@ -402,7 +403,7 @@ export function QuizBuilderPage() {
               {editId ? "تعديل الاختبار" : "اختبار جديد"}
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={saveQuiz} className="space-y-4">
+          <GuardedForm onSubmit={saveQuiz} className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2 sm:col-span-2">
                 <Label style={tajawal}>اسم الاختبار</Label>
@@ -627,7 +628,7 @@ export function QuizBuilderPage() {
                 إلغاء
               </Button>
             </DialogFooter>
-          </form>
+          </GuardedForm>
         </DialogContent>
       </Dialog>
 

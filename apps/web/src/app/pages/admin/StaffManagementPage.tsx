@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { GuardedForm } from "../../components/ui/guarded-form";
 import { toast } from "sonner";
 import { UserCog } from "lucide-react";
 import { AdminEntityActionModal } from "../../components/admin/AdminEntityActionModal";
@@ -495,7 +496,7 @@ function AddStaffDialog({
             الاسم، الجوال، والدور
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={submit} className="grid gap-3">
+        <GuardedForm onSubmit={submit} className="grid gap-3">
           <div className="space-y-1">
             <Label style={tajawal}>الاسم *</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} required />
@@ -573,7 +574,7 @@ function AddStaffDialog({
           <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
             {saving ? "جاري الحفظ…" : "حفظ"}
           </Button>
-        </form>
+        </GuardedForm>
       </DialogContent>
     </Dialog>
   );
@@ -635,7 +636,7 @@ function EditStaffDialog({
         <DialogHeader className="text-right">
           <DialogTitle style={tajawal}>تعديل بيانات المنسوب</DialogTitle>
         </DialogHeader>
-        <form onSubmit={submit} className="grid gap-3">
+        <GuardedForm onSubmit={submit} className="grid gap-3">
           <div className="space-y-1">
             <Label style={tajawal}>الاسم</Label>
             <Input
@@ -695,7 +696,7 @@ function EditStaffDialog({
               {saving ? "جاري الحفظ…" : "حفظ التعديلات"}
             </Button>
           )}
-        </form>
+        </GuardedForm>
       </DialogContent>
     </Dialog>
   );
@@ -763,7 +764,7 @@ function AssignStaffDialog({
           </DialogTitle>
           <DialogDescription style={tajawal}>{row.full_name_ar}</DialogDescription>
         </DialogHeader>
-        <form onSubmit={submit} className="grid gap-3">
+        <GuardedForm onSubmit={submit} className="grid gap-3">
           <select
             value={isTeacher ? circleId : trackId}
             onChange={(e) =>
@@ -783,7 +784,7 @@ function AssignStaffDialog({
           <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
             {saving ? "جاري الحفظ…" : "تأكيد الإسناد"}
           </Button>
-        </form>
+        </GuardedForm>
       </DialogContent>
     </Dialog>
   );

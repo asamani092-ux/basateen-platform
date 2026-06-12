@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { GuardedForm } from "../../components/ui/guarded-form";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Medal, Pencil, Plus, Printer, Trash2, Trophy, Users } from "lucide-react";
 import { toast } from "sonner";
+import { useGuardedVoidAction } from "../../lib/guarded-async";
 import { TableIconAction } from "../../components/admin/TableIconAction";
 import { DoubleConfirmDialog } from "../../components/shared/DoubleConfirmDialog";
 import { EduKpiCard } from "../../components/edu/EduKpiCard";
@@ -76,7 +78,6 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
   const [tab, setTab] = useState<"scores" | "leaderboard">("scores");
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -159,6 +160,85 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
     }
   }, []);
 
+  const deleteTaskIdRef = useRef<number | null>(null);
+
+  const { run: deleteCompetition, pending: deletingComp } = useGuardedVoidAction(async () => {
+    if (activeCompetitionId == null) return;
+    const deletedId = activeCompetitionId;
+    try {
+      await api.eduDeptTeacherCompetitionDelete(deletedId);
+      setDeleteOpen(false);
+      const res = await api.eduDeptTeacherCompetitionsList();
+      setItems(res.items);
+      const nextId = res.items[0]?.id ?? null;
+      setActiveCompetitionId(nextId);
+      if (nextId != null) await loadDetail(nextId);
+      else {
+        setTasks([]);
+        setStudents([]);
+        setScores({});
+        setLeaderboard([]);
+      }
+      toast.success("تم حذف المنافسة وجميع سجلاتها.");
+    } catch (err) {
+      const msg = getFriendlyTeacherCompetitionError(err);
+      setError(msg);
+      toast.error(msg);
+    }
+  });
+
+  const { run: saveScores, pending: saving } = useGuardedVoidAction(async () => {
+    if (activeCompetitionId == null) return;
+    setError(null);
+    try {
+      const payload = Object.entries(scores).map(([key, points]) => {
+        const [taskId, studentId] = key.split("-").map(Number);
+        return { task_id: taskId, student_id: studentId, points: Number(points) || 0 };
+      });
+      await api.eduDeptTeacherCompetitionSaveScores(activeCompetitionId, payload);
+      toast.success("تم حفظ النقاط.");
+      await loadDetail(activeCompetitionId);
+    } catch (err) {
+      const msg = getFriendlyTeacherCompetitionError(err);
+      setError(msg);
+      toast.error(msg);
+    }
+  });
+
+  const { run: runDeleteTask, pending: deletingTask } = useGuardedVoidAction(async () => {
+    const taskId = deleteTaskIdRef.current;
+    if (activeCompetitionId == null || taskId == null) return;
+    try {
+      await api.eduDeptTeacherCompetitionDeleteTask(activeCompetitionId, taskId);
+      await loadDetail(activeCompetitionId);
+      toast.success("تم حذف المهمة.");
+    } catch (err) {
+      const msg = getFriendlyTeacherCompetitionError(err);
+      setError(msg);
+      toast.error(msg);
+    } finally {
+      deleteTaskIdRef.current = null;
+    }
+  });
+
+  const { run: runAddTask, pending: addingTask } = useGuardedVoidAction(async () => {
+    if (activeCompetitionId == null || !taskTitle.trim()) return;
+    try {
+      await api.eduDeptTeacherCompetitionAddTask(activeCompetitionId, {
+        title_ar: taskTitle.trim(),
+        weight_points: taskWeight,
+      });
+      setTaskOpen(false);
+      setTaskTitle("");
+      setTaskWeight(1);
+      await loadDetail(activeCompetitionId);
+    } catch (err) {
+      const msg = getFriendlyTeacherCompetitionError(err);
+      setError(msg);
+      toast.error(msg);
+    }
+  });
+
   useEffect(() => {
     void loadList();
   }, [loadList]);
@@ -229,62 +309,16 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
     }
   }
 
-  async function deleteCompetition() {
-    if (activeCompetitionId == null) return;
-    const deletedId = activeCompetitionId;
-    try {
-      await api.eduDeptTeacherCompetitionDelete(deletedId);
-      setDeleteOpen(false);
-      const res = await api.eduDeptTeacherCompetitionsList();
-      setItems(res.items);
-      const nextId = res.items[0]?.id ?? null;
-      setActiveCompetitionId(nextId);
-      if (nextId != null) await loadDetail(nextId);
-      else {
-        setTasks([]);
-        setStudents([]);
-        setScores({});
-        setLeaderboard([]);
-      }
-      toast.success("تم حذف المنافسة وجميع سجلاتها.");
-    } catch (err) {
-      const msg = getFriendlyTeacherCompetitionError(err);
-      setError(msg);
-      toast.error(msg);
-    }
-  }
-
-  async function addTask(e: React.FormEvent) {
+  function addTask(e: React.FormEvent) {
     e.preventDefault();
-    if (activeCompetitionId == null || !taskTitle.trim()) return;
-    try {
-      await api.eduDeptTeacherCompetitionAddTask(activeCompetitionId, {
-        title_ar: taskTitle.trim(),
-        weight_points: taskWeight,
-      });
-      setTaskOpen(false);
-      setTaskTitle("");
-      setTaskWeight(1);
-      await loadDetail(activeCompetitionId);
-    } catch (err) {
-      const msg = getFriendlyTeacherCompetitionError(err);
-      setError(msg);
-      toast.error(msg);
-    }
+    runAddTask();
   }
 
-  async function deleteTask(taskId: number) {
+  function deleteTask(taskId: number) {
     if (activeCompetitionId == null) return;
     if (!window.confirm("حذف هذه المهمة وجميع نقاطها؟")) return;
-    try {
-      await api.eduDeptTeacherCompetitionDeleteTask(activeCompetitionId, taskId);
-      await loadDetail(activeCompetitionId);
-      toast.success("تم حذف المهمة.");
-    } catch (err) {
-      const msg = getFriendlyTeacherCompetitionError(err);
-      setError(msg);
-      toast.error(msg);
-    }
+    deleteTaskIdRef.current = taskId;
+    runDeleteTask();
   }
 
   function scoreKey(taskId: number, studentId: number) {
@@ -293,27 +327,6 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
 
   function setScore(taskId: number, studentId: number, value: number) {
     setScores((prev) => ({ ...prev, [scoreKey(taskId, studentId)]: value }));
-  }
-
-  async function saveScores() {
-    if (activeCompetitionId == null) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const payload = Object.entries(scores).map(([key, points]) => {
-        const [taskId, studentId] = key.split("-").map(Number);
-        return { task_id: taskId, student_id: studentId, points: Number(points) || 0 };
-      });
-      await api.eduDeptTeacherCompetitionSaveScores(activeCompetitionId, payload);
-      toast.success("تم حفظ النقاط.");
-      await loadDetail(activeCompetitionId);
-    } catch (err) {
-      const msg = getFriendlyTeacherCompetitionError(err);
-      setError(msg);
-      toast.error(msg);
-    } finally {
-      setSaving(false);
-    }
   }
 
   return (
@@ -449,8 +462,9 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
               type="button"
               variant="default"
               className={cn(ds.btnRound, ds.primaryActionBtn, "rounded-full w-full sm:w-auto")}
+              loading={saving}
               disabled={saving || tasks.length === 0}
-              onClick={() => saveScores()}
+              onClick={saveScores}
               style={tajawal}
             >
               {saving ? "جاري الحفظ…" : "حفظ النقاط"}
@@ -511,8 +525,9 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                       </span>
                       <button
                         type="button"
-                        className="text-destructive hover:bg-destructive/10 rounded-full p-0.5"
+                        className="text-destructive hover:bg-destructive/10 rounded-full p-0.5 disabled:opacity-50"
                         title="حذف المهمة"
+                        disabled={deletingTask}
                         onClick={() => deleteTask(t.id)}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -642,8 +657,9 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                                     ds.primaryActionBtn,
                                     "rounded-full w-full mt-1",
                                   )}
+                                  loading={saving}
                                   disabled={saving}
-                                  onClick={() => saveScores()}
+                                  onClick={saveScores}
                                   style={tajawal}
                                 >
                                   {saving ? "جاري الحفظ…" : "حفظ النقاط"}
@@ -754,7 +770,7 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
           <DialogHeader className="text-right">
             <DialogTitle style={tajawal}>منافسة جديدة</DialogTitle>
           </DialogHeader>
-          <form onSubmit={createCompetition} className="space-y-4 text-right">
+          <GuardedForm onSubmit={createCompetition} className="space-y-4 text-right">
             <div className="space-y-2">
               <Label htmlFor="new-comp-name" style={tajawal}>
                 اسم المنافسة
@@ -783,7 +799,7 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                 إلغاء
               </Button>
             </DialogFooter>
-          </form>
+          </GuardedForm>
         </DialogContent>
       </Dialog>
 
@@ -795,7 +811,7 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
               تعديل المنافسة
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={saveEdit} className="space-y-4 text-right">
+          <GuardedForm onSubmit={saveEdit} className="space-y-4 text-right">
             <div className="space-y-2">
               <Label htmlFor="edit-comp-name" style={tajawal}>
                 اسم المنافسة
@@ -825,8 +841,9 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                       </span>
                       <button
                         type="button"
-                        className="text-destructive hover:bg-destructive/10 rounded-full p-0.5"
+                        className="text-destructive hover:bg-destructive/10 rounded-full p-0.5 disabled:opacity-50"
                         title="حذف المهمة"
+                        disabled={deletingTask}
                         onClick={() => deleteTask(t.id)}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -869,7 +886,7 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                 إلغاء
               </Button>
             </DialogFooter>
-          </form>
+          </GuardedForm>
         </DialogContent>
       </Dialog>
 
@@ -878,7 +895,7 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
           <DialogHeader className="text-right">
             <DialogTitle style={tajawal}>مهمة جديدة</DialogTitle>
           </DialogHeader>
-          <form onSubmit={addTask} className="space-y-4 text-right">
+          <GuardedForm onSubmit={addTask} className="space-y-4 text-right">
             <div className="space-y-2">
               <Label htmlFor="task-title" style={tajawal}>
                 عنوان المهمة
@@ -908,8 +925,8 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
               />
             </div>
             <DialogFooter className="gap-2 sm:gap-2 sm:justify-start flex-row-reverse">
-              <Button type="submit" className={cn(ds.btnRound, "rounded-full")} style={tajawal}>
-                إضافة
+              <Button type="submit" loading={addingTask} className={cn(ds.btnRound, "rounded-full")} style={tajawal}>
+                {addingTask ? "جاري الإضافة…" : "إضافة"}
               </Button>
               <Button
                 type="button"
@@ -921,7 +938,7 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                 إلغاء
               </Button>
             </DialogFooter>
-          </form>
+          </GuardedForm>
         </DialogContent>
       </Dialog>
 

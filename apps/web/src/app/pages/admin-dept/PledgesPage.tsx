@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { GuardedForm } from "../../components/ui/guarded-form";
 import { Bell, Plus, Printer, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -583,7 +584,7 @@ export function PledgesPage() {
             </DialogDescription>
           </DialogHeader>
           {editPledge && (
-            <form onSubmit={savePledgeEdit} className="space-y-4 text-right">
+            <GuardedForm onSubmit={savePledgeEdit} className="space-y-4 text-right">
               <div className="space-y-2">
                 <Label htmlFor="edit-pledge-date" style={tajawal}>
                   تاريخ التعهد
@@ -625,7 +626,7 @@ export function PledgesPage() {
               >
                 {pledgeBusy ? "جاري الحفظ…" : "حفظ التعديل"}
               </Button>
-            </form>
+            </GuardedForm>
           )}
         </DialogContent>
       </Dialog>
@@ -671,7 +672,7 @@ export function PledgesPage() {
               ابحث عن الطالب بالاسم ثم أدخل سبب التعهد.
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={addPledge} className="space-y-4 text-right">
+          <GuardedForm onSubmit={addPledge} className="space-y-4 text-right">
             <div className="space-y-2">
               <Label style={tajawal}>الطالب *</Label>
               <AdminStudentSearchCombobox
@@ -720,7 +721,7 @@ export function PledgesPage() {
             >
               {submitting ? "جاري الحفظ…" : "حفظ التعهد"}
             </Button>
-          </form>
+          </GuardedForm>
         </DialogContent>
       </Dialog>
     </div>

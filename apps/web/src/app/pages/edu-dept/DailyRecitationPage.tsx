@@ -162,16 +162,6 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
   const [reqNotes, setReqNotes] = useState("");
   const [reqSubmitting, setReqSubmitting] = useState(false);
 
-  const enabledCriteria = useMemo(() => activeCriteria(criteria), [criteria]);
-  const editableCriteria = useMemo(
-    () => enabledCriteria.filter((c) => !c.requires_all?.length),
-    [enabledCriteria],
-  );
-  const bonusCriteria = useMemo(
-    () => enabledCriteria.filter((c) => c.requires_all?.length),
-    [enabledCriteria],
-  );
-
   const visibleCircles = useMemo(() => {
     if (!isSupervisor || trackId == null) return circles;
     return circles.filter((c) => c.track_id === trackId);
@@ -251,6 +241,16 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
       studentsQuery.data?.evaluation_criteria ??
       [],
     [criteriaQuery.data, studentsQuery.data?.evaluation_criteria],
+  );
+
+  const enabledCriteria = useMemo(() => activeCriteria(criteria), [criteria]);
+  const editableCriteria = useMemo(
+    () => enabledCriteria.filter((c) => !c.requires_all?.length),
+    [enabledCriteria],
+  );
+  const bonusCriteria = useMemo(
+    () => enabledCriteria.filter((c) => c.requires_all?.length),
+    [enabledCriteria],
   );
 
   useEffect(() => {

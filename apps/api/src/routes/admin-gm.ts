@@ -25,6 +25,8 @@ import {
 } from "../lib/admin-educational-groups";
 import {
   findInactiveStaffByContact,
+  findSupervisorOtherActiveTrack,
+  findTeacherOtherActiveCircle,
   insertStaffUser,
   reactivateSupervisorUser,
   safeDeleteStaffUser,
@@ -1306,6 +1308,21 @@ export async function handleAdminTracksCreate(
       return json({ error: resolved.error }, resolved.status);
     }
 
+    const conflict = await findSupervisorOtherActiveTrack(
+      env,
+      auth!.complexId,
+      resolved.id,
+    );
+    if (conflict) {
+      return json(
+        {
+          error: "supervisor_already_assigned",
+          message: "هذا المشرف مسند بالفعل لمسار آخر",
+        },
+        409,
+      );
+    }
+
     const ins = await env.DB.prepare(
       `INSERT INTO tracks (complex_id, name_ar, supervisor_id, default_capacity)
        VALUES (?, ?, ?, ?)`,
@@ -1331,6 +1348,20 @@ export async function handleAdminTracksCreate(
     const resolved = await resolveTrackSupervisorId(env, auth!.complexId, body);
     if ("error" in resolved) {
       return json({ error: resolved.error }, resolved.status);
+    }
+    const conflict = await findSupervisorOtherActiveTrack(
+      env,
+      auth!.complexId,
+      resolved.id,
+    );
+    if (conflict) {
+      return json(
+        {
+          error: "supervisor_already_assigned",
+          message: "هذا المشرف مسند بالفعل لمسار آخر",
+        },
+        409,
+      );
     }
     cols.push("supervisor_id");
     vals.push(resolved.id);
@@ -1446,18 +1477,13 @@ export async function handleAdminTracksPatch(
       .first();
     if (!supervisor) return json({ error: "supervisor_not_found" }, 404);
 
-    if (await tableHasColumn(env, "tracks", "supervisor_id")) {
-      await env.DB.prepare(
-        `UPDATE tracks SET supervisor_id = NULL WHERE supervisor_id = ? AND complex_id = ?`,
-      )
-        .bind(supervisorId, auth!.complexId)
-        .run();
-      await env.DB.prepare(
-        `UPDATE tracks SET supervisor_id = ? WHERE id = ? AND complex_id = ?`,
-      )
-        .bind(supervisorId, trackId, auth!.complexId)
-        .run();
-    }
+    const assignErr = await assignSupervisorToTrack(
+      env,
+      auth!.complexId,
+      trackId,
+      supervisorId,
+    );
+    if (assignErr) return assignErr;
   }
   if (body.stage_ids && (await hasTable(env, "track_stages"))) {
     await env.DB.prepare(`DELETE FROM track_stages WHERE track_id = ?`)
@@ -1515,7 +1541,6 @@ export async function handleAdminTeachersPatch(
   let body: {
     full_name_ar?: string;
     mobile?: string;
-    circle_id?: number;
     is_active?: number;
   };
   try {
@@ -1555,35 +1580,6 @@ export async function handleAdminTeachersPatch(
     await env.DB.prepare(`UPDATE users SET is_active = ? WHERE id = ?`)
       .bind(body.is_active ? 1 : 0, userId)
       .run();
-  }
-  if (body.circle_id != null) {
-    const circleId = Number(body.circle_id);
-    if (Number.isFinite(circleId) && circleId > 0) {
-      if (await hasTable(env, "teacher_assignments")) {
-        await env.DB.prepare(`DELETE FROM teacher_assignments WHERE circle_id = ?`)
-          .bind(circleId)
-          .run();
-        await env.DB.prepare(`DELETE FROM teacher_assignments WHERE user_id = ?`)
-          .bind(userId)
-          .run();
-        await env.DB.prepare(
-          `INSERT INTO teacher_assignments (user_id, circle_id) VALUES (?, ?)`,
-        )
-          .bind(userId, circleId)
-          .run();
-      } else if (await tableHasColumn(env, "circles", "teacher_id")) {
-        await env.DB.prepare(
-          `UPDATE circles SET teacher_id = NULL WHERE teacher_id = ? AND complex_id = ?`,
-        )
-          .bind(userId, auth!.complexId)
-          .run();
-        await env.DB.prepare(
-          `UPDATE circles SET teacher_id = ? WHERE id = ? AND complex_id = ?`,
-        )
-          .bind(userId, circleId, auth!.complexId)
-          .run();
-      }
-    }
   }
 
   return json({ ok: true });

@@ -13,24 +13,153 @@ import {
   V25_CIRCLE_STAGE_TO_ID_SQL,
 } from "./schema-v25";
 
-function circleAssignmentCols(hasCircles: boolean): {
-  circleId: string;
-  circleName: string;
-} {
-  if (!hasCircles) {
+type StaffListJoinCols = {
+  joins: string;
+  circleIdCol: string;
+  circleNameCol: string;
+  trackIdCol: string;
+  trackNameCol: string;
+};
+
+/** O(1) — أعمدة وربط للعرض فقط عبر LEFT JOIN (حلقة/مسار مسند). */
+async function staffListJoinCols(env: Env): Promise<StaffListJoinCols> {
+  const hasCircles = await hasTable(env, "circles");
+  const hasTracks = await hasTable(env, "tracks");
+  const hasAssignments = await hasTable(env, "teacher_assignments");
+  const hasTeacherOnCircle =
+    hasCircles && (await tableHasColumn(env, "circles", "teacher_id"));
+  const hasTrackSupervisor =
+    hasTracks && (await tableHasColumn(env, "tracks", "supervisor_id"));
+  const hasCircleIsActive =
+    hasCircles && (await tableHasColumn(env, "circles", "is_active"));
+  const hasTrackIsActive =
+    hasTracks && (await tableHasColumn(env, "tracks", "is_active"));
+  const tracksHaveComplexId =
+    hasTrackSupervisor && (await tableHasColumn(env, "tracks", "complex_id"));
+
+  const circleActive = hasCircleIsActive ? " AND COALESCE(c.is_active, 1) = 1" : "";
+  const trackActive = hasTrackIsActive
+    ? " AND COALESCE(t_sup.is_active, 1) = 1"
+    : "";
+  const trackJoinOn = tracksHaveComplexId
+    ? `t_sup.supervisor_id = u.id AND t_sup.complex_id = u.complex_id${trackActive}`
+    : `t_sup.supervisor_id = u.id${trackActive}`;
+  const trackJoin = hasTrackSupervisor
+    ? `LEFT JOIN tracks t_sup ON ${trackJoinOn}`
+    : "";
+
+  if (hasAssignments && hasCircles) {
     return {
-      circleId: "NULL AS circle_id",
-      circleName: "NULL AS circle_name",
+      joins: `LEFT JOIN teacher_assignments ta ON ta.user_id = u.id
+     LEFT JOIN circles c ON c.id = ta.circle_id AND c.complex_id = u.complex_id${circleActive}
+     ${trackJoin}`.trim(),
+      circleIdCol: "c.id AS circle_id",
+      circleNameCol: "c.name_ar AS circle_name",
+      trackIdCol: hasTrackSupervisor ? "t_sup.id AS track_id" : "NULL AS track_id",
+      trackNameCol: hasTrackSupervisor
+        ? "t_sup.name_ar AS track_name"
+        : "NULL AS track_name",
     };
   }
+
+  if (hasTeacherOnCircle) {
+    return {
+      joins: `LEFT JOIN circles c ON c.teacher_id = u.id AND c.complex_id = u.complex_id${circleActive}
+     ${trackJoin}`.trim(),
+      circleIdCol: "c.id AS circle_id",
+      circleNameCol: "c.name_ar AS circle_name",
+      trackIdCol: hasTrackSupervisor ? "t_sup.id AS track_id" : "NULL AS track_id",
+      trackNameCol: hasTrackSupervisor
+        ? "t_sup.name_ar AS track_name"
+        : "NULL AS track_name",
+    };
+  }
+
   return {
-    circleId: `(SELECT c.id FROM circles c
-             WHERE c.teacher_id = u.id AND c.complex_id = u.complex_id
-               AND COALESCE(c.is_active, 1) = 1 LIMIT 1) AS circle_id`,
-    circleName: `(SELECT c.name_ar FROM circles c
-             WHERE c.teacher_id = u.id AND c.complex_id = u.complex_id
-               AND COALESCE(c.is_active, 1) = 1 LIMIT 1) AS circle_name`,
+    joins: trackJoin,
+    circleIdCol: "NULL AS circle_id",
+    circleNameCol: "NULL AS circle_name",
+    trackIdCol: hasTrackSupervisor ? "t_sup.id AS track_id" : "NULL AS track_id",
+    trackNameCol: hasTrackSupervisor
+      ? "t_sup.name_ar AS track_name"
+      : "NULL AS track_name",
   };
+}
+
+/** O(1) — حلقة نشطة أخرى يُسند إليها المعلم (باستثناء حلقة محددة). */
+export async function findTeacherOtherActiveCircle(
+  env: Env,
+  complexId: number,
+  teacherId: number,
+  excludeCircleId?: number,
+): Promise<{ id: number } | null> {
+  const exclude =
+    excludeCircleId != null && Number.isFinite(excludeCircleId)
+      ? excludeCircleId
+      : -1;
+
+  if (await tableHasColumn(env, "circles", "teacher_id")) {
+    const hasIsActive = await tableHasColumn(env, "circles", "is_active");
+    const activeFilter = hasIsActive ? "AND COALESCE(is_active, 1) = 1" : "";
+    const row = await env.DB.prepare(
+      `SELECT id FROM circles
+       WHERE complex_id = ? AND teacher_id = ? AND id != ? ${activeFilter}
+       LIMIT 1`,
+    )
+      .bind(complexId, teacherId, exclude)
+      .first<{ id: number }>();
+    if (row) return row;
+  }
+
+  if (await hasTable(env, "teacher_assignments")) {
+    const hasIsActive = await tableHasColumn(env, "circles", "is_active");
+    const activeFilter = hasIsActive ? "AND COALESCE(c.is_active, 1) = 1" : "";
+    const row = await env.DB.prepare(
+      `SELECT c.id FROM teacher_assignments ta
+       JOIN circles c ON c.id = ta.circle_id
+       WHERE c.complex_id = ? AND ta.user_id = ? AND c.id != ? ${activeFilter}
+       LIMIT 1`,
+    )
+      .bind(complexId, teacherId, exclude)
+      .first<{ id: number }>();
+    if (row) return row;
+  }
+
+  return null;
+}
+
+/** O(1) — مسار نشط آخر يُسند إليه المشرف (باستثناء مسار محدد). */
+export async function findSupervisorOtherActiveTrack(
+  env: Env,
+  complexId: number,
+  supervisorId: number,
+  excludeTrackId?: number,
+): Promise<{ id: number } | null> {
+  if (!(await tableHasColumn(env, "tracks", "supervisor_id"))) return null;
+
+  const hasIsActive = await tableHasColumn(env, "tracks", "is_active");
+  const activeFilter = hasIsActive ? "AND COALESCE(is_active, 1) = 1" : "";
+  const hasComplexId = await tableHasColumn(env, "tracks", "complex_id");
+  const exclude =
+    excludeTrackId != null && Number.isFinite(excludeTrackId) ? excludeTrackId : -1;
+
+  if (hasComplexId) {
+    return env.DB.prepare(
+      `SELECT id FROM tracks
+       WHERE complex_id = ? AND supervisor_id = ? AND id != ? ${activeFilter}
+       LIMIT 1`,
+    )
+      .bind(complexId, supervisorId, exclude)
+      .first<{ id: number }>();
+  }
+
+  return env.DB.prepare(
+    `SELECT id FROM tracks
+     WHERE supervisor_id = ? AND id != ? ${activeFilter}
+     LIMIT 1`,
+  )
+    .bind(supervisorId, exclude)
+    .first<{ id: number }>();
 }
 
 export type StaffListRow = {
@@ -314,8 +443,8 @@ export async function insertStaffUser(
   return Number(ins.meta.last_row_id);
 }
 
-function staffListSqlV25(hasCircles: boolean): string {
-  const { circleId, circleName } = circleAssignmentCols(hasCircles);
+async function staffListSqlV25(env: Env): Promise<string> {
+  const joinCols = await staffListJoinCols(env);
   return `SELECT u.id, u.full_name_ar, u.mobile, u.is_active,
             CASE
               WHEN COALESCE(u.is_admin, 0) = 1 THEN 'super_admin'
@@ -325,15 +454,12 @@ function staffListSqlV25(hasCircles: boolean): string {
               WHEN COALESCE(u.is_teacher, 0) = 1 THEN 'teacher'
               ELSE 'teacher'
             END AS role,
-            ${circleId},
-            ${circleName},
-            (SELECT t.id FROM tracks t
-             WHERE t.supervisor_id = u.id AND t.complex_id = u.complex_id
-               AND COALESCE(t.is_active, 1) = 1 LIMIT 1) AS track_id,
-            (SELECT t.name_ar FROM tracks t
-             WHERE t.supervisor_id = u.id AND t.complex_id = u.complex_id
-               AND COALESCE(t.is_active, 1) = 1 LIMIT 1) AS track_name
+            ${joinCols.circleIdCol},
+            ${joinCols.circleNameCol},
+            ${joinCols.trackIdCol},
+            ${joinCols.trackNameCol}
      FROM users u
+     ${joinCols.joins}
      WHERE u.complex_id = ?
        AND COALESCE(u.is_active, 1) = 1
        AND (
@@ -347,14 +473,12 @@ function staffListSqlV25(hasCircles: boolean): string {
 }
 
 export async function staffListSql(env: Env): Promise<string> {
-  const hasCircles = await hasTable(env, "circles");
-
   if (await usesV25FlatStaffSchema(env)) {
-    return staffListSqlV25(hasCircles);
+    return staffListSqlV25(env);
   }
 
   const hasRole = await usersHaveRoleColumn(env);
-  const { circleId, circleName } = circleAssignmentCols(hasCircles);
+  const joinCols = await staffListJoinCols(env);
   if (hasRole) {
     return `SELECT u.id, u.full_name_ar, u.mobile, u.is_active,
               CASE u.role
@@ -363,15 +487,12 @@ export async function staffListSql(env: Env): Promise<string> {
                 WHEN 'prog_supervisor' THEN 'programs_supervisor'
                 ELSE u.role
               END AS role,
-              ${circleId},
-              ${circleName},
-              (SELECT t.id FROM tracks t
-               WHERE t.supervisor_id = u.id AND t.complex_id = u.complex_id
-                 AND COALESCE(t.is_active, 1) = 1 LIMIT 1) AS track_id,
-              (SELECT t.name_ar FROM tracks t
-               WHERE t.supervisor_id = u.id AND t.complex_id = u.complex_id
-                 AND COALESCE(t.is_active, 1) = 1 LIMIT 1) AS track_name
+              ${joinCols.circleIdCol},
+              ${joinCols.circleNameCol},
+              ${joinCols.trackIdCol},
+              ${joinCols.trackNameCol}
        FROM users u
+       ${joinCols.joins}
        WHERE u.complex_id = ?
          AND COALESCE(u.is_active, 1) = 1
          AND u.role IN (
@@ -381,7 +502,7 @@ export async function staffListSql(env: Env): Promise<string> {
        ORDER BY u.full_name_ar`;
   }
 
-  return staffListSqlV25(hasCircles);
+  return staffListSqlV25(env);
 }
 
 async function clearStaffUserRelations(

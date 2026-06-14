@@ -6,7 +6,7 @@ const optionalLinkId = z.preprocess(
   z.number().int().positive().nullable().optional(),
 );
 
-/** إنشاء معلم / مشرف مسار — الارتباط بالحلقة/المسار اختياري */
+/** إنشاء معلم / مشرف مسار — بيانات شخصية ودور فقط (الإسناد من تبويب الحلقات/المسارات) */
 export const staffTeacherCreateSchema = z.object({
   full_name_ar: z
     .union([z.string(), z.number()])
@@ -17,8 +17,6 @@ export const staffTeacherCreateSchema = z.object({
     .transform((v) => String(v).trim())
     .refine((s) => s.length > 0, { message: "mobile_required" }),
   role: z.enum(["teacher", "track_supervisor"]).optional().default("teacher"),
-  circle_id: optionalLinkId,
-  track_id: optionalLinkId,
 });
 
 /** إنشاء حلقة — المعلم إلزامي */

@@ -1,5 +1,6 @@
 import type { Env } from "../types";
-import { hasTable } from "./db-schema";
+import { hasTable, tableHasColumn } from "./db-schema";
+import { resolveAttendanceTableName } from "./student-attendance-db";
 
 export type MagicLinkContext = {
   /** معرّف الحلقة أو المسار — الرابط سحري دائم */
@@ -113,4 +114,46 @@ export async function touchSharedTokenUse(env: Env, tokenId: number): Promise<vo
   )
     .bind(tokenId)
     .run();
+}
+
+/** O(k) time, O(1) space — k = attendance rows referencing the token */
+export async function deleteSharedAccessToken(
+  env: Env,
+  tokenId: number,
+  complexId: number,
+): Promise<{ ok: true } | { ok: false; reason: "not_found" | "delete_failed" }> {
+  const row = await env.DB.prepare(
+    `SELECT id FROM shared_access_tokens WHERE id = ? AND complex_id = ?`,
+  )
+    .bind(tokenId, complexId)
+    .first();
+  if (!row) return { ok: false, reason: "not_found" };
+
+  const stmts: D1PreparedStatement[] = [];
+  const attendanceTable = await resolveAttendanceTableName(env);
+  if (
+    attendanceTable &&
+    (await tableHasColumn(env, attendanceTable, "shared_token_id"))
+  ) {
+    stmts.push(
+      env.DB.prepare(
+        `UPDATE ${attendanceTable}
+         SET shared_token_id = NULL
+         WHERE shared_token_id = ? AND complex_id = ?`,
+      ).bind(tokenId, complexId),
+    );
+  }
+  stmts.push(
+    env.DB.prepare(
+      `DELETE FROM shared_access_tokens WHERE id = ? AND complex_id = ?`,
+    ).bind(tokenId, complexId),
+  );
+
+  const results = await env.DB.batch(stmts);
+  const delRes = results[results.length - 1];
+  if ((delRes.meta.changes ?? 0) === 0) {
+    return { ok: false, reason: "delete_failed" };
+  }
+
+  return { ok: true };
 }

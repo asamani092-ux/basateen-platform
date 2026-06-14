@@ -28,6 +28,7 @@ import {
 import { buildStudentPlacementSql } from "../lib/student-list-sql";
 import { STAGE_LABELS } from "../lib/dept-scope";
 import {
+  deleteSharedAccessToken,
   findActiveMagicLinkForEntity,
   randomMagicToken,
   resolveMagicGroupId,
@@ -2270,20 +2271,9 @@ async function handleAdminDeptRouterImpl(
     }
 
     const linkId = Number(magicDeleteMatch[1]);
-    const row = await env.DB.prepare(
-      `SELECT id FROM shared_access_tokens WHERE id = ? AND complex_id = ?`,
-    )
-      .bind(linkId, admin.complexId)
-      .first();
-    if (!row) return json({ error: "not_found" }, 404);
-
-    const delRes = await env.DB.prepare(
-      `DELETE FROM shared_access_tokens WHERE id = ? AND complex_id = ?`,
-    )
-      .bind(linkId, admin.complexId)
-      .run();
-
-    if ((delRes.meta.changes ?? 0) === 0) {
+    const result = await deleteSharedAccessToken(env, linkId, admin.complexId);
+    if (!result.ok) {
+      if (result.reason === "not_found") return json({ error: "not_found" }, 404);
       return json({ error: "delete_failed" }, 500);
     }
 

@@ -38,7 +38,7 @@ export async function fetchSemesterPeriod(
   };
 }
 
-/** نطاق الاستعلامات الإدارية — الفصل النشط أو اليوم فقط */
+/** نطاق الاستعلامات الإدارية — الفصل النشط، أو آخر فصل مغلق، أو اليوم فقط */
 export function semesterQueryRange(period: SemesterPeriod): {
   start: string;
   end: string;
@@ -49,6 +49,19 @@ export function semesterQueryRange(period: SemesterPeriod): {
       ? period.end_date
       : today;
     return { start: period.start_date, end: end > today ? today : end };
+  }
+  if (
+    period.start_date &&
+    period.end_date &&
+    period.end_date >= period.start_date
+  ) {
+    return { start: period.start_date, end: period.end_date };
+  }
+  if (period.start_date) {
+    return {
+      start: period.start_date,
+      end: period.end_date ?? period.start_date,
+    };
   }
   return { start: today, end: today };
 }

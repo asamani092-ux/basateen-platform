@@ -24,11 +24,15 @@ import {
   safeDeleteEducationalGroup,
 } from "../lib/admin-educational-groups";
 import {
+  findInactiveStaffByContact,
   insertStaffUser,
+  reactivateSupervisorUser,
   safeDeleteStaffUser,
   staffListSql,
   SOVEREIGN_USER_ID,
+  upsertStaffUser,
 } from "../lib/admin-staff";
+import { d1ErrorJson } from "../lib/map-d1-error";
 import {
   circleCreateSchema,
   staffTeacherCreateSchema,
@@ -602,54 +606,71 @@ export async function handleAdminTeachersCreate(
   }
 
   const mobile = body.mobile;
-  const existing = await env.DB.prepare(
-    `SELECT id FROM users WHERE mobile = ?`,
-  )
-    .bind(mobile)
-    .first();
-  if (existing) return json({ error: "mobile_already_used" }, 409);
+  try {
+    const upserted = await upsertStaffUser(env, auth!.complexId, {
+      full_name_ar: body.full_name_ar,
+      mobile,
+      role: staffRole,
+    });
+    const userId = upserted.id;
 
-  const userId = await insertStaffUser(env, auth!.complexId, {
-    full_name_ar: body.full_name_ar,
-    mobile,
-    role: staffRole,
-  });
-
-  if (await hasTable(env, "user_sections")) {
-    await env.DB.prepare(
-      `INSERT INTO user_sections (user_id, section) VALUES (?, 'education')`,
-    )
-      .bind(userId)
-      .run();
-  }
-
-  if (staffRole === "track_supervisor" && trackId != null) {
-    await assignUserToTrackCircles(env, userId, trackId, auth!.complexId);
-  } else if (staffRole === "teacher" && circleId != null) {
-    if (await hasTable(env, "teacher_assignments")) {
-      await env.DB.prepare(`DELETE FROM teacher_assignments WHERE circle_id = ?`)
-        .bind(circleId)
-        .run();
+    if (await hasTable(env, "user_sections")) {
       await env.DB.prepare(
-        `INSERT INTO teacher_assignments (user_id, circle_id) VALUES (?, ?)`,
+        `INSERT OR IGNORE INTO user_sections (user_id, section) VALUES (?, 'education')`,
       )
-        .bind(userId, circleId)
-        .run();
-    } else if (await tableHasColumn(env, "circles", "teacher_id")) {
-      await env.DB.prepare(
-        `UPDATE circles SET teacher_id = NULL WHERE teacher_id = ? AND complex_id = ?`,
-      )
-        .bind(userId, auth!.complexId)
-        .run();
-      await env.DB.prepare(
-        `UPDATE circles SET teacher_id = ? WHERE id = ? AND complex_id = ?`,
-      )
-        .bind(userId, circleId, auth!.complexId)
+        .bind(userId)
         .run();
     }
-  }
 
-  return json({ ok: true, id: userId });
+    if (staffRole === "track_supervisor" && trackId != null) {
+      await assignUserToTrackCircles(env, userId, trackId, auth!.complexId);
+    } else if (staffRole === "teacher" && circleId != null) {
+      if (await hasTable(env, "teacher_assignments")) {
+        await env.DB.prepare(`DELETE FROM teacher_assignments WHERE circle_id = ?`)
+          .bind(circleId)
+          .run();
+        await env.DB.prepare(
+          `INSERT INTO teacher_assignments (user_id, circle_id) VALUES (?, ?)`,
+        )
+          .bind(userId, circleId)
+          .run();
+      } else if (await tableHasColumn(env, "circles", "teacher_id")) {
+        await env.DB.prepare(
+          `UPDATE circles SET teacher_id = NULL WHERE teacher_id = ? AND complex_id = ?`,
+        )
+          .bind(userId, auth!.complexId)
+          .run();
+        await env.DB.prepare(
+          `UPDATE circles SET teacher_id = ? WHERE id = ? AND complex_id = ?`,
+        )
+          .bind(userId, circleId, auth!.complexId)
+          .run();
+      }
+    }
+
+    return json({ ok: true, id: userId, reactivated: upserted.reactivated });
+  } catch (error: unknown) {
+    const d1 = d1ErrorJson(error);
+    if (d1) return d1;
+    const msg = error instanceof Error ? error.message : String(error);
+    if (msg === "mobile_already_used") {
+      return json(
+        {
+          error: "duplicate_mobile",
+          message: "رقم الجوال مسجل مسبقاً في النظام",
+        },
+        409,
+      );
+    }
+    console.error("[admin-gm] teachers create:", error);
+    return json(
+      {
+        error: "admin_gm_error",
+        message: msg || "Failed to create staff member",
+      },
+      500,
+    );
+  }
 }
 
 export async function handleAdminSupervisorsList(
@@ -726,54 +747,102 @@ export async function handleAdminSupervisorsCreate(
 
   const scope = body.supervisor_scope?.trim() || "global";
   const mobile = body.mobile.trim();
-  const existing = await env.DB.prepare(`SELECT id FROM users WHERE mobile = ?`)
-    .bind(mobile)
-    .first();
-  if (existing) return json({ error: "mobile_already_used" }, 409);
 
-  const userId = await insertSupervisorUser(env, auth!.complexId, {
-    full_name_ar: body.full_name_ar.trim(),
-    mobile,
-    role,
-    supervisor_scope: scope,
-  });
+  try {
+    const inactive = await findInactiveStaffByContact(env, auth!.complexId, {
+      mobile,
+    });
+    let userId: number;
+    let reactivated = false;
 
-  await syncSupervisorSections(env, userId, role);
-
-  if (dbRole === "track_supervisor") {
-    const trackId = Number(body.track_id);
-    const circleId = Number(body.circle_id);
-    if (Number.isFinite(trackId) && trackId > 0) {
-      const track = await env.DB.prepare(
-        `SELECT id FROM tracks WHERE id = ? AND complex_id = ? AND COALESCE(is_active, 1) = 1`,
-      )
-        .bind(trackId, auth!.complexId)
-        .first();
-      if (!track) return json({ error: "track_not_found" }, 404);
-      await assignUserToTrackCircles(env, userId, trackId, auth!.complexId);
-    } else if (Number.isFinite(circleId) && circleId > 0) {
-      const circle = await env.DB.prepare(
-        `SELECT id FROM circles WHERE id = ? AND complex_id = ? AND is_active = 1`,
-      )
-        .bind(circleId, auth!.complexId)
-        .first();
-      if (!circle) return json({ error: "circle_not_found" }, 404);
-      if (await hasTable(env, "teacher_assignments")) {
-        await env.DB.prepare(`DELETE FROM teacher_assignments WHERE user_id = ?`)
-          .bind(userId)
-          .run();
-        await env.DB.prepare(
-          `INSERT INTO teacher_assignments (user_id, circle_id) VALUES (?, ?)`,
-        )
-          .bind(userId, circleId)
-          .run();
-      }
+    if (inactive) {
+      await reactivateSupervisorUser(
+        env,
+        inactive.id,
+        auth!.complexId,
+        {
+          full_name_ar: body.full_name_ar.trim(),
+          mobile,
+          role,
+          supervisor_scope: scope,
+        },
+        normalizeSupervisorRoleForDb,
+      );
+      userId = inactive.id;
+      reactivated = true;
     } else {
-      return json({ error: "track_id_required" }, 400);
-    }
-  }
+      const existing = await env.DB.prepare(
+        `SELECT id FROM users WHERE mobile = ? AND COALESCE(is_active, 1) = 1`,
+      )
+        .bind(mobile)
+        .first();
+      if (existing) {
+        return json(
+          {
+            error: "duplicate_mobile",
+            message: "رقم الجوال مسجل مسبقاً في النظام",
+          },
+          409,
+        );
+      }
 
-  return json({ ok: true, id: userId });
+      userId = await insertSupervisorUser(env, auth!.complexId, {
+        full_name_ar: body.full_name_ar.trim(),
+        mobile,
+        role,
+        supervisor_scope: scope,
+      });
+    }
+
+    await syncSupervisorSections(env, userId, role);
+
+    if (dbRole === "track_supervisor") {
+      const trackId = Number(body.track_id);
+      const circleId = Number(body.circle_id);
+      if (Number.isFinite(trackId) && trackId > 0) {
+        const track = await env.DB.prepare(
+          `SELECT id FROM tracks WHERE id = ? AND complex_id = ? AND COALESCE(is_active, 1) = 1`,
+        )
+          .bind(trackId, auth!.complexId)
+          .first();
+        if (!track) return json({ error: "track_not_found" }, 404);
+        await assignUserToTrackCircles(env, userId, trackId, auth!.complexId);
+      } else if (Number.isFinite(circleId) && circleId > 0) {
+        const circle = await env.DB.prepare(
+          `SELECT id FROM circles WHERE id = ? AND complex_id = ? AND is_active = 1`,
+        )
+          .bind(circleId, auth!.complexId)
+          .first();
+        if (!circle) return json({ error: "circle_not_found" }, 404);
+        if (await hasTable(env, "teacher_assignments")) {
+          await env.DB.prepare(`DELETE FROM teacher_assignments WHERE user_id = ?`)
+            .bind(userId)
+            .run();
+          await env.DB.prepare(
+            `INSERT INTO teacher_assignments (user_id, circle_id) VALUES (?, ?)`,
+          )
+            .bind(userId, circleId)
+            .run();
+        }
+      } else {
+        return json({ error: "track_id_required" }, 400);
+      }
+    }
+
+    return json({ ok: true, id: userId, reactivated });
+  } catch (error: unknown) {
+    const d1 = d1ErrorJson(error);
+    if (d1) return d1;
+    console.error("[admin-gm] supervisors create:", error);
+    return json(
+      {
+        error: "admin_gm_error",
+        message:
+          error instanceof Error ? error.message : "Failed to create supervisor",
+      },
+      500,
+    );
+  }
 }
 
 export async function handleAdminEducationalGroupsList(
@@ -930,42 +999,34 @@ export async function handleAdminCirclesCreate(
         body.new_teacher?.mobile?.trim()
       ) {
         const mobile = body.new_teacher.mobile.trim();
-        const passwordHash = await hashPassword(DEFAULT_PASSWORD);
-        if (hasRole) {
-          const tIns = await env.DB.prepare(
-            `INSERT INTO users (complex_id, email, mobile, password_hash, full_name_ar, role)
-             VALUES (?, ?, ?, ?, ?, 'teacher')`,
-          )
-            .bind(
-              auth!.complexId,
-              emailForMobile(mobile, "teacher"),
-              mobile,
-              passwordHash,
-              body.new_teacher.full_name_ar.trim(),
-            )
-            .run();
-          teacherId = tIns.meta.last_row_id as number;
+        try {
+          const upserted = await upsertStaffUser(env, auth!.complexId, {
+            full_name_ar: body.new_teacher.full_name_ar.trim(),
+            mobile,
+            role: "teacher",
+          });
+          teacherId = upserted.id;
           if (await hasTable(env, "user_sections")) {
             await env.DB.prepare(
-              `INSERT INTO user_sections (user_id, section) VALUES (?, 'education')`,
+              `INSERT OR IGNORE INTO user_sections (user_id, section) VALUES (?, 'education')`,
             )
               .bind(teacherId)
               .run();
           }
-        } else {
-          const tIns = await env.DB.prepare(
-            `INSERT INTO users (complex_id, email, mobile, password_hash, full_name_ar, is_teacher)
-             VALUES (?, ?, ?, ?, ?, 1)`,
-          )
-            .bind(
-              auth!.complexId,
-              emailForMobile(mobile, "teacher"),
-              mobile,
-              passwordHash,
-              body.new_teacher.full_name_ar.trim(),
-            )
-            .run();
-          teacherId = tIns.meta.last_row_id as number;
+        } catch (error: unknown) {
+          const d1 = d1ErrorJson(error);
+          if (d1) return d1;
+          const msg = error instanceof Error ? error.message : String(error);
+          if (msg === "mobile_already_used") {
+            return json(
+              {
+                error: "duplicate_mobile",
+                message: "رقم الجوال مسجل مسبقاً في النظام",
+              },
+              409,
+            );
+          }
+          throw error;
         }
       } else {
         return json({ error: "teacher_required" }, 400);
@@ -1285,24 +1346,27 @@ async function resolveTrackSupervisorId(
     body.new_supervisor?.mobile?.trim()
   ) {
     const mobile = body.new_supervisor.mobile.trim();
-    const existing = await env.DB.prepare(`SELECT id FROM users WHERE mobile = ?`)
-      .bind(mobile)
-      .first();
-    if (existing) return { error: "mobile_already_used", status: 409 };
-
-    const userId = await insertStaffUser(env, complexId, {
-      full_name_ar: body.new_supervisor.full_name_ar.trim(),
-      mobile,
-      role: "track_supervisor",
-    });
-    if (await hasTable(env, "user_sections")) {
-      await env.DB.prepare(
-        `INSERT INTO user_sections (user_id, section) VALUES (?, 'education')`,
-      )
-        .bind(userId)
-        .run();
+    try {
+      const upserted = await upsertStaffUser(env, complexId, {
+        full_name_ar: body.new_supervisor.full_name_ar.trim(),
+        mobile,
+        role: "track_supervisor",
+      });
+      if (await hasTable(env, "user_sections")) {
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO user_sections (user_id, section) VALUES (?, 'education')`,
+        )
+          .bind(upserted.id)
+          .run();
+      }
+      return { id: upserted.id };
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg === "mobile_already_used") {
+        return { error: "duplicate_mobile", status: 409 };
+      }
+      throw error;
     }
-    return { id: userId };
   }
 
   return { error: "supervisor_required", status: 400 };

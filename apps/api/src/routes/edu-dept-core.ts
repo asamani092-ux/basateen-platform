@@ -1113,6 +1113,16 @@ export async function handleEduDeptCoreRouter(
           "edu_daily_recitation",
           "tasks_snapshot",
         );
+        const hasComplexId = await tableHasColumn(
+          env,
+          "edu_daily_recitation",
+          "complex_id",
+        );
+        const complexCol = hasComplexId ? ", complex_id" : "";
+        const complexVal = hasComplexId ? ", ?" : "";
+        const complexUpd = hasComplexId
+          ? ", complex_id = excluded.complex_id"
+          : "";
         const criteria = await loadEvaluationCriteria(env, auth.complexId);
         const snapshotJson = buildTasksSnapshot(criteria);
         const stmts = resolvedRows
@@ -1153,12 +1163,13 @@ export async function handleEduDeptCoreRouter(
                 notes,
               ];
               if (hasTasksSnapshot) binds.push(snapshotJson);
+              if (hasComplexId) binds.push(auth.complexId);
               return env.DB.prepare(
                 `INSERT INTO edu_daily_recitation
                   (student_id, teacher_user_id, circle_id, recitation_date,
                    listened, repeated, revised, error_count, tune_errors, face_count,
-                   task_scores_json, notes${snapshotCol}, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${snapshotVal}, datetime('now'))
+                   task_scores_json, notes${snapshotCol}${complexCol}, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${snapshotVal}${complexVal}, datetime('now'))
                  ON CONFLICT(student_id, recitation_date) DO UPDATE SET
                    teacher_user_id = excluded.teacher_user_id,
                    circle_id = excluded.circle_id,
@@ -1169,7 +1180,7 @@ export async function handleEduDeptCoreRouter(
                    tune_errors = excluded.tune_errors,
                    face_count = MAX(COALESCE(edu_daily_recitation.face_count, 0), COALESCE(excluded.face_count, 0)),
                    task_scores_json = excluded.task_scores_json,
-                   notes = excluded.notes${snapshotUpd},
+                   notes = excluded.notes${snapshotUpd}${complexUpd},
                    updated_at = datetime('now')`,
               ).bind(...binds);
             }
@@ -1193,10 +1204,11 @@ export async function handleEduDeptCoreRouter(
                 notes,
               ];
               if (hasTasksSnapshot) binds.push(snapshotJson);
+              if (hasComplexId) binds.push(auth.complexId);
               return env.DB.prepare(
                 `INSERT INTO edu_daily_recitation
-                  (student_id, teacher_user_id, circle_id, recitation_date, listened, repeated, revised, error_count, tune_errors, face_count, notes${snapshotCol}, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${snapshotVal}, datetime('now'))
+                  (student_id, teacher_user_id, circle_id, recitation_date, listened, repeated, revised, error_count, tune_errors, face_count, notes${snapshotCol}${complexCol}, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${snapshotVal}${complexVal}, datetime('now'))
                  ON CONFLICT(student_id, recitation_date) DO UPDATE SET
                    teacher_user_id = excluded.teacher_user_id,
                    circle_id = excluded.circle_id,
@@ -1206,7 +1218,7 @@ export async function handleEduDeptCoreRouter(
                    error_count = excluded.error_count,
                    tune_errors = excluded.tune_errors,
                    face_count = MAX(COALESCE(edu_daily_recitation.face_count, 0), COALESCE(excluded.face_count, 0)),
-                   notes = excluded.notes${snapshotUpd},
+                   notes = excluded.notes${snapshotUpd}${complexUpd},
                    updated_at = datetime('now')`,
               ).bind(...binds);
             }
@@ -1228,10 +1240,11 @@ export async function handleEduDeptCoreRouter(
               notes,
             ];
             if (hasTasksSnapshot) binds.push(snapshotJson);
+            if (hasComplexId) binds.push(auth.complexId);
             return env.DB.prepare(
               `INSERT INTO edu_daily_recitation
-                (student_id, teacher_user_id, circle_id, recitation_date, listened, repeated, revised, error_count, tune_errors, notes${snapshotCol}, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?${snapshotVal}, datetime('now'))
+                (student_id, teacher_user_id, circle_id, recitation_date, listened, repeated, revised, error_count, tune_errors, notes${snapshotCol}${complexCol}, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?${snapshotVal}${complexVal}, datetime('now'))
                ON CONFLICT(student_id, recitation_date) DO UPDATE SET
                  teacher_user_id = excluded.teacher_user_id,
                  circle_id = excluded.circle_id,
@@ -1240,7 +1253,7 @@ export async function handleEduDeptCoreRouter(
                  revised = excluded.revised,
                  error_count = excluded.error_count,
                  tune_errors = excluded.tune_errors,
-                 notes = excluded.notes${snapshotUpd},
+                 notes = excluded.notes${snapshotUpd}${complexUpd},
                  updated_at = datetime('now')`,
             ).bind(...binds);
           });

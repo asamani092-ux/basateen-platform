@@ -3,6 +3,7 @@ import { fetchHimmaAuditFromLedger } from "../lib/himma-ledger-view";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 import { tableHasColumn } from "../lib/db-schema";
 import { fetchSemesterPeriod, semesterQueryRange } from "../lib/semester-period";
+import { persistSemesterHistoricalSnapshot } from "../lib/semester-snapshot";
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
@@ -363,7 +364,17 @@ export async function handleSemesterEnd(
     return json({ error: "no_active_semester" }, 409);
   }
 
+  const startDate = period.start_date ?? new Date().toISOString().slice(0, 10);
   const today = new Date().toISOString().slice(0, 10);
+
+  const snapshotId = await persistSemesterHistoricalSnapshot(
+    env,
+    auth.complexId,
+    auth.userId,
+    startDate,
+    today,
+  );
+
   await env.DB.prepare(
     `UPDATE complex_settings
      SET semester_active = 0, semester_end_date = ?, updated_at = datetime('now')
@@ -372,7 +383,12 @@ export async function handleSemesterEnd(
     .bind(today, auth.complexId)
     .run();
 
-  return json({ ok: true, semester_end_date: today, semester_active: false });
+  return json({
+    ok: true,
+    semester_end_date: today,
+    semester_active: false,
+    snapshot_id: snapshotId,
+  });
 }
 
 export async function handleAdminComplexSettingsPatch(

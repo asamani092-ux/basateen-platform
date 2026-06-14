@@ -1,5 +1,6 @@
 import type { Env } from "../types";
 import { errorJson, errorPayload } from "../lib/api-error-response";
+import { d1ErrorJson } from "../lib/map-d1-error";
 import { ADMIN_DATA_ROLES } from "../lib/roles";
 import { hasTable } from "../lib/db-schema";
 import {
@@ -78,12 +79,39 @@ function normalizeBulkRecord(
 }
 
 function mapKnownCreateError(error: unknown): Response | null {
+  const d1 = d1ErrorJson(error);
+  if (d1) return d1;
+
   const msg = error instanceof Error ? error.message : String(error);
   if (msg === "placement_required") {
     return errorJson(error, 400);
   }
-  if (msg === "national_id_exists") {
-    return errorJson(error, 409);
+  if (msg === "national_id_exists" || msg === "duplicate_national_id") {
+    return json(
+      {
+        error: "duplicate_national_id",
+        message: "رقم الهوية مسجل مسبقاً في النظام",
+      },
+      409,
+    );
+  }
+  if (msg === "duplicate_user" || msg === "duplicate_mobile") {
+    return json(
+      {
+        error: "duplicate_user",
+        message: "هذا المستخدم مسجل مسبقاً في النظام",
+      },
+      409,
+    );
+  }
+  if (msg === "save_failed") {
+    return json(
+      {
+        error: "save_failed",
+        message: "تعذّر حفظ بيانات الطالب",
+      },
+      400,
+    );
   }
   if (msg === "circle_not_found" || msg === "track_not_found") {
     return errorJson(error, 404);

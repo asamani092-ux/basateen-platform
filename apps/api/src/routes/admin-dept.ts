@@ -993,7 +993,9 @@ async function handleAdminDeptRouterImpl(
              t.id AS track_id, t.name_ar AS track_name
       FROM students s
       INNER JOIN ${attTable} sa
-        ON sa.student_id = s.id AND sa.attendance_date = ?
+        ON sa.student_id = s.id
+       AND sa.attendance_date = ?
+       AND sa.complex_id = s.complex_id
       ${placement.historyJoin}
       ${placement.circleJoin}
       ${placement.trackJoin}

@@ -2,6 +2,7 @@ import type { Env } from "../types";
 import { parsePositiveIntField } from "./students-schema";
 import { resolveMemorizationFields } from "./quran-memorization";
 import { syncStudentPlacementColumns } from "./admin-dept-schema";
+import { mapD1ErrorToResponse } from "./map-d1-error";
 import { circleExistsInComplex, resolveCircleTrackId } from "./circle-track";
 import { canManageCircle } from "./dept-scope";
 import { hasTable, tableHasColumn } from "./db-schema";
@@ -287,12 +288,16 @@ export async function createStudentWithPlacement(
       .bind(...insertVals)
       .run();
   } catch (e: unknown) {
+    const mapped = mapD1ErrorToResponse(e);
+    if (mapped) {
+      throw new Error(mapped.error);
+    }
     const msg = e instanceof Error ? e.message : String(e);
     console.error("students_insert_failed", msg, insertCols, insertVals);
     if (msg.includes("UNIQUE") && msg.includes("national_id")) {
       throw new Error("national_id_exists");
     }
-    throw new Error(msg || "save_failed");
+    throw new Error("save_failed");
   }
 
   const studentId = Number(ins.meta.last_row_id ?? 0);

@@ -9,6 +9,7 @@ import {
   usesV25FlatStaffSchema,
   v25TeacherFlags,
   v25TrackSupervisorFlags,
+  v25SupervisorFlagsForRole,
   V25_CIRCLE_STAGE_TO_ID_SQL,
 } from "./schema-v25";
 
@@ -50,6 +51,213 @@ const DEFAULT_PASSWORD = "Basateen123!";
 function emailForMobile(mobile: string, role: string): string {
   const clean = mobile.replace(/\D/g, "");
   return `${role}-${clean}@basateen.local`;
+}
+
+type StaffContactRow = {
+  id: number;
+  is_active: number;
+  deleted_at: string | null;
+  complex_id: number;
+};
+
+function isStaffInactive(row: {
+  is_active: number;
+  deleted_at?: string | null;
+}): boolean {
+  return Number(row.is_active ?? 1) === 0 || row.deleted_at != null;
+}
+
+/** O(1) — بحث موظف غير نشط بالجوال أو الهوية (إن وُجد العمود). */
+export async function findInactiveStaffByContact(
+  env: Env,
+  complexId: number,
+  contact: { mobile: string; national_id?: string | null },
+): Promise<StaffContactRow | null> {
+  const mobile = contact.mobile.trim();
+  if (!mobile) return null;
+
+  const hasDeletedAt = await tableHasColumn(env, "users", "deleted_at");
+  const hasNationalId = await tableHasColumn(env, "users", "national_id");
+  const deletedCol = hasDeletedAt ? ", deleted_at" : ", NULL AS deleted_at";
+
+  const byMobile = await env.DB.prepare(
+    `SELECT id, is_active, complex_id${deletedCol}
+     FROM users WHERE mobile = ? AND complex_id = ?`,
+  )
+    .bind(mobile, complexId)
+    .first<StaffContactRow>();
+  if (byMobile && isStaffInactive(byMobile)) return byMobile;
+
+  const nationalId = contact.national_id?.trim();
+  if (hasNationalId && nationalId) {
+    const byNational = await env.DB.prepare(
+      `SELECT id, is_active, complex_id${deletedCol}
+       FROM users WHERE national_id = ? AND complex_id = ?`,
+    )
+      .bind(nationalId, complexId)
+      .first<StaffContactRow>();
+    if (byNational && isStaffInactive(byNational)) return byNational;
+  }
+
+  return null;
+}
+
+/** O(1) — إعادة تفعيل موظف محذوف soft مع تحديث الحقول الأساسية. */
+export async function reactivateStaffUser(
+  env: Env,
+  userId: number,
+  complexId: number,
+  body: {
+    full_name_ar: string;
+    mobile: string;
+    role: "teacher" | "track_supervisor";
+  },
+): Promise<void> {
+  const sets = ["is_active = 1", "full_name_ar = ?", "mobile = ?", "email = ?"];
+  const binds: (string | number)[] = [
+    body.full_name_ar.trim(),
+    body.mobile.trim(),
+    emailForMobile(body.mobile, body.role),
+  ];
+
+  if (await tableHasColumn(env, "users", "deleted_at")) {
+    sets.push("deleted_at = NULL");
+  }
+
+  binds.push(userId, complexId);
+  await env.DB.prepare(
+    `UPDATE users SET ${sets.join(", ")} WHERE id = ? AND complex_id = ?`,
+  )
+    .bind(...binds)
+    .run();
+
+  const hasRoleCol = await usersHaveRoleColumn(env);
+  if (hasRoleCol) {
+    await env.DB.prepare(`UPDATE users SET role = ? WHERE id = ?`)
+      .bind(body.role, userId)
+      .run();
+  } else if (await usesV25FlatStaffSchema(env)) {
+    const flags =
+      body.role === "track_supervisor"
+        ? v25TrackSupervisorFlags()
+        : v25TeacherFlags();
+    for (const [flag, value] of Object.entries(flags)) {
+      if (await tableHasColumn(env, "users", flag)) {
+        await env.DB.prepare(`UPDATE users SET ${flag} = ? WHERE id = ?`)
+          .bind(value, userId)
+          .run();
+      }
+    }
+  } else if (await tableHasColumn(env, "users", "is_teacher")) {
+    await env.DB.prepare(`UPDATE users SET is_teacher = ? WHERE id = ?`)
+      .bind(body.role === "teacher" ? 1 : 0, userId)
+      .run();
+    if (await tableHasColumn(env, "users", "is_track_supervisor")) {
+      await env.DB.prepare(`UPDATE users SET is_track_supervisor = ? WHERE id = ?`)
+        .bind(body.role === "track_supervisor" ? 1 : 0, userId)
+        .run();
+    }
+  }
+}
+
+export type StaffUpsertResult = {
+  id: number;
+  reactivated: boolean;
+};
+
+/**
+ * O(1) — إنشاء أو إعادة تفعيل معلم/مشرف مسار.
+ * إذا وُجد سجل غير نشط بنفس الجوال/الهوية يُحدَّث بدلاً من الإدراج.
+ */
+export async function upsertStaffUser(
+  env: Env,
+  complexId: number,
+  body: {
+    full_name_ar: string;
+    mobile: string;
+    role: "teacher" | "track_supervisor";
+    national_id?: string | null;
+  },
+): Promise<StaffUpsertResult> {
+  const inactive = await findInactiveStaffByContact(env, complexId, body);
+  if (inactive) {
+    await reactivateStaffUser(env, inactive.id, complexId, body);
+    return { id: inactive.id, reactivated: true };
+  }
+
+  const activeDup = await env.DB.prepare(
+    `SELECT id FROM users WHERE mobile = ? AND COALESCE(is_active, 1) = 1`,
+  )
+    .bind(body.mobile.trim())
+    .first();
+  if (activeDup) {
+    throw new Error("mobile_already_used");
+  }
+
+  const id = await insertStaffUser(env, complexId, body);
+  return { id, reactivated: false };
+}
+
+/** O(1) — إعادة تفعيل مشرف مع تحديث الدور والنطاق. */
+export async function reactivateSupervisorUser(
+  env: Env,
+  userId: number,
+  complexId: number,
+  body: {
+    full_name_ar: string;
+    mobile: string;
+    role: string;
+    supervisor_scope?: string;
+  },
+  normalizeRole: (role: string) => string,
+): Promise<void> {
+  const dbRole = normalizeRole(body.role);
+  const sets = ["is_active = 1", "full_name_ar = ?", "mobile = ?", "email = ?"];
+  const binds: (string | number)[] = [
+    body.full_name_ar.trim(),
+    body.mobile.trim(),
+    emailForMobile(body.mobile, dbRole),
+  ];
+
+  if (await tableHasColumn(env, "users", "deleted_at")) {
+    sets.push("deleted_at = NULL");
+  }
+
+  binds.push(userId, complexId);
+  await env.DB.prepare(
+    `UPDATE users SET ${sets.join(", ")} WHERE id = ? AND complex_id = ?`,
+  )
+    .bind(...binds)
+    .run();
+
+  const hasRoleCol = await usersHaveRoleColumn(env);
+  if (hasRoleCol) {
+    await env.DB.prepare(`UPDATE users SET role = ? WHERE id = ?`)
+      .bind(dbRole, userId)
+      .run();
+  } else if (await usesV25FlatStaffSchema(env)) {
+    const flags = v25SupervisorFlagsForRole(dbRole);
+    for (const [flag, value] of Object.entries(flags)) {
+      if (await tableHasColumn(env, "users", flag)) {
+        await env.DB.prepare(`UPDATE users SET ${flag} = ? WHERE id = ?`)
+          .bind(value, userId)
+          .run();
+      }
+    }
+  }
+
+  const scope = body.supervisor_scope?.trim();
+  if (scope) {
+    if (await tableHasColumn(env, "users", "supervisor_scope")) {
+      await env.DB.prepare(`UPDATE users SET supervisor_scope = ? WHERE id = ?`)
+        .bind(scope, userId)
+        .run();
+    } else if (await tableHasColumn(env, "users", "stage_scope")) {
+      await env.DB.prepare(`UPDATE users SET stage_scope = ? WHERE id = ?`)
+        .bind(scope, userId)
+        .run();
+    }
+  }
 }
 
 /** إدراج معلم أو مشرف مسار */

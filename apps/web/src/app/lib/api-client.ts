@@ -1514,10 +1514,11 @@ export const api = {
       }>;
     }>(`/api/admin-dept/students/attendance/report?${qs}`);
   },
-  adminDeptAbsentToday: (params?: { date?: string; circle_id?: number }) => {
+  adminDeptAbsentToday: (params?: { date?: string; circle_id?: number; track_id?: number }) => {
     const q = new URLSearchParams();
     if (params?.date) q.set("date", params.date);
     if (params?.circle_id != null) q.set("circle_id", String(params.circle_id));
+    if (params?.track_id != null) q.set("track_id", String(params.track_id));
     const qs = q.toString();
     return request<{
       date: string;

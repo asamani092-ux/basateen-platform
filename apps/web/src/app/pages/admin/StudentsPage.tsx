@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Filter, RotateCcw, Search } from "lucide-react";
+import { Filter, Search } from "lucide-react";
 import { AdminEntityActionModal } from "../../components/admin/AdminEntityActionModal";
 import {
   TableActionsCell,
@@ -80,8 +80,6 @@ import {
 
 const ALL_FILTER = "all";
 
-type RosterTab = "active" | "archived";
-
 type StatusFilterValue = "active" | "suspended" | "no_circle" | "no_track";
 
 const STATUS_FILTER_OPTIONS: { value: StatusFilterValue; label: string }[] = [
@@ -92,7 +90,6 @@ const STATUS_FILTER_OPTIONS: { value: StatusFilterValue; label: string }[] = [
 ];
 
 export function StudentsPage() {
-  const [rosterTab, setRosterTab] = useState<RosterTab>("active");
   const [q, setQ] = useState("");
   const [stageFilter, setStageFilter] = useState(ALL_FILTER);
   const [circleFilter, setCircleFilter] = useState(ALL_FILTER);
@@ -106,9 +103,7 @@ export function StudentsPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [editStudent, setEditStudent] = useState<StudentRow | null>(null);
   const [actionStudent, setActionStudent] = useState<StudentRow | null>(null);
-  const [restoringId, setRestoringId] = useState<number | null>(null);
   const [groups, setGroups] = useState<EducationalGroupRow[]>([]);
-  const isArchivedView = rosterTab === "archived";
   const hasApi = Boolean(getApiToken());
   const { invalidate } = useAdminDataSyncContext();
 
@@ -143,12 +138,11 @@ export function StudentsPage() {
     try {
       const res = await api.students({
         q,
-        archived: isArchivedView,
         stage_id: stageFilter !== ALL_FILTER ? Number(stageFilter) : undefined,
         circle_id: circleFilter !== ALL_FILTER ? Number(circleFilter) : undefined,
         track_id: trackFilter !== ALL_FILTER ? Number(trackFilter) : undefined,
         status_filter:
-          !isArchivedView && statusFilter !== ALL_FILTER
+          statusFilter !== ALL_FILTER
             ? (statusFilter as StatusFilterValue)
             : undefined,
         page,
@@ -172,11 +166,11 @@ export function StudentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [hasApi, q, stageFilter, circleFilter, trackFilter, statusFilter, page, isArchivedView]);
+  }, [hasApi, q, stageFilter, circleFilter, trackFilter, statusFilter, page]);
 
   useEffect(() => {
     setPage(1);
-  }, [q, stageFilter, circleFilter, trackFilter, statusFilter, rosterTab]);
+  }, [q, stageFilter, circleFilter, trackFilter, statusFilter]);
 
   const syncAdminData = useCallback(async () => {
     await Promise.all([load(), loadGroups()]);
@@ -197,20 +191,6 @@ export function StudentsPage() {
     invalidate(adminInvalidateFor("student"));
     void load();
     void loadGroups();
-  }
-
-  async function restoreStudent(student: StudentRow) {
-    setRestoringId(student.id);
-    try {
-      await api.studentsRestore(student.id);
-      setItems((prev) => prev.filter((x) => x.id !== student.id));
-      afterStudentMutation();
-      toast.success(`تمت استعادة ${student.full_name_ar}`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "فشل الاستعادة");
-    } finally {
-      setRestoringId(null);
-    }
   }
 
   return (
@@ -239,26 +219,12 @@ export function StudentsPage() {
               type="button"
               className={ds.btnRound}
               onClick={() => setAddOpen(true)}
-              disabled={!hasApi || isArchivedView}
+              disabled={!hasApi}
               style={tajawal}
             >
               إضافة طالب ➕
             </Button>
           </div>
-          <Tabs
-            value={rosterTab}
-            onValueChange={(v) => setRosterTab(v as RosterTab)}
-            dir="rtl"
-          >
-            <TabsList className="w-full sm:w-auto grid grid-cols-2">
-              <TabsTrigger value="active" style={tajawal}>
-                الطلاب النشطين
-              </TabsTrigger>
-              <TabsTrigger value="archived" style={tajawal}>
-                الطلاب المؤرشفين/المحذوفين
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
           <div className="rounded-xl border border-border/60 bg-muted/25 p-4 space-y-3">
             <div className="flex items-center gap-2 text-sm font-medium text-foreground/90">
               <Filter className="w-4 h-4 text-muted-foreground" />
@@ -339,7 +305,6 @@ export function StudentsPage() {
                 <Select
                   value={statusFilter}
                   onValueChange={setStatusFilter}
-                  disabled={isArchivedView}
                 >
                   <SelectTrigger className={`h-10 bg-background ${ds.btnRound}`}>
                     <SelectValue placeholder="كل الحالات" />
@@ -401,11 +366,11 @@ export function StudentsPage() {
               </TableHeader>
               <TableBody>
                 {items.map((s) => {
-                  const suspended = !isArchivedView && s.account_status === "suspended";
+                  const suspended = s.account_status === "suspended";
                   return (
                     <TableRow
                       key={s.id}
-                      className={cn(suspended && "opacity-45", isArchivedView && "opacity-70")}
+                      className={cn(suspended && "opacity-45")}
                     >
                       <TableTruncatedCell
                         className="font-medium"
@@ -425,41 +390,21 @@ export function StudentsPage() {
                         trackName={s.track_name}
                       />
                       <TableCell style={tajawal}>
-                        {isArchivedView ? (
-                          <Badge variant="secondary">مؤرشف</Badge>
-                        ) : suspended ? (
+                        {suspended ? (
                           <Badge variant="secondary">معلّق</Badge>
                         ) : (
                           <Badge variant="outline">نشط</Badge>
                         )}
                       </TableCell>
                       <TableActionsCell>
-                        {!isArchivedView && (
-                          <>
-                            <TableIconAction
-                              kind="edit"
-                              onClick={() => setEditStudent(s)}
-                            />
-                            <TableIconAction
-                              kind="more"
-                              onClick={() => setActionStudent(s)}
-                            />
-                          </>
-                        )}
-                        {isArchivedView && (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className={ds.btnRound}
-                            disabled={restoringId === s.id}
-                            onClick={() => void restoreStudent(s)}
-                            style={tajawal}
-                          >
-                            <RotateCcw className="w-4 h-4" />
-                            {restoringId === s.id ? "جاري الاستعادة…" : "استعادة"}
-                          </Button>
-                        )}
+                        <TableIconAction
+                          kind="edit"
+                          onClick={() => setEditStudent(s)}
+                        />
+                        <TableIconAction
+                          kind="more"
+                          onClick={() => setActionStudent(s)}
+                        />
                       </TableActionsCell>
                     </TableRow>
                   );
@@ -471,7 +416,7 @@ export function StudentsPage() {
                       className="text-center text-muted-foreground"
                       style={tajawal}
                     >
-                      {isArchivedView ? "لا يوجد طلاب مؤرشفون" : "لا توجد نتائج"}
+                      لا توجد نتائج
                     </TableCell>
                   </TableRow>
                 )}
@@ -495,7 +440,7 @@ export function StudentsPage() {
         }}
       />
 
-      {actionStudent && !isArchivedView && (
+      {actionStudent && (
         <AdminEntityActionModal
           open
           onOpenChange={(o) => {
@@ -622,7 +567,9 @@ function StudentAddDialog({
       toast.success("تمت إضافة الطالب");
       onCreated();
     } catch (err) {
-      setFormError(formatStudentApiError(err));
+      const msg = formatStudentApiError(err);
+      setFormError(msg);
+      toast.error(msg);
     } finally {
       setSaving(false);
     }
@@ -652,7 +599,9 @@ function StudentAddDialog({
         onCreated();
       }
     } catch (err) {
-      setFormError(formatStudentApiError(err));
+      const msg = formatStudentApiError(err);
+      setFormError(msg);
+      toast.error(msg);
     } finally {
       setBulkLoading(false);
     }
@@ -825,7 +774,9 @@ function StudentEditDialog({
         track_name: updated?.track_name ?? student.track_name,
       });
     } catch (err) {
-      setError(formatStudentApiError(err));
+      const msg = formatStudentApiError(err);
+      setError(msg);
+      toast.error(msg);
     } finally {
       setSaving(false);
     }

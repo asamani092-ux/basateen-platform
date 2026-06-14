@@ -23,7 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from "../../components/ui/table";
-import { api, type CircleOption } from "../../lib/api-client";
+import { api, type AdminTrackRow, type CircleOption } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import { ds, tajawal } from "../../lib/design-system";
@@ -34,6 +34,7 @@ type AbsentRow = {
   guardian_phone?: string;
   status: string;
   circle_name?: string | null;
+  track_name?: string | null;
   whatsapp_url: string | null;
   whatsapp_message?: string;
 };
@@ -41,7 +42,9 @@ type AbsentRow = {
 export function AbsentWhatsappPage() {
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [circleId, setCircleId] = useState<string>("all");
+  const [trackId, setTrackId] = useState<string>("all");
   const [circles, setCircles] = useState<CircleOption[]>([]);
+  const [tracks, setTracks] = useState<AdminTrackRow[]>([]);
   const [items, setItems] = useState<AbsentRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [bulkSending, setBulkSending] = useState(false);
@@ -58,6 +61,7 @@ export function AbsentWhatsappPage() {
   useEffect(() => {
     if (!canUseApi()) return;
     api.circles().then((r) => setCircles(r.items ?? [])).catch(() => setCircles([]));
+    api.adminTracks().then((r) => setTracks(r.items ?? [])).catch(() => setTracks([]));
   }, []);
 
   const load = useCallback(async () => {
@@ -71,6 +75,7 @@ export function AbsentWhatsappPage() {
       const res = await api.adminDeptAbsentToday({
         date,
         circle_id: circleId !== "all" ? Number(circleId) : undefined,
+        track_id: trackId !== "all" ? Number(trackId) : undefined,
       });
       setItems((res.items ?? []) as AbsentRow[]);
       if (typeof res.template === "string") {
@@ -82,7 +87,7 @@ export function AbsentWhatsappPage() {
     } finally {
       setLoading(false);
     }
-  }, [date, circleId]);
+  }, [date, circleId, trackId]);
 
   useEffect(() => {
     load();
@@ -168,7 +173,13 @@ export function AbsentWhatsappPage() {
         </div>
         <div className="flex-1">
           <Label style={tajawal}>الحلقة (اختياري)</Label>
-          <Select value={circleId} onValueChange={setCircleId}>
+          <Select
+            value={circleId}
+            onValueChange={(v) => {
+              setCircleId(v);
+              if (v !== "all") setTrackId("all");
+            }}
+          >
             <SelectTrigger className={`mt-1 ${ds.btnRound}`}>
               <SelectValue placeholder="كل الحلقات" />
             </SelectTrigger>
@@ -177,6 +188,28 @@ export function AbsentWhatsappPage() {
               {circles.map((c) => (
                 <SelectItem key={c.id} value={String(c.id)}>
                   {c.name_ar}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex-1">
+          <Label style={tajawal}>المسار (اختياري)</Label>
+          <Select
+            value={trackId}
+            onValueChange={(v) => {
+              setTrackId(v);
+              if (v !== "all") setCircleId("all");
+            }}
+          >
+            <SelectTrigger className={`mt-1 ${ds.btnRound}`}>
+              <SelectValue placeholder="كل المسارات" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">كل المسارات</SelectItem>
+              {tracks.map((t) => (
+                <SelectItem key={t.id} value={String(t.id)}>
+                  {t.name_ar}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -238,7 +271,7 @@ export function AbsentWhatsappPage() {
                   الطالب
                 </TableHead>
                 <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
-                  الحلقة
+                  الحلقة / المسار
                 </TableHead>
                 <TableHead className={`${ds.table.head} w-[14%]`} style={tajawal}>
                   الحالة
@@ -258,7 +291,7 @@ export function AbsentWhatsappPage() {
                     {r.full_name_ar}
                   </TableTruncatedCell>
                   <TableTruncatedCell style={tajawal}>
-                    {r.circle_name ?? "—"}
+                    {r.circle_name ?? r.track_name ?? "—"}
                   </TableTruncatedCell>
                   <TableCell
                     className={`${ds.table.cell} ${ds.table.colStatus} whitespace-nowrap`}

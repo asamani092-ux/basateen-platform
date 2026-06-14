@@ -961,6 +961,8 @@ async function handleAdminDeptRouterImpl(
     const date = url.searchParams.get("date")?.trim() || todayIso();
     const circleIdParam = url.searchParams.get("circle_id");
     const circleId = circleIdParam ? Number(circleIdParam) : null;
+    const trackIdParam = url.searchParams.get("track_id");
+    const trackId = trackIdParam ? Number(trackIdParam) : null;
 
     const attTable = await resolveAttendanceTableName(env);
     if (!attTable) {
@@ -1013,6 +1015,9 @@ async function handleAdminDeptRouterImpl(
         sql += ` AND ${placement.circleRef} = ?`;
         binds.push(circleId);
       }
+    } else if (trackId != null && Number.isFinite(trackId)) {
+      sql += ` AND ${placement.trackRef} = ?`;
+      binds.push(trackId);
     }
 
     sql += ` ORDER BY COALESCE(c.name_ar, t.name_ar), s.full_name_ar`;

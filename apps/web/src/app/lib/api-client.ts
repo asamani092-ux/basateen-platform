@@ -1097,6 +1097,7 @@ export const api = {
       is_active?: number;
       stage_ids?: number[];
       circle_ids?: number[];
+      supervisor_id?: number;
     },
   ) =>
     request<{ ok: boolean }>(`/api/admin/tracks/${id}`, {

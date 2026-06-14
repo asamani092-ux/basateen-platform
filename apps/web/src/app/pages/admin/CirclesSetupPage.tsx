@@ -64,6 +64,40 @@ function apiErrorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
+function teacherSelectOption(
+  teacher: StaffMemberRow,
+  currentCircleId?: number,
+): { label: string; disabled: boolean } {
+  if (
+    teacher.circle_id != null &&
+    teacher.circle_id !== currentCircleId
+  ) {
+    const circleHint = teacher.circle_name?.trim() || "حلقة أخرى";
+    return {
+      label: `${teacher.full_name_ar} — ${circleHint}`,
+      disabled: true,
+    };
+  }
+  return { label: teacher.full_name_ar, disabled: false };
+}
+
+function trackSupervisorSelectOption(
+  supervisor: StaffMemberRow,
+  currentTrackId?: number,
+): { label: string; disabled: boolean } {
+  if (
+    supervisor.track_id != null &&
+    supervisor.track_id !== currentTrackId
+  ) {
+    const trackHint = supervisor.track_name?.trim() || "مسار آخر";
+    return {
+      label: `${supervisor.full_name_ar} — ${trackHint}`,
+      disabled: true,
+    };
+  }
+  return { label: supervisor.full_name_ar, disabled: false };
+}
+
 async function fetchStaffByRole(role: string): Promise<StaffMemberRow[]> {
   const all: StaffMemberRow[] = [];
   let p = 1;
@@ -452,9 +486,14 @@ function GroupFormDialog({
             teacher_user_id: Number(teacherId),
           });
         } else {
+          if (!supervisorId) {
+            toast.error("اختر مشرف مسار");
+            return;
+          }
           await api.adminTracksPatch(editRow.id, {
             name_ar: name.trim(),
             default_capacity: Number(capacity),
+            supervisor_id: Number(supervisorId),
           });
         }
       } else if (isCircle) {
@@ -595,11 +634,23 @@ function GroupFormDialog({
                   <option value="">
                     {isEdit ? "— اختر معلمًا —" : "— معلم جديد أدناه —"}
                   </option>
-                  {teachers.map((t) => (
-                    <option key={t.id} value={String(t.id)}>
-                      {t.full_name_ar}
-                    </option>
-                  ))}
+                  {teachers.map((t) => {
+                    const opt = teacherSelectOption(
+                      t,
+                      isEdit && editRow?.entity_type === "circle"
+                        ? editRow.id
+                        : undefined,
+                    );
+                    return (
+                      <option
+                        key={t.id}
+                        value={String(t.id)}
+                        disabled={opt.disabled}
+                      >
+                        {opt.label}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
               {!teacherId && !isEdit && (
@@ -636,11 +687,23 @@ function GroupFormDialog({
                   <option value="">
                     {isEdit ? "— اختر المشرف —" : "— مشرف جديد أدناه —"}
                   </option>
-                  {trackSupervisors.map((s) => (
-                    <option key={s.id} value={String(s.id)}>
-                      {s.full_name_ar}
-                    </option>
-                  ))}
+                  {trackSupervisors.map((s) => {
+                    const opt = trackSupervisorSelectOption(
+                      s,
+                      isEdit && editRow?.entity_type === "track"
+                        ? editRow.id
+                        : undefined,
+                    );
+                    return (
+                      <option
+                        key={s.id}
+                        value={String(s.id)}
+                        disabled={opt.disabled}
+                      >
+                        {opt.label}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
               {!supervisorId && !isEdit && (

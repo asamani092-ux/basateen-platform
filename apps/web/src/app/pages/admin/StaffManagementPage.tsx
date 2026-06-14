@@ -43,12 +43,7 @@ import {
   stageLabel,
   type StageId,
 } from "../../lib/stages";
-import {
-  api,
-  type AdminCircleRow,
-  type AdminTrackRow,
-  type StaffMemberRow,
-} from "../../lib/api-client";
+import { api, type StaffMemberRow } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
 import { ds, tajawal } from "../../lib/design-system";
 import {
@@ -113,33 +108,12 @@ export function StaffManagementPage() {
   const [items, setItems] = useState<StaffMemberRow[]>([]);
   const [page, setPage] = useState(1);
   const [pageInfo, setPageInfo] = useState<PageInfo | null>(null);
-  const [circles, setCircles] = useState<AdminCircleRow[]>([]);
-  const [tracks, setTracks] = useState<AdminTrackRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
   const [editRow, setEditRow] = useState<StaffMemberRow | null>(null);
-  const [assignRow, setAssignRow] = useState<StaffMemberRow | null>(null);
   const [actionRow, setActionRow] = useState<StaffMemberRow | null>(null);
   const hasApi = Boolean(getApiToken());
   const { invalidate } = useAdminDataSyncContext();
-
-  const loadMeta = useCallback(async () => {
-    if (!hasApi) return;
-    const [circlesRes, tracksRes] = await Promise.allSettled([
-      api.adminCirclesSummary(),
-      api.adminTracks(),
-    ]);
-    if (circlesRes.status === "fulfilled") {
-      setCircles((circlesRes.value.items ?? []).filter((c) => c.is_active));
-    } else {
-      setCircles([]);
-    }
-    if (tracksRes.status === "fulfilled") {
-      setTracks(tracksRes.value.items ?? []);
-    } else {
-      setTracks([]);
-    }
-  }, [hasApi]);
 
   const load = useCallback(async () => {
     if (!hasApi) {
@@ -174,17 +148,10 @@ export function StaffManagementPage() {
   }, [hasApi, page]);
 
   useEffect(() => {
-    void loadMeta();
-  }, [loadMeta]);
-
-  useEffect(() => {
     void load();
   }, [load]);
 
-  useAdminDataSync(["staff", "groups"], () => {
-    void loadMeta();
-    void load();
-  });
+  useAdminDataSync(["staff"], load);
 
   function afterStaffMutation() {
     invalidate(adminInvalidateFor("staff"));
@@ -285,20 +252,6 @@ export function StaffManagementPage() {
                         {assignedEntityLabel(row)}
                       </TableTruncatedCell>
                       <TableActionsCell wide>
-                        {row.role === "teacher" && (
-                          <TableIconAction
-                            kind="assign"
-                            label="إسناد حلقة"
-                            onClick={() => setAssignRow(row)}
-                          />
-                        )}
-                        {row.role === "track_supervisor" && (
-                          <TableIconAction
-                            kind="assign"
-                            label="إسناد مسار"
-                            onClick={() => setAssignRow(row)}
-                          />
-                        )}
                         <TableIconAction
                           kind="edit"
                           onClick={() => setEditRow(row)}
@@ -325,8 +278,6 @@ export function StaffManagementPage() {
 
       <AddStaffDialog
         open={addOpen}
-        circles={circles}
-        tracks={tracks}
         onOpenChange={setAddOpen}
         onSaved={() => {
           setAddOpen(false);
@@ -392,22 +343,6 @@ export function StaffManagementPage() {
         />
       )}
 
-      {assignRow && (
-        <AssignStaffDialog
-          row={assignRow}
-          circles={circles}
-          tracks={tracks}
-          open
-          onOpenChange={(o) => {
-            if (!o) setAssignRow(null);
-          }}
-          onSaved={() => {
-            setAssignRow(null);
-            afterStaffMutation();
-            toast.success("تم الإسناد بنجاح");
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -415,22 +350,16 @@ export function StaffManagementPage() {
 function AddStaffDialog({
   open,
   onOpenChange,
-  circles,
-  tracks,
   onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  circles: AdminCircleRow[];
-  tracks: AdminTrackRow[];
   onSaved: () => void;
 }) {
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
   const [role, setRole] = useState<string>(ALL_STAFF_ROLES[4].value);
   const [scope, setScope] = useState(SCOPE_GLOBAL);
-  const [circleId, setCircleId] = useState("");
-  const [trackId, setTrackId] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -439,8 +368,6 @@ function AddStaffDialog({
     setMobile("");
     setRole(ALL_STAFF_ROLES[4].value);
     setScope(SCOPE_GLOBAL);
-    setCircleId("");
-    setTrackId("");
   }, [open]);
 
   async function submit(e: React.FormEvent) {
@@ -449,20 +376,11 @@ function AddStaffDialog({
     try {
       const trimmedName = name.trim();
       const trimmedMobile = mobile.trim();
-      if (role === "teacher") {
+      if (role === "teacher" || role === "track_supervisor") {
         await api.adminTeachersCreate({
           full_name_ar: trimmedName,
           mobile: trimmedMobile,
-          role: "teacher",
-          ...(circleId ? { circle_id: Number(circleId) } : {}),
-        });
-      } else if (role === "track_supervisor") {
-        await api.adminTeachersCreate({
-          full_name_ar: trimmedName,
-          mobile: trimmedMobile,
-          role: "track_supervisor",
-          ...(trackId ? { track_id: Number(trackId) } : {}),
-          ...(circleId ? { circle_id: Number(circleId) } : {}),
+          role,
         });
       } else {
         await api.adminSupervisorsCreate({
@@ -470,8 +388,6 @@ function AddStaffDialog({
           mobile: trimmedMobile,
           role: roleForApi(role),
           supervisor_scope: scope,
-          track_id:
-            role === "track_supervisor" && trackId ? Number(trackId) : undefined,
         });
       }
       onSaved();
@@ -484,8 +400,7 @@ function AddStaffDialog({
 
   const isTeacher = role === "teacher";
   const isTrackSup = role === "track_supervisor";
-  const isSupervisor =
-    !isTeacher && !isTrackSup;
+  const isSupervisor = !isTeacher && !isTrackSup;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -514,11 +429,7 @@ function AddStaffDialog({
             <Label style={tajawal}>الدور *</Label>
             <select
               value={role}
-              onChange={(e) => {
-                setRole(e.target.value);
-                setCircleId("");
-                setTrackId("");
-              }}
+              onChange={(e) => setRole(e.target.value)}
               className={ds.select}
               style={tajawal}
             >
@@ -542,30 +453,6 @@ function AddStaffDialog({
                 {EDUCATIONAL_STAGES.map((s) => (
                   <option key={s.id} value={String(s.id)}>
                     {s.name_ar}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          {(isTeacher || isTrackSup) && (
-            <div className="space-y-1">
-              <Label style={tajawal}>
-                {isTrackSup ? "المسار (اختياري)" : "الحلقة (اختياري)"}
-              </Label>
-              <select
-                value={isTrackSup ? trackId : circleId}
-                onChange={(e) =>
-                  isTrackSup
-                    ? setTrackId(e.target.value)
-                    : setCircleId(e.target.value)
-                }
-                className={ds.select}
-                style={tajawal}
-              >
-                <option value="">— بدون إسناد —</option>
-                {(isTrackSup ? tracks : circles).map((x) => (
-                  <option key={x.id} value={String(x.id)}>
-                    {x.name_ar}
                   </option>
                 ))}
               </select>
@@ -702,90 +589,3 @@ function EditStaffDialog({
   );
 }
 
-function AssignStaffDialog({
-  row,
-  circles,
-  tracks,
-  open,
-  onOpenChange,
-  onSaved,
-}: {
-  row: StaffMemberRow;
-  circles: AdminCircleRow[];
-  tracks: AdminTrackRow[];
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSaved: () => void;
-}) {
-  const isTeacher = row.role === "teacher";
-  const [circleId, setCircleId] = useState(
-    row.circle_id ? String(row.circle_id) : "",
-  );
-  const [trackId, setTrackId] = useState(row.track_id ? String(row.track_id) : "");
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    setCircleId(row.circle_id ? String(row.circle_id) : "");
-    setTrackId(row.track_id ? String(row.track_id) : "");
-  }, [open, row]);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      if (isTeacher) {
-        if (!circleId) {
-          toast.error("اختر حلقة");
-          return;
-        }
-        await api.adminStaffPatch(row.id, { circle_id: Number(circleId) });
-      } else {
-        if (!trackId) {
-          toast.error("اختر مساراً");
-          return;
-        }
-        await api.adminStaffPatch(row.id, { track_id: Number(trackId) });
-      }
-      onSaved();
-    } catch (err) {
-      toast.error(apiErrorMessage(err, "فشل الإسناد"));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={`${ds.dialog} sm:max-w-md`} dir="rtl">
-        <DialogHeader className="text-right">
-          <DialogTitle style={tajawal}>
-            {isTeacher ? "إسناد حلقة" : "إسناد مسار"}
-          </DialogTitle>
-          <DialogDescription style={tajawal}>{row.full_name_ar}</DialogDescription>
-        </DialogHeader>
-        <GuardedForm onSubmit={submit} className="grid gap-3">
-          <select
-            value={isTeacher ? circleId : trackId}
-            onChange={(e) =>
-              isTeacher ? setCircleId(e.target.value) : setTrackId(e.target.value)
-            }
-            className={ds.select}
-            style={tajawal}
-            required
-          >
-            <option value="">— اختر —</option>
-            {(isTeacher ? circles : tracks).map((x) => (
-              <option key={x.id} value={String(x.id)}>
-                {x.name_ar}
-              </option>
-            ))}
-          </select>
-          <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
-            {saving ? "جاري الحفظ…" : "تأكيد الإسناد"}
-          </Button>
-        </GuardedForm>
-      </DialogContent>
-    </Dialog>
-  );
-}

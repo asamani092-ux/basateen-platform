@@ -1711,7 +1711,8 @@ async function handleAdminDeptRouterImpl(
 
     const staffCounts = await countComplexStaff(env, admin.complexId);
     const staffTotal = staffCounts.total;
-    const rateDate = todayIso();
+    const today = todayIso();
+    const rateDate = endDate <= today ? endDate : today;
 
     const staffOnToday = await env.DB.prepare(
       `SELECT sa.user_id, sa.status
@@ -1751,38 +1752,9 @@ async function handleAdminDeptRouterImpl(
     const staffAbsent = Math.max(0, staffTotal - staffPresent);
     const studentsAbsent = Math.max(0, studentsTotal - studentsPresent);
 
-    let staffDisciplinePct = 0;
-    let studentsDisciplinePct = 0;
-    if (await hasTable(env, "staff_attendance")) {
-      const staffDisc = await env.DB.prepare(
-        `SELECT SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) AS present_cnt,
-                COUNT(*) AS total_cnt
-         FROM staff_attendance
-         WHERE complex_id = ? AND attendance_date BETWEEN ? AND ?`,
-      )
-        .bind(admin.complexId, startDate, endDate)
-        .first<{ present_cnt: number; total_cnt: number }>();
-      const stTotal = Number(staffDisc?.total_cnt ?? 0);
-      staffDisciplinePct =
-        stTotal > 0
-          ? Math.round((Number(staffDisc?.present_cnt ?? 0) / stTotal) * 100)
-          : 0;
-    }
-    if (attTable) {
-      const stuDisc = await env.DB.prepare(
-        `SELECT SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) AS present_cnt,
-                COUNT(*) AS total_cnt
-         FROM ${attTable}
-         WHERE complex_id = ? AND attendance_date BETWEEN ? AND ?`,
-      )
-        .bind(admin.complexId, startDate, endDate)
-        .first<{ present_cnt: number; total_cnt: number }>();
-      const stuTotal = Number(stuDisc?.total_cnt ?? 0);
-      studentsDisciplinePct =
-        stuTotal > 0
-          ? Math.round((Number(stuDisc?.present_cnt ?? 0) / stuTotal) * 100)
-          : 0;
-    }
+    // Same denominator as staff_present_pct / students_present_pct: present on rateDate ÷ roster total.
+    const staffDisciplinePct = pct(staffPresent, staffTotal);
+    const studentsDisciplinePct = pct(studentsPresent, studentsTotal);
 
     const complex = await env.DB.prepare(
       `SELECT name_ar FROM complexes WHERE id = ?`,

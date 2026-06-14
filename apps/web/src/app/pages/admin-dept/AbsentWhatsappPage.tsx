@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { MessageSquareText } from "lucide-react";
 import { toast } from "sonner";
+import { AbsentWhatsappTemplateDialog } from "../../components/admin/AbsentWhatsappTemplateDialog";
 import {
   TableActionsCell,
   TableIconAction,
@@ -45,6 +47,8 @@ export function AbsentWhatsappPage() {
   const [bulkSending, setBulkSending] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const [messageTemplate, setMessageTemplate] = useState<string>("");
 
   const sendableItems = useMemo(
     () => items.filter((r) => Boolean(r.whatsapp_url)),
@@ -69,6 +73,9 @@ export function AbsentWhatsappPage() {
         circle_id: circleId !== "all" ? Number(circleId) : undefined,
       });
       setItems((res.items ?? []) as AbsentRow[]);
+      if (typeof res.template === "string") {
+        setMessageTemplate(res.template);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل التحميل");
       setItems([]);
@@ -112,14 +119,36 @@ export function AbsentWhatsappPage() {
 
   return (
     <div className="space-y-4 max-w-[1200px]">
-      <div>
-        <h2 className={ds.page.title} style={tajawal}>
-          واتساب الغياب اليومي
-        </h2>
-        <p className={ds.page.description} style={tajawal}>
-          الطلاب الغائبون والمستأذنون لهذا اليوم — رسالة جاهزة لولي الأمر.
-        </p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className={ds.page.title} style={tajawal}>
+            واتساب الغياب اليومي
+          </h2>
+          <p className={ds.page.description} style={tajawal}>
+            الطلاب الغائبون والمستأذنون لهذا اليوم — رسالة جاهزة لولي الأمر.
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          className={`${ds.btnRound} w-full sm:w-auto min-h-11 shrink-0`}
+          onClick={() => setTemplateOpen(true)}
+          style={tajawal}
+        >
+          <MessageSquareText className="size-4" aria-hidden />
+          تخصيص قالب الرسالة
+        </Button>
       </div>
+
+      <AbsentWhatsappTemplateDialog
+        open={templateOpen}
+        onOpenChange={setTemplateOpen}
+        initialTemplate={messageTemplate}
+        onSaved={(template) => {
+          setMessageTemplate(template);
+          void load();
+        }}
+      />
 
       {error && (
         <p className={ds.alert.error} style={tajawal}>

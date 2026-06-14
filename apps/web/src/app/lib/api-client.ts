@@ -1445,6 +1445,14 @@ export const api = {
       template: string;
     }>(`/api/admin-dept/students/absent-today${qs ? `?${qs}` : ""}`);
   },
+  adminDeptSaveAbsentWhatsappTemplate: (template: string) =>
+    request<{ ok: boolean; template: string }>(
+      "/api/admin-dept/students/absent-today/template",
+      {
+        method: "PUT",
+        body: JSON.stringify({ template }),
+      },
+    ),
   adminDeptCreateMagicLink: (body: {
     circle_id?: number;
     track_id?: number;

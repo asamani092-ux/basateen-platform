@@ -82,6 +82,19 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function applyWhatsappAbsenceTemplate(
+  template: string,
+  ctx: { studentName: string; circleOrTrack: string; date: string },
+): string {
+  return template
+    .replace(/\{\{student_name\}\}/g, ctx.studentName)
+    .replace(/\{\{اسم_الطالب\}\}/g, ctx.studentName)
+    .replace(/\{\{circle_name\}\}/g, ctx.circleOrTrack)
+    .replace(/\{\{الحلقة_أو_المسار\}\}/g, ctx.circleOrTrack)
+    .replace(/\{\{date\}\}/g, ctx.date)
+    .replace(/\{\{التاريخ\}\}/g, ctx.date);
+}
+
 function parseStatus(raw: unknown): AttendanceStatus | null {
   const s = String(raw ?? "").trim();
   if (s === "present" || s === "absent" || s === "excused") return s;
@@ -814,15 +827,62 @@ async function handleAdminDeptRouterImpl(
 
     const items = (rows.results ?? []).map((r: Record<string, unknown>) => {
       const name = String(r.full_name_ar ?? "");
-      const msg = template
-        .replace(/\{\{student_name\}\}/g, name)
-        .replace(/\{\{date\}\}/g, date);
+      const circleOrTrack = String(r.circle_name ?? "الحلقة");
+      const msg = applyWhatsappAbsenceTemplate(template, {
+        studentName: name,
+        circleOrTrack,
+        date,
+      });
       const phone = String(r.guardian_phone ?? "").replace(/\D/g, "");
       const waUrl = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}` : null;
       return { ...r, whatsapp_message: msg, whatsapp_url: waUrl };
     });
 
     return json({ date, items, template });
+  }
+
+  // PUT /api/admin-dept/students/absent-today/template
+  if (
+    request.method === "PUT" &&
+    path === "/api/admin-dept/students/absent-today/template"
+  ) {
+    const hasTemplate = await tableHasColumn(
+      env,
+      "complex_settings",
+      "whatsapp_absence_template_ar",
+    );
+    if (!hasTemplate) {
+      return json(
+        { error: "migration_required", column: "whatsapp_absence_template_ar" },
+        503,
+      );
+    }
+
+    let body: { template?: string };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+
+    const template = body.template?.trim();
+    if (!template) {
+      return json({ error: "template_required" }, 400);
+    }
+
+    const updated = await env.DB.prepare(
+      `UPDATE complex_settings
+       SET whatsapp_absence_template_ar = ?, updated_at = datetime('now')
+       WHERE complex_id = ?`,
+    )
+      .bind(template, admin.complexId)
+      .run();
+
+    if ((updated.meta.changes ?? 0) === 0) {
+      return json({ error: "complex_settings_not_found" }, 404);
+    }
+
+    return json({ ok: true, template });
   }
 
   // POST /api/admin-dept/pledges

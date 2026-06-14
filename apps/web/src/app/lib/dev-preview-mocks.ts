@@ -419,7 +419,22 @@ export function resolveDevPreviewMock<T>(
         circle_name: s.circle_name,
         whatsapp_url: `https://wa.me/966500000001?text=${encodeURIComponent("غياب تجريبي")}`,
       }));
-    return { date, items, template: "غياب {{student_name}}" } as T;
+    return {
+      date,
+      items,
+      template:
+        "السلام عليكم، نود إبلاغكم بغياب الطالب {{اسم_الطالب}} عن {{الحلقة_أو_المسار}} يوم {{التاريخ}}.",
+    } as T;
+  }
+
+  if (p === "/api/admin-dept/students/absent-today/template" && m === "PUT") {
+    const body = init?.body
+      ? (JSON.parse(String(init.body)) as { template?: string })
+      : {};
+    return {
+      ok: true,
+      template: body.template?.trim() ?? "",
+    } as T;
   }
 
   if (

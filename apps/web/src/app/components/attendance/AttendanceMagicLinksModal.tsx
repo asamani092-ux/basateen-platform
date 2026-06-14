@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { DoubleConfirmDialog } from "../shared/DoubleConfirmDialog";
 import {
   TableActionsCell,
@@ -77,6 +79,7 @@ export function AttendanceMagicLinksModal({
   const [error, setError] = useState<string | null>(null);
   const [copyHint, setCopyHint] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [createType, setCreateType] = useState<EntityType>(defaultEntityType);
   const [createCircleId, setCreateCircleId] = useState(
@@ -202,9 +205,18 @@ export function AttendanceMagicLinksModal({
 
   async function confirmDelete() {
     if (deleteId == null) return;
-    await api.adminDeptMagicLinksDelete(deleteId);
-    setDeleteId(null);
-    await load();
+    setDeletingId(deleteId);
+    try {
+      await api.adminDeptMagicLinksDelete(deleteId);
+      toast.success("تم حذف رابط التحضير");
+      setDeleteId(null);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "فشل حذف رابط التحضير");
+      throw e;
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   return (
@@ -362,10 +374,20 @@ export function AttendanceMagicLinksModal({
                           onClick={() => toggleLink(row.id)}
                           disabled={busy}
                         />
-                        <TableIconAction
-                          kind="delete"
-                          onClick={() => setDeleteId(row.id)}
-                        />
+                        {deletingId === row.id ? (
+                          <span
+                            className="inline-flex size-8 items-center justify-center"
+                            aria-label="جاري الحذف"
+                          >
+                            <Loader2 className="size-4 animate-spin text-destructive" />
+                          </span>
+                        ) : (
+                          <TableIconAction
+                            kind="delete"
+                            onClick={() => setDeleteId(row.id)}
+                            disabled={deletingId != null || busy}
+                          />
+                        )}
                       </TableActionsCell>
                     </TableRow>
                   ))}

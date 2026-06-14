@@ -58,6 +58,10 @@ import {
   upsertAttendanceRecord,
 } from "../lib/admin-attendance-mutations";
 import { fetchAdminDashboardStats } from "../lib/admin-dashboard-stats";
+import {
+  buildSemesterExportCsvBundle,
+  semesterExportCsvResponse,
+} from "../lib/semester-export-all";
 import { assignStudentCircle } from "../lib/placement";
 import {
   resolveAttendanceTableName,
@@ -396,7 +400,6 @@ async function buildSemesterExportPayload(
   const hasFull = await tableHasColumn(env, "students", "full_name_ar");
   const nameSelect = hasFull ? "s.full_name_ar" : "s.name AS full_name_ar";
   const hasIsActive = await tableHasColumn(env, "students", "is_active");
-  const hasDeletedAt = await tableHasColumn(env, "students", "deleted_at");
   const rosterFilter = mode === "all" ? "1=1" : isActiveExpr;
 
   const studentSql = `
@@ -407,7 +410,6 @@ async function buildSemesterExportPayload(
       ${(await tableHasColumn(env, "students", "phone")) ? "s.phone" : "NULL AS phone"},
       ${(await tableHasColumn(env, "students", "school_grade")) ? "s.school_grade" : "NULL AS school_grade"},
       ${hasIsActive ? "COALESCE(CAST(s.is_active AS INTEGER), 1) AS is_active" : "1 AS is_active"},
-      ${hasDeletedAt ? "s.deleted_at" : "NULL AS deleted_at"},
       c.name_ar AS circle_name,
       t.name_ar AS track_name
     FROM students s
@@ -427,7 +429,6 @@ async function buildSemesterExportPayload(
       phone: string | null;
       school_grade: string | null;
       is_active: number;
-      deleted_at: string | null;
       circle_name: string | null;
       track_name: string | null;
     }>();
@@ -514,7 +515,6 @@ async function buildSemesterExportPayload(
     ...(mode === "all"
       ? {
           is_archived: s.is_active === 0,
-          deleted_at: s.deleted_at,
         }
       : {}),
   }));
@@ -968,7 +968,20 @@ async function handleAdminDeptRouterImpl(
 
     const placement = await buildStudentPlacementSql(env);
     const isActiveExpr = await studentAttendanceEligibleSql(env, "s");
+    const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
     const hasCurrentTrack = await tableHasColumn(env, "students", "current_track_id");
+
+    const placementParts: string[] = [];
+    if (hasCurrentCircle) placementParts.push("s.current_circle_id IS NOT NULL");
+    if (hasCurrentTrack) placementParts.push("s.current_track_id IS NOT NULL");
+    if (placement.circleRef !== "NULL") {
+      placementParts.push(`${placement.circleRef} IS NOT NULL`);
+    }
+    if (placement.trackRef !== "NULL") {
+      placementParts.push(`${placement.trackRef} IS NOT NULL`);
+    }
+    const placementFilter =
+      placementParts.length > 0 ? `(${placementParts.join(" OR ")})` : "1=1";
 
     let sql = `
       SELECT s.id AS student_id, s.full_name_ar, s.guardian_phone, s.stage_id,
@@ -983,10 +996,7 @@ async function handleAdminDeptRouterImpl(
       ${placement.trackJoin}
       WHERE s.complex_id = ? AND ${isActiveExpr}
         AND sa.status IN ('absent', 'excused')
-        AND (
-          ${placement.circleRef} IS NOT NULL
-          OR ${hasCurrentTrack ? `${placement.trackRef} IS NOT NULL` : "0=1"}
-        )`;
+        AND ${placementFilter}`;
     const binds: (number | string)[] = [date, admin.complexId];
 
     if (circleId != null && Number.isFinite(circleId)) {
@@ -1040,6 +1050,31 @@ async function handleAdminDeptRouterImpl(
     });
 
     return json({ date, items, template });
+  }
+
+  // GET /api/admin-dept/students/absent-today/template
+  if (
+    request.method === "GET" &&
+    path === "/api/admin-dept/students/absent-today/template"
+  ) {
+    const hasTemplate = await tableHasColumn(
+      env,
+      "complex_settings",
+      "whatsapp_absence_template_ar",
+    );
+    const defaultTemplate =
+      "السلام عليكم، نود إبلاغكم بغياب الطالب {{student_name}} عن {{الحلقة_أو_المسار}} يوم {{date}}.";
+    if (!hasTemplate) {
+      return json({ template: defaultTemplate, migration_required: true });
+    }
+    const row = await env.DB.prepare(
+      `SELECT whatsapp_absence_template_ar FROM complex_settings WHERE complex_id = ?`,
+    )
+      .bind(admin.complexId)
+      .first<{ whatsapp_absence_template_ar: string | null }>();
+    return json({
+      template: row?.whatsapp_absence_template_ar?.trim() || defaultTemplate,
+    });
   }
 
   // PUT /api/admin-dept/students/absent-today/template
@@ -1675,18 +1710,19 @@ async function handleAdminDeptRouterImpl(
 
     const staffCounts = await countComplexStaff(env, admin.complexId);
     const staffTotal = staffCounts.total;
+    const rateDate = todayIso();
 
-    const staffOnEnd = await env.DB.prepare(
+    const staffOnToday = await env.DB.prepare(
       `SELECT sa.user_id, sa.status
        FROM staff_attendance sa
        JOIN users u ON u.id = sa.user_id
        WHERE sa.complex_id = ? AND sa.attendance_date = ?
          AND COALESCE(u.is_active, 1) = 1`,
     )
-      .bind(admin.complexId, endDate)
+      .bind(admin.complexId, rateDate)
       .all<{ user_id: number; status: string }>();
     let staffPresent = 0;
-    for (const r of staffOnEnd.results ?? []) {
+    for (const r of staffOnToday.results ?? []) {
       if (r.status === "present") staffPresent++;
     }
 
@@ -1696,16 +1732,16 @@ async function handleAdminDeptRouterImpl(
     let studentsPresent = 0;
     if (attTable) {
       const isActiveExpr = await studentAttendanceEligibleSql(env, "s");
-      const presentOnEnd = await env.DB.prepare(
+      const presentToday = await env.DB.prepare(
         `SELECT COUNT(DISTINCT sa.student_id) AS c
          FROM ${attTable} sa
          JOIN students s ON s.id = sa.student_id
          WHERE sa.complex_id = ? AND sa.attendance_date = ? AND sa.status = 'present'
            AND ${isActiveExpr}`,
       )
-        .bind(admin.complexId, endDate)
+        .bind(admin.complexId, rateDate)
         .first<{ c: number }>();
-      studentsPresent = Number(presentOnEnd?.c ?? 0);
+      studentsPresent = Number(presentToday?.c ?? 0);
     }
 
     const pct = (n: number, total: number) =>
@@ -1782,10 +1818,15 @@ async function handleAdminDeptRouterImpl(
     return json(payload);
   }
 
-  // GET /api/admin-dept/reports/semester-export-all — الأرشيف الختامي الشامل (كل الطلاب + تفاصيل يومية)
+  // GET /api/admin-dept/reports/semester-export-all — تصدير الفصل (CSV متعدد الأقسام)
   if (request.method === "GET" && path === "/api/admin-dept/reports/semester-export-all") {
-    const payload = await buildSemesterExportPayload(env, admin.complexId, "all");
-    return json(payload);
+    const format = (url.searchParams.get("format") ?? "csv").trim().toLowerCase();
+    if (format === "json") {
+      const payload = await buildSemesterExportPayload(env, admin.complexId, "all");
+      return json(payload);
+    }
+    const bundle = await buildSemesterExportCsvBundle(env, admin.complexId);
+    return semesterExportCsvResponse(bundle);
   }
 
   // GET /api/admin-dept/reports/individual — تقرير انضباط تفصيلي لفرد

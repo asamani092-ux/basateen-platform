@@ -121,8 +121,18 @@ case "$MODE" in
     cd "$API_DIR"
     npm run db:remote:057
     ;;
+  058)
+    echo "D1 remote migrate: 058 circles/tracks assignee FK ON DELETE SET NULL"
+    cd "$API_DIR"
+    npm run db:remote:058
+    ;;
+  059)
+    echo "D1 remote migrate: 059 whatsapp absence template column"
+    cd "$API_DIR"
+    npm run db:remote:059
+    ;;
   *)
-    echo "Usage: $0 upgrade|all|demo|048|competition-stack|051|052|053|054|055|056|057"
+    echo "Usage: $0 upgrade|all|demo|048|competition-stack|051|052|053|054|055|056|057|058|059"
     exit 1
     ;;
 esac

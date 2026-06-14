@@ -611,7 +611,7 @@ export async function handleStudentDelete(
 
     await safeDeleteStudent(env, studentId);
 
-    return json({ ok: true, deleted: true, soft_deleted: true });
+    return json({ ok: true, deleted: true, id: studentId });
   } catch (err) {
     console.error("student_delete_failed", err);
     return json(

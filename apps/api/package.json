@@ -116,6 +116,8 @@
     "db:remote:057": "node scripts/migrate-057-remote.mjs",
     "db:remote:058": "node scripts/migrate-058-remote.mjs",
     "db:local:058": "node scripts/migrate-058-local.mjs",
+    "db:remote:059": "node scripts/migrate-059-remote.mjs",
+    "db:local:059": "node scripts/migrate-059-local.mjs",
     "db:remote:competition-stack": "npm run db:remote:045 && npm run db:remote:046 && npm run db:remote:047 && npm run db:remote:048 && npm run db:remote:049 && npm run db:remote:050 && npm run db:remote:051 && npm run db:remote:052 && npm run db:remote:053 && npm run db:remote:054 && npm run db:remote:055 && npm run db:remote:056 && npm run db:remote:057",
     "db:local:054": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/054_tasks_snapshot.sql",
     "db:local:055": "npx wrangler d1 execute basateen --local --file=../../packages/database/schema/055_competition_logs_metrics.sql",

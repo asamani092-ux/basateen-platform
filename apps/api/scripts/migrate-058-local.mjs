@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 058 local: students.deleted_at + circles/tracks assignee FK ON DELETE SET NULL.
+ * 058 local: circles/tracks assignee FK ON DELETE SET NULL.
  */
 import { execSync } from "node:child_process";
 import { unlinkSync, writeFileSync } from "node:fs";
@@ -91,14 +91,6 @@ DROP TABLE ${table};
 ALTER TABLE ${fixName} RENAME TO ${table};
 PRAGMA foreign_keys = ON;
 `;
-}
-
-if (tableExists("students") && !columnExists("students", "deleted_at")) {
-  run(
-    `--file="${path.join(schemaDir, "058_students_deleted_at.sql")}"`,
-    "058 students.deleted_at",
-    { allowFail: true },
-  );
 }
 
 if (tableExists("circles") && columnExists("circles", "teacher_id")) {

@@ -99,10 +99,6 @@ export async function studentIsActiveSql(
     const col = alias ? `${alias}.is_active` : "is_active";
     parts.push(sqliteActiveEq1(col));
   }
-  if (await tableHasColumn(env, "students", "deleted_at")) {
-    const col = alias ? `${alias}.deleted_at` : "deleted_at";
-    parts.push(`${col} IS NULL`);
-  }
   return parts.length > 0 ? parts.join(" AND ") : "1=1";
 }
 

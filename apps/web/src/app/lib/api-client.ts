@@ -286,7 +286,6 @@ export type SemesterExportAllPayload = SemesterExportPayload & {
   students: Array<
     SemesterExportPayload["students"][number] & {
       is_archived?: boolean;
-      deleted_at?: string | null;
     }
   >;
   attendance_daily?: Array<{
@@ -296,6 +295,34 @@ export type SemesterExportAllPayload = SemesterExportPayload & {
     status: string;
   }>;
 };
+
+async function requestFileDownload(path: string): Promise<{
+  blob: Blob;
+  filename: string;
+}> {
+  if (isUiDevPreview()) {
+    const blob = new Blob(["# preview export"], { type: "text/csv" });
+    return { blob, filename: "semester-export-preview.csv" };
+  }
+
+  const url = `${API_BASE.replace(/\/$/, "")}${path}`;
+  const token = getApiToken();
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const payload = body as { error?: string; message?: string };
+    throw new Error(payload.message ?? payload.error ?? `HTTP ${res.status}`);
+  }
+
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const match = disposition.match(/filename="([^"]+)"/);
+  const filename = match?.[1] ?? "semester-export.csv";
+  const blob = await res.blob();
+  return { blob, filename };
+}
 
 export const api = {
   health: () => request<{ ok: boolean; service?: string }>("/api/health"),
@@ -1506,6 +1533,10 @@ export const api = {
         body: JSON.stringify({ template }),
       },
     ),
+  adminDeptGetAbsentWhatsappTemplate: () =>
+    request<{ template: string; migration_required?: boolean }>(
+      "/api/admin-dept/students/absent-today/template",
+    ),
   adminDeptCreateMagicLink: (body: {
     circle_id?: number;
     track_id?: number;
@@ -1550,9 +1581,12 @@ export const api = {
       }>;
     }>("/api/admin-dept/magic-links"),
   adminDeptMagicLinksDelete: (id: number) =>
-    request<{ ok: boolean; id: number }>(`/api/admin-dept/magic-links/${id}`, {
-      method: "DELETE",
-    }),
+    request<{ ok: boolean; success: boolean; id: number }>(
+      `/api/admin-dept/magic-links/${id}`,
+      {
+        method: "DELETE",
+      },
+    ),
   adminDeptStudentsSearch: (q: string, limit = 20) => {
     const params = new URLSearchParams();
     if (q.trim()) params.set("q", q.trim());
@@ -1573,7 +1607,11 @@ export const api = {
   adminDeptSemesterExport: () =>
     request<SemesterExportPayload>("/api/admin-dept/reports/semester-export"),
   adminDeptSemesterExportAll: () =>
-    request<SemesterExportAllPayload>("/api/admin-dept/reports/semester-export-all"),
+    requestFileDownload("/api/admin-dept/reports/semester-export-all"),
+  adminDeptSemesterExportAllJson: () =>
+    request<SemesterExportAllPayload>(
+      "/api/admin-dept/reports/semester-export-all?format=json",
+    ),
   /** @deprecated استخدم studentsCreate — دُمج القبول في بيانات الطلاب */
   adminDeptAdmission: (body: {
     full_name_ar: string;

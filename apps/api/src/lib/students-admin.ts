@@ -131,27 +131,56 @@ export async function applyStudentPlacement(
     .run();
 }
 
-/** O(1) — إخفاء الطالب مع الحفاظ على السجلات التاريخية */
-export async function safeDeleteStudent(env: Env, studentId: number): Promise<void> {
-  const sets = ["is_active = 0"];
-  if (await tableHasColumn(env, "students", "deleted_at")) {
-    sets.push("deleted_at = datetime('now')");
-  }
-  if (await tableHasColumn(env, "students", "account_status")) {
-    sets.push("account_status = 'archived'");
-  }
+/** جداول فرعية تُحذف قبل students — Time O(t) batch; Space O(t). */
+const STUDENT_CHILD_TABLES: Array<[string, string]> = [
+  ["competition_logs", "student_id"],
+  ["competition_targets", "student_id"],
+  ["competition_student_plans", "student_id"],
+  ["competition_attendance", "student_id"],
+  ["student_comp_scores", "student_id"],
+  ["edu_daily_recitation", "student_id"],
+  ["student_attendance", "student_id"],
+  ["student_daily_attendance", "student_id"],
+  ["student_attendance_log", "student_id"],
+  ["student_circle_history", "student_id"],
+  ["student_semester_plans", "student_id"],
+  ["student_edu_plans", "student_id"],
+  ["student_pledges", "student_id"],
+  ["student_disciplinary_summary", "student_id"],
+  ["student_disciplinary_state", "student_id"],
+  ["quiz_attempts", "student_id"],
+  ["quran_daily_ledger", "student_id"],
+  ["teacher_daily_marks", "student_id"],
+  ["quranic_day_students", "student_id"],
+  ["quranic_day_records", "student_id"],
+  ["transfer_notifications", "student_id"],
+  ["edu_transfer_events", "student_id"],
+  ["task_assignments", "student_id"],
+  ["yom_himma_targets", "student_id"],
+  ["himma_logs", "student_id"],
+  ["sird_period_records", "student_id"],
+  ["student_memorization_faces", "student_id"],
+  ["student_applications", "student_id"],
+  ["violations", "student_id"],
+];
 
-  await env.DB.prepare(`UPDATE students SET ${sets.join(", ")} WHERE id = ?`)
-    .bind(studentId)
-    .run();
+/** O(t) — حذف نهائي للطالب وجداوله الفرعية */
+export async function safeDeleteStudent(env: Env, studentId: number): Promise<void> {
+  const batch: D1PreparedStatement[] = [];
+  for (const [table, column] of STUDENT_CHILD_TABLES) {
+    if (!(await hasTable(env, table))) continue;
+    if (!(await tableHasColumn(env, table, column))) continue;
+    batch.push(
+      env.DB.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).bind(studentId),
+    );
+  }
+  batch.push(env.DB.prepare(`DELETE FROM students WHERE id = ?`).bind(studentId));
+  await env.DB.batch(batch);
 }
 
-/** O(1) — استعادة طالب مؤرشف */
+/** O(1) — استعادة طالب مؤرشف (is_active=0) */
 export async function restoreStudent(env: Env, studentId: number): Promise<void> {
   const sets = ["is_active = 1"];
-  if (await tableHasColumn(env, "students", "deleted_at")) {
-    sets.push("deleted_at = NULL");
-  }
   if (await tableHasColumn(env, "students", "account_status")) {
     sets.push("account_status = 'active'");
   }

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 058 remote: students.deleted_at + circles/tracks assignee FK ON DELETE SET NULL.
+ * 058 remote: circles/tracks assignee FK ON DELETE SET NULL (staff soft-delete safe).
  *
  * Usage (from apps/api):
  *   npm run db:remote:058
@@ -95,16 +95,6 @@ DROP TABLE ${table};
 ALTER TABLE ${fixName} RENAME TO ${table};
 PRAGMA foreign_keys = ON;
 `;
-}
-
-if (tableExists("students") && !columnExists("students", "deleted_at")) {
-  run(
-    `--file="${path.join(schemaDir, "058_students_deleted_at.sql")}"`,
-    "058 students.deleted_at",
-    { allowFail: true },
-  );
-} else {
-  console.log("\n>>> skip students.deleted_at (already present or no students table)");
 }
 
 if (tableExists("circles") && columnExists("circles", "teacher_id")) {

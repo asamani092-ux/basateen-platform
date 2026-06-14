@@ -11,13 +11,15 @@ import {
   CardTitle,
 } from "../ui/card";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "../ui/dialog";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { getApiToken } from "../../lib/api-token";
@@ -105,7 +107,7 @@ export function SemesterSettingsCard() {
     setExporting(true);
     try {
       await downloadSemesterArchiveXlsx();
-      toast.success("تم تنزيل أرشيف الفصل");
+      toast.success("تم تنزيل الأرشيف الختامي للفصل");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "فشل تصدير الأرشيف");
     } finally {
@@ -243,7 +245,9 @@ export function SemesterSettingsCard() {
                 style={tajawal}
               >
                 <Download className="w-5 h-5" />
-                {exporting ? "جاري التصدير…" : "تصدير أرشيف الفصل (Excel)"}
+                {exporting
+                  ? "جاري التصدير…"
+                  : "تصدير الأرشيف الختامي للفصل (Excel)"}
               </Button>
               {!semesterActive ? (
                 <Button
@@ -268,7 +272,7 @@ export function SemesterSettingsCard() {
                   style={tajawal}
                 >
                   <StopCircle className="w-5 h-5" />
-                  إغلاق الفصل الدراسي
+                  إنهاء وإغلاق الفصل الدراسي الحالي
                 </Button>
               )}
             </div>
@@ -276,39 +280,37 @@ export function SemesterSettingsCard() {
         </CardContent>
       </Card>
 
-      <Dialog open={closeOpen} onOpenChange={setCloseOpen}>
-        <DialogContent className={ds.dialog} dir="rtl">
-          <DialogHeader>
-            <DialogTitle style={tajawal}>تأكيد إغلاق الفصل</DialogTitle>
-            <DialogDescription style={tajawal}>
-              هل قمت بتصدير أرشيف الفصل؟ إغلاق الفصل سيجمد البيانات الحالية للرجوع
-              إليها لاحقاً
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2">
-            <Button
-              type="button"
-              variant="outline"
+      <AlertDialog open={closeOpen} onOpenChange={setCloseOpen}>
+        <AlertDialogContent className={ds.dialog} dir="rtl">
+          <AlertDialogHeader>
+            <AlertDialogTitle style={tajawal}>تأكيد إنهاء الفصل</AlertDialogTitle>
+            <AlertDialogDescription style={tajawal}>
+              تنبيه: تأكد من جلب وتصدير الأرشيف الختامي أولاً، إنهاء الفصل سيجمد
+              البيانات الحالية لبدء فترة جديدة
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-2">
+            <AlertDialogCancel
               className={ds.btnRound}
               disabled={closing}
-              onClick={() => setCloseOpen(false)}
               style={tajawal}
             >
               إلغاء
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              className={ds.btnRound}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className={`${ds.btnRound} bg-destructive text-destructive-foreground hover:bg-destructive/90`}
               disabled={closing}
-              onClick={() => void closeSemester()}
+              onClick={(e) => {
+                e.preventDefault();
+                void closeSemester();
+              }}
               style={tajawal}
             >
-              {closing ? "جاري الإغلاق…" : "تأكيد الإغلاق"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              {closing ? "جاري الإغلاق…" : "تأكيد الإنهاء"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

@@ -251,6 +251,52 @@ async function competitionRequest<T>(path: string, init?: RequestInit): Promise<
   });
 }
 
+export type SemesterExportPayload = {
+  semester: {
+    start_date: string | null;
+    end_date: string | null;
+    active: boolean;
+    semester_weeks: number;
+    graduates_count: number;
+    huffadh_count: number;
+    export_range: { start: string; end: string };
+  };
+  students: Array<{
+    id: number;
+    full_name_ar: string;
+    national_id: string | null;
+    phone: string | null;
+    school_grade: string | null;
+    circle_name: string | null;
+    track_name: string | null;
+  }>;
+  attendance_summary: Array<{
+    student_id: number;
+    full_name_ar: string;
+    present_days: number;
+    absent_days: number;
+    excused_days: number;
+  }>;
+  export_type?: "standard" | "comprehensive";
+  exported_at: string;
+};
+
+export type SemesterExportAllPayload = SemesterExportPayload & {
+  export_type: "comprehensive";
+  students: Array<
+    SemesterExportPayload["students"][number] & {
+      is_archived?: boolean;
+      deleted_at?: string | null;
+    }
+  >;
+  attendance_daily?: Array<{
+    student_id: number;
+    full_name_ar: string;
+    attendance_date: string;
+    status: string;
+  }>;
+};
+
 export const api = {
   health: () => request<{ ok: boolean; service?: string }>("/api/health"),
   tvSummary: () => request<TvSummary>("/api/tv/summary"),
@@ -1525,34 +1571,9 @@ export const api = {
     }>(`/api/admin-dept/students/search?${params.toString()}`);
   },
   adminDeptSemesterExport: () =>
-    request<{
-      semester: {
-        start_date: string | null;
-        end_date: string | null;
-        active: boolean;
-        semester_weeks: number;
-        graduates_count: number;
-        huffadh_count: number;
-        export_range: { start: string; end: string };
-      };
-      students: Array<{
-        id: number;
-        full_name_ar: string;
-        national_id: string | null;
-        phone: string | null;
-        school_grade: string | null;
-        circle_name: string | null;
-        track_name: string | null;
-      }>;
-      attendance_summary: Array<{
-        student_id: number;
-        full_name_ar: string;
-        present_days: number;
-        absent_days: number;
-        excused_days: number;
-      }>;
-      exported_at: string;
-    }>("/api/admin-dept/reports/semester-export"),
+    request<SemesterExportPayload>("/api/admin-dept/reports/semester-export"),
+  adminDeptSemesterExportAll: () =>
+    request<SemesterExportAllPayload>("/api/admin-dept/reports/semester-export-all"),
   /** @deprecated استخدم studentsCreate — دُمج القبول في بيانات الطلاب */
   adminDeptAdmission: (body: {
     full_name_ar: string;

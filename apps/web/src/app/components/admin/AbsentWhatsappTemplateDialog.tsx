@@ -17,12 +17,12 @@ import { ds, tajawal } from "../../lib/design-system";
 
 const SMART_VARIABLES = [
   { token: "{{اسم_الطالب}}", hint: "اسم الطالب" },
-  { token: "{{الحلقة_أو_المسار}}", hint: "اسم الحلقة أو المسار" },
+  { token: "{{الجهة}}", hint: "اسم الحلقة أو المسار" },
   { token: "{{التاريخ}}", hint: "تاريخ الغياب" },
 ] as const;
 
 const DEFAULT_TEMPLATE =
-  "السلام عليكم، نود إبلاغكم بغياب الطالب {{اسم_الطالب}} عن {{الحلقة_أو_المسار}} يوم {{التاريخ}}.";
+  "السلام عليكم، نود إبلاغكم بغياب الطالب {{اسم_الطالب}} عن {{الجهة}} يوم {{التاريخ}}.";
 
 type Props = {
   open: boolean;
@@ -69,7 +69,7 @@ export function AbsentWhatsappTemplateDialog({
     try {
       const res = await api.adminDeptSaveAbsentWhatsappTemplate(trimmed);
       onSaved?.(res.template);
-      toast.success("تم حفظ القالب الافتراضي");
+      toast.success("تم حفظ القالب");
       onOpenChange(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "فشل حفظ القالب");
@@ -82,7 +82,7 @@ export function AbsentWhatsappTemplateDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className={`${ds.dialog} max-w-3xl`} dir="rtl">
         <DialogHeader>
-          <DialogTitle style={tajawal}>تخصيص قالب رسالة الغياب</DialogTitle>
+          <DialogTitle style={tajawal}>إعداد قالب رسالة الغياب</DialogTitle>
           <DialogDescription style={tajawal}>
             عدّل نص الرسالة الافتراضية المرسلة لولي الأمر عبر واتساب. استخدم
             المتغيرات الذكية لإدراج البيانات تلقائياً.
@@ -153,7 +153,7 @@ export function AbsentWhatsappTemplateDialog({
             {saving ? (
               <Loader2 className="size-4 animate-spin" aria-hidden />
             ) : null}
-            {saving ? "جاري الحفظ…" : "حفظ القالب الافتراضي"}
+            {saving ? "جاري الحفظ…" : "حفظ القالب"}
           </Button>
         </div>
       </DialogContent>

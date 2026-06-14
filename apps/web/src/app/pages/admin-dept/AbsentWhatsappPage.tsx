@@ -136,7 +136,7 @@ export function AbsentWhatsappPage() {
           style={tajawal}
         >
           <MessageSquareText className="size-4" aria-hidden />
-          تخصيص قالب الرسالة
+          إعداد قالب الرسالة
         </Button>
       </div>
 

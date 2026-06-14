@@ -189,6 +189,62 @@ export function resolveDevPreviewMock<T>(
       slides: [],
       semester_weeks: 16,
       school_days: [0, 1, 2, 3, 4],
+      semester_active: true,
+      semester_start_date: "2026-01-01",
+      semester_end_date: null,
+    } as T;
+  }
+
+  if (
+    p === "/api/admin-dept/reports/semester-export-all" ||
+    p === "/api/admin-dept/reports/semester-export"
+  ) {
+    const students = previewStore
+      .filterStudents({})
+      .slice(0, 8)
+      .map((s) => ({
+        id: s.id,
+        full_name_ar: s.full_name_ar,
+        national_id: s.national_id ?? null,
+        phone: s.phone ?? null,
+        school_grade: s.school_grade ?? null,
+        circle_name: s.circle_name ?? null,
+        track_name: s.track_name ?? null,
+        ...(p.endsWith("-all")
+          ? { is_archived: false, deleted_at: null as string | null }
+          : {}),
+      }));
+    const attendance_summary = students.map((s) => ({
+      student_id: s.id,
+      full_name_ar: s.full_name_ar,
+      present_days: 12,
+      absent_days: 1,
+      excused_days: 0,
+    }));
+    return {
+      semester: {
+        start_date: "2026-01-01",
+        end_date: null,
+        active: true,
+        semester_weeks: 16,
+        graduates_count: 42,
+        huffadh_count: 8,
+        export_range: { start: "2026-01-01", end: PREVIEW_TODAY() },
+      },
+      students,
+      attendance_summary,
+      ...(p.endsWith("-all")
+        ? {
+            attendance_daily: students.slice(0, 3).map((s, i) => ({
+              student_id: s.id,
+              full_name_ar: s.full_name_ar,
+              attendance_date: PREVIEW_TODAY(),
+              status: i === 0 ? "present" : "absent",
+            })),
+            export_type: "comprehensive" as const,
+          }
+        : { export_type: "standard" as const }),
+      exported_at: new Date().toISOString(),
     } as T;
   }
 

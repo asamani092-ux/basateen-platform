@@ -1,10 +1,17 @@
 import * as XLSX from "xlsx";
-import { api } from "./api-client";
+import { api, type SemesterExportAllPayload } from "./api-client";
 
-/** Time O(n+m) for n students and m attendance rows; Space O(n+m). */
+const STATUS_LABELS: Record<string, string> = {
+  present: "حاضر",
+  absent: "غائب",
+  excused: "مستأذن",
+};
+
+/** Time O(n+m+d) for students, summary, and daily rows; Space O(n+m+d). */
 export async function downloadSemesterArchiveXlsx(): Promise<void> {
-  const data = await api.adminDeptSemesterExport();
+  const data: SemesterExportAllPayload = await api.adminDeptSemesterExportAll();
   const meta = [
+    ["نوع التصدير", "الأرشيف الختامي الشامل"],
     ["بداية الفصل", data.semester.start_date ?? "—"],
     ["نهاية الفصل", data.semester.end_date ?? "—"],
     ["أسابيع الفصل", String(data.semester.semester_weeks)],
@@ -15,7 +22,7 @@ export async function downloadSemesterArchiveXlsx(): Promise<void> {
   ];
 
   const studentsSheet = XLSX.utils.aoa_to_sheet([
-    ["الاسم", "الهوية", "الجوال", "الصف", "الحلقة", "المسار"],
+    ["الاسم", "الهوية", "الجوال", "الصف", "الحلقة", "المسار", "مؤرشف"],
     ...data.students.map((s) => [
       s.full_name_ar,
       s.national_id ?? "",
@@ -23,6 +30,7 @@ export async function downloadSemesterArchiveXlsx(): Promise<void> {
       s.school_grade ?? "",
       s.circle_name ?? "",
       s.track_name ?? "",
+      s.is_archived ? "نعم" : "لا",
     ]),
   ]);
 
@@ -42,6 +50,18 @@ export async function downloadSemesterArchiveXlsx(): Promise<void> {
   XLSX.utils.book_append_sheet(wb, studentsSheet, "الطلاب");
   XLSX.utils.book_append_sheet(wb, attendanceSheet, "ملخص الحضور");
 
+  if (data.attendance_daily?.length) {
+    const dailySheet = XLSX.utils.aoa_to_sheet([
+      ["الاسم", "التاريخ", "الحالة"],
+      ...data.attendance_daily.map((r) => [
+        r.full_name_ar,
+        r.attendance_date,
+        STATUS_LABELS[r.status] ?? r.status,
+      ]),
+    ]);
+    XLSX.utils.book_append_sheet(wb, dailySheet, "الحضور اليومي");
+  }
+
   const stamp = data.semester.start_date ?? data.exported_at.slice(0, 10);
-  XLSX.writeFile(wb, `basateen-semester-archive-${stamp}.xlsx`);
+  XLSX.writeFile(wb, `basateen-semester-final-archive-${stamp}.xlsx`);
 }

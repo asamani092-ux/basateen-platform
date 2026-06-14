@@ -4,11 +4,6 @@
 import type { Env } from "../types";
 import { hashPassword } from "./password";
 import { hasTable, tableHasColumn } from "./db-schema";
-import { prepareCircleHardDelete, runHardDeleteBatch } from "./db-batch";
-import {
-  collectHardDeleteCircleBatch,
-  collectHardDeleteTrackBatch,
-} from "./admin-educational-groups";
 import { usersHaveRoleColumn } from "./db-user";
 import {
   usesV25FlatStaffSchema,
@@ -132,6 +127,7 @@ function staffListSqlV25(hasCircles: boolean): string {
                AND COALESCE(t.is_active, 1) = 1 LIMIT 1) AS track_name
      FROM users u
      WHERE u.complex_id = ?
+       AND COALESCE(u.is_active, 1) = 1
        AND (
          COALESCE(u.is_teacher, 0) = 1
          OR COALESCE(u.is_track_supervisor, 0) = 1
@@ -169,6 +165,7 @@ export async function staffListSql(env: Env): Promise<string> {
                  AND COALESCE(t.is_active, 1) = 1 LIMIT 1) AS track_name
        FROM users u
        WHERE u.complex_id = ?
+         AND COALESCE(u.is_active, 1) = 1
          AND u.role IN (
            'teacher', 'track_supervisor', 'edu_supervisor', 'programs_supervisor',
            'prog_supervisor', 'admin_supervisor', 'general_supervisor', 'super_admin'
@@ -189,7 +186,6 @@ async function clearStaffUserRelations(
     ["user_sections", "user_id"],
     ["supervisor_scopes", "user_id"],
     ["teacher_assignments", "user_id"],
-    ["staff_attendance", "user_id"],
   ];
   for (const [table, column] of childDeletes) {
     if (!(await hasTable(env, table))) continue;
@@ -201,46 +197,32 @@ async function clearStaffUserRelations(
   return stmts;
 }
 
-/** حذف نهائي للحلقات/المسارات المرتبطة بالمنسوب — O(c+t) */
-async function collectStaffOwnedStructureDeletes(
+async function unassignStaffFromGroups(
   env: Env,
   userId: number,
   complexId: number,
 ): Promise<D1PreparedStatement[]> {
   const stmts: D1PreparedStatement[] = [];
-
   if (
     (await hasTable(env, "circles")) &&
     (await tableHasColumn(env, "circles", "teacher_id"))
   ) {
-    const circles = await env.DB.prepare(
-      `SELECT id FROM circles WHERE teacher_id = ? AND complex_id = ?`,
-    )
-      .bind(userId, complexId)
-      .all<{ id: number }>();
-    for (const c of circles.results ?? []) {
-      stmts.push(
-        ...(await collectHardDeleteCircleBatch(env, c.id, complexId)),
-      );
-    }
+    stmts.push(
+      env.DB.prepare(
+        `UPDATE circles SET teacher_id = NULL WHERE teacher_id = ? AND complex_id = ?`,
+      ).bind(userId, complexId),
+    );
   }
-
   if (
     (await hasTable(env, "tracks")) &&
     (await tableHasColumn(env, "tracks", "supervisor_id"))
   ) {
-    const tracks = await env.DB.prepare(
-      `SELECT id FROM tracks WHERE supervisor_id = ? AND complex_id = ?`,
-    )
-      .bind(userId, complexId)
-      .all<{ id: number }>();
-    for (const t of tracks.results ?? []) {
-      stmts.push(
-        ...(await collectHardDeleteTrackBatch(env, t.id, complexId)),
-      );
-    }
+    stmts.push(
+      env.DB.prepare(
+        `UPDATE tracks SET supervisor_id = NULL WHERE supervisor_id = ? AND complex_id = ?`,
+      ).bind(userId, complexId),
+    );
   }
-
   return stmts;
 }
 
@@ -262,18 +244,15 @@ export async function safeDeleteStaffUser(
     throw new Error("staff_not_found");
   }
 
-  await prepareCircleHardDelete(env);
-
   const batch: D1PreparedStatement[] = [
-    ...(await collectStaffOwnedStructureDeletes(env, userId, complexId)),
+    ...(await unassignStaffFromGroups(env, userId, complexId)),
     ...(await clearStaffUserRelations(env, userId)),
-    env.DB.prepare(`DELETE FROM users WHERE id = ? AND complex_id = ?`).bind(
-      userId,
-      complexId,
-    ),
+    env.DB.prepare(
+      `UPDATE users SET is_active = 0 WHERE id = ? AND complex_id = ?`,
+    ).bind(userId, complexId),
   ];
 
-  await runHardDeleteBatch(env, batch);
+  await env.DB.batch(batch);
 }
 
 export { SOVEREIGN_USER_ID, V25_CIRCLE_STAGE_TO_ID_SQL };

@@ -787,25 +787,43 @@ async function handleAdminDeptRouterImpl(
 
     const placement = await buildStudentPlacementSql(env);
     const isActiveExpr = await studentAttendanceEligibleSql(env, "s");
+    const hasCurrentTrack = await tableHasColumn(env, "students", "current_track_id");
 
     let sql = `
       SELECT s.id AS student_id, s.full_name_ar, s.guardian_phone, s.stage_id,
-             sa.status, c.id AS circle_id, c.name_ar AS circle_name
+             sa.status,
+             c.id AS circle_id, c.name_ar AS circle_name,
+             t.id AS track_id, t.name_ar AS track_name
       FROM students s
       INNER JOIN ${attTable} sa
         ON sa.student_id = s.id AND sa.attendance_date = ?
       ${placement.historyJoin}
       ${placement.circleJoin}
+      ${placement.trackJoin}
       WHERE s.complex_id = ? AND ${isActiveExpr}
-        AND sa.status IN ('absent', 'excused')`;
+        AND sa.status IN ('absent', 'excused')
+        AND (
+          ${placement.circleRef} IS NOT NULL
+          OR ${hasCurrentTrack ? `${placement.trackRef} IS NOT NULL` : "0=1"}
+        )`;
     const binds: (number | string)[] = [date, admin.complexId];
 
     if (circleId != null && Number.isFinite(circleId)) {
-      sql += ` AND ${placement.circleRef} = ?`;
-      binds.push(circleId);
+      if (await hasTable(env, "track_circles")) {
+        sql += ` AND (
+          ${placement.circleRef} = ?
+          OR ${placement.trackRef} IN (
+            SELECT tc.track_id FROM track_circles tc WHERE tc.circle_id = ?
+          )
+        )`;
+        binds.push(circleId, circleId);
+      } else {
+        sql += ` AND ${placement.circleRef} = ?`;
+        binds.push(circleId);
+      }
     }
 
-    sql += ` ORDER BY c.name_ar, s.full_name_ar`;
+    sql += ` ORDER BY COALESCE(c.name_ar, t.name_ar), s.full_name_ar`;
 
     const rows = await env.DB.prepare(sql).bind(...binds).all();
 
@@ -827,7 +845,9 @@ async function handleAdminDeptRouterImpl(
 
     const items = (rows.results ?? []).map((r: Record<string, unknown>) => {
       const name = String(r.full_name_ar ?? "");
-      const circleOrTrack = String(r.circle_name ?? "الحلقة");
+      const circleOrTrack = String(
+        r.circle_name ?? r.track_name ?? "الحلقة أو المسار",
+      );
       const msg = applyWhatsappAbsenceTemplate(template, {
         studentName: name,
         circleOrTrack,
@@ -1472,60 +1492,46 @@ async function handleAdminDeptRouterImpl(
       }
     }
 
-    const staffRosterSql = await unifiedStaffListSql(env);
-    const staffAll = await env.DB.prepare(staffRosterSql)
-      .bind(admin.complexId)
-      .all<{ id: number }>();
     const staffCounts = await countComplexStaff(env, admin.complexId);
     const staffTotal = staffCounts.total;
 
     const staffOnEnd = await env.DB.prepare(
-      `SELECT user_id, status FROM staff_attendance
-       WHERE complex_id = ? AND attendance_date = ?`,
+      `SELECT sa.user_id, sa.status
+       FROM staff_attendance sa
+       JOIN users u ON u.id = sa.user_id
+       WHERE sa.complex_id = ? AND sa.attendance_date = ?
+         AND COALESCE(u.is_active, 1) = 1`,
     )
       .bind(admin.complexId, endDate)
       .all<{ user_id: number; status: string }>();
-    const staffStatusMap = new Map(
-      (staffOnEnd.results ?? []).map((r) => [r.user_id, r.status]),
-    );
     let staffPresent = 0;
-    let staffMarked = 0;
-    for (const u of staffAll.results ?? []) {
-      const st = staffStatusMap.get(u.id);
-      if (st == null) continue;
-      staffMarked++;
-      if (st === "present") staffPresent++;
+    for (const r of staffOnEnd.results ?? []) {
+      if (r.status === "present") staffPresent++;
     }
 
     const studentCounts = await countComplexStudents(env, admin.complexId);
     const studentsTotal = studentCounts.total;
 
     let studentsPresent = 0;
-    let studentsMarked = 0;
     if (attTable) {
-      const [presentOnEnd, markedOnEnd] = await Promise.all([
-        env.DB.prepare(
-          `SELECT COUNT(DISTINCT student_id) AS c FROM ${attTable}
-           WHERE complex_id = ? AND attendance_date = ? AND status = 'present'`,
-        )
-          .bind(admin.complexId, endDate)
-          .first<{ c: number }>(),
-        env.DB.prepare(
-          `SELECT COUNT(DISTINCT student_id) AS c FROM ${attTable}
-           WHERE complex_id = ? AND attendance_date = ?`,
-        )
-          .bind(admin.complexId, endDate)
-          .first<{ c: number }>(),
-      ]);
+      const isActiveExpr = await studentAttendanceEligibleSql(env, "s");
+      const presentOnEnd = await env.DB.prepare(
+        `SELECT COUNT(DISTINCT sa.student_id) AS c
+         FROM ${attTable} sa
+         JOIN students s ON s.id = sa.student_id
+         WHERE sa.complex_id = ? AND sa.attendance_date = ? AND sa.status = 'present'
+           AND ${isActiveExpr}`,
+      )
+        .bind(admin.complexId, endDate)
+        .first<{ c: number }>();
       studentsPresent = Number(presentOnEnd?.c ?? 0);
-      studentsMarked = Number(markedOnEnd?.c ?? 0);
     }
 
     const pct = (n: number, total: number) =>
-      total > 0 ? Math.round((n / total) * 100) : 0;
+      total > 0 ? Math.round((n / total) * 1000) / 10 : 0;
 
-    const staffAbsent = Math.max(0, staffMarked - staffPresent);
-    const studentsAbsent = Math.max(0, studentsMarked - studentsPresent);
+    const staffAbsent = Math.max(0, staffTotal - staffPresent);
+    const studentsAbsent = Math.max(0, studentsTotal - studentsPresent);
 
     let staffDisciplinePct = 0;
     let studentsDisciplinePct = 0;
@@ -2037,11 +2043,17 @@ async function handleAdminDeptRouterImpl(
       .first();
     if (!row) return json({ error: "not_found" }, 404);
 
-    await env.DB.prepare(`DELETE FROM shared_access_tokens WHERE id = ?`)
-      .bind(linkId)
+    const delRes = await env.DB.prepare(
+      `DELETE FROM shared_access_tokens WHERE id = ? AND complex_id = ?`,
+    )
+      .bind(linkId, admin.complexId)
       .run();
 
-    return json({ ok: true, id: linkId });
+    if ((delRes.meta.changes ?? 0) === 0) {
+      return json({ error: "delete_failed" }, 500);
+    }
+
+    return json({ ok: true, success: true, id: linkId });
   }
 
   // POST /api/admin-dept/magic-links

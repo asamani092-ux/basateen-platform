@@ -94,11 +94,16 @@ export async function studentIsActiveSql(
   env: Env,
   alias = "s",
 ): Promise<string> {
-  if (!(await tableHasColumn(env, "students", "is_active"))) {
-    return "1=1";
+  const parts: string[] = [];
+  if (await tableHasColumn(env, "students", "is_active")) {
+    const col = alias ? `${alias}.is_active` : "is_active";
+    parts.push(sqliteActiveEq1(col));
   }
-  const col = alias ? `${alias}.is_active` : "is_active";
-  return sqliteActiveEq1(col);
+  if (await tableHasColumn(env, "students", "deleted_at")) {
+    const col = alias ? `${alias}.deleted_at` : "deleted_at";
+    parts.push(`${col} IS NULL`);
+  }
+  return parts.length > 0 ? parts.join(" AND ") : "1=1";
 }
 
 /** طالب مؤهل للتحضير والتقارير النشطة — يستبعد المعلّقين */

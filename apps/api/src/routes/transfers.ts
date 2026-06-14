@@ -600,8 +600,9 @@ export async function handleStudentDelete(
     const studentId = parseStudentId(url);
     if (!studentId) return json({ error: "invalid_student_id" }, 400);
 
+    const isActiveExpr = await studentIsActiveSql(env, "");
     const row = await env.DB.prepare(
-      `SELECT id FROM students WHERE id = ? AND complex_id = ?`,
+      `SELECT id FROM students WHERE id = ? AND complex_id = ? AND ${isActiveExpr}`,
     )
       .bind(studentId, auth.complexId)
       .first();
@@ -609,7 +610,7 @@ export async function handleStudentDelete(
 
     await safeDeleteStudent(env, studentId);
 
-    return json({ ok: true, deleted: true });
+    return json({ ok: true, deleted: true, soft_deleted: true });
   } catch (err) {
     console.error("student_delete_failed", err);
     return json(

@@ -131,44 +131,19 @@ export async function applyStudentPlacement(
     .run();
 }
 
-const STUDENT_CHILD_TABLES = [
-  "quran_daily_ledger",
-  "student_attendance",
-  "student_semester_plans",
-  "student_circle_history",
-  "quiz_attempts",
-  "student_pledges",
-  "student_disciplinary_summary",
-  "competition_logs",
-  "competition_student_plans",
-  "competition_targets",
-  "yom_himma_audit",
-  "yom_himma_targets",
-  "teacher_daily_marks",
-  "student_edu_plans",
-  "quranic_day_records",
-  "quranic_day_students",
-  "reciter_daily_marks",
-  "reciter_session_students",
-] as const;
-
-/** O(k) — k عدد الجداول الفرعية الموجودة */
+/** O(1) — إخفاء الطالب مع الحفاظ على السجلات التاريخية */
 export async function safeDeleteStudent(env: Env, studentId: number): Promise<void> {
-  const stmts: D1PreparedStatement[] = [];
-
-  for (const table of STUDENT_CHILD_TABLES) {
-    if (!(await hasTable(env, table))) continue;
-    if (!(await tableHasColumn(env, table, "student_id"))) continue;
-    stmts.push(
-      env.DB.prepare(`DELETE FROM ${table} WHERE student_id = ?`).bind(studentId),
-    );
+  const sets = ["is_active = 0"];
+  if (await tableHasColumn(env, "students", "deleted_at")) {
+    sets.push("deleted_at = datetime('now')");
+  }
+  if (await tableHasColumn(env, "students", "account_status")) {
+    sets.push("account_status = 'archived'");
   }
 
-  if (stmts.length > 0) {
-    await env.DB.batch(stmts);
-  }
-
-  await env.DB.prepare(`DELETE FROM students WHERE id = ?`).bind(studentId).run();
+  await env.DB.prepare(`UPDATE students SET ${sets.join(", ")} WHERE id = ?`)
+    .bind(studentId)
+    .run();
 }
 
 export type CreateStudentInput = {

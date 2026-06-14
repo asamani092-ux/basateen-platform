@@ -35,13 +35,19 @@ export type AdminDashboardStats = {
     date: string;
     students_marked_today: number;
     students_present_today: number;
+    students_attendance_rate_today: number;
     staff_marked_today: number;
     staff_present_today: number;
+    staff_attendance_rate_today: number;
   };
 };
 
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function attendanceRatePct(present: number, total: number): number {
+  return total > 0 ? Math.round((present / total) * 1000) / 10 : 0;
 }
 
 function currentMonthRange(): { start: string; end: string } {
@@ -203,6 +209,16 @@ export async function fetchAdminDashboardStats(
     },
     staff,
     pledges,
-    attendance,
+    attendance: {
+      ...attendance,
+      students_attendance_rate_today: attendanceRatePct(
+        attendance.students_present_today,
+        students.total,
+      ),
+      staff_attendance_rate_today: attendanceRatePct(
+        attendance.staff_present_today,
+        staff.total,
+      ),
+    },
   };
 }

@@ -9,13 +9,14 @@ import {
   activePlacementSql,
   hasTable,
   studentIsActiveSql,
+  studentIsArchivedSql,
   tableHasColumn,
 } from "../lib/db-schema";
 import { buildStudentPlacementSql } from "../lib/student-list-sql";
 import { applyStudentPlacement } from "../lib/students-admin";
 import { resolveCircleTrackId } from "../lib/circle-track";
 import { transferStudentCircle } from "../lib/edu-transfer";
-import { safeDeleteStudent } from "../lib/students-admin";
+import { safeDeleteStudent, restoreStudent } from "../lib/students-admin";
 import { resolveMemorizationFields } from "../lib/quran-memorization";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 
@@ -616,6 +617,44 @@ export async function handleStudentDelete(
     return json(
       {
         error: "student_delete_failed",
+        message: err instanceof Error ? err.message : String(err),
+      },
+      500,
+    );
+  }
+}
+
+export async function handleStudentRestore(
+  request: Request,
+  env: Env,
+  url: URL,
+): Promise<Response> {
+  try {
+    const auth = await getAuth(request, env);
+    if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
+    if (!requireRoles(auth, ADMIN_DATA_ROLES)) {
+      return json({ error: "forbidden" }, 403);
+    }
+
+    const studentId = parseStudentId(url);
+    if (!studentId) return json({ error: "invalid_student_id" }, 400);
+
+    const archivedExpr = await studentIsArchivedSql(env, "");
+    const row = await env.DB.prepare(
+      `SELECT id FROM students WHERE id = ? AND complex_id = ? AND ${archivedExpr}`,
+    )
+      .bind(studentId, auth.complexId)
+      .first();
+    if (!row) return json({ error: "student_not_found" }, 404);
+
+    await restoreStudent(env, studentId);
+
+    return json({ ok: true, restored: true });
+  } catch (err) {
+    console.error("student_restore_failed", err);
+    return json(
+      {
+        error: "student_restore_failed",
         message: err instanceof Error ? err.message : String(err),
       },
       500,

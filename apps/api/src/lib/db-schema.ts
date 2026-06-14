@@ -106,6 +106,18 @@ export async function studentIsActiveSql(
   return parts.length > 0 ? parts.join(" AND ") : "1=1";
 }
 
+/** Archived / soft-deleted students — is_active = 0 (Time O(1) per row; Space O(1)). */
+export async function studentIsArchivedSql(
+  env: Env,
+  alias = "s",
+): Promise<string> {
+  if (!(await tableHasColumn(env, "students", "is_active"))) {
+    return "1=0";
+  }
+  const col = alias ? `${alias}.is_active` : "is_active";
+  return `COALESCE(CAST(${col} AS INTEGER), 1) = 0`;
+}
+
 /** طالب مؤهل للتحضير والتقارير النشطة — يستبعد المعلّقين */
 export async function studentAttendanceEligibleSql(
   env: Env,

@@ -146,6 +146,21 @@ export async function safeDeleteStudent(env: Env, studentId: number): Promise<vo
     .run();
 }
 
+/** O(1) — استعادة طالب مؤرشف */
+export async function restoreStudent(env: Env, studentId: number): Promise<void> {
+  const sets = ["is_active = 1"];
+  if (await tableHasColumn(env, "students", "deleted_at")) {
+    sets.push("deleted_at = NULL");
+  }
+  if (await tableHasColumn(env, "students", "account_status")) {
+    sets.push("account_status = 'active'");
+  }
+
+  await env.DB.prepare(`UPDATE students SET ${sets.join(", ")} WHERE id = ?`)
+    .bind(studentId)
+    .run();
+}
+
 export type CreateStudentInput = {
   full_name_ar: string;
   national_id: string;

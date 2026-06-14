@@ -2,7 +2,12 @@ import type { Env } from "../types";
 import { ADMIN_DATA_ROLES } from "../lib/roles";
 import { createStudentWithPlacement } from "../lib/students-admin";
 import { studentCreateBodySchema } from "../lib/students-schema";
-import { hasTable, studentIsActiveSql, tableHasColumn } from "../lib/db-schema";
+import {
+  hasTable,
+  studentIsActiveSql,
+  studentIsArchivedSql,
+  tableHasColumn,
+} from "../lib/db-schema";
 import { buildStudentPlacementSql } from "../lib/student-list-sql";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 import { PAGE_SIZE_MAX, pageMeta, parsePageParams } from "../lib/pagination";
@@ -70,6 +75,9 @@ export async function handleStudentsList(
     const circleFilter = url.searchParams.get("circle_id")?.trim();
     const trackFilter = url.searchParams.get("track_id")?.trim();
     const statusFilter = url.searchParams.get("status_filter")?.trim();
+    const archivedOnly =
+      url.searchParams.get("archived")?.trim() === "1" ||
+      url.searchParams.get("active")?.trim() === "0";
     const pageParams = parsePageParams(url);
     const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
     const hasAdmissionStatus = await tableHasColumn(env, "students", "admission_status");
@@ -78,7 +86,9 @@ export async function handleStudentsList(
     const placement = await buildStudentPlacementSql(env);
     const { historyJoin, circleJoin, trackJoin, circleRef, trackRef, historyCircleRef } =
       placement;
-    const isActiveExpr = await studentIsActiveSql(env, "s");
+    const rosterExpr = archivedOnly
+      ? await studentIsArchivedSql(env, "s")
+      : await studentIsActiveSql(env, "s");
 
     const nameSelect = await studentNameSelect(env);
 
@@ -105,7 +115,7 @@ export async function handleStudentsList(
     ${historyJoin}
     ${circleJoin}
     ${trackJoin}
-    WHERE s.complex_id = ? AND ${isActiveExpr}
+    WHERE s.complex_id = ? AND ${rosterExpr}
   `;
 
     const binds: (string | number)[] = [auth.complexId];

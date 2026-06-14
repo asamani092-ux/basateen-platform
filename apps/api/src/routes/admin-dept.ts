@@ -1595,6 +1595,106 @@ async function handleAdminDeptRouterImpl(
     });
   }
 
+  // GET /api/admin-dept/reports/semester-export — أرشيف الفصل (JSON للتحويل إلى Excel)
+  if (request.method === "GET" && path === "/api/admin-dept/reports/semester-export") {
+    const semester = await fetchSemesterPeriod(env, admin.complexId);
+    const semesterRange = semesterQueryRange(semester);
+    const placement = await buildStudentPlacementSql(env);
+    const isActiveExpr = await studentIsActiveSql(env, "s");
+    const hasFull = await tableHasColumn(env, "students", "full_name_ar");
+    const nameSelect = hasFull ? "s.full_name_ar" : "s.name AS full_name_ar";
+
+    const studentSql = `
+      SELECT
+        s.id,
+        ${nameSelect},
+        ${(await tableHasColumn(env, "students", "national_id")) ? "s.national_id" : "NULL AS national_id"},
+        ${(await tableHasColumn(env, "students", "phone")) ? "s.phone" : "NULL AS phone"},
+        ${(await tableHasColumn(env, "students", "school_grade")) ? "s.school_grade" : "NULL AS school_grade"},
+        c.name_ar AS circle_name,
+        t.name_ar AS track_name
+      FROM students s
+      ${placement.historyJoin}
+      ${placement.circleJoin}
+      ${placement.trackJoin}
+      WHERE s.complex_id = ? AND ${isActiveExpr}
+      ORDER BY ${hasFull ? "s.full_name_ar" : "s.name"}
+      LIMIT 5000`;
+
+    const students = await env.DB.prepare(studentSql)
+      .bind(admin.complexId)
+      .all<{
+        id: number;
+        full_name_ar: string;
+        national_id: string | null;
+        phone: string | null;
+        school_grade: string | null;
+        circle_name: string | null;
+        track_name: string | null;
+      }>();
+
+    const attTable = await resolveAttendanceTableName(env);
+    let attendanceRows: Array<{
+      student_id: number;
+      full_name_ar: string;
+      present_days: number;
+      absent_days: number;
+      excused_days: number;
+    }> = [];
+
+    if (attTable) {
+      const attSql = `
+        SELECT s.id AS student_id, s.full_name_ar,
+               SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) AS present_days,
+               SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) AS absent_days,
+               SUM(CASE WHEN sa.status = 'excused' THEN 1 ELSE 0 END) AS excused_days
+        FROM students s
+        LEFT JOIN ${attTable} sa
+          ON sa.student_id = s.id
+         AND sa.complex_id = s.complex_id
+         AND sa.attendance_date BETWEEN ? AND ?
+        WHERE s.complex_id = ? AND ${isActiveExpr}
+        GROUP BY s.id, s.full_name_ar
+        ORDER BY s.full_name_ar
+        LIMIT 5000`;
+      const attResult = await env.DB.prepare(attSql)
+        .bind(semesterRange.start, semesterRange.end, admin.complexId)
+        .all<{
+          student_id: number;
+          full_name_ar: string;
+          present_days: number;
+          absent_days: number;
+          excused_days: number;
+        }>();
+      attendanceRows = attResult.results ?? [];
+    }
+
+    const settings = await env.DB.prepare(
+      `SELECT semester_weeks, graduates_count, huffadh_count FROM complex_settings WHERE complex_id = ?`,
+    )
+      .bind(admin.complexId)
+      .first<{
+        semester_weeks: number;
+        graduates_count: number;
+        huffadh_count: number;
+      }>();
+
+    return json({
+      semester: {
+        start_date: semester.start_date,
+        end_date: semester.end_date,
+        active: semester.active,
+        semester_weeks: settings?.semester_weeks ?? 16,
+        graduates_count: settings?.graduates_count ?? 0,
+        huffadh_count: settings?.huffadh_count ?? 0,
+        export_range: semesterRange,
+      },
+      students: students.results ?? [],
+      attendance_summary: attendanceRows,
+      exported_at: new Date().toISOString(),
+    });
+  }
+
   // GET /api/admin-dept/reports/individual — تقرير انضباط تفصيلي لفرد
   if (request.method === "GET" && path === "/api/admin-dept/reports/individual") {
     const beneficiaryType = (

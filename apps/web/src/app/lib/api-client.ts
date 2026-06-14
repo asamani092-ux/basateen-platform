@@ -274,6 +274,7 @@ export const api = {
           circle_id?: number | null;
           track_id?: number | null;
           status_filter?: "active" | "suspended" | "no_circle" | "no_track" | null;
+          archived?: boolean;
           page?: number;
           page_size?: number;
         },
@@ -282,6 +283,7 @@ export const api = {
     const q = typeof params === "string" ? params : params?.q;
     if (q?.trim()) search.set("q", q.trim());
     if (params && typeof params !== "string") {
+      if (params.archived) search.set("archived", "1");
       if (params.stage_id != null) search.set("stage_id", String(params.stage_id));
       if (params.circle_id != null) search.set("circle_id", String(params.circle_id));
       if (params.track_id != null) search.set("track_id", String(params.track_id));
@@ -393,6 +395,11 @@ export const api = {
     }),
   studentsDelete: (id: number) =>
     request<{ ok: boolean }>(`/api/students/${id}`, { method: "DELETE" }),
+  studentsRestore: (id: number) =>
+    request<{ ok: boolean; restored: boolean }>(`/api/students/${id}/restore`, {
+      method: "POST",
+      body: "{}",
+    }),
   transferStudent: (
     id: number,
     body: { circle_id: number; track_id?: number | null; note?: string },
@@ -1517,6 +1524,35 @@ export const api = {
       count: number;
     }>(`/api/admin-dept/students/search?${params.toString()}`);
   },
+  adminDeptSemesterExport: () =>
+    request<{
+      semester: {
+        start_date: string | null;
+        end_date: string | null;
+        active: boolean;
+        semester_weeks: number;
+        graduates_count: number;
+        huffadh_count: number;
+        export_range: { start: string; end: string };
+      };
+      students: Array<{
+        id: number;
+        full_name_ar: string;
+        national_id: string | null;
+        phone: string | null;
+        school_grade: string | null;
+        circle_name: string | null;
+        track_name: string | null;
+      }>;
+      attendance_summary: Array<{
+        student_id: number;
+        full_name_ar: string;
+        present_days: number;
+        absent_days: number;
+        excused_days: number;
+      }>;
+      exported_at: string;
+    }>("/api/admin-dept/reports/semester-export"),
   /** @deprecated استخدم studentsCreate — دُمج القبول في بيانات الطلاب */
   adminDeptAdmission: (body: {
     full_name_ar: string;

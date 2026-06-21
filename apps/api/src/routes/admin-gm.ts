@@ -29,6 +29,8 @@ import {
   findTeacherOtherActiveCircle,
   insertStaffUser,
   reactivateSupervisorUser,
+  clearStaffGroupAssignments,
+  resolveStaffCurrentRole,
   safeDeleteStaffUser,
   staffListSql,
   SOVEREIGN_USER_ID,
@@ -418,6 +420,11 @@ export async function handleAdminStaffPatch(
       .first();
     if (!user) return json({ error: "staff_not_found" }, 404);
 
+    const currentRole =
+      body.role != null
+        ? await resolveStaffCurrentRole(env, userId)
+        : null;
+
     if (body.full_name_ar?.trim()) {
       await env.DB.prepare(`UPDATE users SET full_name_ar = ? WHERE id = ?`)
         .bind(body.full_name_ar.trim(), userId)
@@ -441,6 +448,15 @@ export async function handleAdminStaffPatch(
     }
 
     if (body.role) {
+      const incomingRole =
+        body.role === "general_supervisor" || body.role === "admin_supervisor"
+          ? "super_admin"
+          : body.role === "prog_supervisor"
+            ? "programs_supervisor"
+            : body.role;
+      if (currentRole && incomingRole !== currentRole) {
+        await clearStaffGroupAssignments(env, userId, auth!.complexId);
+      }
       if (body.role === "teacher") {
         if (await usersHaveRoleColumn(env)) {
           await env.DB.prepare(`UPDATE users SET role = 'teacher' WHERE id = ?`)

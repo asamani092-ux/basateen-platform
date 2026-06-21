@@ -18,7 +18,7 @@ type CarouselSlide =
   | { kind: "image" | "gif" | "video"; id: number; media_url: string };
 
 export function PublicLiveDisplayPage() {
-  const [complexName, setComplexName] = useState("مجمع حلقات البساتين");
+  const [complexName, setComplexName] = useState("مجمع حلقات بساتين");
   const [slideSeconds, setSlideSeconds] = useState(12);
   const [slides, setSlides] = useState<CarouselSlide[]>([]);
   const [slideIndex, setSlideIndex] = useState(0);

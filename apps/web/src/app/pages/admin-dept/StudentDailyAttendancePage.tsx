@@ -29,6 +29,7 @@ type StudentRow = {
   student_id: number;
   full_name_ar: string;
   status: string;
+  has_record: boolean;
 };
 
 export function StudentDailyAttendancePage() {
@@ -50,6 +51,7 @@ export function StudentDailyAttendancePage() {
   const [linksModalOpen, setLinksModalOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [markedToday, setMarkedToday] = useState<Set<string>>(new Set());
   const { invalidate } = useAdminDataSyncContext();
 
   const dirtyCount = useMemo(() => Object.keys(statusMap).length, [statusMap]);
@@ -71,6 +73,30 @@ export function StudentDailyAttendancePage() {
       .finally(() => setLoadingGroups(false));
   }, []);
 
+  const loadEntityStatus = useCallback(async () => {
+    if (!canUseApi()) {
+      setMarkedToday(new Set());
+      return;
+    }
+    try {
+      const res = await api.adminDeptStudentAttendanceEntityStatus(date);
+      const next = new Set<string>();
+      for (const c of res.circles ?? []) {
+        if (c.marked) next.add(`circle:${c.id}`);
+      }
+      for (const t of res.tracks ?? []) {
+        if (t.marked) next.add(`track:${t.id}`);
+      }
+      setMarkedToday(next);
+    } catch {
+      setMarkedToday(new Set());
+    }
+  }, [date]);
+
+  useEffect(() => {
+    void loadEntityStatus();
+  }, [loadEntityStatus]);
+
   const loadStudents = useCallback(async () => {
     if (!entity || !canUseApi()) {
       setRows([]);
@@ -88,6 +114,7 @@ export function StudentDailyAttendancePage() {
         student_id: r.student_id,
         full_name_ar: r.full_name_ar,
         status: normalizeAttendanceStatus(r.status ?? "present"),
+        has_record: Boolean(r.has_record),
       }));
       setRows(items);
       setPageInfo(res.page ?? null);
@@ -151,6 +178,7 @@ export function StudentDailyAttendancePage() {
       toastAttendanceBulkSaved(res.saved);
       bumpDashboard();
       await loadStudents();
+      await loadEntityStatus();
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل اعتماد التحضير");
     } finally {
@@ -178,8 +206,10 @@ export function StudentDailyAttendancePage() {
         id: r.student_id,
         full_name_ar: r.full_name_ar,
         status: r.status,
+        has_record: r.has_record,
+        isDirty: r.student_id in statusMap,
       })),
-    [filteredRows],
+    [filteredRows, statusMap],
   );
 
   return (
@@ -261,6 +291,7 @@ export function StudentDailyAttendancePage() {
                 onChange={setEntity}
                 circles={circles}
                 tracks={tracks}
+                markedToday={markedToday}
               />
             </div>
           </div>

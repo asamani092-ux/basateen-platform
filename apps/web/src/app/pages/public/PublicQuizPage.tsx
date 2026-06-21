@@ -199,7 +199,7 @@ export function PublicQuizPage() {
             {title || "اختبار"}
           </h1>
           <p className={ds.page.description} style={tajawal}>
-            مجمع حلقات البساتين
+            مجمع حلقات بساتين
           </p>
         </div>
 

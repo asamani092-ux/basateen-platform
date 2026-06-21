@@ -79,7 +79,7 @@ function printPledgeForm(
       .pledge-sig{margin-top:3rem;text-align:right;font-weight:700}
     </style></head><body>
     <div class="print-top">
-      <p class="complex">مجمع حلقات البساتين</p>
+      <p class="complex">مجمع حلقات بساتين</p>
       <p class="date">${printDate}</p>
     </div>
     <h2 class="print-title">تعهد طالب</h2>

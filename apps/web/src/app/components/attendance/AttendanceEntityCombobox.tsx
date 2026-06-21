@@ -17,6 +17,7 @@ type Props = {
   onChange: (entity: AttendanceEntityOption | null) => void;
   circles: Array<{ id: number; name_ar: string }>;
   tracks: Array<{ id: number; name_ar: string }>;
+  markedToday?: Set<string>;
   disabled?: boolean;
   placeholder?: string;
 };
@@ -30,6 +31,7 @@ export function AttendanceEntityCombobox({
   onChange,
   circles,
   tracks,
+  markedToday,
   disabled,
   placeholder = "ابحث عن حلقة أو مسار…",
 }: Props) {
@@ -181,13 +183,18 @@ export function AttendanceEntityCombobox({
                   الحلقات
                 </div>
               )}
-              {filteredCircles.map((c) => (
+              {filteredCircles.map((c) => {
+                const marked = markedToday?.has(`circle:${c.id}`);
+                return (
                 <button
                   key={`circle:${c.id}`}
                   type="button"
                   role="option"
                   aria-selected={value?.type === "circle" && value.id === c.id}
-                  className="w-full text-right px-3 py-2 text-sm hover:bg-muted transition-colors border-b border-border last:border-0"
+                  className={cn(
+                    "w-full text-right px-3 py-2 text-sm hover:bg-muted transition-colors border-b border-border last:border-0",
+                    marked && "bg-emerald-500/10",
+                  )}
                   style={tajawal}
                   onClick={(e) => {
                     e.preventDefault();
@@ -195,22 +202,38 @@ export function AttendanceEntityCombobox({
                     pick({ type: "circle", id: c.id, name_ar: c.name_ar });
                   }}
                 >
-                  <span className="font-medium truncate block">{c.name_ar}</span>
-                  <span className="text-xs text-muted-foreground">حلقة</span>
+                  <span
+                    className={cn(
+                      "font-medium truncate block",
+                      marked && "text-emerald-700 dark:text-emerald-400",
+                    )}
+                  >
+                    {marked ? "● " : null}
+                    {c.name_ar}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {marked ? "محضّر اليوم — " : ""}حلقة
+                  </span>
                 </button>
-              ))}
+              );
+              })}
               {filteredTracks.length > 0 && (
                 <div className="px-2 pt-2 pb-1 text-xs text-muted-foreground" style={tajawal}>
                   المسارات
                 </div>
               )}
-              {filteredTracks.map((t) => (
+              {filteredTracks.map((t) => {
+                const marked = markedToday?.has(`track:${t.id}`);
+                return (
                 <button
                   key={`track:${t.id}`}
                   type="button"
                   role="option"
                   aria-selected={value?.type === "track" && value.id === t.id}
-                  className="w-full text-right px-3 py-2 text-sm hover:bg-muted transition-colors border-b border-border last:border-0"
+                  className={cn(
+                    "w-full text-right px-3 py-2 text-sm hover:bg-muted transition-colors border-b border-border last:border-0",
+                    marked && "bg-emerald-500/10",
+                  )}
                   style={tajawal}
                   onClick={(e) => {
                     e.preventDefault();
@@ -218,10 +241,21 @@ export function AttendanceEntityCombobox({
                     pick({ type: "track", id: t.id, name_ar: t.name_ar });
                   }}
                 >
-                  <span className="font-medium truncate block">{t.name_ar}</span>
-                  <span className="text-xs text-muted-foreground">مسار</span>
+                  <span
+                    className={cn(
+                      "font-medium truncate block",
+                      marked && "text-emerald-700 dark:text-emerald-400",
+                    )}
+                  >
+                    {marked ? "● " : null}
+                    {t.name_ar}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {marked ? "محضّر اليوم — " : ""}مسار
+                  </span>
                 </button>
-              ))}
+              );
+              })}
             </>
           )}
         </div>

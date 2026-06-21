@@ -57,7 +57,7 @@ export function EduEducationalProfileReport({ report, onPrint }: Props) {
     <div id="edu-student-educational-print" className="space-y-4">
       <div className="hidden print:block text-center border-b border-black pb-3 mb-4">
         <h1 className="text-xl font-bold" style={tajawal}>
-          كشف تعليمي تراكمي — {report.complex_name ?? "مجمع البساتين"}
+          كشف تعليمي تراكمي — {report.complex_name ?? "مجمع بساتين"}
         </h1>
         <p className="text-sm" style={tajawal}>
           {report.person.full_name_ar}

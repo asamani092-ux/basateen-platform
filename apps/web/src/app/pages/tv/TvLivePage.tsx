@@ -82,7 +82,7 @@ export function TvLivePage() {
           <div className="flex items-center gap-6">
             <img
               src="/logo-dark.png"
-              alt="مجمع حلقات البساتين"
+              alt="مجمع حلقات بساتين"
               className="h-16 sm:h-24 lg:h-32 w-auto object-contain"
             />
             <div>
@@ -90,7 +90,7 @@ export function TvLivePage() {
                 className="text-2xl sm:text-4xl lg:text-5xl font-bold text-white"
                 style={tajawal}
               >
-                مجمع حلقات البساتين
+                مجمع حلقات بساتين
               </h1>
               <p
                 className="text-lg sm:text-2xl text-blue-200 mt-1"
@@ -181,7 +181,7 @@ export function TvLivePage() {
 
         <footer className="mt-auto pt-8 flex flex-wrap justify-between gap-4 text-blue-200/80 text-sm sm:text-lg">
           <span style={tajawal}>
-            {summary?.complex ?? "مجمع حلقات البساتين"}
+            {summary?.complex ?? "مجمع حلقات بساتين"}
           </span>
           <span style={tajawal}>
             تحديث تلقائي كل {REFRESH_MS / 1000} ثانية

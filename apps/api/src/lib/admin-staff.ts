@@ -555,6 +555,63 @@ async function unassignStaffFromGroups(
   return stmts;
 }
 
+/** O(1) — قراءة الدور الحالي للمنسوب (role column أو v25 flags). */
+export async function resolveStaffCurrentRole(
+  env: Env,
+  userId: number,
+): Promise<string | null> {
+  const hasRole = await usersHaveRoleColumn(env);
+  if (hasRole) {
+    const row = await env.DB.prepare(`SELECT role FROM users WHERE id = ?`)
+      .bind(userId)
+      .first<{ role: string | null }>();
+    const r = row?.role ?? null;
+    if (r === "general_supervisor" || r === "admin_supervisor") return "super_admin";
+    if (r === "prog_supervisor") return "programs_supervisor";
+    return r;
+  }
+  if (await usesV25FlatStaffSchema(env)) {
+    const row = await env.DB.prepare(
+      `SELECT is_teacher, is_track_supervisor, is_educational, is_programs, is_admin
+       FROM users WHERE id = ?`,
+    )
+      .bind(userId)
+      .first<{
+        is_teacher: number;
+        is_track_supervisor: number;
+        is_educational: number;
+        is_programs: number;
+        is_admin: number;
+      }>();
+    if (!row) return null;
+    if (row.is_track_supervisor) return "track_supervisor";
+    if (row.is_teacher) return "teacher";
+    if (row.is_educational) return "edu_supervisor";
+    if (row.is_programs) return "programs_supervisor";
+    if (row.is_admin) return "super_admin";
+  }
+  return null;
+}
+
+/** O(1) — إلغاء إسناد الحلقة/المسار عند تغيير الدور (لا عند الحذف فقط). */
+export async function clearStaffGroupAssignments(
+  env: Env,
+  userId: number,
+  complexId: number,
+): Promise<void> {
+  const stmts = [
+    ...(await unassignStaffFromGroups(env, userId, complexId)),
+  ];
+  if (await hasTable(env, "teacher_assignments")) {
+    stmts.push(
+      env.DB.prepare(`DELETE FROM teacher_assignments WHERE user_id = ?`).bind(
+        userId,
+      ),
+    );
+  }
+  if (stmts.length) await env.DB.batch(stmts);
+}
+
 export async function safeDeleteStaffUser(
   env: Env,
   userId: number,

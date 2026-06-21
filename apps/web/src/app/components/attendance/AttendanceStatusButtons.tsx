@@ -48,13 +48,20 @@ type Props = {
   value: string;
   onChange: (status: Status) => void;
   disabled?: boolean;
+  /** عند false لا يُظهر زر «حاضر» نشطاً قبل الاعتماد */
+  highlightSaved?: boolean;
 };
 
-export function AttendanceStatusButtons({ value, onChange, disabled }: Props) {
+export function AttendanceStatusButtons({
+  value,
+  onChange,
+  disabled,
+  highlightSaved = true,
+}: Props) {
   return (
     <div className="inline-flex flex-nowrap items-center justify-end gap-1 shrink-0">
       {OPTIONS.map((opt) => {
-        const isActive = value === opt.value;
+        const isActive = highlightSaved && value === opt.value;
         return (
           <Button
             key={opt.value}

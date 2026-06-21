@@ -9,7 +9,13 @@ import { normalizeAttendanceStatus } from "../../lib/attendance-status";
 import type { AttendanceStatusValue } from "../../lib/attendance-mutations";
 import { ds, tajawal } from "../../lib/design-system";
 
-type Row = { student_id: number; full_name_ar: string; status: string };
+type Row = {
+  student_id: number;
+  full_name_ar: string;
+  status: string;
+  has_record: boolean;
+  isDirty?: boolean;
+};
 
 /** تحضير عام بدون تسجيل دخول — رابط سحري (حلقة أو مسار) */
 export function PublicMagicLinkPage() {
@@ -39,6 +45,7 @@ export function PublicMagicLinkPage() {
         student_id: r.student_id,
         full_name_ar: r.full_name_ar,
         status: normalizeAttendanceStatus(r.status),
+        has_record: Boolean(r.has_record),
       }));
       setRows(items);
     } catch (e) {
@@ -69,7 +76,9 @@ export function PublicMagicLinkPage() {
 
   function pickStatus(studentId: number, status: AttendanceStatusValue) {
     setRows((prev) =>
-      prev.map((r) => (r.student_id === studentId ? { ...r, status } : r)),
+      prev.map((r) =>
+        r.student_id === studentId ? { ...r, status, isDirty: true } : r,
+      ),
     );
   }
 
@@ -84,6 +93,7 @@ export function PublicMagicLinkPage() {
         })),
       });
       toast.success("تم حفظ التحضير بنجاح — شكراً لكم");
+      await load();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "فشل حفظ التحضير";
       toast.error(msg);
@@ -104,12 +114,12 @@ export function PublicMagicLinkPage() {
         <header className={`${ds.card} p-5 sm:p-6 text-center space-y-3`}>
           <img
             src="/logo-light.png"
-            alt="مجمع البساتين"
+            alt="مجمع بساتين"
             className="mx-auto h-16 sm:h-20 dark:hidden"
           />
           <img
             src="/logo-dark.png"
-            alt="مجمع البساتين"
+            alt="مجمع بساتين"
             className="mx-auto hidden h-16 sm:h-20 dark:block"
           />
           <div>
@@ -207,6 +217,8 @@ export function PublicMagicLinkPage() {
                   id: r.student_id,
                   full_name_ar: r.full_name_ar,
                   status: r.status,
+                  has_record: r.has_record,
+                  isDirty: r.isDirty,
                 }))}
                 disabled={saving}
                 onStatusChange={pickStatus}

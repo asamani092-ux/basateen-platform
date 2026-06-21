@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { tajawal } from "../../lib/design-system";
 
-const DEFAULT_COMPLEX = "مجمع حلقات البساتين";
+const DEFAULT_COMPLEX = "مجمع حلقات بساتين";
 
 type AdminPrintWrapperProps = {
   title: string;

@@ -46,7 +46,7 @@ export async function handleSeedUsers(
   await runIgnore(env.DB.prepare("DELETE FROM users"));
 
   await env.DB.prepare(
-    `INSERT OR IGNORE INTO complexes (id, name_ar) VALUES (1, 'مجمع حلقات البساتين')`,
+    `INSERT OR IGNORE INTO complexes (id, name_ar) VALUES (1, 'مجمع حلقات بساتين')`,
   ).run();
 
   if (roleSchema) {

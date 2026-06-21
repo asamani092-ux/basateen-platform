@@ -293,7 +293,7 @@ export function buildCompetitionWhatsAppUrl(
   if (!phone) return null;
   const text =
     `السلام عليكم ورحمة الله وبركاته 🍃 عزيزي ولي أمر الطالب: ${studentName}، ` +
-    `نضع بين يديك الملخص لإنجاز ابنكم في مجمع حلق البساتين. ` +
+    `نضع بين يديك الملخص لإنجاز ابنكم في مجمع حلق بساتين. ` +
     `نسبة إتقان الطالب الكلية في البرنامج: ${overallPct}%، وترتيبه الحالي: ${rank}. ` +
     `بارك الله في الجهود وأجزل لنا ولكم الأجر والمثوبة. 🌺`;
   return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;

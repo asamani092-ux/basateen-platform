@@ -236,8 +236,8 @@ export async function circleTeacherJoinSql(env: Env): Promise<{
   if (hasAssignments) {
     return {
       joinSql: `LEFT JOIN teacher_assignments ta ON ta.circle_id = c.id
-     LEFT JOIN users u ON u.id = ta.user_id`,
-      teacherIdCol: `ta.user_id AS teacher_id`,
+     LEFT JOIN users u ON u.id = ta.user_id AND ${teacherRoleFilter}`,
+      teacherIdCol: `CASE WHEN u.id IS NOT NULL THEN ta.user_id ELSE NULL END AS teacher_id`,
       teacherNameCol: `u.full_name_ar AS teacher_name`,
     };
   }

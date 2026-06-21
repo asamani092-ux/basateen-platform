@@ -158,7 +158,7 @@ export async function handlePublicLiveDisplayRouter(
 
   if (request.method === "GET" && path === "/api/public/live-display/metrics") {
     return json({
-      complex_name: "مجمع حلقات البساتين",
+      complex_name: "مجمع حلقات بساتين",
       date,
       updated_at: new Date().toISOString(),
       slide_seconds: slideSeconds,
@@ -207,7 +207,7 @@ export async function handlePublicLiveDisplayRouter(
     }
 
     return json({
-      complex_name: "مجمع حلقات البساتين",
+      complex_name: "مجمع حلقات بساتين",
       slide_seconds: slideSeconds,
       slides,
     });

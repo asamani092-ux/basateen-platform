@@ -129,17 +129,17 @@ function SidebarBrand({ userName }: { userName?: string }) {
     <div className="p-6 border-b border-border flex items-center gap-3">
       <img
         src="/logo-light.png"
-        alt="مجمع حلقات البساتين"
+        alt="مجمع حلقات بساتين"
         className="h-12 w-auto object-contain shrink-0 dark:hidden"
       />
       <img
         src="/logo-dark.png"
-        alt="مجمع حلقات البساتين"
+        alt="مجمع حلقات بساتين"
         className="h-12 w-auto object-contain shrink-0 hidden dark:block"
       />
       <div className="min-w-0">
         <p className="font-bold text-base text-foreground truncate" style={tajawal}>
-          مجمع البساتين
+          مجمع بساتين
         </p>
         <p className="text-[10px] text-muted-foreground" style={tajawal}>
           منصة بساتين
@@ -263,7 +263,7 @@ export function RoleShellLayout() {
               <Menu className="w-5 h-5" />
             </Button>
             <p className="font-bold text-sm truncate flex-1 text-center" style={tajawal}>
-              مجمع البساتين
+              مجمع بساتين
             </p>
             <div className="w-10" aria-hidden />
           </div>

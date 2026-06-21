@@ -7,6 +7,7 @@ import {
 import { countComplexStaff, countComplexStudents } from "./admin-roster-counts";
 import { resolveAttendanceTableName } from "./student-attendance-db";
 import { fetchSemesterPeriod, semesterQueryRange } from "./semester-period";
+import { todayIso } from "./today-iso";
 
 export type AdminDashboardStats = {
   complex_name: string | null;
@@ -41,10 +42,6 @@ export type AdminDashboardStats = {
     staff_attendance_rate_today: number;
   };
 };
-
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function attendanceRatePct(present: number, total: number): number {
   return total > 0 ? Math.round((present / total) * 1000) / 10 : 0;

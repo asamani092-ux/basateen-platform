@@ -31,7 +31,7 @@ export async function handleTvSummary(
     total > 0 ? Math.round((present / total) * 1000) / 10 : 0;
 
   return Response.json({
-    complex: "مجمع حلقات البساتين",
+    complex: "مجمع حلقات بساتين",
     date: row?.snapshot_date ?? null,
     present,
     absent,

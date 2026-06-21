@@ -125,3 +125,70 @@ export function isAttendanceStatus(raw: unknown): AttendanceStatus | null {
   if (s === "present" || s === "absent" || s === "excused") return s;
   return null;
 }
+
+/** O(E×S) — حالة «محضّر اليوم» لكل حلقة/مسار (كل الطلاب المؤهلين لهم سجل). */
+export async function loadEntityAttendanceStatus(
+  env: Env,
+  complexId: number,
+  date: string,
+): Promise<{
+  circles: Array<{ id: number; marked: boolean }>;
+  tracks: Array<{ id: number; marked: boolean }>;
+}> {
+  const attTable = await resolveAttendanceTableName(env);
+  const circles: Array<{ id: number; marked: boolean }> = [];
+  const tracks: Array<{ id: number; marked: boolean }> = [];
+  if (!attTable) return { circles, tracks };
+
+  const eligibleExpr = await studentAttendanceEligibleSql(env, "s");
+
+  if (await tableHasColumn(env, "students", "current_circle_id")) {
+    const rows = await env.DB.prepare(
+      `SELECT c.id,
+              (SELECT COUNT(*) FROM students s
+               WHERE s.complex_id = ? AND s.current_circle_id = c.id AND ${eligibleExpr}) AS roster,
+              (SELECT COUNT(*) FROM students s
+               INNER JOIN ${attTable} sa
+                 ON sa.student_id = s.id AND sa.attendance_date = ?
+               WHERE s.complex_id = ? AND s.current_circle_id = c.id AND ${eligibleExpr}) AS marked
+       FROM circles c
+       WHERE c.complex_id = ? AND COALESCE(c.is_active, 1) = 1`,
+    )
+      .bind(complexId, date, complexId, complexId)
+      .all<{ id: number; roster: number; marked: number }>();
+    for (const r of rows.results ?? []) {
+      const roster = Number(r.roster ?? 0);
+      const marked = Number(r.marked ?? 0);
+      circles.push({
+        id: r.id,
+        marked: roster > 0 && marked >= roster,
+      });
+    }
+  }
+
+  if (await tableHasColumn(env, "students", "current_track_id")) {
+    const rows = await env.DB.prepare(
+      `SELECT t.id,
+              (SELECT COUNT(*) FROM students s
+               WHERE s.complex_id = ? AND s.current_track_id = t.id AND ${eligibleExpr}) AS roster,
+              (SELECT COUNT(*) FROM students s
+               INNER JOIN ${attTable} sa
+                 ON sa.student_id = s.id AND sa.attendance_date = ?
+               WHERE s.complex_id = ? AND s.current_track_id = t.id AND ${eligibleExpr}) AS marked
+       FROM tracks t
+       WHERE t.complex_id = ? AND COALESCE(t.is_active, 1) = 1`,
+    )
+      .bind(complexId, date, complexId, complexId)
+      .all<{ id: number; roster: number; marked: number }>();
+    for (const r of rows.results ?? []) {
+      const roster = Number(r.roster ?? 0);
+      const marked = Number(r.marked ?? 0);
+      tracks.push({
+        id: r.id,
+        marked: roster > 0 && marked >= roster,
+      });
+    }
+  }
+
+  return { circles, tracks };
+}

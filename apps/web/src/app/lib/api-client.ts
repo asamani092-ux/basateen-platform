@@ -1473,6 +1473,18 @@ export const api = {
       };
     }>(`/api/admin-dept/students/attendance/track/${trackId}?${qs}`);
   },
+  adminDeptStudentAttendanceEntityStatus: (date?: string) => {
+    const search = new URLSearchParams();
+    if (date) search.set("date", date);
+    const qs = search.toString();
+    return request<{
+      date: string;
+      circles: Array<{ id: number; marked: boolean }>;
+      tracks: Array<{ id: number; marked: boolean }>;
+    }>(
+      `/api/admin-dept/students/attendance/entity-status${qs ? `?${qs}` : ""}`,
+    );
+  },
   adminDeptSaveStudentAttendance: (body: {
     circle_id?: number;
     track_id?: number;
@@ -2545,6 +2557,7 @@ export const api = {
         student_id: number;
         full_name_ar: string;
         status: string;
+        has_record?: boolean;
       }>;
       default_status: string;
     }>(`/api/public/attendance/${encodeURIComponent(token)}`),

@@ -162,7 +162,7 @@ export function StaffAttendanceReportModal({ open, onOpenChange }: Props) {
         >
           <div className="hidden print:flex print:justify-between print:items-start print:border-b print:border-black print:pb-2 print:mb-3 print:pt-0">
             <p className="text-sm font-semibold" style={tajawal}>
-              {complexName ?? "مجمع حلقات البساتين"}
+              {complexName ?? "مجمع حلقات بساتين"}
             </p>
             <p className="text-sm" style={tajawal} dir="ltr">
               {loadedRange

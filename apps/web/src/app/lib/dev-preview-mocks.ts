@@ -300,7 +300,7 @@ export function resolveDevPreviewMock<T>(
     return {
       start_date: start,
       end_date: end,
-      complex_name: "مجمع حلقات البساتين (معاينة)",
+      complex_name: "مجمع حلقات بساتين (معاينة)",
       items: MOCK_STAFF.map((r) => ({
         user_id: r.user_id,
         full_name_ar: r.full_name_ar,
@@ -1762,7 +1762,7 @@ export function resolveDevPreviewMock<T>(
 
   if (p === "/api/public/live-display/metrics" && m === "GET") {
     return {
-      complex_name: "مجمع حلقات البساتين",
+      complex_name: "مجمع حلقات بساتين",
       date: PREVIEW_TODAY(),
       updated_at: new Date().toISOString(),
       metrics: {

@@ -2,7 +2,7 @@
   "name": "basateen-platform",
   "private": true,
   "version": "0.1.0",
-  "description": "مجمع حلقات البساتين — تطوير الواجهة",
+  "description": "مجمع حلقات بساتين — تطوير الواجهة",
   "scripts": {
     "dev": "npm run dev --prefix apps/web",
     "dev:ui": "npm run dev --prefix apps/web",

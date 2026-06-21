@@ -86,7 +86,9 @@ export function StudentUnifiedSingleForm({
     ...EMPTY,
     ...initialValues,
   });
-  const [stageFilter, setStageFilter] = useState(initialValues?.stage_id ?? "");
+  const [stageFilter, setStageFilter] = useState(
+    requirePlacement ? "" : (initialValues?.stage_id ?? ""),
+  );
 
   const groupOptions = useMemo(() => {
     let list = groups;
@@ -257,6 +259,9 @@ export function StudentUnifiedSingleForm({
           />
         </Field>
         <Field label="مقدار الحفظ">
+          <p className="text-xs text-muted-foreground mb-1.5" style={tajawal}>
+            أدخل العدد ثم اختر الوحدة (وجه / حزب / جزء)
+          </p>
           <div className="flex gap-2">
             <Input
               type="number"
@@ -267,9 +272,10 @@ export function StudentUnifiedSingleForm({
               onChange={(e) =>
                 setMemorization(e.target.value, values.memorization_unit)
               }
-              className={`${ds.btnRound} flex-1`}
+              className={`${ds.btnRound} flex-1 text-lg font-semibold tabular-nums`}
               style={tajawal}
-              placeholder="0"
+              dir="ltr"
+              placeholder="مثال: 5"
             />
             <select
               value={values.memorization_unit}
@@ -291,9 +297,12 @@ export function StudentUnifiedSingleForm({
             {UNIT_MAX_HINT[values.memorization_unit]}
           </p>
           {values.memorization_amount ? (
-            <p className="text-xs text-muted-foreground mt-0.5" style={tajawal}>
+            <div
+              className="mt-2 rounded-lg bg-muted px-3 py-2 text-sm font-medium text-foreground"
+              style={tajawal}
+            >
               {values.memorization_amount}
-            </p>
+            </div>
           ) : null}
         </Field>
         <Field label="العمر (اختياري)">

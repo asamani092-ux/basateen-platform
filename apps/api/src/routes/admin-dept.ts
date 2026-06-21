@@ -42,6 +42,7 @@ import {
 } from "../lib/attendance-batch";
 import {
   assertTrackInComplex,
+  loadEntityAttendanceStatus,
   loadStudentsForEntityAttendance,
   parseAttendanceEntity,
   studentBelongsToEntity,
@@ -69,6 +70,7 @@ import {
   upsertStudentAttendance,
   type AttendanceStatus,
 } from "../lib/student-attendance-db";
+import { todayIso } from "../lib/today-iso";
 
 const ADMIN_ROLES = ["super_admin"] as const;
 
@@ -81,10 +83,6 @@ const STAGE_ID_TO_CIRCLE_STAGE: Record<number, string> = {
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
-}
-
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 function applyWhatsappAbsenceTemplate(
@@ -710,6 +708,20 @@ async function handleAdminDeptRouterImpl(
     );
 
     return json({ ok: true, attendance_date: date, saved });
+  }
+
+  // GET /api/admin-dept/students/attendance/entity-status — حالة محضّر اليوم لكل حلقة/مسار
+  if (
+    request.method === "GET" &&
+    path === "/api/admin-dept/students/attendance/entity-status"
+  ) {
+    const date = url.searchParams.get("date")?.trim() || todayIso();
+    const status = await loadEntityAttendanceStatus(
+      env,
+      admin.complexId,
+      date,
+    );
+    return json({ date, ...status });
   }
 
   // GET /api/admin-dept/students/attendance/track/:trackId

@@ -15,6 +15,8 @@ export type DailyAttendanceRow = {
   full_name_ar: string;
   subtitle?: string;
   status: string;
+  has_record?: boolean;
+  isDirty?: boolean;
 };
 
 type Props = {
@@ -61,6 +63,7 @@ export function AttendanceDailyTable({
                 <AttendanceStatusButtons
                   value={row.status}
                   disabled={disabled}
+                  highlightSaved={Boolean(row.has_record || row.isDirty)}
                   onChange={(st) => onStatusChange(row.id, st)}
                 />
               </TableCell>

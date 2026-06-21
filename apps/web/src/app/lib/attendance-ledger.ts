@@ -4,6 +4,7 @@ import type {
 } from "./attendance-mutations";
 import { matchesArabicName } from "./attendance-search";
 import { normalizeAttendanceStatus } from "./attendance-status";
+import { todayIso } from "./today-iso";
 
 export type DateFilterMode = "day" | "range";
 
@@ -21,9 +22,7 @@ export type LedgerEntry = {
   track_name?: string | null;
 };
 
-export function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
+export { todayIso } from "./today-iso";
 
 export function isRangeMode(mode: DateFilterMode, start: string, end: string): boolean {
   return mode === "range" || start !== end;

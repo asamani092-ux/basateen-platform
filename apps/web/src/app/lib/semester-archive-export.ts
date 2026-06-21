@@ -9,7 +9,11 @@ const STATUS_LABELS: Record<string, string> = {
 
 /** Time O(n+m+d) for students, summary, and daily rows; Space O(n+m+d). */
 export async function downloadSemesterArchiveXlsx(): Promise<void> {
-  const data: SemesterExportAllPayload = await api.adminDeptSemesterExportAll();
+  const data: SemesterExportAllPayload =
+    await api.adminDeptSemesterExportAllJson();
+  if (!data?.semester) {
+    throw new Error("تصدير الفصل: استجابة غير صالحة من الخادم");
+  }
   const meta = [
     ["نوع التصدير", "الأرشيف الختامي الشامل"],
     ["بداية الفصل", data.semester.start_date ?? "—"],

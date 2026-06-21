@@ -10,13 +10,10 @@ import {
 } from "../lib/magic-link";
 import { batchSaveStudentAttendance } from "../lib/attendance-batch";
 import type { AttendanceStatus } from "../lib/student-attendance-db";
+import { todayIso } from "../lib/today-iso";
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
-}
-
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 function parseStatus(raw: unknown): AttendanceStatus | null {
@@ -109,6 +106,7 @@ async function loadStudentsForMagicLink(
 
   const students = await env.DB.prepare(
     `SELECT s.id AS student_id, s.full_name_ar,
+            CASE WHEN sa.id IS NOT NULL THEN 1 ELSE 0 END AS has_record,
             COALESCE(sa.status, 'present') AS status,
             sa.recorded_at
      FROM students s

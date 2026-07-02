@@ -27,6 +27,7 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [useEmail, setUseEmail] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const [passwordChangeMode, setPasswordChangeMode] = useState(false);
   const [newPassword, setNewPassword] = useState("");
 

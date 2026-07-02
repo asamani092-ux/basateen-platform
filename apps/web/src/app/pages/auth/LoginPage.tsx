@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { GuardedForm } from "../../components/ui/guarded-form";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Card, CardContent, CardHeader } from "../../components/ui/card";
@@ -10,7 +10,6 @@ import {
   loginWithMobile,
   normalizeClientRole,
   normalizeMobile,
-  type UserRole,
 } from "../../lib/auth-store";
 import { setApiToken } from "../../lib/api-token";
 import { api } from "../../lib/api-client";
@@ -23,13 +22,8 @@ export function LoginPage() {
   const navigate = useNavigate();
   const { login, logout } = useAuth();
   const [mobile, setMobile] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [useEmail, setUseEmail] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [passwordChangeMode, setPasswordChangeMode] = useState(false);
-  const [newPassword, setNewPassword] = useState("");
 
   const [searchParams] = useSearchParams();
 
@@ -41,11 +35,12 @@ export function LoginPage() {
 
   const normalized = useMemo(() => normalizeMobile(mobile), [mobile]);
   const canSubmitMobile = Boolean(normalized) && !loading;
-  const canSubmitEmail =
-    Boolean(email.trim() && password) && !loading && !isUiDevPreview();
 
   function finishLogin(
-    res: { token: string; user: { id: number; full_name_ar: string; role: string; sections: string[] } },
+    res: {
+      token: string;
+      user: { id: number; full_name_ar: string; role: string; sections: string[] };
+    },
     rawMobile: string,
   ) {
     setApiToken(res.token);
@@ -57,7 +52,7 @@ export function LoginPage() {
         role,
         sections: res.user.sections,
       },
-      rawMobile || res.user.id.toString(),
+      rawMobile,
       roleHomePath(role),
     );
     if (!authUser) {
@@ -79,15 +74,7 @@ export function LoginPage() {
     try {
       const res = await api.loginMobile(mobile);
       finishLogin(res, mobile);
-      return;
-    } catch (err) {
-      const code = (err as { code?: string }).code;
-      if (code === "password_change_required") {
-        setUseEmail(true);
-        setPasswordChangeMode(true);
-        setError("يجب تغيير كلمة المرور الافتراضية — استخدم الدخول بالإيميل");
-        return;
-      }
+    } catch {
       if (isUiDevPreview()) {
         const mockUser = loginWithMobile(mobile) ?? login(mobile);
         if (mockUser) {
@@ -96,46 +83,8 @@ export function LoginPage() {
         }
       }
       setError(
-        "رقم الجوال غير مسجّل أو غير متطابق مع D1 — جرّب 0500000000 أو 966500000000، أو الدخول بالإيميل",
+        "رقم الجوال غير مسجّل — تحقق من الرقم (مثال: 0500000000 أو 966500000000)",
       );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function onSubmitEmail(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-    try {
-      const res = await api.login(email.trim().toLowerCase(), password);
-      finishLogin(res, mobile || "0500000000");
-    } catch (err) {
-      const code = (err as { code?: string }).code;
-      if (code === "password_change_required") {
-        setPasswordChangeMode(true);
-        setError("يجب تغيير كلمة المرور الافتراضية قبل الدخول");
-      } else {
-        setError("بيانات الدخول غير صحيحة — تحقق من الإيميل وكلمة المرور");
-      }
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function onSubmitPasswordChange(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-    try {
-      const res = await api.changePassword({
-        email: email.trim().toLowerCase(),
-        current_password: password,
-        new_password: newPassword,
-      });
-      finishLogin(res, mobile || "0500000000");
-    } catch {
-      setError("تعذّر تغيير كلمة المرور — تحقق من البيانات (8 أحرف على الأقل)");
     } finally {
       setLoading(false);
     }
@@ -168,147 +117,51 @@ export function LoginPage() {
             منصة بساتين
           </h1>
           <p className="text-sm text-muted-foreground mt-2" style={tajawal}>
-            {useEmail ? "دخول المشرف العام بالإيميل" : "أدخل رقم الجوال المسجّل في D1"}
+            أدخل رقم الجوال المسجّل في النظام
           </p>
         </CardHeader>
         <CardContent>
-          {!useEmail ? (
-            <GuardedForm onSubmit={onSubmitMobile} className="space-y-4">
-              <div>
-                <label
-                  className="block text-sm font-semibold mb-2 text-foreground"
-                  style={tajawal}
-                >
-                  رقم الجوال
-                </label>
-                <Input
-                  type="tel"
-                  inputMode="numeric"
-                  autoComplete="tel"
-                  placeholder="05xxxxxxxx أو 9665xxxxxxxx"
-                  value={mobile}
-                  onChange={(e) => setMobile(e.target.value)}
-                  className={`${ds.btnRound} text-foreground`}
-                  style={tajawal}
-                  dir="ltr"
-                  required
-                />
-              </div>
-              {error && (
-                <p className={`text-sm ${ds.alert.error}`} style={tajawal}>
-                  {error}
-                </p>
-              )}
-              <Button
-                type="submit"
-                disabled={!canSubmitMobile}
-                className={`w-full ${ds.btnRound} disabled:opacity-50`}
+          <GuardedForm onSubmit={onSubmitMobile} className="space-y-4">
+            <div>
+              <label
+                className="block text-sm font-semibold mb-2 text-foreground"
                 style={tajawal}
               >
-                {loading ? "جاري الدخول..." : "دخول"}
-              </Button>
-            </GuardedForm>
-          ) : passwordChangeMode ? (
-            <GuardedForm onSubmit={onSubmitPasswordChange} className="space-y-4">
-              <p className="text-sm text-muted-foreground" style={tajawal}>
-                اختر كلمة مرور جديدة (8 أحرف على الأقل) — لا تستخدم Basateen123!
+                رقم الجوال
+              </label>
+              <Input
+                type="tel"
+                inputMode="numeric"
+                autoComplete="tel"
+                placeholder="05xxxxxxxx أو 9665xxxxxxxx"
+                value={mobile}
+                onChange={(e) => setMobile(e.target.value)}
+                className={`${ds.btnRound} text-foreground`}
+                style={tajawal}
+                dir="ltr"
+                required
+              />
+            </div>
+            {error && (
+              <p className={`text-sm ${ds.alert.error}`} style={tajawal}>
+                {error}
               </p>
-              <div>
-                <label className="block text-sm font-semibold mb-2" style={tajawal}>
-                  كلمة المرور الجديدة
-                </label>
-                <Input
-                  type="password"
-                  autoComplete="new-password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  className={ds.btnRound}
-                  dir="ltr"
-                  minLength={8}
-                  required
-                />
-              </div>
-              {error && (
-                <p className={`text-sm ${ds.alert.error}`} style={tajawal}>
-                  {error}
-                </p>
-              )}
-              <Button
-                type="submit"
-                disabled={loading || newPassword.length < 8}
-                className={`w-full ${ds.btnRound}`}
-                style={tajawal}
-              >
-                {loading ? "جاري الحفظ…" : "حفظ والدخول"}
-              </Button>
-            </GuardedForm>
-          ) : (
-            <GuardedForm onSubmit={onSubmitEmail} className="space-y-4">
-              <div>
-                <label className="block text-sm font-semibold mb-2" style={tajawal}>
-                  الإيميل
-                </label>
-                <Input
-                  type="email"
-                  autoComplete="email"
-                  placeholder="admin@basateen.win"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className={ds.btnRound}
-                  dir="ltr"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold mb-2" style={tajawal}>
-                  كلمة المرور
-                </label>
-                <Input
-                  type="password"
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className={ds.btnRound}
-                  dir="ltr"
-                  required
-                />
-              </div>
-              {error && (
-                <p className={`text-sm ${ds.alert.error}`} style={tajawal}>
-                  {error}
-                </p>
-              )}
-              <Button
-                type="submit"
-                disabled={!canSubmitEmail}
-                className={`w-full ${ds.btnRound}`}
-                style={tajawal}
-              >
-                {loading ? "جاري الدخول..." : "دخول بالإيميل"}
-              </Button>
-            </GuardedForm>
-          )}
-
-          <Button
-            type="button"
-            variant="ghost"
-            className="w-full mt-3 text-sm"
-            style={tajawal}
-            onClick={() => {
-              setUseEmail((v) => !v);
-              setError(null);
-            }}
-          >
-            {useEmail ? "العودة لدخول الجوال" : "دخول بالإيميل (المشرف العام)"}
-          </Button>
+            )}
+            <Button
+              type="submit"
+              disabled={!canSubmitMobile}
+              className={`w-full ${ds.btnRound} disabled:opacity-50`}
+              style={tajawal}
+            >
+              {loading ? "جاري الدخول..." : "دخول"}
+            </Button>
+          </GuardedForm>
 
           {isUiDevPreview() && (
             <p className={`text-xs text-center mt-3 ${ds.alert.info}`} style={tajawal}>
               وضع معاينة UI — الجوال التجريبي: 0500000001 … 0500000005
             </p>
           )}
-
-
         </CardContent>
       </Card>
     </div>

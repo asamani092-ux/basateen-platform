@@ -461,7 +461,6 @@ export async function handleStudentPatch(
     }
 
     for (const col of allowed) {
-      if (col === "memorization_amount") continue;
       if (body[col] === undefined) continue;
       if (!(await tableHasColumn(env, "students", col))) continue;
       if (col === "account_status") {

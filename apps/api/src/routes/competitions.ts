@@ -1,4 +1,5 @@
 import type { Env } from "../types";
+import { todayRiyadhIso } from "../lib/today-riyadh-iso";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 import { hasTable, tableHasColumn } from "../lib/db-schema";
 import {
@@ -788,9 +789,12 @@ export async function handleEduCompetitionsRouter(
     }
 
     if (request.method === "POST") {
-      let body: { access_pin?: string };
+      let body: { access_pin?: string } = {};
       try {
-        body = await request.json().catch(() => ({}));
+        const parsed: unknown = await request.json();
+        if (parsed && typeof parsed === "object") {
+          body = parsed as { access_pin?: string };
+        }
       } catch {
         body = {};
       }
@@ -883,7 +887,7 @@ export async function handleEduCompetitionsRouter(
 
     if (request.method === "GET") {
       const date =
-        url.searchParams.get("date") ?? new Date().toISOString().slice(0, 10);
+        url.searchParams.get("date") ?? todayRiyadhIso();
       const studentIds = await resolveCompetitionStudents(
         env,
         auth.complexId,
@@ -953,7 +957,7 @@ export async function handleEduCompetitionsRouter(
       } catch {
         return json({ error: "invalid_json" }, 400);
       }
-      const date = body.date ?? new Date().toISOString().slice(0, 10);
+      const date = body.date ?? todayRiyadhIso();
       const records = body.records ?? [];
       const hasAttStatus = await tableHasColumn(env, "competition_attendance", "status");
       const stmts = records.map((rec) => {
@@ -1025,10 +1029,10 @@ export async function handleEduCompetitionsRouter(
         ? defaultActiveLogDate(
             activeDates,
             url.searchParams.get("log_date")?.trim() ||
-              new Date().toISOString().slice(0, 10),
+              todayRiyadhIso(),
           )
         : url.searchParams.get("log_date")?.trim() ||
-          new Date().toISOString().slice(0, 10);
+          todayRiyadhIso();
       const sirdSettings = parseSirdSettings(compRules);
       const gradedDates = await loadCompetitionGradedLogDates(env, id);
 
@@ -1162,7 +1166,7 @@ export async function handleEduCompetitionsRouter(
       }
 
       const logDate =
-        body.log_date?.trim() || new Date().toISOString().slice(0, 10);
+        body.log_date?.trim() || todayRiyadhIso();
       const records = body.records ?? [];
       const category = String(row.category ?? "recitation");
       const compRules = JSON.parse(String(row.rules_json ?? "{}")) as Record<

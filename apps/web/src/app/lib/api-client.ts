@@ -331,16 +331,6 @@ export const api = {
     request<TvSummary>(
       token ? `/api/tv/summary?token=${encodeURIComponent(token)}` : "/api/tv/summary",
     ),
-  changePassword: (body: {
-    email?: string;
-    mobile?: string;
-    current_password: string;
-    new_password: string;
-  }) =>
-    request<{ ok: boolean; token: string; user: AuthUser }>(
-      "/api/auth/change-password",
-      { method: "POST", body: JSON.stringify(body) },
-    ),
   login: (email: string, password: string) =>
     request<{ token: string; user: AuthUser }>("/api/auth/login", {
       method: "POST",

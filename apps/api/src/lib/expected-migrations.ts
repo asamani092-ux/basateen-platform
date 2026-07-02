@@ -84,4 +84,5 @@ export const EXPECTED_MIGRATIONS: readonly string[] = [
   "061_staff_role_assignment_cleanup.sql",
   "062_stage_id_backfill.sql",
   "063_security_hardening.sql",
+  "064_clear_must_change_password.sql",
 ];

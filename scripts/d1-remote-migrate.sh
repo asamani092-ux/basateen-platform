@@ -124,7 +124,7 @@ apply_pending() {
 bootstrap_tracking() {
   echo "D1 remote migrate: bootstrap-tracking (existing DB)" >&2
   ensure_tracking_table >&2
-  local skip='^(061|062|063)_'
+  local skip='^(061|062|063|064)_'
   for f in "$SCHEMA"/[0-9][0-9][0-9]_*.sql; do
     [[ -f "$f" ]] || continue
     local base
@@ -224,8 +224,11 @@ case "$MODE" in
   063)
     run_numbered_migration "063_security_hardening.sql"
     ;;
+  064)
+    run_numbered_migration "064_clear_must_change_password.sql"
+    ;;
   *)
-    echo "Usage: $0 upgrade|all|demo|apply-pending|bootstrap-tracking|048|061|062|063|..." >&2
+    echo "Usage: $0 upgrade|all|demo|apply-pending|bootstrap-tracking|048|061|062|063|064|..." >&2
     exit 1
     ;;
 esac

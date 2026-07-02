@@ -4,7 +4,7 @@ import type {
 } from "./attendance-mutations";
 import { matchesArabicName } from "./attendance-search";
 import { normalizeAttendanceStatus } from "./attendance-status";
-import { todayIso } from "./today-iso";
+import { todayRiyadhIso } from "./today-riyadh-iso";
 
 export type DateFilterMode = "day" | "range";
 
@@ -22,7 +22,9 @@ export type LedgerEntry = {
   track_name?: string | null;
 };
 
-export { todayIso } from "./today-iso";
+export { todayRiyadhIso } from "./today-riyadh-iso";
+/** @deprecated use todayRiyadhIso */
+export const todayIso = todayRiyadhIso;
 
 export function isRangeMode(mode: DateFilterMode, start: string, end: string): boolean {
   return mode === "range" || start !== end;

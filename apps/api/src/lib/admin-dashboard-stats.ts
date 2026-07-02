@@ -7,7 +7,7 @@ import {
 import { countComplexStaff, countComplexStudents } from "./admin-roster-counts";
 import { resolveAttendanceTableName } from "./student-attendance-db";
 import { fetchSemesterPeriod, semesterQueryRange } from "./semester-period";
-import { todayIso } from "./today-iso";
+import { todayRiyadhIso } from "./today-riyadh-iso";
 
 export type AdminDashboardStats = {
   complex_name: string | null;
@@ -130,7 +130,7 @@ export async function fetchAdminDashboardStats(
   })();
 
   const attendanceP = (async () => {
-    const today = todayIso();
+    const today = todayRiyadhIso();
     const [attTable, hasStaffAtt] = await Promise.all([
       resolveAttendanceTableName(env),
       hasTable(env, "staff_attendance"),

@@ -1,4 +1,5 @@
 import type { Env } from "../types";
+import { todayRiyadhIso } from "../lib/today-riyadh-iso";
 import { refreshDailyAttendanceSnapshot } from "../lib/attendance-snapshot";
 import {
   normalizeDailyMetrics,
@@ -40,7 +41,7 @@ export async function handleTeacherDailyList(
   }
 
   const date =
-    url.searchParams.get("date") ?? new Date().toISOString().slice(0, 10);
+    url.searchParams.get("date") ?? todayRiyadhIso();
 
   const rows = await env.DB.prepare(
     `SELECT
@@ -121,7 +122,7 @@ export async function handleTeacherDailyUpsert(
   }
 
   const markDate =
-    body.mark_date?.trim() || new Date().toISOString().slice(0, 10);
+    body.mark_date?.trim() || todayRiyadhIso();
 
   const plan =
     body.plan_id != null

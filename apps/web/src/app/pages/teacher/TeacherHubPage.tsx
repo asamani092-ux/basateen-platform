@@ -5,30 +5,9 @@ import {
 } from "../../components/edu/RecitationHubShell";
 import { DailyRecitationPage } from "../edu-dept/DailyRecitationPage";
 import { TeacherCompetitionsPage } from "../edu-dept/TeacherCompetitionsPage";
-import { ds, tajawal } from "../../lib/design-system";
+import { TeacherPlansPage } from "./TeacherPlansPage";
 
 type HubTab = "daily" | "plans" | "competitions";
-
-function SemesterPlanPlaceholder() {
-  return (
-    <div
-      className={`${ds.card} flex flex-col items-center justify-center gap-4 p-10 text-center`}
-      dir="rtl"
-    >
-      <div className="flex size-16 items-center justify-center rounded-2xl bg-secondary/60 text-primary">
-        <BookOpen className="size-8" />
-      </div>
-      <div className="space-y-1">
-        <h3 className="text-lg font-semibold text-foreground" style={tajawal}>
-          خطة الفصل
-        </h3>
-        <p className="text-sm text-muted-foreground max-w-sm" style={tajawal}>
-          ستتوفر هنا أهداف الحفظ والمراجعة لكل طالب — قريباً.
-        </p>
-      </div>
-    </div>
-  );
-}
 
 const TABS: RecitationHubTab<HubTab>[] = [
   {
@@ -43,7 +22,7 @@ const TABS: RecitationHubTab<HubTab>[] = [
     label: "خطة الفصل",
     shortLabel: "الخطة",
     icon: BookOpen,
-    panel: <SemesterPlanPlaceholder />,
+    panel: <TeacherPlansPage />,
   },
   {
     id: "competitions",

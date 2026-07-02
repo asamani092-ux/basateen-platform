@@ -16,7 +16,7 @@ import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { normalizeAttendanceStatus } from "../../lib/attendance-status";
 import { matchesArabicName } from "../../lib/attendance-search";
-import { todayIso } from "../../lib/attendance-ledger";
+import { todayRiyadhIso } from "../../lib/attendance-ledger";
 import { toastAttendanceBulkSaved } from "../../lib/attendance-mutations";
 import { ds, tajawal } from "../../lib/design-system";
 import { staffRoleLabel } from "../../lib/staff-role-label";
@@ -29,9 +29,9 @@ type Row = {
 };
 
 export function StaffAttendancePage() {
-  const [date, setDate] = useState(todayIso);
-  const [retroStart, setRetroStart] = useState(todayIso);
-  const [retroEnd, setRetroEnd] = useState(todayIso);
+  const [date, setDate] = useState(todayRiyadhIso);
+  const [retroStart, setRetroStart] = useState(todayRiyadhIso);
+  const [retroEnd, setRetroEnd] = useState(todayRiyadhIso);
   const [rows, setRows] = useState<Row[]>([]);
   const [statusMap, setStatusMap] = useState<Record<number, string>>({});
   const [page, setPage] = useState(1);

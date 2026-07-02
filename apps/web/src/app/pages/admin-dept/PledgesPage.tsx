@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { todayRiyadhIso } from "../../lib/today-riyadh-iso";
 import { GuardedForm } from "../../components/ui/guarded-form";
 import { Bell, Plus, Printer, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -109,7 +110,7 @@ export function PledgesPage() {
   const [modalStudentId, setModalStudentId] = useState<number | null>(null);
   const [reason, setReason] = useState("");
   const [pledgeDate, setPledgeDate] = useState(() =>
-    new Date().toISOString().slice(0, 10),
+    todayRiyadhIso(),
   );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -161,7 +162,7 @@ export function PledgesPage() {
     setError(null);
     setModalStudentId(null);
     setReason("");
-    setPledgeDate(new Date().toISOString().slice(0, 10));
+    setPledgeDate(todayRiyadhIso());
     setModalOpen(true);
   }
 

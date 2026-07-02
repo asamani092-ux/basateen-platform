@@ -11,14 +11,13 @@ import {
   studentsInScopeWhere,
   STAGE_LABELS,
 } from "../lib/dept-scope";
+import type { ScopeMode } from "../lib/dept-scope";
+import { todayRiyadhIso } from "../lib/today-riyadh-iso";
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
 }
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 async function assertStudentInScope(
   env: Env,
@@ -46,7 +45,7 @@ export async function handleEduDeptExtendedRoutes(
   const method = request.method;
 
   if (method === "GET" && path === "/api/edu-dept/dashboard") {
-    const today = todayIso();
+    const today = todayRiyadhIso();
     const stageWhere = stageFilterWhere(scope, "s.stage_id");
     const binds = [auth.complexId, ...stageFilterBinds(scope)];
 

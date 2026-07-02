@@ -1,5 +1,6 @@
 import type { Env } from "../types";
 import { tableHasColumn } from "./db-schema";
+import { todayRiyadhIso } from "./today-riyadh-iso";
 
 export type SemesterPeriod = {
   active: boolean;
@@ -7,9 +8,6 @@ export type SemesterPeriod = {
   end_date: string | null;
 };
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 export async function fetchSemesterPeriod(
   env: Env,
@@ -43,7 +41,7 @@ export function semesterQueryRange(period: SemesterPeriod): {
   start: string;
   end: string;
 } {
-  const today = todayIso();
+  const today = todayRiyadhIso();
   if (period.active && period.start_date) {
     const end = period.end_date && period.end_date >= period.start_date
       ? period.end_date

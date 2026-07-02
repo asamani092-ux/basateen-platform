@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { todayRiyadhIso } from "../../lib/today-riyadh-iso";
 import { Printer } from "lucide-react";
 import { Button } from "../ui/button";
 import { Label } from "../ui/label";
@@ -49,9 +50,6 @@ type Props = {
   onOpenChange: (open: boolean) => void;
 };
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 export function StaffAttendanceReportModal({ open, onOpenChange }: Props) {
   const today = todayIso();

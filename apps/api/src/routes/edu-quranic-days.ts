@@ -7,6 +7,7 @@ import {
 } from "../middleware/auth";
 import { hasTable, tableHasColumn } from "../lib/db-schema";
 import { randomMagicToken } from "../lib/magic-link";
+import { todayRiyadhIso } from "../lib/today-riyadh-iso";
 
 const EDU_SUPERVISOR_ROLES = ["edu_supervisor", "super_admin"] as const;
 const EXCLUDED_STAGE_TALQEEN = 1;
@@ -16,9 +17,6 @@ function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
 }
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function migrationRequired(): Response {
   return json({ error: "migration_required", migration: "028_quranic_day_refactor" }, 503);
@@ -448,7 +446,7 @@ export async function handleEduQuranicDaysRouter(
       return json({ error: "invalid_json" }, 400);
     }
     const name = String(body.name_ar ?? "").trim();
-    const eventDate = String(body.event_date ?? todayIso()).slice(0, 10);
+    const eventDate = String(body.event_date ?? todayRiyadhIso()).slice(0, 10);
     if (!name) return json({ error: "name_required" }, 400);
 
     const rules = stringifyDeductionRules({

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { todayRiyadhIso } from "../../lib/today-riyadh-iso";
 import { useParams } from "react-router";
 import { AlertTriangle, BookOpen, Loader2, Minus, Plus, Search } from "lucide-react";
 import { toast } from "sonner";
@@ -71,7 +72,7 @@ export function LiveLogPage() {
   const [competitionDays, setCompetitionDays] = useState(1);
   const [activeDates, setActiveDates] = useState<string[]>([]);
   const [gradedDates, setGradedDates] = useState<string[]>([]);
-  const [logDate, setLogDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [logDate, setLogDate] = useState(() => todayRiyadhIso());
   const [sirdSettings, setSirdSettings] = useState<SirdSettings>({
     ...DEFAULT_SIRD_SETTINGS,
   });

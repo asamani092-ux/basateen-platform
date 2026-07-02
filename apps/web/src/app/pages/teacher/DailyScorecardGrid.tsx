@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { todayRiyadhIso } from "../../lib/today-riyadh-iso";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { StudentTrackBadge } from "../../components/edu/StudentTrackBadge";
@@ -9,9 +10,6 @@ import { Button } from "../../components/ui/button";
 import { api } from "../../lib/api-client";
 import { ds, tajawal } from "../../lib/design-system";
 
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 type RowState = {
   id: number;
@@ -97,7 +95,7 @@ function rowFromBootstrap(item: {
 }
 
 export function DailyScorecardGrid() {
-  const [date, setDate] = useState(todayIso);
+  const [date, setDate] = useState(todayRiyadhIso);
   const [loading, setLoading] = useState(true);
   const [contextLabel, setContextLabel] = useState<string | null>(null);
   const [items, setItems] = useState<ScorecardRow[]>([]);
@@ -180,7 +178,7 @@ export function DailyScorecardGrid() {
         <p className="text-xs text-muted-foreground" style={tajawal}>
           {contextLabel ? `الحلقة: ${contextLabel}` : "—"} — أي رصد = حضور تلقائي
         </p>
-        <DatePickerField value={date} onChange={setDate} maxDate={todayIso()} />
+        <DatePickerField value={date} onChange={setDate} maxDate={todayRiyadhIso()} />
       </div>
 
       {!items.length ? (

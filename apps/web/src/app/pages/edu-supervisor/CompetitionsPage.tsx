@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { todayRiyadhIso } from "../../lib/today-riyadh-iso";
 import { Link, useNavigate } from "react-router";
 import { Calendar, Loader2, Pencil, Plus, Trash2, Trophy } from "lucide-react";
 import { toast } from "sonner";
@@ -101,7 +102,7 @@ export function CompetitionsPage() {
     }
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayRiyadhIso();
 
   return (
     <div className="space-y-6 max-w-[1600px]">

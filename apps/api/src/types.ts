@@ -14,6 +14,8 @@ export interface Env {
   JWT_SECRET?: string;
   SETUP_KEY?: string;
   ENVIRONMENT?: string;
+  /** رمز الوصول لـ /tv-live و /api/tv/summary */
+  TV_ACCESS_TOKEN?: string;
   /** قائمة دومينات Pages مفصولة بفاصلة، مثال: https://basateen.pages.dev */
   CORS_ALLOWED_ORIGINS?: string;
 }

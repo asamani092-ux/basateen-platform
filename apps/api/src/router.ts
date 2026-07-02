@@ -2,7 +2,7 @@ import type { Env } from "./types";
 import { handleOptions, withCors } from "./middleware/cors";
 import { handleHealth } from "./routes/health";
 import { handleTvSummary } from "./routes/tv-summary";
-import { handleLogin, handleLoginMobile, handleMe } from "./routes/auth";
+import { handleLogin, handleLoginMobile, handleMe, handleChangePassword } from "./routes/auth";
 import { handleSeedUsers } from "./routes/setup";
 import {
   handleAdminStudentCreate,
@@ -84,6 +84,7 @@ const sharedRoutes: Array<{ method: string; pattern: RegExp; handler: RouteHandl
   { method: "GET", pattern: /^\/api\/tv\/summary$/, handler: handleTvSummary },
   { method: "POST", pattern: /^\/api\/auth\/login$/, handler: handleLogin },
   { method: "POST", pattern: /^\/api\/auth\/login-mobile$/, handler: handleLoginMobile },
+  { method: "POST", pattern: /^\/api\/auth\/change-password$/, handler: handleChangePassword },
   { method: "GET", pattern: /^\/api\/auth\/me$/, handler: handleMe },
   { method: "POST", pattern: /^\/api\/setup\/seed-users$/, handler: handleSeedUsers },
   { method: "GET", pattern: /^\/api\/circles$/, handler: handleCirclesList },

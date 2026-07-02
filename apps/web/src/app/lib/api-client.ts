@@ -221,7 +221,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     };
     const err = new Error(
       payload.message ?? payload.error ?? `HTTP ${res.status}`,
-    ) as Error & { details?: unknown; issues?: unknown };
+    ) as Error & { details?: unknown; issues?: unknown; code?: string };
+    err.code = payload.error;
     err.details = payload.details ?? payload.issues;
     throw err;
   }
@@ -326,7 +327,20 @@ async function requestFileDownload(path: string): Promise<{
 
 export const api = {
   health: () => request<{ ok: boolean; service?: string }>("/api/health"),
-  tvSummary: () => request<TvSummary>("/api/tv/summary"),
+  tvSummary: (token?: string) =>
+    request<TvSummary>(
+      token ? `/api/tv/summary?token=${encodeURIComponent(token)}` : "/api/tv/summary",
+    ),
+  changePassword: (body: {
+    email?: string;
+    mobile?: string;
+    current_password: string;
+    new_password: string;
+  }) =>
+    request<{ ok: boolean; token: string; user: AuthUser }>(
+      "/api/auth/change-password",
+      { method: "POST", body: JSON.stringify(body) },
+    ),
   login: (email: string, password: string) =>
     request<{ token: string; user: AuthUser }>("/api/auth/login", {
       method: "POST",

@@ -9,7 +9,7 @@ const REFRESH_MS = 30_000;
 
 export function TvLivePage() {
   const [searchParams] = useSearchParams();
-  const { key: launchKey } = parseTvQuery(searchParams.toString());
+  const { key: launchKey, accessToken } = parseTvQuery(searchParams.toString());
   const [summary, setSummary] = useState<TvSummary | null>(null);
   const [himma, setHimma] = useState<{
     name_ar: string;
@@ -37,12 +37,16 @@ export function TvLivePage() {
             });
             setError(null);
           }
-        } else {
-          const data = await api.tvSummary();
+        } else if (accessToken) {
+          const data = await api.tvSummary(accessToken);
           if (!cancelled) {
             setSummary(data);
             setHimma(null);
             setError(null);
+          }
+        } else {
+          if (!cancelled) {
+            setError("مطلوب رمز الوصول (?token=...) أو مفتاح يوم الهمة (?key=...)");
           }
         }
       } catch (e) {
@@ -58,7 +62,7 @@ export function TvLivePage() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [launchKey]);
+  }, [launchKey, accessToken]);
 
   const timeStr = clock.toLocaleTimeString("ar-SA", {
     hour: "2-digit",

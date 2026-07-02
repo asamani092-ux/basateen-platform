@@ -433,6 +433,11 @@ export async function insertStaffUser(
     }
   }
 
+  if (await tableHasColumn(env, "users", "must_change_password")) {
+    cols.push("must_change_password");
+    vals.push(1);
+  }
+
   const placeholders = cols.map(() => "?").join(", ");
   const ins = await env.DB.prepare(
     `INSERT INTO users (${cols.join(", ")}) VALUES (${placeholders})`,

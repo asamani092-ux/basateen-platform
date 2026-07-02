@@ -1,0 +1,36 @@
+name: Typecheck
+
+on:
+  push:
+    branches: [main, "fix/**", "cursor/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install root
+        run: npm ci
+
+      - name: Install API
+        run: npm ci --prefix apps/api
+
+      - name: Install Web
+        run: npm ci --prefix apps/web
+
+      - name: Typecheck API
+        run: npm run build --prefix apps/api
+
+      - name: Typecheck Web
+        run: npx tsc --noEmit --project apps/web/tsconfig.json
+
+      - name: Typecheck shared types
+        run: npx tsc --noEmit --project packages/types/tsconfig.json

@@ -1,4 +1,5 @@
 import type { Env } from "../types";
+import { todayRiyadhIso } from "./today-riyadh-iso";
 import {
   criteriaToCompetitionTasks,
   type CompLogRow,
@@ -164,7 +165,7 @@ export function countActiveCompetitionDays(
 /** O(D) — preferred date if active, else latest active ≤ preferred, else first active. */
 export function defaultActiveLogDate(
   activeDates: string[],
-  preferred = new Date().toISOString().slice(0, 10),
+  preferred = todayRiyadhIso(),
 ): string {
   if (!activeDates.length) return preferred;
   if (activeDates.includes(preferred)) return preferred;
@@ -1061,7 +1062,11 @@ export const DEFAULT_SIRD_SETTINGS: SirdSettings = {
 
 /** O(1) — parse sird weight settings from competition rules_json. */
 export function parseSirdSettings(rules: Record<string, unknown> | null | undefined): SirdSettings {
-  const raw = (rules?.sird ?? rules?.scoring?.sird ?? {}) as Record<string, unknown>;
+  const scoring =
+    rules?.scoring && typeof rules.scoring === "object"
+      ? (rules.scoring as Record<string, unknown>)
+      : undefined;
+  const raw = (rules?.sird ?? scoring?.sird ?? {}) as Record<string, unknown>;
   return {
     base_hizb_score: Number(raw.base_hizb_score ?? DEFAULT_SIRD_SETTINGS.base_hizb_score),
     mistake_deduction: Number(raw.mistake_deduction ?? DEFAULT_SIRD_SETTINGS.mistake_deduction),

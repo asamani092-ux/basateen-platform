@@ -12,7 +12,8 @@ import {
 import { buildCompetitionTasksSnapshot } from "./edu-evaluation-standard";
 
 export type GradingRecordInput = {
-  student_id: number;
+  /** اختياري — يُستمد من GradingStudentSaveInput.student_id عند الحفظ المجمّع */
+  student_id?: number;
   task_id: number;
   points: number;
 };

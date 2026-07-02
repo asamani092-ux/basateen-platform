@@ -1,4 +1,5 @@
 import type { Env } from "../types";
+import { todayRiyadhIso } from "../lib/today-riyadh-iso";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 import {
   hasTable,
@@ -250,9 +251,9 @@ export async function handleLiveLogRouter(
       ? defaultActiveLogDate(
           activeDates,
           url.searchParams.get("log_date")?.trim() ||
-            new Date().toISOString().slice(0, 10),
+            todayRiyadhIso(),
         )
-      : new Date().toISOString().slice(0, 10);
+      : todayRiyadhIso();
     const activeSql = await studentIsActiveSql(env, "s");
 
     let students: { results?: unknown[] };
@@ -362,7 +363,8 @@ export async function handleLiveLogRouter(
       session: {
         id: session.id,
         name_ar: session.name_ar,
-        telemetry_type: session.telemetry_type,
+        telemetry_type:
+          "telemetry_type" in session ? session.telemetry_type : undefined,
         category: sess.category ?? compCategory,
         start_date: startDate,
         end_date: endDate,
@@ -483,7 +485,7 @@ export async function handleLiveLogRouter(
     );
     let logDate =
       (body as { log_date?: string }).log_date?.trim() ||
-      new Date().toISOString().slice(0, 10);
+      todayRiyadhIso();
     if (isMemorizationTrackingCategory(postCategory)) {
       const activeDates = enumerateActiveCompetitionDates(
         String(compRowPost?.start_date ?? session.date),

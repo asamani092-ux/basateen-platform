@@ -1,4 +1,5 @@
 import type { Env } from "../types";
+import { todayRiyadhIso } from "../lib/today-riyadh-iso";
 import {
   authUnauthorizedResponse,
   getAuth,
@@ -203,7 +204,9 @@ export async function handleEduDeptMegaRouter(
             .bind(auth.userId, auth.complexId)
             .all();
       const items = unifiedEngine
-        ? (rows.results ?? []).filter((r) => isTeacherCircleCompetition(r.rules_json))
+        ? (rows.results ?? []).filter((r) =>
+            isTeacherCircleCompetition(String(r.rules_json ?? "")),
+          )
         : (rows.results ?? []);
       const circle = await resolveTeacherPrimaryCircle(
         env,
@@ -238,7 +241,7 @@ export async function handleEduDeptMegaRouter(
         return json({ error: TEACHER_NO_CIRCLE_ACCOUNT_MSG }, 400);
       }
 
-      const today = new Date().toISOString().slice(0, 10);
+      const today = todayRiyadhIso();
       const startDate = body.start_date?.trim() || today;
       const endDate =
         body.end_date?.trim() ||
@@ -412,7 +415,7 @@ export async function handleEduDeptMegaRouter(
 
       let scores: Array<{ task_id: number; student_id: number; points: number }> = [];
       if (unifiedEngine && comp) {
-        const anchor = String(comp.start_date ?? new Date().toISOString().slice(0, 10));
+        const anchor = String(comp.start_date ?? todayRiyadhIso());
         scores = await loadTeacherCompetitionScores(env, compId, anchor);
       } else {
         const taskIds = taskRows.map((t) => t.id);
@@ -474,8 +477,8 @@ export async function handleEduDeptMegaRouter(
           env,
           compId,
           students,
-          String(compRow?.start_date ?? new Date().toISOString().slice(0, 10)),
-          String(compRow?.end_date ?? new Date().toISOString().slice(0, 10)),
+          String(compRow?.start_date ?? todayRiyadhIso()),
+          String(compRow?.end_date ?? todayRiyadhIso()),
         );
         return json({ items });
       }
@@ -694,7 +697,7 @@ export async function handleEduDeptMegaRouter(
           .bind(compId)
           .first<{ start_date: string }>();
         const logDate = String(
-          compRow?.start_date ?? new Date().toISOString().slice(0, 10),
+          compRow?.start_date ?? todayRiyadhIso(),
         );
         const taskRows = await env.DB.prepare(
           `SELECT id FROM competition_tasks WHERE competition_id = ?`,

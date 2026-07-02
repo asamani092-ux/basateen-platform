@@ -14,6 +14,7 @@ import {
   studentsInScopeWhere,
 } from "../lib/dept-scope";
 import { upsertStudentAttendance } from "../lib/student-attendance-db";
+import { todayRiyadhIso } from "../lib/today-riyadh-iso";
 import { handleEduDeptExtendedRoutes } from "./edu-dept-extended";
 
 const ACCEPT_ASSIGN_PATHS = new Set([
@@ -25,9 +26,6 @@ function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
 }
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 export async function handleEduDeptRouter(
   request: Request,
@@ -132,7 +130,7 @@ export async function handleEduDeptRouter(
     request.method === "GET" &&
     path === "/api/edu-dept/student-attendance/today"
   ) {
-    const date = url.searchParams.get("date")?.trim() || todayIso();
+    const date = url.searchParams.get("date")?.trim() || todayRiyadhIso();
     const scopeWhere = studentsInScopeWhere(scope);
     const binds = [date, auth.complexId, ...studentsInScopeBinds(auth.complexId, scope)];
 
@@ -172,7 +170,7 @@ export async function handleEduDeptRouter(
     request.method === "POST" &&
     path === "/api/edu-dept/student-attendance/init-today"
   ) {
-    const date = todayIso();
+    const date = todayRiyadhIso();
     const scopeWhere = studentsInScopeWhere(scope);
     const students = await env.DB.prepare(
       `SELECT s.id FROM students s WHERE ${scopeWhere}`,
@@ -212,11 +210,12 @@ export async function handleEduDeptRouter(
 
     const studentId = Number(body.student_id);
     if (!Number.isFinite(studentId)) return json({ error: "student_id_required" }, 400);
-    const status = body.status ?? "present";
-    if (!["present", "absent", "excused"].includes(status)) {
+    const statusRaw = body.status ?? "present";
+    if (!["present", "absent", "excused"].includes(statusRaw)) {
       return json({ error: "invalid_status" }, 400);
     }
-    const date = body.attendance_date?.trim() || todayIso();
+    const status = statusRaw as "present" | "absent" | "excused";
+    const date = body.attendance_date?.trim() || todayRiyadhIso();
     const scopeWhere = studentsInScopeWhere(scope);
 
     const allowed = await env.DB.prepare(

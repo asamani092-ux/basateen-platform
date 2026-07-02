@@ -1,9 +1,14 @@
 import type { Env } from "../env";
+import { tvAccessAllowed } from "../lib/setup-guard";
 
 export async function handleTvSummary(
-  _request: Request,
+  request: Request,
   env: Env,
 ): Promise<Response> {
+  if (!tvAccessAllowed(request, env)) {
+    return Response.json({ error: "tv_access_denied" }, { status: 403 });
+  }
+
   if (!env.DB) {
     return Response.json(
       { error: "D1 binding DB is not configured" },

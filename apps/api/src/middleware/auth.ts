@@ -1,6 +1,7 @@
 import type { AuthContext, Env, UserRole } from "../types";
 import type { DbUserRow } from "../../../../packages/types/schema";
 import { normalizeUserRole, resolveRoleFromUser } from "../../../../packages/types/schema";
+import { resolveJwtSecret } from "../lib/setup-guard";
 
 const encoder = new TextEncoder();
 const authFailureFlags = new WeakMap<Request, "legacy_session_detected" | "unauthorized">();
@@ -152,7 +153,7 @@ export async function getAuth(
   const header = request.headers.get("Authorization");
   if (!header?.startsWith("Bearer ")) return null;
   const token = header.slice(7);
-  const secret = env.JWT_SECRET || "dev-only-change-in-production";
+  const secret = resolveJwtSecret(env);
   const verified = await verifyTokenWithReason(token, secret);
   if (!verified.auth) {
     authFailureFlags.set(request, verified.reason ?? "unauthorized");

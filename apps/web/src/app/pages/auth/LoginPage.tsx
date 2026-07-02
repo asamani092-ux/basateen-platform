@@ -27,7 +27,8 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [useEmail, setUseEmail] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [passwordChangeMode, setPasswordChangeMode] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
 
   const [searchParams] = useSearchParams();
 
@@ -78,7 +79,14 @@ export function LoginPage() {
       const res = await api.loginMobile(mobile);
       finishLogin(res, mobile);
       return;
-    } catch {
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code === "password_change_required") {
+        setUseEmail(true);
+        setPasswordChangeMode(true);
+        setError("يجب تغيير كلمة المرور الافتراضية — استخدم الدخول بالإيميل");
+        return;
+      }
       if (isUiDevPreview()) {
         const mockUser = loginWithMobile(mobile) ?? login(mobile);
         if (mockUser) {
@@ -101,8 +109,32 @@ export function LoginPage() {
     try {
       const res = await api.login(email.trim().toLowerCase(), password);
       finishLogin(res, mobile || "0500000000");
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code === "password_change_required") {
+        setPasswordChangeMode(true);
+        setError("يجب تغيير كلمة المرور الافتراضية قبل الدخول");
+      } else {
+        setError("بيانات الدخول غير صحيحة — تحقق من الإيميل وكلمة المرور");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onSubmitPasswordChange(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await api.changePassword({
+        email: email.trim().toLowerCase(),
+        current_password: password,
+        new_password: newPassword,
+      });
+      finishLogin(res, mobile || "0500000000");
     } catch {
-      setError("بيانات الدخول غير صحيحة — تحقق من الإيميل وكلمة المرور");
+      setError("تعذّر تغيير كلمة المرور — تحقق من البيانات (8 أحرف على الأقل)");
     } finally {
       setLoading(false);
     }
@@ -173,6 +205,40 @@ export function LoginPage() {
                 style={tajawal}
               >
                 {loading ? "جاري الدخول..." : "دخول"}
+              </Button>
+            </GuardedForm>
+          ) : passwordChangeMode ? (
+            <GuardedForm onSubmit={onSubmitPasswordChange} className="space-y-4">
+              <p className="text-sm text-muted-foreground" style={tajawal}>
+                اختر كلمة مرور جديدة (8 أحرف على الأقل) — لا تستخدم Basateen123!
+              </p>
+              <div>
+                <label className="block text-sm font-semibold mb-2" style={tajawal}>
+                  كلمة المرور الجديدة
+                </label>
+                <Input
+                  type="password"
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className={ds.btnRound}
+                  dir="ltr"
+                  minLength={8}
+                  required
+                />
+              </div>
+              {error && (
+                <p className={`text-sm ${ds.alert.error}`} style={tajawal}>
+                  {error}
+                </p>
+              )}
+              <Button
+                type="submit"
+                disabled={loading || newPassword.length < 8}
+                className={`w-full ${ds.btnRound}`}
+                style={tajawal}
+              >
+                {loading ? "جاري الحفظ…" : "حفظ والدخول"}
               </Button>
             </GuardedForm>
           ) : (

@@ -117,6 +117,8 @@ export function StudentProfilePage() {
       <MemorizationProfileCard data={memorization} loading={loading} />
 
       <Card className={ds.card}>
+        <CardHeader>
+          <CardTitle style={tajawal}>خطة الفصل</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <Field

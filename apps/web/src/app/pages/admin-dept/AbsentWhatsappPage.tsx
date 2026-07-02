@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { todayRiyadhIso } from "../../lib/today-riyadh-iso";
 import { MessageSquareText } from "lucide-react";
 import { toast } from "sonner";
 import { AbsentWhatsappTemplateDialog } from "../../components/admin/AbsentWhatsappTemplateDialog";
@@ -40,7 +41,7 @@ type AbsentRow = {
 };
 
 export function AbsentWhatsappPage() {
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(() => todayRiyadhIso());
   const [circleId, setCircleId] = useState<string>("all");
   const [trackId, setTrackId] = useState<string>("all");
   const [circles, setCircles] = useState<CircleOption[]>([]);

@@ -43,6 +43,7 @@ import {
 import { STAFF_ROLES } from "./config/role-access";
 import { TeacherHubPage } from "./pages/teacher/TeacherHubPage";
 import { TrackSupervisorHubPage } from "./pages/teacher/TrackSupervisorHubPage";
+import { StudentProfilePage } from "./pages/edu-supervisor/StudentProfilePage";
 
 export default function App() {
   return (
@@ -139,7 +140,7 @@ export default function App() {
                 />
                 <Route
                   path="students/:studentId"
-                  element={<Navigate to="/admin-dept/students" replace />}
+                  element={<StudentProfilePage />}
                 />
                 <Route
                   path="transfers"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ترحيل D1 السحابية — يُشغَّل من GitHub Actions (Ubuntu) أو Linux/macOS
-# الاستخدام: ./scripts/d1-remote-migrate.sh upgrade|all|demo
+# الاستخدام: ./scripts/d1-remote-migrate.sh upgrade|all|demo|apply-pending|060|...
 set -u
 
 MODE="${1:-upgrade}"
@@ -27,9 +27,69 @@ run_sql() {
   echo ">>> $file"
   if npx wrangler d1 execute basateen --remote --file="$path"; then
     echo "OK: $file"
+    return 0
   else
-    echo "::warning::Skipped or failed (often already applied): $file"
+    echo "::error::Failed: $file"
+    return 1
   fi
+}
+
+record_migration() {
+  local file="$1"
+  npx wrangler d1 execute basateen --remote --command \
+    "INSERT OR IGNORE INTO _migrations_applied (name) VALUES ('${file}');" \
+    >/dev/null 2>&1 || true
+}
+
+ensure_tracking_table() {
+  run_sql "000_migrations_applied.sql"
+  record_migration "000_migrations_applied.sql"
+}
+
+list_pending_migrations() {
+  ensure_tracking_table
+  local applied
+  applied="$(npx wrangler d1 execute basateen --remote --command \
+    "SELECT name FROM _migrations_applied ORDER BY name;" --json 2>/dev/null \
+    | node -e "
+      let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{
+        try {
+          const j=JSON.parse(d);
+          const rows=j[0]?.results ?? [];
+          console.log(rows.map(r=>r.name).join('\n'));
+        } catch { console.log(''); }
+      });
+    ")"
+  for f in $(ls -1 "$SCHEMA" | grep -E '^[0-9]{3}_.+\.sql$' | sort); do
+    if ! echo "$applied" | grep -qxF "$f"; then
+      echo "$f"
+    fi
+  done
+}
+
+apply_pending() {
+  echo "D1 remote migrate: apply-pending (tracked)"
+  local pending=()
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && pending+=("$line")
+  done < <(list_pending_migrations)
+
+  if [[ ${#pending[@]} -eq 0 ]]; then
+    echo "No pending migrations."
+    return 0
+  fi
+
+  echo "Pending (${#pending[@]}): ${pending[*]}"
+  local failed=0
+  for f in "${pending[@]}"; do
+    if run_sql "$f"; then
+      record_migration "$f"
+    else
+      failed=1
+      break
+    fi
+  done
+  return "$failed"
 }
 
 FILES_UPGRADE=(
@@ -81,6 +141,9 @@ case "$MODE" in
   demo)
     echo "D1 remote migrate: demo examples only (018)"
     run_sql "018_edu_demo_examples.sql"
+    ;;
+  apply-pending)
+    apply_pending
     ;;
   048)
     echo "D1 remote migrate: 048 competition engine (teacher tasks rename + platform tables)"
@@ -136,8 +199,17 @@ case "$MODE" in
     cd "$API_DIR"
     npm run db:remote:060
     ;;
+  061)
+    run_sql "061_staff_role_assignment_cleanup.sql"
+    ;;
+  062)
+    run_sql "062_stage_id_backfill.sql"
+    ;;
+  063)
+    run_sql "063_security_hardening.sql"
+    ;;
   *)
-    echo "Usage: $0 upgrade|all|demo|048|competition-stack|051|052|053|054|055|056|057|058|059|060"
+    echo "Usage: $0 upgrade|all|demo|apply-pending|048|competition-stack|051|052|053|054|055|056|057|058|059|060|061|062|063"
     exit 1
     ;;
 esac

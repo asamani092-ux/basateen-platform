@@ -1,4 +1,5 @@
 import type { Env } from "../types";
+import { todayRiyadhIso } from "../lib/today-riyadh-iso";
 import {
   buildSemesterCalendar,
   estimatePlan,
@@ -153,7 +154,7 @@ export async function handleTeacherRouter(
       const calendar = await loadCalendar(env, auth.complexId);
       const estimate = estimatePlan(calendar, inputs);
       const startsAt =
-        body.starts_at?.trim() || new Date().toISOString().slice(0, 10);
+        body.starts_at?.trim() || todayRiyadhIso();
       const wizardJson = JSON.stringify({
         ...(body.wizard_json ?? {}),
         estimate,

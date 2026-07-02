@@ -34,7 +34,7 @@ import {
   transferStudentPlacement,
 } from "../lib/edu-transfer";
 import { applyStudentPlacement } from "../lib/students-admin";
-import { todayLocalIso } from "../lib/local-iso-date";
+import { todayRiyadhIso } from "../lib/today-riyadh-iso";
 import {
   queryStudentsInCircle,
   queryStudentsInTracks,
@@ -72,9 +72,6 @@ function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
 }
 
-function todayIso(): string {
-  return todayLocalIso();
-}
 
 /** Academic semester start (September) for cumulative face metrics. */
 function semesterStartIso(ref = new Date()): string {
@@ -764,7 +761,7 @@ export async function handleEduDeptCoreRouter(
     if (!(await hasTable(env, "edu_daily_recitation"))) return migrationRequired();
 
     try {
-      const date = url.searchParams.get("date")?.trim() || todayIso();
+      const date = url.searchParams.get("date")?.trim() || todayRiyadhIso();
       const criteriaPromise = loadEvaluationCriteria(env, auth.complexId);
       const circlePromise = resolveTeacherPrimaryCircle(
         env,
@@ -820,7 +817,7 @@ export async function handleEduDeptCoreRouter(
     if (!(await hasTable(env, "edu_daily_recitation"))) return migrationRequired();
 
     try {
-      const date = url.searchParams.get("date")?.trim() || todayIso();
+      const date = url.searchParams.get("date")?.trim() || todayRiyadhIso();
       const circleParam = url.searchParams.get("circle_id");
       const trackParam = url.searchParams.get("track_id");
       const trackFilter =
@@ -971,7 +968,7 @@ export async function handleEduDeptCoreRouter(
     }
     if (!(await hasTable(env, "edu_daily_recitation"))) return migrationRequired();
 
-    const date = url.searchParams.get("date") ?? todayIso();
+    const date = url.searchParams.get("date") ?? todayRiyadhIso();
     const circleIdParam = Number(url.searchParams.get("circle_id"));
 
     if (request.method === "GET") {
@@ -1036,7 +1033,7 @@ export async function handleEduDeptCoreRouter(
           return json({ error: "invalid_json" }, 400);
         }
 
-        const recDate = body.recitation_date?.trim() || todayIso();
+        const recDate = body.recitation_date?.trim() || todayRiyadhIso();
         const rawRows = body.rows;
         if (rawRows != null && !Array.isArray(rawRows)) {
           return json({ error: "rows_must_be_array" }, 400);
@@ -1833,7 +1830,7 @@ export async function handleEduDeptCoreRouter(
     }
     if (!(await hasTable(env, "edu_daily_recitation"))) return migrationRequired();
 
-    const today = todayIso();
+    const today = todayRiyadhIso();
     const dateFromParam = url.searchParams.get("date_from")?.trim();
     const dateToParam = url.searchParams.get("date_to")?.trim();
     const dateFrom = dateFromParam || today;

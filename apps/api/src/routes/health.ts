@@ -1,5 +1,6 @@
 import type { Env } from "../env";
 import { isProductionEnv } from "../lib/setup-guard";
+import { pendingMigrationNames } from "../lib/migrations-status";
 
 async function databaseStatus(env: Env): Promise<{
   ok: boolean;
@@ -38,11 +39,20 @@ export async function handleHealth(
 ): Promise<Response> {
   const production = isProductionEnv(env);
   const db = await databaseStatus(env);
+  const pending = await pendingMigrationNames(env);
+  const migrations_ok = pending.length === 0;
   return Response.json({
-    ok: true,
+    ok: migrations_ok && db.ok,
     service: "basateen-api",
     environment: env.ENVIRONMENT ?? "development",
     jwt_configured: Boolean(env.JWT_SECRET?.length),
+    setup_key_configured: Boolean(env.SETUP_KEY?.length),
+    tv_token_configured: Boolean(env.TV_ACCESS_TOKEN?.length),
+    migrations: {
+      ok: migrations_ok,
+      pending_count: pending.length,
+      pending: pending.slice(0, 20),
+    },
     db,
     ...(production && !env.JWT_SECRET
       ? { warning: "JWT_SECRET missing — set wrangler secret before go-live" }

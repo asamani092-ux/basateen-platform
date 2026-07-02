@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { todayRiyadhIso } from "../../lib/today-riyadh-iso";
 import { Copy, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../ui/button";
@@ -82,8 +83,8 @@ function mapPreviewToTargets(
 
 export function CompetitionCreateForm({ onCreated, onCancel }: Props) {
   const [nameAr, setNameAr] = useState("");
-  const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [startDate, setStartDate] = useState(() => todayRiyadhIso());
+  const [endDate, setEndDate] = useState(() => todayRiyadhIso());
   const [category, setCategory] = useState<CompetitionCategory>("recitation");
   const [memorizationUnit, setMemorizationUnit] = useState<MemorizationUnit>("juz");
   const [targetScope, setTargetScope] = useState<TargetScope>(emptyScope);

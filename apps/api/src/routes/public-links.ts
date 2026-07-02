@@ -10,7 +10,7 @@ import {
 } from "../lib/magic-link";
 import { batchSaveStudentAttendance } from "../lib/attendance-batch";
 import type { AttendanceStatus } from "../lib/student-attendance-db";
-import { todayIso } from "../lib/today-iso";
+import { todayRiyadhIso } from "../lib/today-riyadh-iso";
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
@@ -54,7 +54,7 @@ async function resolveAttendanceToken(
     return { error: json({ error: "invalid_link_context" }, 500) };
   }
 
-  const attendanceDate = todayIso();
+  const attendanceDate = todayRiyadhIso();
 
   if (groupType === "track") {
     const track = await env.DB.prepare(

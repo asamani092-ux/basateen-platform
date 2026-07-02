@@ -1,4 +1,5 @@
 import type { EvalCriterion } from "./evaluation-criteria";
+import { todayRiyadhIso } from "./today-riyadh-iso";
 
 export type TeacherBootstrapNotification = {
   id: number;
@@ -60,5 +61,5 @@ export function teacherBootstrapToRecitationPayload(
 }
 
 export function todayRecitationDate(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayRiyadhIso();
 }

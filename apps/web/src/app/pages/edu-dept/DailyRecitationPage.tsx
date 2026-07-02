@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { todayRiyadhIso } from "../../lib/today-riyadh-iso";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { GuardedForm } from "../../components/ui/guarded-form";
 import {
@@ -149,7 +150,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
   const [trackId, setTrackId] = useState<number | null>(null);
   const [circleId, setCircleId] = useState<number | null>(null);
   const [circleName, setCircleName] = useState("");
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(() => todayRiyadhIso());
   const [rows, setRows] = useState<Row[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [saving, setSaving] = useState(false);

@@ -70,7 +70,7 @@ import {
   upsertStudentAttendance,
   type AttendanceStatus,
 } from "../lib/student-attendance-db";
-import { todayIso } from "../lib/today-iso";
+import { todayRiyadhIso } from "../lib/today-riyadh-iso";
 
 const ADMIN_ROLES = ["super_admin"] as const;
 
@@ -551,7 +551,7 @@ async function handleAdminDeptRouterImpl(
 
   // GET /api/admin-dept/staff
   if (request.method === "GET" && path === "/api/admin-dept/staff") {
-    const date = url.searchParams.get("date")?.trim() || todayIso();
+    const date = url.searchParams.get("date")?.trim() || todayRiyadhIso();
     const pageParams = parsePageParams(url);
     const { sql } = await staffListSql(env);
     const countRow = await env.DB.prepare(
@@ -602,7 +602,7 @@ async function handleAdminDeptRouterImpl(
     const start =
       url.searchParams.get("start")?.trim() ||
       url.searchParams.get("start_date")?.trim() ||
-      todayIso();
+      todayRiyadhIso();
     const end =
       url.searchParams.get("end")?.trim() ||
       url.searchParams.get("end_date")?.trim() ||
@@ -679,7 +679,7 @@ async function handleAdminDeptRouterImpl(
       return json({ error: "invalid_json" }, 400);
     }
 
-    const date = body.attendance_date?.trim() || todayIso();
+    const date = body.attendance_date?.trim() || todayRiyadhIso();
     const records = body.records ?? [];
     if (!Array.isArray(records) || records.length === 0) {
       return json({ error: "records_required" }, 400);
@@ -715,7 +715,7 @@ async function handleAdminDeptRouterImpl(
     request.method === "GET" &&
     path === "/api/admin-dept/students/attendance/entity-status"
   ) {
-    const date = url.searchParams.get("date")?.trim() || todayIso();
+    const date = url.searchParams.get("date")?.trim() || todayRiyadhIso();
     const status = await loadEntityAttendanceStatus(
       env,
       admin.complexId,
@@ -737,7 +737,7 @@ async function handleAdminDeptRouterImpl(
       return json({ error: "track_not_found" }, 404);
     }
 
-    const date = url.searchParams.get("date")?.trim() || todayIso();
+    const date = url.searchParams.get("date")?.trim() || todayRiyadhIso();
     const pageParams = parsePageParams(url);
     const loaded = await loadStudentsForEntityAttendance(
       env,
@@ -777,7 +777,7 @@ async function handleAdminDeptRouterImpl(
       return json({ error: "circle_not_found" }, 404);
     }
 
-    const date = url.searchParams.get("date")?.trim() || todayIso();
+    const date = url.searchParams.get("date")?.trim() || todayRiyadhIso();
     const pageParams = parsePageParams(url);
     const loaded = await loadStudentsForEntityAttendance(
       env,
@@ -832,7 +832,7 @@ async function handleAdminDeptRouterImpl(
       return json({ error: "track_not_found" }, 404);
     }
 
-    const date = body.attendance_date?.trim() || todayIso();
+    const date = body.attendance_date?.trim() || todayRiyadhIso();
     const records = body.records ?? [];
     if (!Array.isArray(records) || records.length === 0) {
       return json({ error: "records_required" }, 400);
@@ -891,7 +891,7 @@ async function handleAdminDeptRouterImpl(
     const start =
       url.searchParams.get("start")?.trim() ||
       url.searchParams.get("start_date")?.trim() ||
-      todayIso();
+      todayRiyadhIso();
     const end =
       url.searchParams.get("end")?.trim() ||
       url.searchParams.get("end_date")?.trim() ||
@@ -970,7 +970,7 @@ async function handleAdminDeptRouterImpl(
 
   // GET /api/admin-dept/students/absent-today
   if (request.method === "GET" && path === "/api/admin-dept/students/absent-today") {
-    const date = url.searchParams.get("date")?.trim() || todayIso();
+    const date = url.searchParams.get("date")?.trim() || todayRiyadhIso();
     const circleIdParam = url.searchParams.get("circle_id");
     const circleId = circleIdParam ? Number(circleIdParam) : null;
     const trackIdParam = url.searchParams.get("track_id");
@@ -1156,7 +1156,7 @@ async function handleAdminDeptRouterImpl(
 
     const studentId = Number(body.student_id);
     const reason = body.reason_ar?.trim();
-    const pledgeDate = body.pledge_date?.trim() || todayIso();
+    const pledgeDate = body.pledge_date?.trim() || todayRiyadhIso();
 
     if (!Number.isFinite(studentId) || !reason) {
       return json({ error: "student_id_and_reason_required" }, 400);
@@ -1432,7 +1432,7 @@ async function handleAdminDeptRouterImpl(
       return json({ error: "invalid_beneficiary_type" }, 400);
     }
     if (!status) return json({ error: "invalid_status" }, 400);
-    const date = body.attendance_date?.trim() || todayIso();
+    const date = body.attendance_date?.trim() || todayRiyadhIso();
     const result = await upsertAttendanceRecord(env, admin.complexId, admin.userId, {
       beneficiary_type: beneficiaryType,
       person_id: Number(body.person_id),
@@ -1598,7 +1598,7 @@ async function handleAdminDeptRouterImpl(
 
     const result = await bulkClearAttendanceDay(env, admin.complexId, {
       beneficiary_type: beneficiaryType,
-      attendance_date: body.attendance_date?.trim() || todayIso(),
+      attendance_date: body.attendance_date?.trim() || todayRiyadhIso(),
       circle_id: body.circle_id,
       track_id: body.track_id,
     });
@@ -1608,7 +1608,7 @@ async function handleAdminDeptRouterImpl(
     return json({
       ok: true,
       deleted: result.deleted,
-      attendance_date: body.attendance_date?.trim() || todayIso(),
+      attendance_date: body.attendance_date?.trim() || todayRiyadhIso(),
     });
   }
 
@@ -1730,7 +1730,7 @@ async function handleAdminDeptRouterImpl(
 
     const staffCounts = await countComplexStaff(env, admin.complexId);
     const staffTotal = staffCounts.total;
-    const today = todayIso();
+    const today = todayRiyadhIso();
     const rateDate = endDate <= today ? endDate : today;
 
     const staffOnToday = await env.DB.prepare(
@@ -1837,7 +1837,7 @@ async function handleAdminDeptRouterImpl(
       url.searchParams.get("start")?.trim() ||
       url.searchParams.get("startDate")?.trim() ||
       url.searchParams.get("start_date")?.trim() ||
-      todayIso();
+      todayRiyadhIso();
     const endDate =
       url.searchParams.get("end")?.trim() ||
       url.searchParams.get("endDate")?.trim() ||
@@ -2028,7 +2028,7 @@ async function handleAdminDeptRouterImpl(
     const startDate =
       url.searchParams.get("startDate")?.trim() ||
       url.searchParams.get("start_date")?.trim() ||
-      todayIso();
+      todayRiyadhIso();
     const endDate =
       url.searchParams.get("endDate")?.trim() ||
       url.searchParams.get("end_date")?.trim() ||
@@ -2498,7 +2498,7 @@ async function handleAdminDeptRouterImpl(
     const reason =
       row.notes?.trim() ||
       "تصعيد من المعلم — تحويل إلى تعهد رسمي";
-    const pledgeDate = todayIso();
+    const pledgeDate = todayRiyadhIso();
 
     const ins = await env.DB.prepare(
       `INSERT INTO student_pledges (complex_id, student_id, reason_ar, pledge_date, created_by_user_id)

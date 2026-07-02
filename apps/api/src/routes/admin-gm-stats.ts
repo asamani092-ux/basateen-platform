@@ -1,4 +1,5 @@
 import type { Env } from "../types";
+import { todayRiyadhIso } from "../lib/today-riyadh-iso";
 import { fetchHimmaAuditFromLedger } from "../lib/himma-ledger-view";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 import { tableHasColumn } from "../lib/db-schema";
@@ -12,7 +13,7 @@ function json(data: unknown, status = 200): Response {
 function periodStart(period: string): string {
   const now = new Date();
   const iso = (d: Date) => d.toISOString().slice(0, 10);
-  if (period === "today") return iso(now);
+  if (period === "today") return todayRiyadhIso();
   if (period === "week") {
     const d = new Date(now);
     d.setDate(d.getDate() - 6);
@@ -39,7 +40,7 @@ export async function handleAdminStats(
 
   const period = url.searchParams.get("period") ?? "semester";
   let fromDate = periodStart(period);
-  let today = new Date().toISOString().slice(0, 10);
+  let today = todayRiyadhIso();
   if (period === "semester") {
     const sp = await fetchSemesterPeriod(env, auth.complexId);
     const range = semesterQueryRange(sp);
@@ -198,7 +199,7 @@ export async function handleAdminStaffAttendanceList(
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
   if (!requireRoles(auth, ["super_admin"])) return json({ error: "forbidden" }, 403);
 
-  const from = url.searchParams.get("from") ?? new Date().toISOString().slice(0, 10);
+  const from = url.searchParams.get("from") ?? todayRiyadhIso();
   const to = url.searchParams.get("to") ?? from;
 
   const rows = await env.DB.prepare(
@@ -238,7 +239,7 @@ export async function handleAdminStaffAttendanceUpsert(
   const userId = Number(body.user_id);
   if (!Number.isFinite(userId)) return json({ error: "user_id_required" }, 400);
 
-  const date = body.attendance_date?.trim() || new Date().toISOString().slice(0, 10);
+  const date = body.attendance_date?.trim() || todayRiyadhIso();
   const status = body.status ?? "present";
   if (!["present", "absent", "late", "leave", "excused"].includes(status)) {
     return json({ error: "invalid_status" }, 400);
@@ -320,7 +321,7 @@ export async function handleSemesterStart(
     return json({ error: "semester_already_active" }, 409);
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayRiyadhIso();
   await env.DB.prepare(
     `UPDATE complex_settings
      SET semester_active = 1, semester_start_date = ?, semester_end_date = NULL, updated_at = datetime('now')
@@ -364,8 +365,8 @@ export async function handleSemesterEnd(
     return json({ error: "no_active_semester" }, 409);
   }
 
-  const startDate = period.start_date ?? new Date().toISOString().slice(0, 10);
-  const today = new Date().toISOString().slice(0, 10);
+  const startDate = period.start_date ?? todayRiyadhIso();
+  const today = todayRiyadhIso();
 
   const snapshotId = await persistSemesterHistoricalSnapshot(
     env,

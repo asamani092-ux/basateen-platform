@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { todayRiyadhIso } from "../../lib/today-riyadh-iso";
 import { ClipboardCheck } from "lucide-react";
 import { Button } from "../ui/button";
 import {
@@ -28,7 +29,7 @@ export function StaffAttendancePanel({
 }: {
   staff: StaffOption[];
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayRiyadhIso();
   const [date, setDate] = useState(today);
   const [items, setItems] = useState<
     Array<{

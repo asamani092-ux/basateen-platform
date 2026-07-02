@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { todayRiyadhIso } from "../../lib/today-riyadh-iso";
 import { Loader2, Search } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -75,7 +76,7 @@ function mapSirdPeriods(
 }
 
 export function CompetitionGradingGrid({ competitionId }: Props) {
-  const [logDate, setLogDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [logDate, setLogDate] = useState(() => todayRiyadhIso());
   const [activeDates, setActiveDates] = useState<string[]>([]);
   const [gradedDates, setGradedDates] = useState<string[]>([]);
   const [category, setCategory] = useState<CompetitionCategory>("recitation");

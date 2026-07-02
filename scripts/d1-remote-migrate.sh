@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ترحيل D1 السحابية — يُشغَّل من GitHub Actions (Ubuntu) أو Linux/macOS
-# الاستخدام: ./scripts/d1-remote-migrate.sh upgrade|all|demo|apply-pending|060|...
+# الاستخدام: ./scripts/d1-remote-migrate.sh upgrade|all|demo|apply-pending|061|...
 set -u
 
 MODE="${1:-upgrade}"
@@ -9,27 +9,27 @@ SCHEMA="$ROOT/packages/database/schema"
 API_DIR="$ROOT/apps/api"
 
 if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
-  echo "CLOUDFLARE_API_TOKEN is required"
+  echo "CLOUDFLARE_API_TOKEN is required" >&2
   exit 1
 fi
 
 cd "$API_DIR"
-npm install
+npm install >/dev/null 2>&1
 
 run_sql() {
   local file="$1"
   local path="$SCHEMA/$file"
   if [[ ! -f "$path" ]]; then
-    echo "Missing: $path"
+    echo "Missing: $path" >&2
     exit 1
   fi
-  echo ""
-  echo ">>> $file"
-  if npx wrangler d1 execute basateen --remote --file="$path"; then
-    echo "OK: $file"
+  echo "" >&2
+  echo ">>> $file" >&2
+  if npx wrangler d1 execute basateen --remote --file="$path" >&2; then
+    echo "OK: $file" >&2
     return 0
   else
-    echo "::error::Failed: $file"
+    echo "::error::Failed: $file" >&2
     return 1
   fi
 }
@@ -41,45 +41,73 @@ record_migration() {
     >/dev/null 2>&1 || true
 }
 
+fetch_applied_migrations() {
+  npx wrangler d1 execute basateen --remote --command \
+    "SELECT name FROM _migrations_applied ORDER BY name;" --json 2>/dev/null \
+    | node -e "
+      let d = '';
+      process.stdin.on('data', (c) => (d += c));
+      process.stdin.on('end', () => {
+        try {
+          const j = JSON.parse(d);
+          const payload = Array.isArray(j) ? j[0] : j;
+          const rows = payload?.results ?? payload?.result?.results ?? [];
+          for (const row of rows) {
+            if (row?.name) console.log(String(row.name));
+          }
+        } catch {
+          /* empty — table may not exist yet */
+        }
+      });
+    "
+}
+
 ensure_tracking_table() {
   run_sql "000_migrations_applied.sql"
   record_migration "000_migrations_applied.sql"
 }
 
 list_pending_migrations() {
-  ensure_tracking_table
-  local applied
-  applied="$(npx wrangler d1 execute basateen --remote --command \
-    "SELECT name FROM _migrations_applied ORDER BY name;" --json 2>/dev/null \
-    | node -e "
-      let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{
-        try {
-          const j=JSON.parse(d);
-          const rows=j[0]?.results ?? [];
-          console.log(rows.map(r=>r.name).join('\n'));
-        } catch { console.log(''); }
-      });
-    ")"
-  for f in $(ls -1 "$SCHEMA" | grep -E '^[0-9]{3}_.+\.sql$' | sort); do
-    if ! echo "$applied" | grep -qxF "$f"; then
-      echo "$f"
+  ensure_tracking_table >&2
+  local applied_files=()
+  local f
+  while IFS= read -r f; do
+    [[ -n "$f" ]] && applied_files+=("$f")
+  done < <(fetch_applied_migrations)
+
+  for f in "$SCHEMA"/[0-9][0-9][0-9]_*.sql; do
+    [[ -f "$f" ]] || continue
+    local base
+    base="$(basename "$f")"
+    local found=0
+    for a in "${applied_files[@]}"; do
+      if [[ "$a" == "$base" ]]; then
+        found=1
+        break
+      fi
+    done
+    if [[ "$found" -eq 0 ]]; then
+      echo "$base"
     fi
   done
 }
 
 apply_pending() {
-  echo "D1 remote migrate: apply-pending (tracked)"
+  echo "D1 remote migrate: apply-pending (tracked)" >&2
   local pending=()
+  local line
   while IFS= read -r line; do
     [[ -n "$line" ]] && pending+=("$line")
   done < <(list_pending_migrations)
 
   if [[ ${#pending[@]} -eq 0 ]]; then
-    echo "No pending migrations."
+    echo "No pending migrations." >&2
     return 0
   fi
 
-  echo "Pending (${#pending[@]}): ${pending[*]}"
+  echo "Pending (${#pending[@]}):" >&2
+  printf '  %s\n' "${pending[@]}" >&2
+
   local failed=0
   for f in "${pending[@]}"; do
     if run_sql "$f"; then
@@ -90,6 +118,31 @@ apply_pending() {
     fi
   done
   return "$failed"
+}
+
+# قاعدة إنتاج موجودة مسبقاً — تسجيل الترحيلات القديمة دون إعادة تنفيذها
+bootstrap_tracking() {
+  echo "D1 remote migrate: bootstrap-tracking (existing DB)" >&2
+  ensure_tracking_table >&2
+  local skip='^(061|062|063)_'
+  for f in "$SCHEMA"/[0-9][0-9][0-9]_*.sql; do
+    [[ -f "$f" ]] || continue
+    local base
+    base="$(basename "$f")"
+    if [[ "$base" =~ $skip ]]; then
+      continue
+    fi
+    record_migration "$base"
+    echo "  marked: $base" >&2
+  done
+  echo "Bootstrap done. Run: $0 apply-pending  (will apply 061–063 only)" >&2
+}
+
+run_numbered_migration() {
+  local file="$1"
+  ensure_tracking_table >&2
+  run_sql "$file"
+  record_migration "$file"
 }
 
 FILES_UPGRADE=(
@@ -131,88 +184,51 @@ FILES_ALL=(
 
 case "$MODE" in
   upgrade)
-    echo "D1 remote migrate: upgrade (006–020, no demo 018)"
+    echo "D1 remote migrate: upgrade (006–020, no demo 018)" >&2
     for f in "${FILES_UPGRADE[@]}"; do run_sql "$f"; done
     ;;
   all)
-    echo "D1 remote migrate: full (001–020, no demo 018)"
+    echo "D1 remote migrate: full (001–020, no demo 018)" >&2
     for f in "${FILES_ALL[@]}"; do run_sql "$f"; done
     ;;
   demo)
-    echo "D1 remote migrate: demo examples only (018)"
+    echo "D1 remote migrate: demo examples only (018)" >&2
     run_sql "018_edu_demo_examples.sql"
     ;;
   apply-pending)
     apply_pending
     ;;
+  bootstrap-tracking)
+    bootstrap_tracking
+    ;;
   048)
-    echo "D1 remote migrate: 048 competition engine (teacher tasks rename + platform tables)"
+    echo "D1 remote migrate: 048 competition engine" >&2
     cd "$API_DIR"
     npm run db:remote:048
     ;;
   competition-stack)
-    echo "D1 remote migrate: 045–056 competition engine stack"
+    echo "D1 remote migrate: 045–056 competition engine stack" >&2
     cd "$API_DIR"
     npm run db:remote:competition-stack
     ;;
-  051)
-    echo "D1 remote migrate: 051 competition task input_type"
-    npm run db:remote:051
-    ;;
-  052)
-    echo "D1 remote migrate: 052 sird periods matrix"
-    npm run db:remote:052
-    ;;
-  053)
-    echo "D1 remote migrate: 053 competition criterion_id"
-    npm run db:remote:053
-    ;;
-  054)
-    echo "D1 remote migrate: 054 tasks_snapshot columns"
-    npm run db:remote:054
-    ;;
-  055)
-    echo "D1 remote migrate: 055 competition_logs metrics_json"
-    npm run db:remote:055
-    ;;
-  056)
-    echo "D1 remote migrate: 056 student memorization_faces"
-    npm run db:remote:056
-    ;;
-  057)
-    echo "D1 remote migrate: 057 competitions.created_by_user_id"
+  051|052|053|054|055|056|057|058|059|060)
     cd "$API_DIR"
-    npm run db:remote:057
-    ;;
-  058)
-    echo "D1 remote migrate: 058 circles/tracks assignee FK ON DELETE SET NULL"
-    cd "$API_DIR"
-    npm run db:remote:058
-    ;;
-  059)
-    echo "D1 remote migrate: 059 whatsapp absence template column"
-    cd "$API_DIR"
-    npm run db:remote:059
-    ;;
-  060)
-    echo "D1 remote migrate: 060 semester historical snapshots"
-    cd "$API_DIR"
-    npm run db:remote:060
+    npm run "db:remote:${MODE}"
     ;;
   061)
-    run_sql "061_staff_role_assignment_cleanup.sql"
+    run_numbered_migration "061_staff_role_assignment_cleanup.sql"
     ;;
   062)
-    run_sql "062_stage_id_backfill.sql"
+    run_numbered_migration "062_stage_id_backfill.sql"
     ;;
   063)
-    run_sql "063_security_hardening.sql"
+    run_numbered_migration "063_security_hardening.sql"
     ;;
   *)
-    echo "Usage: $0 upgrade|all|demo|apply-pending|048|competition-stack|051|052|053|054|055|056|057|058|059|060|061|062|063"
+    echo "Usage: $0 upgrade|all|demo|apply-pending|bootstrap-tracking|048|061|062|063|..." >&2
     exit 1
     ;;
 esac
 
-echo ""
-echo "Done ($MODE)."
+echo "" >&2
+echo "Done ($MODE)." >&2

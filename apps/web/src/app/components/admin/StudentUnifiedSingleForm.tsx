@@ -91,9 +91,13 @@ export function StudentUnifiedSingleForm({
   );
 
   const groupOptions = useMemo(() => {
+    if (requirePlacement && !values.stage_id.trim()) {
+      return [];
+    }
     let list = groups;
-    if (stageFilter) {
-      const sid = Number(stageFilter);
+    const stageKey = values.stage_id.trim() || stageFilter;
+    if (stageKey) {
+      const sid = Number(stageKey);
       list = list.filter(
         (g) =>
           g.stage_id === sid ||
@@ -104,7 +108,7 @@ export function StudentUnifiedSingleForm({
       value: `${g.entity_type}:${g.id}`,
       label: `${g.name_ar} (${g.entity_type === "circle" ? "حلقة" : "مسار"})`,
     }));
-  }, [groups, stageFilter]);
+  }, [groups, stageFilter, values.stage_id, requirePlacement]);
 
   const missingRequired = useMemo(() => {
     const req: (keyof StudentUnifiedFormValues)[] = [
@@ -114,7 +118,9 @@ export function StudentUnifiedSingleForm({
       "phone",
       "guardian_phone",
     ];
-    if (requirePlacement) req.push("placement");
+    if (requirePlacement) {
+      req.push("stage_id", "placement");
+    }
     return req.filter((k) => !String(values[k]).trim());
   }, [values, requirePlacement]);
 
@@ -201,7 +207,7 @@ export function StudentUnifiedSingleForm({
             className={ds.btnRound}
           />
         </Field>
-        <Field label="المرحلة (اختياري — لفلترة الحلقات)">
+        <Field label={requirePlacement ? "المرحلة *" : "المرحلة (لفلترة الحلقات)"} required={requirePlacement}>
           <select
             value={values.stage_id}
             onChange={(e) => {
@@ -233,7 +239,11 @@ export function StudentUnifiedSingleForm({
             required={requirePlacement}
           >
             <option value="">
-              {requirePlacement ? "— اختر الحلقة أو المسار —" : "— بدون تغيير —"}
+              {requirePlacement
+                ? values.stage_id
+                  ? "— اختر الحلقة أو المسار —"
+                  : "— اختر المرحلة أولاً —"
+                : "— بدون تغيير —"}
             </option>
             {groupOptions.map((o) => (
               <option key={o.value} value={o.value}>
@@ -258,10 +268,20 @@ export function StudentUnifiedSingleForm({
             style={tajawal}
           />
         </Field>
-        <Field label="مقدار الحفظ">
-          <p className="text-xs text-muted-foreground mb-1.5" style={tajawal}>
-            أدخل العدد ثم اختر الوحدة (وجه / حزب / جزء)
-          </p>
+        <Field label="مقدار الحفظ" className="sm:col-span-2">
+          {values.memorization_amount ? (
+            <div
+              className="mb-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-base font-semibold text-foreground"
+              style={tajawal}
+              dir="rtl"
+            >
+              {values.memorization_amount}
+            </div>
+          ) : (
+            <p className="mb-2 text-sm text-muted-foreground" style={tajawal}>
+              أدخل العدد ثم اختر الوحدة — يظهر التفصيل (أجزاء/أحزاب/أوجه) أعلاه
+            </p>
+          )}
           <div className="flex gap-2">
             <Input
               type="number"
@@ -296,14 +316,6 @@ export function StudentUnifiedSingleForm({
           <p className="text-xs text-muted-foreground mt-1" style={tajawal}>
             {UNIT_MAX_HINT[values.memorization_unit]}
           </p>
-          {values.memorization_amount ? (
-            <div
-              className="mt-2 rounded-lg bg-muted px-3 py-2 text-sm font-medium text-foreground"
-              style={tajawal}
-            >
-              {values.memorization_amount}
-            </div>
-          ) : null}
         </Field>
         <Field label="العمر (اختياري)">
           <Input

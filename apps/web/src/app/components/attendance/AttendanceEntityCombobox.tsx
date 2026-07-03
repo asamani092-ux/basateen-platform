@@ -193,7 +193,7 @@ export function AttendanceEntityCombobox({
                   aria-selected={value?.type === "circle" && value.id === c.id}
                   className={cn(
                     "w-full text-right px-3 py-2 text-sm hover:bg-muted transition-colors border-b border-border last:border-0",
-                    marked && "bg-emerald-500/10",
+                    marked && "bg-success-surface",
                   )}
                   style={tajawal}
                   onClick={(e) => {
@@ -205,7 +205,7 @@ export function AttendanceEntityCombobox({
                   <span
                     className={cn(
                       "font-medium truncate block",
-                      marked && "text-emerald-700 dark:text-emerald-400",
+                      marked && "text-success-foreground",
                     )}
                   >
                     {marked ? "● " : null}
@@ -232,7 +232,7 @@ export function AttendanceEntityCombobox({
                   aria-selected={value?.type === "track" && value.id === t.id}
                   className={cn(
                     "w-full text-right px-3 py-2 text-sm hover:bg-muted transition-colors border-b border-border last:border-0",
-                    marked && "bg-emerald-500/10",
+                    marked && "bg-success-surface",
                   )}
                   style={tajawal}
                   onClick={(e) => {
@@ -244,7 +244,7 @@ export function AttendanceEntityCombobox({
                   <span
                     className={cn(
                       "font-medium truncate block",
-                      marked && "text-emerald-700 dark:text-emerald-400",
+                      marked && "text-success-foreground",
                     )}
                   >
                     {marked ? "● " : null}

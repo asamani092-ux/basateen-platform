@@ -620,7 +620,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                               <span
                                 className={`text-xs px-2 py-1 rounded-full ${
                                   r.task_scores[c.id]
-                                    ? "bg-emerald-500/15 text-emerald-700"
+                                    ? "bg-success-surface text-success-foreground"
                                     : "bg-muted text-muted-foreground"
                                 }`}
                               >
@@ -765,7 +765,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                               <StudentTrackBadge trackName={r.track_name} className="mt-1 max-w-full" />
                             ) : null}
                             {r.admin_present && (
-                              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
+                              <span className="text-[10px] text-success font-medium">
                                 حضور إداري
                               </span>
                             )}
@@ -773,9 +773,9 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                           <span
                             className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold tabular-nums ${
                               quality >= 75
-                                ? "bg-emerald-500/15 text-emerald-700"
+                                ? "bg-success-surface text-success-foreground"
                                 : quality >= 50
-                                  ? "bg-amber-500/15 text-amber-700"
+                                  ? "bg-warning-surface text-warning-foreground"
                                   : "bg-destructive/10 text-destructive"
                             }`}
                           >
@@ -970,7 +970,7 @@ function StudentNameCell({
         <StudentTrackBadge trackName={row.track_name} />
       ) : null}
       {row.admin_present && (
-        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
+        <span className="text-[10px] text-success font-medium">
           حضور إداري
         </span>
       )}

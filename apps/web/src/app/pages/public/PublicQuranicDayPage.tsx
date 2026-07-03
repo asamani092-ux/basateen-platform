@@ -512,7 +512,7 @@ export function PublicQuranicDayPage() {
                         className={cn(
                           `${ds.btnRound} h-11 font-semibold relative`,
                           done &&
-                            "bg-emerald-600 hover:bg-emerald-600 text-white border-emerald-600 opacity-100",
+                            "bg-success hover:bg-success text-white border-success opacity-100",
                         )}
                         onClick={() => openHizb(n, student)}
                       >
@@ -659,7 +659,7 @@ export function PublicQuranicDayPage() {
                 className={cn(
                   "rounded-xl py-4 px-3 text-center font-bold text-base",
                   summary.status === "passed" &&
-                    "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+                    "bg-success-surface text-success-foreground dark:text-success",
                   summary.status === "failed" &&
                     "bg-destructive/15 text-destructive",
                   summary.status === "none" && "bg-muted text-muted-foreground",

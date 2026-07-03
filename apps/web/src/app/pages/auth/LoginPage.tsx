@@ -110,13 +110,10 @@ export function LoginPage() {
             alt="منصة بساتين"
             className="h-32 sm:h-36 w-auto object-contain mx-auto mb-6 hidden dark:block"
           />
-          <h1
-            className="text-2xl sm:text-3xl font-bold text-foreground"
-            style={tajawal}
-          >
+          <h1 className={ds.page.title} style={tajawal}>
             منصة بساتين
           </h1>
-          <p className="text-sm text-muted-foreground mt-2" style={tajawal}>
+          <p className={ds.page.description} style={tajawal}>
             أدخل رقم الجوال المسجّل في النظام
           </p>
         </CardHeader>
@@ -136,7 +133,7 @@ export function LoginPage() {
                 placeholder="05xxxxxxxx أو 9665xxxxxxxx"
                 value={mobile}
                 onChange={(e) => setMobile(e.target.value)}
-                className={`${ds.btnRound} text-foreground`}
+                className={`${ds.field} text-foreground`}
                 style={tajawal}
                 dir="ltr"
                 required
@@ -150,7 +147,7 @@ export function LoginPage() {
             <Button
               type="submit"
               disabled={!canSubmitMobile}
-              className={`w-full ${ds.btnRound} disabled:opacity-50`}
+              className={`w-full ${ds.primaryActionBtn}`}
               style={tajawal}
             >
               {loading ? "جاري الدخول..." : "دخول"}

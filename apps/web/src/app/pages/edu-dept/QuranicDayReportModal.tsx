@@ -143,7 +143,7 @@ export function QuranicDayReportModal({
                           <span
                             className={cn(
                               st.status === "over_threshold" && "text-destructive font-semibold",
-                              st.status === "completed" && "text-emerald-600 font-semibold",
+                              st.status === "completed" && "text-success font-semibold",
                             )}
                           >
                             {STATUS_LABEL[st.status] ?? st.status}

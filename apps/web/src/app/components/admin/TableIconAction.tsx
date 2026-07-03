@@ -40,7 +40,7 @@ const ACTION_STYLES: Record<
   freeze: {
     Icon: Pause,
     label: "تجميد / حذف",
-    className: "text-amber-600 hover:text-amber-700 hover:bg-amber-500/15",
+    className: "text-warning hover:text-warning-foreground hover:bg-warning-surface",
   },
   delete: {
     Icon: Trash2,
@@ -75,7 +75,7 @@ const ACTION_STYLES: Record<
   violation: {
     Icon: FileWarning,
     label: "تسجيل مخالفة",
-    className: "text-amber-600 hover:bg-amber-500/15",
+    className: "text-warning hover:bg-warning-surface",
   },
   archive: {
     Icon: Archive,
@@ -85,7 +85,7 @@ const ACTION_STYLES: Record<
   suspend: {
     Icon: Pause,
     label: "تعليق",
-    className: "text-amber-600 hover:bg-amber-500/15",
+    className: "text-warning hover:bg-warning-surface",
   },
   dismiss: {
     Icon: UserMinus,

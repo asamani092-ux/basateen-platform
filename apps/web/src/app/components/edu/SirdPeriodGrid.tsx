@@ -65,7 +65,7 @@ export function SirdPeriodGrid({
                   ? "bg-primary text-primary-foreground border-primary"
                   : hasData
                     ? passed
-                      ? "bg-emerald-500/15 text-emerald-800 border-emerald-500/40"
+                      ? "bg-success-surface text-success-foreground border-success/40"
                       : "bg-destructive/10 text-destructive border-destructive/30"
                     : "bg-card hover:bg-muted border-border"
               }`}
@@ -119,7 +119,7 @@ export function SirdPeriodGrid({
             <div
               className={`rounded-xl p-3 text-sm ${
                 computed.is_passed
-                  ? "bg-emerald-500/10 text-emerald-800 border border-emerald-500/30"
+                  ? "bg-success-surface text-success-foreground border border-success/30"
                   : "bg-destructive/10 text-destructive border border-destructive/30"
               }`}
               style={tajawal}

@@ -322,13 +322,13 @@ export function AdminReportsPage() {
                   sub={`${dashboard.attendance.students_present_today} حاضر — ${dashboard.attendance.staff_marked_today} منسوب مُحضَّر`}
                 />
                 <KpiCard
-                  icon={<UserCheck className="w-5 h-5 text-emerald-600" />}
+                  icon={<UserCheck className="w-5 h-5 text-success" />}
                   label="طلاب الحلقات"
                   value={dashboard.students.circle_only}
                   sub="حلقة فقط — بدون مسار"
                 />
                 <KpiCard
-                  icon={<UserCheck className="w-5 h-5 text-emerald-600" />}
+                  icon={<UserCheck className="w-5 h-5 text-success" />}
                   label="طلاب المسارات"
                   value={dashboard.students.track_only}
                   sub="مسار فقط — بدون حلقة"
@@ -371,8 +371,8 @@ export function AdminReportsPage() {
           )}
 
           {!dashboardLoading && dashboard.students.unassigned > 0 && (
-            <div className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning-surface p-3 text-sm">
+              <AlertCircle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
               <p style={tajawal}>
                 يوجد{" "}
                 <strong className="tabular-nums">
@@ -628,7 +628,7 @@ function KpiCard({
 }) {
   return (
     <Card
-      className={`${ds.card}${highlight ? " border-amber-500/50 bg-amber-500/5" : ""}`}
+      className={`${ds.kpiCard}${highlight ? " border-warning/50 bg-warning-surface/30" : ""}`}
     >
       <CardHeader className="pb-2">
         <CardTitle
@@ -651,7 +651,7 @@ function KpiCard({
         {sub && (
           <p
             className={`text-xs mt-1 leading-relaxed ${
-              highlight ? "text-amber-700 font-medium" : "text-muted-foreground"
+              highlight ? "text-warning-foreground font-medium" : "text-muted-foreground"
             }`}
             style={tajawal}
           >

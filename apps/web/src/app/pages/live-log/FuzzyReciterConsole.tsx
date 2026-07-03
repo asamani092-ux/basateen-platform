@@ -158,7 +158,7 @@ export function FuzzyReciterConsole({ sessionToken, gate }: Props) {
           <p className="text-xs text-zinc-500" style={tajawal}>
             رصد ميداني — {gate.session.name_ar}
           </p>
-          <h1 className="text-xl font-bold text-emerald-400" style={tajawal}>
+          <h1 className="text-xl font-bold text-success" style={tajawal}>
             اختر الطالب
           </h1>
         </header>
@@ -197,7 +197,7 @@ export function FuzzyReciterConsole({ sessionToken, gate }: Props) {
   return (
     <div
       className={`min-h-screen min-h-[100dvh] bg-zinc-950 text-zinc-50 p-4 pb-28 ${
-        flashOk ? "ring-4 ring-emerald-500/50 animate-pulse" : ""
+        flashOk ? "ring-4 ring-success/50 animate-pulse" : ""
       }`}
       dir="rtl"
     >
@@ -215,11 +215,11 @@ export function FuzzyReciterConsole({ sessionToken, gate }: Props) {
 
       <div className="max-w-lg mx-auto space-y-4">
         {snapshot && !loadingSnap && (
-          <div className="rounded-2xl border border-emerald-800/50 bg-emerald-950/40 p-4">
+          <div className="rounded-2xl border border-success/30 bg-success-surface/40 p-4">
             <p className="text-lg font-bold" style={tajawal}>
               {snapshot.student.full_name_ar}
             </p>
-            <p className="text-sm text-emerald-300/90 mt-2" style={tajawal}>
+            <p className="text-sm text-success-foreground/90 mt-2" style={tajawal}>
               أيام حفظ: {snapshot.cumulative.total_memorized_days} — أخطاء:{" "}
               {snapshot.cumulative.aggregate_errors}
             </p>
@@ -294,7 +294,7 @@ export function FuzzyReciterConsole({ sessionToken, gate }: Props) {
           </Button>
           <Button
             type="button"
-            className="min-h-14 rounded-2xl bg-emerald-600"
+            className="min-h-14 rounded-2xl bg-success"
             disabled={saving || !!failed}
             onClick={() => void submitFinal(1)}
             style={tajawal}
@@ -306,7 +306,7 @@ export function FuzzyReciterConsole({ sessionToken, gate }: Props) {
 
         <Button
           type="button"
-          className="w-full min-h-16 rounded-2xl text-lg bg-emerald-700"
+          className="w-full min-h-16 rounded-2xl text-lg bg-success"
           disabled={saving}
           onClick={() => void submitFinal()}
           style={tajawal}
@@ -348,7 +348,7 @@ function BigMetric({
         <span className="text-3xl font-bold tabular-nums">{value}</span>
         <button
           type="button"
-          className="min-h-16 min-w-16 rounded-full bg-emerald-600 flex items-center justify-center disabled:opacity-40"
+          className="min-h-16 min-w-16 rounded-full bg-success flex items-center justify-center disabled:opacity-40"
           disabled={disabled}
           onClick={onPlus}
         >

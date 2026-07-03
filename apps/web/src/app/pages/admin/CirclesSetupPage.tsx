@@ -279,7 +279,7 @@ export function CirclesSetupPage() {
                           className={
                             row.entity_type === "track"
                               ? "bg-sky-600 hover:bg-sky-600 text-white"
-                              : "bg-emerald-700 hover:bg-emerald-700 text-white"
+                              : "bg-success hover:bg-success text-white"
                           }
                           style={tajawal}
                         >
@@ -302,7 +302,7 @@ export function CirclesSetupPage() {
                         {row.student_count}/{row.default_capacity}
                       </TableCell>
                       <TableTruncatedCell
-                        className="max-w-[10rem] text-amber-700 dark:text-amber-400"
+                        className="max-w-[10rem] text-warning-foreground dark:text-amber-400"
                         style={tajawal}
                       >
                         {row.entity_type === "circle" && row.capacity_warning

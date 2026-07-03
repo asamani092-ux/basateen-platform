@@ -176,7 +176,7 @@ export function PublicMagicLinkPage() {
                   حاضر
                 </p>
                 <p
-                  className="text-xl font-bold text-emerald-600 dark:text-emerald-400"
+                  className="text-xl font-bold text-success"
                   style={tajawal}
                 >
                   {counts.present}
@@ -187,7 +187,7 @@ export function PublicMagicLinkPage() {
                   مستأذن
                 </p>
                 <p
-                  className="text-xl font-bold text-amber-600 dark:text-amber-400"
+                  className="text-xl font-bold text-warning"
                   style={tajawal}
                 >
                   {counts.excused}

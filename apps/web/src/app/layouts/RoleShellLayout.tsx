@@ -207,7 +207,7 @@ export function RoleShellLayout() {
     <AdminDataSyncProvider>
     <div className="main-layout min-h-screen bg-background text-foreground" dir="rtl">
       <div className="min-h-screen flex">
-        <aside className="w-64 shrink-0 bg-card border-l border-border hidden lg:flex flex-col print:hidden">
+        <aside className="w-64 shrink-0 bg-sidebar border-l border-sidebar-border hidden lg:flex flex-col print:hidden">
           <SidebarBrand userName={user?.full_name_ar} />
           <nav className="p-4 flex-1 overflow-y-auto space-y-1 min-h-0">{nav}</nav>
           <SidebarFooter onLogout={handleLogout} />
@@ -221,7 +221,7 @@ export function RoleShellLayout() {
               aria-label="إغلاق القائمة"
               onClick={() => setMobileOpen(false)}
             />
-            <aside className="absolute right-0 top-0 bottom-0 w-72 max-w-[85vw] bg-card border-l border-border flex flex-col shadow-xl">
+            <aside className="absolute right-0 top-0 bottom-0 w-72 max-w-[85vw] bg-sidebar border-l border-sidebar-border flex flex-col shadow-[var(--elevated-shadow)]">
               <div className="p-4 flex justify-between items-center border-b border-border shrink-0">
                 <span className="font-bold text-sm" style={tajawal}>
                   القائمة

@@ -138,7 +138,7 @@ export function TvLivePage() {
                 icon={<Users className="w-10 h-10 sm:w-14 sm:h-14" />}
                 label="حاضرون"
                 value={himma.stats.present ?? "—"}
-                accent="from-emerald-600/40 to-emerald-900/20"
+                accent="from-success/40 to-success/20"
               />
               <TvStat
                 icon={<CircleDot className="w-10 h-10 sm:w-14 sm:h-14" />}
@@ -159,7 +159,7 @@ export function TvLivePage() {
                 icon={<Users className="w-10 h-10 sm:w-14 sm:h-14" />}
                 label="الحضور"
                 value={summary?.present ?? "—"}
-                accent="from-emerald-600/40 to-emerald-900/20"
+                accent="from-success/40 to-success/20"
               />
               <TvStat
                 icon={<Users className="w-10 h-10 sm:w-14 sm:h-14 text-rose-300" />}

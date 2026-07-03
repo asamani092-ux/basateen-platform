@@ -49,8 +49,8 @@ import { ds, tajawal } from "../../lib/design-system";
 type CircleReport = Awaited<ReturnType<typeof api.eduDeptReportsProgress>>;
 
 function qualityBarClass(pct: number): string {
-  if (pct >= 75) return "[&>div]:bg-emerald-500";
-  if (pct >= 50) return "[&>div]:bg-amber-500";
+  if (pct >= 75) return "[&>div]:bg-success";
+  if (pct >= 50) return "[&>div]:bg-warning";
   return "[&>div]:bg-destructive";
 }
 

@@ -74,8 +74,8 @@ export function ReciterAccessCard({ liveToken, onSuccess }: Props) {
     >
       <div className="w-full max-w-md rounded-3xl border border-zinc-800 bg-zinc-900/90 p-8 shadow-2xl">
         <div className="flex justify-center mb-6">
-          <div className="h-16 w-16 rounded-full bg-emerald-600/20 flex items-center justify-center">
-            <Lock className="h-8 w-8 text-emerald-400" />
+          <div className="h-16 w-16 rounded-full bg-success/20 flex items-center justify-center">
+            <Lock className="h-8 w-8 text-success" />
           </div>
         </div>
         <h1 className="text-2xl font-bold text-center mb-2" style={tajawal}>
@@ -105,7 +105,7 @@ export function ReciterAccessCard({ liveToken, onSuccess }: Props) {
           <Button
             type="submit"
             disabled={loading || !pin.trim()}
-            className="w-full h-14 text-lg rounded-2xl bg-emerald-600 hover:bg-emerald-500"
+            className="w-full h-14 text-lg rounded-2xl bg-success hover:bg-success/90"
             style={tajawal}
           >
             {loading ? "جاري التحقق…" : "دخول شبكة الرصد"}

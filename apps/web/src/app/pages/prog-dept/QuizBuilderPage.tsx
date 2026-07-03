@@ -334,7 +334,7 @@ export function QuizBuilderPage() {
                   </p>
                   {Number(q.pending_review_count ?? 0) > 0 && (
                     <span
-                      className="mt-2 inline-flex rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-700"
+                      className="mt-2 inline-flex rounded-full bg-warning-surface px-2 py-0.5 text-xs font-semibold text-warning-foreground"
                       style={tajawal}
                     >
                       {q.pending_review_count} بانتظار المراجعة اليدوية

@@ -739,7 +739,7 @@ export function CompetitionDetailPage() {
                                     {l.full_name_ar ?? `طالب #${l.student_id}`}
                                   </td>
                                   <td className="p-2 tabular-nums">{l.read_count ?? 0}</td>
-                                  <td className="p-2 tabular-nums text-emerald-700">
+                                  <td className="p-2 tabular-nums text-success-foreground">
                                     {l.passed_count ?? 0}
                                   </td>
                                   <td className="p-2 tabular-nums text-destructive">
@@ -1079,7 +1079,7 @@ export function CompetitionDetailPage() {
                       >
                         <div className="flex items-center gap-2">
                           {task.type === "addition" ? (
-                            <Plus className="w-4 h-4 text-emerald-600" />
+                            <Plus className="w-4 h-4 text-success" />
                           ) : (
                             <Minus className="w-4 h-4 text-destructive" />
                           )}

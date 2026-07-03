@@ -53,7 +53,7 @@ export function TaskInputCell({
           aria-label={task.name_ar}
         />
         {checked && (
-          <span className="text-[10px] text-emerald-600 tabular-nums">+{task.weight}</span>
+          <span className="text-[10px] text-success tabular-nums">+{task.weight}</span>
         )}
       </div>
     );

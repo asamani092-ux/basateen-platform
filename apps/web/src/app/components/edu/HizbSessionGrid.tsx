@@ -36,7 +36,7 @@ export function HizbSessionGrid({
               active
                 ? "bg-primary text-primary-foreground border-primary"
                 : done
-                  ? "bg-emerald-500/15 text-emerald-800 border-emerald-500/40"
+                  ? "bg-success-surface text-success-foreground border-success/40"
                   : "bg-card hover:bg-muted border-border"
             }`}
             style={tajawal}

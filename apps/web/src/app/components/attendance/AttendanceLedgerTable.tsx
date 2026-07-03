@@ -82,7 +82,7 @@ export function AttendanceLedgerTable({
           return (
             <TableRow
               key={entry.rowKey}
-              className={dirty ? "bg-amber-500/5" : undefined}
+              className={dirty ? "bg-warning-surface/40" : undefined}
             >
               {showDateColumn && (
                 <TableCell

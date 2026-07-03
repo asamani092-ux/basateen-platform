@@ -1,8 +1,6 @@
 import {
   Card,
   CardContent,
-  CardHeader,
-  CardTitle,
 } from "../ui/card";
 import { ds, tajawal } from "../../lib/design-system";
 
@@ -18,31 +16,28 @@ type Props = {
 export function EduKpiCard({ icon, label, value, sub, highlight }: Props) {
   return (
     <Card
-      className={`${ds.card}${highlight ? " border-amber-500/50 bg-amber-500/5" : ""}`}
+      className={`${ds.kpiCard}${highlight ? " border-warning/50 bg-warning-surface/30" : ""}`}
     >
-      <CardHeader className="pb-2">
-        <CardTitle
-          className="text-sm font-medium flex items-center gap-2"
+      <CardContent className="p-0 pt-3.5">
+        <div
+          className={`${ds.kpiLabel} flex items-center gap-2 mb-1`}
           style={tajawal}
         >
           {icon}
           {label}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p className="text-3xl font-bold tabular-nums" style={tajawal}>
+        </div>
+        <p className={ds.kpiValue} style={tajawal}>
           {value}
+          {sub && (
+            <span
+              className={`text-[13px] font-bold ms-1.5 ${
+                highlight ? "text-warning-foreground" : "text-success"
+              }`}
+            >
+              {sub}
+            </span>
+          )}
         </p>
-        {sub && (
-          <p
-            className={`text-xs mt-1 leading-relaxed ${
-              highlight ? "text-amber-700 font-medium" : "text-muted-foreground"
-            }`}
-            style={tajawal}
-          >
-            {sub}
-          </p>
-        )}
       </CardContent>
     </Card>
   );

@@ -226,7 +226,7 @@ export function StudentDailyAttendancePage() {
         </div>
         <Button
           type="button"
-          className={`${ds.btnRound} w-full sm:w-auto min-h-11 shrink-0`}
+          className={`${ds.btnRound} w-full sm:w-auto ${ds.primaryActionBtn} shrink-0`}
           onClick={() => setLinksModalOpen(true)}
           style={tajawal}
         >

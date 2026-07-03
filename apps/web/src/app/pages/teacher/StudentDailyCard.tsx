@@ -86,7 +86,7 @@ export function StudentDailyCard({
             <p className="text-xs text-muted-foreground mt-1" style={tajawal}>
               {student.circle_name ?? "—"}
               {done && (
-                <span className="inline-flex items-center gap-1 text-emerald-700 mr-2">
+                <span className="inline-flex items-center gap-1 text-success-foreground mr-2">
                   <CheckCircle2 className="size-3.5" />
                   حاضر + مرصود
                 </span>
@@ -163,7 +163,7 @@ export function StudentDailyCard({
             }
           />
           {metrics.rabt.read && rabtFaces > 0 && (
-            <p className="text-xs text-emerald-700" style={tajawal}>
+            <p className="text-xs text-success-foreground" style={tajawal}>
               يُحتسب تلقائياً: {rabtFaces} وجه من الخطة
             </p>
           )}

@@ -208,7 +208,7 @@ export function DailyScorecardGrid() {
                     </p>
                   </div>
                   {row.attendance_status === "present" && (
-                    <span className="text-xs text-emerald-600 font-medium">
+                    <span className="text-xs text-success font-medium">
                       حاضر
                     </span>
                   )}

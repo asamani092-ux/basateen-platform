@@ -26,11 +26,14 @@ jobs:
       - name: Install Web
         run: npm ci --prefix apps/web
 
+      - name: Install shared types
+        run: npm ci --prefix packages/types
+
       - name: Typecheck API
         run: npm run build --prefix apps/api
 
       - name: Typecheck Web
-        run: npx tsc --noEmit --project apps/web/tsconfig.json
+        run: npm run typecheck --prefix apps/web
 
       - name: Typecheck shared types
-        run: npx tsc --noEmit --project packages/types/tsconfig.json
+        run: npm run typecheck --prefix packages/types

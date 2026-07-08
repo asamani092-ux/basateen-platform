@@ -3,8 +3,14 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
   "exports": {
     ".": "./index.ts",
     "./schema": "./schema.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
   }
 }

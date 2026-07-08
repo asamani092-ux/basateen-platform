@@ -172,24 +172,33 @@ export async function handleEduDeptRouter(
   ) {
     const date = todayRiyadhIso();
     const scopeWhere = studentsInScopeWhere(scope);
-    const students = await env.DB.prepare(
-      `SELECT s.id FROM students s WHERE ${scopeWhere}`,
-    )
-      .bind(...studentsInScopeBinds(auth.complexId, scope))
-      .all<{ id: number }>();
+    const scopeBinds = studentsInScopeBinds(auth.complexId, scope);
+    const insertBinds: Array<string | number> = [
+      auth.complexId,
+      date,
+      auth.userId,
+      ...scopeBinds,
+    ];
 
-    for (const row of students.results ?? []) {
-      await env.DB.prepare(
+    const batchResult = await env.DB.batch([
+      env.DB.prepare(
         `INSERT INTO student_attendance
          (complex_id, student_id, attendance_date, status, source, recorded_by_user_id)
-         VALUES (?, ?, ?, 'present', 'edu_supervisor', ?)
+         SELECT ?, s.id, ?, 'present', 'edu_supervisor', ?
+         FROM students s
+         WHERE ${scopeWhere}
          ON CONFLICT(student_id, attendance_date) DO NOTHING`,
-      )
-        .bind(auth.complexId, row.id, date, auth.userId)
-        .run();
-    }
+      ).bind(...insertBinds),
+      env.DB.prepare(
+        `SELECT COUNT(*) AS c FROM students s WHERE ${scopeWhere}`,
+      ).bind(...scopeBinds),
+    ]);
+    const countRow = batchResult[1];
+    const count = Number(
+      (countRow.results?.[0] as { c: number } | undefined)?.c ?? 0,
+    );
 
-    return json({ ok: true, date, count: students.results?.length ?? 0 });
+    return json({ ok: true, date, count });
   }
 
   if (

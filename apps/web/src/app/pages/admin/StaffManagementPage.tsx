@@ -41,7 +41,6 @@ import {
   EDUCATIONAL_STAGES,
   SCOPE_GLOBAL,
   stageLabel,
-  type StageId,
 } from "../../lib/stages";
 import { api, type StaffMemberRow } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
@@ -359,7 +358,7 @@ function AddStaffDialog({
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
   const [role, setRole] = useState<string>(ALL_STAFF_ROLES[4].value);
-  const [scope, setScope] = useState(SCOPE_GLOBAL);
+  const [scope, setScope] = useState<string>(SCOPE_GLOBAL);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -481,7 +480,7 @@ function EditStaffDialog({
   const [name, setName] = useState(row.full_name_ar);
   const [mobile, setMobile] = useState(row.mobile ?? "");
   const [role, setRole] = useState(() => normalizeRoleForForm(row.role));
-  const [scope, setScope] = useState(SCOPE_GLOBAL);
+  const [scope, setScope] = useState<string>(SCOPE_GLOBAL);
   const [saving, setSaving] = useState(false);
   const readOnly = row.id === SOVEREIGN_USER_ID;
 

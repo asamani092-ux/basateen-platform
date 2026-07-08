@@ -52,7 +52,7 @@ export function StudentProfilePage() {
             ? st.memorization_amount
             : null;
       setMemorization({
-        faces: Number.isFinite(faces) && faces > 0 ? faces : null,
+        faces: faces != null && Number.isFinite(faces) && faces > 0 ? faces : null,
         text,
       });
       const cur = res.current as { circle_name?: string } | null;
@@ -174,7 +174,7 @@ export function StudentProfilePage() {
               <div key={i} className="flex justify-between border-b border-border py-1">
                 <span>{String(m.mark_date)}</span>
                 <span>
-                  درجة: {m.score ?? "—"} · حضور تلقائي:{" "}
+                  درجة: {m.score != null ? String(m.score) : "—"} · حضور تلقائي:{" "}
                   {m.attendance_auto ? "نعم" : "لا"}
                 </span>
               </div>

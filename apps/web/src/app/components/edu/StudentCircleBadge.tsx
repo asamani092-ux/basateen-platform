@@ -1,6 +1,6 @@
 import { UsersRound } from "lucide-react";
 import { cn } from "../ui/utils";
-import { ds, tajawal } from "../../lib/design-system";
+import { tajawal } from "../../lib/design-system";
 
 type Props = {
   circleName: string;

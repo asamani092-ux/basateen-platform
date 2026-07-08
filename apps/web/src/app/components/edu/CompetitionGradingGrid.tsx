@@ -153,7 +153,7 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
         });
       }
       setTasks(
-        (res.tasks ?? []).map((t) => ({
+        (res.tasks as Array<Record<string, unknown>>).map((t) => ({
           id: Number(t.id),
           name_ar: String(t.name_ar),
           weight: Number(t.weight ?? 1),

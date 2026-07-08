@@ -766,7 +766,7 @@ function RecitationCard({
   audit,
   failed,
   saving,
-  rules,
+  rules: _rules,
   competitionMode,
   tasks,
   onBump,

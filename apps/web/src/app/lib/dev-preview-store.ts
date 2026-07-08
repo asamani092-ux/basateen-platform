@@ -25,7 +25,10 @@ function nextAttendanceId(): number {
   return ++attendanceIdSeq;
 }
 let competitions = [...PREVIEW_COMPETITIONS];
-let himmaSession = { ...PREVIEW_HIMMA_SESSION };
+type PreviewHimmaSession = Omit<typeof PREVIEW_HIMMA_SESSION, "live_log_token"> & {
+  live_log_token: string;
+};
+let himmaSession: PreviewHimmaSession = { ...PREVIEW_HIMMA_SESSION };
 let himmaLiveToken = PREVIEW_HIMMA_SESSION.live_log_token as string;
 let himmaAudit = buildHimmaAudit();
 let himmaTargets = buildHimmaTargets();
@@ -349,6 +352,8 @@ export const previewStore = {
       full_name_ar: string;
       attendance_date: string;
       status: string;
+      circle_name: string | null;
+      track_name: string | null;
     }> = [];
     for (const [k, attId] of studentAttendanceIds) {
       const [studentId, d] = k.split(":");

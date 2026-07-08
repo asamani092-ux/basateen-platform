@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { todayRiyadhIso } from "../../lib/today-riyadh-iso";
 import {
   BarChart3,
   BookOpen,
@@ -215,7 +216,7 @@ export function EduReportsPage() {
       {!dashboardLoading && dashboard && (
         <div className="space-y-2 print:hidden">
           <p className="text-xs text-muted-foreground" style={tajawal}>
-            ملخص {dashboard.scope_label} — {dashboard.today}
+            ملخص {dashboard.scope_label} — {todayRiyadhIso()}
           </p>
           <div className={ds.kpiStrip}>
             <EduKpiCard

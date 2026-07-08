@@ -193,7 +193,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (isUiDevPreview()) {
     await new Promise((r) => setTimeout(r, 60));
-    return resolveDevPreviewMock<T>(path, method, bodyText);
+    return resolveDevPreviewMock<T>(path, method, bodyText) ?? ({} as T);
   }
 
   const url = `${API_BASE.replace(/\/$/, "")}${path}`;

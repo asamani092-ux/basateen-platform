@@ -137,9 +137,9 @@ export function CompetitionDetailPage() {
         (res.targets as Array<Record<string, unknown>>).map((t) => ({
           student_id: Number(t.student_id),
           full_name_ar: String(t.full_name_ar ?? ""),
-          current_memorization: t.current_memorization ?? 0,
-          target_amount: t.target_amount ?? 0,
-          achieved_amount: t.achieved_amount ?? 0,
+          current_memorization: Number(t.current_memorization ?? 0),
+          target_amount: Number(t.target_amount ?? 0),
+          achieved_amount: Number(t.achieved_amount ?? 0),
         })),
       );
       const comp = res.competition as Record<string, unknown>;

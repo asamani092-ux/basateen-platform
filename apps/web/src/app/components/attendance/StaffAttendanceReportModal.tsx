@@ -52,7 +52,7 @@ type Props = {
 
 
 export function StaffAttendanceReportModal({ open, onOpenChange }: Props) {
-  const today = todayIso();
+  const today = todayRiyadhIso();
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
   const [loading, setLoading] = useState(false);

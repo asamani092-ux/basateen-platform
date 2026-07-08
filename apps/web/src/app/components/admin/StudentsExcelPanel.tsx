@@ -38,11 +38,16 @@ export function parseBulkPasteText(text: string): StudentImportRow[] {
       const circle_name = fieldOrNull(parts[3]);
       return {
         full_name_ar,
-        guardian_phone,
-        phone: guardian_phone,
-        track_name,
-        circle_name,
+        national_id: null,
         nationality: "سعودي",
+        phone: guardian_phone,
+        school_name: null,
+        school_grade: null,
+        memorization_amount: null,
+        guardian_phone,
+        circle_name,
+        health_notes: null,
+        track_name,
       };
     })
     .filter((row) => row.full_name_ar.trim().length > 0);

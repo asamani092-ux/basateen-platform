@@ -68,7 +68,7 @@ function Button({
       if (!isPromiseLike(result)) return;
       clickLockRef.current = true;
       setClickPending(true);
-      result.finally(() => {
+      Promise.resolve(result).finally(() => {
         clickLockRef.current = false;
         setClickPending(false);
       });

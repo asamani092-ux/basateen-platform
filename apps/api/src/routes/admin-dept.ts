@@ -389,6 +389,27 @@ async function buildSemesterExportPayload(
     attendance_date: string;
     status: string;
   }>;
+  educational_summary?: Array<{
+    student_id: number;
+    full_name_ar: string;
+    listened_days: number;
+    repeated_days: number;
+    revised_days: number;
+    error_count: number;
+    tune_errors: number;
+    face_count: number;
+  }>;
+  competition_sheets?: Array<{
+    competition_id: number;
+    name_ar: string;
+    rows: Array<{
+      student_id: number;
+      full_name_ar: string;
+      target_amount: number;
+      achieved_amount: number;
+      points: number;
+    }>;
+  }>;
   export_type: "standard" | "comprehensive";
   exported_at: string;
 }> {
@@ -518,6 +539,148 @@ async function buildSemesterExportPayload(
       : {}),
   }));
 
+  let educationalSummary:
+    | Array<{
+        student_id: number;
+        full_name_ar: string;
+        listened_days: number;
+        repeated_days: number;
+        revised_days: number;
+        error_count: number;
+        tune_errors: number;
+        face_count: number;
+      }>
+    | undefined;
+  let competitionSheets:
+    | Array<{
+        competition_id: number;
+        name_ar: string;
+        rows: Array<{
+          student_id: number;
+          full_name_ar: string;
+          target_amount: number;
+          achieved_amount: number;
+          points: number;
+        }>;
+      }>
+    | undefined;
+
+  if (mode === "all") {
+    if (await hasTable(env, "edu_daily_recitation")) {
+      const hasFace = await tableHasColumn(env, "edu_daily_recitation", "face_count");
+      const faceSum = hasFace
+        ? "SUM(COALESCE(edr.face_count, 0))"
+        : "0";
+      const hasComplexCol = await tableHasColumn(
+        env,
+        "edu_daily_recitation",
+        "complex_id",
+      );
+      const complexClause = hasComplexCol ? "AND edr.complex_id = ?" : "";
+      const eduBinds: Array<string | number> = [
+        semesterRange.start,
+        semesterRange.end,
+      ];
+      if (hasComplexCol) eduBinds.push(complexId);
+
+      const eduRows = await env.DB.prepare(
+        `SELECT s.id AS student_id, s.full_name_ar,
+                SUM(CASE WHEN COALESCE(edr.listened, 0) = 1 THEN 1 ELSE 0 END) AS listened_days,
+                SUM(CASE WHEN COALESCE(edr.repeated, 0) = 1 THEN 1 ELSE 0 END) AS repeated_days,
+                SUM(CASE WHEN COALESCE(edr.revised, 0) = 1 THEN 1 ELSE 0 END) AS revised_days,
+                SUM(COALESCE(edr.error_count, 0)) AS error_count,
+                SUM(COALESCE(edr.tune_errors, 0)) AS tune_errors,
+                ${faceSum} AS face_count
+         FROM edu_daily_recitation edr
+         INNER JOIN students s ON s.id = edr.student_id
+         WHERE edr.recitation_date BETWEEN ? AND ?
+           ${complexClause}
+         GROUP BY s.id, s.full_name_ar
+         ORDER BY s.full_name_ar
+         LIMIT 5000`,
+      )
+        .bind(...eduBinds)
+        .all<{
+          student_id: number;
+          full_name_ar: string;
+          listened_days: number;
+          repeated_days: number;
+          revised_days: number;
+          error_count: number;
+          tune_errors: number;
+          face_count: number;
+        }>();
+      educationalSummary = eduRows.results ?? [];
+    }
+
+    if (
+      (await hasTable(env, "competitions")) &&
+      (await hasTable(env, "competition_targets"))
+    ) {
+      const hasAchieved = await tableHasColumn(
+        env,
+        "competition_targets",
+        "achieved_amount",
+      );
+      const hasLogPoints =
+        (await hasTable(env, "competition_logs")) &&
+        (await tableHasColumn(env, "competition_logs", "points"));
+      const achievedCol = hasAchieved
+        ? "COALESCE(ct.achieved_amount, 0)"
+        : "0";
+      const pointsSubquery = hasLogPoints
+        ? `(SELECT COALESCE(SUM(cl.points), 0)
+            FROM competition_logs cl
+            WHERE cl.competition_id = ct.competition_id
+              AND cl.student_id = ct.student_id
+              AND cl.log_date BETWEEN ? AND ?)`
+        : "0";
+
+      const comps = await env.DB.prepare(
+        `SELECT id, name_ar FROM competitions
+         WHERE complex_id = ?
+           AND COALESCE(start_date, '0000-01-01') <= ?
+           AND COALESCE(end_date, '9999-12-31') >= ?
+         ORDER BY name_ar
+         LIMIT 200`,
+      )
+        .bind(complexId, semesterRange.end, semesterRange.start)
+        .all<{ id: number; name_ar: string }>();
+
+      const sheets: NonNullable<typeof competitionSheets> = [];
+      for (const comp of comps.results ?? []) {
+        const rowBinds: Array<string | number> = hasLogPoints
+          ? [semesterRange.start, semesterRange.end, comp.id, complexId]
+          : [comp.id, complexId];
+        const rows = await env.DB.prepare(
+          `SELECT s.id AS student_id, s.full_name_ar,
+                  COALESCE(ct.target_amount, 0) AS target_amount,
+                  ${achievedCol} AS achieved_amount,
+                  ${pointsSubquery} AS points
+           FROM competition_targets ct
+           INNER JOIN students s ON s.id = ct.student_id
+           WHERE ct.competition_id = ? AND s.complex_id = ?
+           ORDER BY s.full_name_ar
+           LIMIT 5000`,
+        )
+          .bind(...rowBinds)
+          .all<{
+            student_id: number;
+            full_name_ar: string;
+            target_amount: number;
+            achieved_amount: number;
+            points: number;
+          }>();
+        sheets.push({
+          competition_id: comp.id,
+          name_ar: comp.name_ar,
+          rows: rows.results ?? [],
+        });
+      }
+      competitionSheets = sheets;
+    }
+  }
+
   return {
     semester: {
       start_date: semester.start_date,
@@ -531,6 +694,12 @@ async function buildSemesterExportPayload(
     students: studentRows,
     attendance_summary: attendanceRows,
     ...(mode === "all" && attendanceDaily ? { attendance_daily: attendanceDaily } : {}),
+    ...(mode === "all" && educationalSummary
+      ? { educational_summary: educationalSummary }
+      : {}),
+    ...(mode === "all" && competitionSheets
+      ? { competition_sheets: competitionSheets }
+      : {}),
     export_type: mode === "all" ? "comprehensive" : "standard",
     exported_at: new Date().toISOString(),
   };

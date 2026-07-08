@@ -295,6 +295,27 @@ export type SemesterExportAllPayload = SemesterExportPayload & {
     attendance_date: string;
     status: string;
   }>;
+  educational_summary?: Array<{
+    student_id: number;
+    full_name_ar: string;
+    listened_days: number;
+    repeated_days: number;
+    revised_days: number;
+    error_count: number;
+    tune_errors: number;
+    face_count: number;
+  }>;
+  competition_sheets?: Array<{
+    competition_id: number;
+    name_ar: string;
+    rows: Array<{
+      student_id: number;
+      full_name_ar: string;
+      target_amount: number;
+      achieved_amount: number;
+      points: number;
+    }>;
+  }>;
 };
 
 async function requestFileDownload(path: string): Promise<{
@@ -1483,8 +1504,8 @@ export const api = {
     const qs = search.toString();
     return request<{
       date: string;
-      circles: Array<{ id: number; marked: boolean }>;
-      tracks: Array<{ id: number; marked: boolean }>;
+      circles: Array<{ id: number; student_count: number; has_record: boolean }>;
+      tracks: Array<{ id: number; student_count: number; has_record: boolean }>;
     }>(
       `/api/admin-dept/students/attendance/entity-status${qs ? `?${qs}` : ""}`,
     );

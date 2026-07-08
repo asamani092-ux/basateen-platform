@@ -12,11 +12,18 @@ export type AttendanceEntityOption = {
   name_ar: string;
 };
 
+export type AttendanceEntityMeta = {
+  student_count: number;
+  has_record: boolean;
+};
+
 type Props = {
   value: AttendanceEntityOption | null;
   onChange: (entity: AttendanceEntityOption | null) => void;
   circles: Array<{ id: number; name_ar: string }>;
   tracks: Array<{ id: number; name_ar: string }>;
+  entityMeta?: Map<string, AttendanceEntityMeta>;
+  /** @deprecated استخدم entityMeta */
   markedToday?: Set<string>;
   disabled?: boolean;
   placeholder?: string;
@@ -31,6 +38,7 @@ export function AttendanceEntityCombobox({
   onChange,
   circles,
   tracks,
+  entityMeta,
   markedToday,
   disabled,
   placeholder = "ابحث عن حلقة أو مسار…",
@@ -106,6 +114,40 @@ export function AttendanceEntityCombobox({
   }
 
   const showList = open && !disabled;
+
+  function resolveMeta(type: "circle" | "track", id: number): AttendanceEntityMeta | undefined {
+    const key = `${type}:${id}`;
+    if (entityMeta?.has(key)) return entityMeta.get(key);
+    if (markedToday?.has(key)) {
+      return { student_count: 0, has_record: true };
+    }
+    return undefined;
+  }
+
+  function EntityRowExtras({
+    type,
+    id,
+    kindLabel,
+  }: {
+    type: "circle" | "track";
+    id: number;
+    kindLabel: string;
+  }) {
+    const meta = resolveMeta(type, id);
+    return (
+      <span className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span>{kindLabel}</span>
+        {meta && meta.student_count > 0 ? (
+          <span className="tabular-nums">{meta.student_count} طالب</span>
+        ) : null}
+        {meta?.has_record ? (
+          <span className="rounded-md bg-success-surface px-1.5 py-0.5 text-[10px] font-medium text-success-foreground">
+            تم التحضير
+          </span>
+        ) : null}
+      </span>
+    );
+  }
 
   return (
     <div ref={rootRef} className="relative w-full" data-attendance-entity-search-root="">
@@ -183,18 +225,13 @@ export function AttendanceEntityCombobox({
                   الحلقات
                 </div>
               )}
-              {filteredCircles.map((c) => {
-                const marked = markedToday?.has(`circle:${c.id}`);
-                return (
+              {filteredCircles.map((c) => (
                 <button
                   key={`circle:${c.id}`}
                   type="button"
                   role="option"
                   aria-selected={value?.type === "circle" && value.id === c.id}
-                  className={cn(
-                    "w-full text-right px-3 py-2 text-sm hover:bg-muted transition-colors border-b border-border last:border-0",
-                    marked && "bg-success-surface",
-                  )}
+                  className="w-full text-right px-3 py-2 text-sm hover:bg-muted transition-colors border-b border-border last:border-0"
                   style={tajawal}
                   onClick={(e) => {
                     e.preventDefault();
@@ -202,38 +239,22 @@ export function AttendanceEntityCombobox({
                     pick({ type: "circle", id: c.id, name_ar: c.name_ar });
                   }}
                 >
-                  <span
-                    className={cn(
-                      "font-medium truncate block",
-                      marked && "text-success-foreground",
-                    )}
-                  >
-                    {marked ? "● " : null}
-                    {c.name_ar}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {marked ? "محضّر اليوم — " : ""}حلقة
-                  </span>
+                  <span className="font-medium truncate block">{c.name_ar}</span>
+                  <EntityRowExtras type="circle" id={c.id} kindLabel="حلقة" />
                 </button>
-              );
-              })}
+              ))}
               {filteredTracks.length > 0 && (
                 <div className="px-2 pt-2 pb-1 text-xs text-muted-foreground" style={tajawal}>
                   المسارات
                 </div>
               )}
-              {filteredTracks.map((t) => {
-                const marked = markedToday?.has(`track:${t.id}`);
-                return (
+              {filteredTracks.map((t) => (
                 <button
                   key={`track:${t.id}`}
                   type="button"
                   role="option"
                   aria-selected={value?.type === "track" && value.id === t.id}
-                  className={cn(
-                    "w-full text-right px-3 py-2 text-sm hover:bg-muted transition-colors border-b border-border last:border-0",
-                    marked && "bg-success-surface",
-                  )}
+                  className="w-full text-right px-3 py-2 text-sm hover:bg-muted transition-colors border-b border-border last:border-0"
                   style={tajawal}
                   onClick={(e) => {
                     e.preventDefault();
@@ -241,21 +262,10 @@ export function AttendanceEntityCombobox({
                     pick({ type: "track", id: t.id, name_ar: t.name_ar });
                   }}
                 >
-                  <span
-                    className={cn(
-                      "font-medium truncate block",
-                      marked && "text-success-foreground",
-                    )}
-                  >
-                    {marked ? "● " : null}
-                    {t.name_ar}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {marked ? "محضّر اليوم — " : ""}مسار
-                  </span>
+                  <span className="font-medium truncate block">{t.name_ar}</span>
+                  <EntityRowExtras type="track" id={t.id} kindLabel="مسار" />
                 </button>
-              );
-              })}
+              ))}
             </>
           )}
         </div>

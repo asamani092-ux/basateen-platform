@@ -6,6 +6,8 @@ import {
   type PlanInputs,
 } from "../lib/plan-estimator";
 import { teacherCanAccessStudent } from "../lib/dept-scope";
+import { buildStudentPlacementSql } from "../lib/student-list-sql";
+import { buildTeacherCircleAccessSql } from "../lib/teacher-circle";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 
 const TEACHER_ROLES = ["teacher"] as const;
@@ -46,6 +48,11 @@ export async function handleTeacherRouter(
   }
 
   if (path === "/api/teacher/plans" && request.method === "GET") {
+    const placement = await buildStudentPlacementSql(env);
+    const teacherScope = await buildTeacherCircleAccessSql(env, placement.circleRef);
+    const scopeBindCount = (teacherScope.match(/\?/g) ?? []).length;
+    const scopeBinds = Array.from({ length: scopeBindCount }, () => auth.userId);
+
     const rows = await env.DB.prepare(
       `SELECT
          p.id,
@@ -62,14 +69,14 @@ export async function handleTeacherRouter(
          c.name_ar AS circle_name
        FROM student_semester_plans p
        JOIN students s ON s.id = p.student_id
-       JOIN student_circle_history h
-         ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL
-       LEFT JOIN circles c ON c.id = h.circle_id
-       JOIN teacher_assignments ta ON ta.circle_id = h.circle_id AND ta.user_id = ?
-       WHERE p.is_active = 1 AND s.complex_id = ?
+       ${placement.historyJoin}
+       ${placement.circleJoin}
+       WHERE COALESCE(CAST(p.is_active AS INTEGER), 1) = 1
+         AND s.complex_id = ?
+         AND ${teacherScope}
        ORDER BY s.full_name_ar`,
     )
-      .bind(auth.userId, auth.complexId)
+      .bind(...scopeBinds, auth.complexId)
       .all();
 
     return json({ items: rows.results ?? [] });

@@ -9,6 +9,7 @@ import {
   tableHasColumn,
 } from "../lib/db-schema";
 import { buildStudentPlacementSql } from "../lib/student-list-sql";
+import { buildTeacherCircleAccessSql } from "../lib/teacher-circle";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 import { PAGE_SIZE_MAX, pageMeta, parsePageParams } from "../lib/pagination";
 
@@ -82,7 +83,6 @@ export async function handleStudentsList(
     const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
     const hasAdmissionStatus = await tableHasColumn(env, "students", "admission_status");
     const hasSupervisorScopes = await hasTable(env, "supervisor_scopes");
-    const hasTeacherAssignments = await hasTable(env, "teacher_assignments");
     const placement = await buildStudentPlacementSql(env);
     const { historyJoin, circleJoin, trackJoin, circleRef, trackRef, historyCircleRef } =
       placement;
@@ -120,14 +120,13 @@ export async function handleStudentsList(
 
     const binds: (string | number)[] = [auth.complexId];
 
-    if (
-      (auth.role === "teacher" || auth.role === "track_supervisor") &&
-      hasTeacherAssignments
-    ) {
-      sql += ` AND ${circleRef} IN (
-      SELECT circle_id FROM teacher_assignments WHERE user_id = ?
-    )`;
-      binds.push(auth.userId);
+    if (auth.role === "teacher" || auth.role === "track_supervisor") {
+      const teacherScope = await buildTeacherCircleAccessSql(env, circleRef);
+      const scopeParts = teacherScope.split("?").length - 1;
+      sql += ` AND ${teacherScope}`;
+      for (let i = 0; i < scopeParts; i += 1) {
+        binds.push(auth.userId);
+      }
     }
 
     if (auth.role === "edu_supervisor") {

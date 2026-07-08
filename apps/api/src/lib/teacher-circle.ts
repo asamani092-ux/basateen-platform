@@ -48,6 +48,29 @@ export async function resolveTeacherPrimaryCircle(
   return null;
 }
 
+/**
+ * SQL predicate — circle id expression is within teacher scope (assignments OR circles.teacher_id).
+ * Time O(1) compile; Space O(1). Binds: one user_id per placeholder (caller duplicates if needed).
+ */
+export async function buildTeacherCircleAccessSql(
+  env: Env,
+  circleIdExpr: string,
+  teacherUserIdPlaceholder = "?",
+): Promise<string> {
+  const parts: string[] = [];
+  if (await hasTable(env, "teacher_assignments")) {
+    parts.push(
+      `${circleIdExpr} IN (SELECT circle_id FROM teacher_assignments WHERE user_id = ${teacherUserIdPlaceholder})`,
+    );
+  }
+  if (await tableHasColumn(env, "circles", "teacher_id")) {
+    parts.push(
+      `EXISTS (SELECT 1 FROM circles tc WHERE tc.id = ${circleIdExpr} AND tc.teacher_id = ${teacherUserIdPlaceholder})`,
+    );
+  }
+  return parts.length ? `(${parts.join(" OR ")})` : "0=1";
+}
+
 /** Students for teacher (circle) or track supervisor (track via current_track_id). */
 export async function studentsInTeacherCircle(
   env: Env,

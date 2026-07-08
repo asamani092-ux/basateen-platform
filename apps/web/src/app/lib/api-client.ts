@@ -2269,7 +2269,14 @@ export const api = {
   eduDeptTeacherCompetitionDetail: (id: number) =>
     request<{
       competition: { id: number; name_ar: string; start_date: string | null; end_date: string | null };
-      tasks: Array<{ id: number; title_ar: string; weight_points: number; sort_order: number }>;
+      tasks: Array<{
+        id: number;
+        title_ar: string;
+        weight_points: number;
+        sort_order: number;
+        type?: string;
+        input_type?: string;
+      }>;
       students: Array<{ id: number; full_name_ar: string }>;
       scores: Array<{ task_id: number; student_id: number; points: number }>;
     }>(`/api/edu-dept/teacher-competitions/${id}`),
@@ -2287,7 +2294,12 @@ export const api = {
     }),
   eduDeptTeacherCompetitionAddTask: (
     compId: number,
-    body: { title_ar: string; weight_points?: number },
+    body: {
+      title_ar: string;
+      weight_points?: number;
+      type?: string;
+      input_type?: string;
+    },
   ) =>
     request<{ ok: boolean; id: number }>(
       `/api/edu-dept/teacher-competitions/${compId}/tasks`,

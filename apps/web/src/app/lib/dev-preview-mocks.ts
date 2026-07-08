@@ -901,10 +901,8 @@ export function resolveDevPreviewMock<T>(
     return {
       competition: { id: 1, name_ar: "منافسة تجريبية", start_date: date, end_date: null },
       tasks: [
-        { id: 1, title_ar: "حفظ إضافي", weight_points: 2, sort_order: 1 },
-        { id: 2, title_ar: "مراجعة", weight_points: 2, sort_order: 2 },
-        { id: 3, title_ar: "حضور مبكر", weight_points: 1, sort_order: 3 },
-        { id: 4, title_ar: "أدب وسلوك", weight_points: 1, sort_order: 4 },
+        { id: 1, title_ar: "حضور مبكر", weight_points: 1, sort_order: 1, type: "addition", input_type: "boolean" },
+        { id: 2, title_ar: "تأخر", weight_points: 1, sort_order: 2, type: "deduction", input_type: "counter" },
       ],
       students: students.map((s) => ({ id: s.id, full_name_ar: s.full_name_ar })),
       scores: [],

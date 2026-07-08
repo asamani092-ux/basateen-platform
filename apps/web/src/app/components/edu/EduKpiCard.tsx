@@ -10,23 +10,27 @@ type Props = {
   value: number | string;
   sub?: string;
   highlight?: boolean;
+  compact?: boolean;
 };
 
 /** بطاقة مؤشر موحّدة — مطابقة لتبويب المؤشرات الإدارية */
-export function EduKpiCard({ icon, label, value, sub, highlight }: Props) {
+export function EduKpiCard({ icon, label, value, sub, highlight, compact }: Props) {
   return (
     <Card
-      className={`${ds.kpiCard}${highlight ? " border-warning/50 bg-warning-surface/30" : ""}`}
+      className={`${ds.kpiCard}${highlight ? " border-warning/50 bg-warning-surface/30" : ""}${compact ? " !py-0" : ""}`}
     >
-      <CardContent className="p-0 pt-3.5">
+      <CardContent className={compact ? "p-0 pt-2" : "p-0 pt-3.5"}>
         <div
-          className={`${ds.kpiLabel} flex items-center gap-2 mb-1`}
+          className={`${compact ? "text-[11px] font-semibold text-muted-foreground" : ds.kpiLabel} flex items-center gap-1.5 mb-0.5`}
           style={tajawal}
         >
           {icon}
           {label}
         </div>
-        <p className={ds.kpiValue} style={tajawal}>
+        <p
+          className={compact ? "text-lg font-bold leading-tight text-primary" : ds.kpiValue}
+          style={tajawal}
+        >
           {value}
           {sub && (
             <span

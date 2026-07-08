@@ -3,14 +3,11 @@ import { tableHasColumn } from "./db-schema";
 import {
   hasCompetitionCategory,
   hasEngineTargets,
-  hasEngineTasks,
   loadCompetitionDayLogsHydrated,
   buildCompetitionLeaderboard,
-  seedCompetitionTasksFromCriteria,
   upsertStudentTargets,
   type StudentTargetInput,
 } from "./competition-engine";
-import { loadEvaluationCriteria } from "./evaluation-criteria";
 import { studentsInTeacherCircle } from "./teacher-circle";
 
 export const TEACHER_CIRCLE_OWNERSHIP = "teacher_circle";
@@ -123,11 +120,6 @@ export async function createTeacherCircleCompetition(
     target_amount: 0,
   }));
   await upsertStudentTargets(env, competitionId, targets);
-
-  if (await hasEngineTasks(env)) {
-    const criteria = await loadEvaluationCriteria(env, complexId);
-    await seedCompetitionTasksFromCriteria(env, competitionId, criteria);
-  }
 
   return competitionId;
 }

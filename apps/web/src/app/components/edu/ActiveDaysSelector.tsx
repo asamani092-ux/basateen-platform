@@ -2,7 +2,7 @@ import {
   DEFAULT_ACTIVE_WEEKDAYS,
   WEEKDAY_OPTIONS,
 } from "../../lib/competition-engine";
-import { ds, tajawal } from "../../lib/design-system";
+import { tajawal } from "../../lib/design-system";
 
 type Props = {
   value: number[];

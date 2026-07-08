@@ -51,14 +51,16 @@ export function PublicLiveDisplayPage() {
   }, []);
 
   useEffect(() => {
-    if (slides.length <= 1 || current?.kind === "video") return;
+    if (slides.length <= 1) return;
+    const current = slides[slideIndex];
+    if (current?.kind === "video") return;
     const ms = Math.max(3, slideSeconds) * 1000;
     const t = setInterval(
       () => setSlideIndex((i) => (i + 1) % slides.length),
       ms,
     );
     return () => clearInterval(t);
-  }, [current?.kind, slides.length, slideSeconds]);
+  }, [slideIndex, slides, slideSeconds]);
 
   const current = slides[slideIndex];
   const timeStr = clock.toLocaleTimeString("ar-SA", {

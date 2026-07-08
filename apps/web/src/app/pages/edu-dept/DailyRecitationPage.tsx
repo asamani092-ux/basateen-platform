@@ -868,7 +868,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                       </AccordionTrigger>
                       <AccordionContent className="pb-2 pt-0">
                         <div className="space-y-1 border-t border-border/80 pt-2">
-                          {editableCriteria.map((c, idx) => (
+                          {editableCriteria.map((c) => (
                             <div
                               key={c.id}
                               className="flex flex-row flex-wrap items-center gap-x-2 gap-y-1 py-1 min-h-10"

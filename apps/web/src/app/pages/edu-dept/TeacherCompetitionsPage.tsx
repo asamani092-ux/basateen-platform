@@ -39,15 +39,6 @@ import { ds, tajawal } from "../../lib/design-system";
 import { queryKeys } from "../../lib/query-keys";
 import { RecitationTableSkeleton } from "../../components/shared/RecitationTableSkeleton";
 
-type Comp = { id: number; name_ar: string; start_date: string | null; end_date: string | null };
-
-type LeaderRow = {
-  rank: number;
-  student_id: number;
-  full_name_ar: string;
-  total_points: number;
-};
-
 function printTeacherCompetition() {
   document.body.classList.add("printing-teacher-competition");
   window.print();
@@ -186,7 +177,7 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
 
   const deleteTaskIdRef = useRef<number | null>(null);
 
-  const { run: deleteCompetition, pending: deletingComp } = useGuardedVoidAction(async () => {
+  const { run: deleteCompetition } = useGuardedVoidAction(async () => {
     if (activeCompetitionId == null) return;
     const deletedId = activeCompetitionId;
     try {
@@ -485,7 +476,11 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
               [
                 { id: "scores" as const, label: "رصد النقاط" },
                 { id: "leaderboard" as const, label: "لوحة الصدارة", icon: Medal },
-              ] as const
+              ] satisfies Array<{
+                id: "scores" | "leaderboard";
+                label: string;
+                icon?: typeof Medal;
+              }>
             ).map(({ id, label, icon: Icon }) => {
               const active = tab === id;
               return (

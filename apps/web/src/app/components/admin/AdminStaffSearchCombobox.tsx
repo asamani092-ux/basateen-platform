@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, X } from "lucide-react";
+import { X } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { api } from "../../lib/api-client";

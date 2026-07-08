@@ -4,7 +4,6 @@ export const ROLE_HOME: Record<UserRole, string> = {
   super_admin: "/admin-dept/reports",
   edu_supervisor: "/edu-dept/reports",
   admin_supervisor: "/admin-dept/staff-attendance",
-  prog_supervisor: "/prog-dept/quizzes",
   programs_supervisor: "/prog-dept/quizzes",
   track_supervisor: "/track-supervisor",
   teacher: "/teacher",

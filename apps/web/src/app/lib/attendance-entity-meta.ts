@@ -1,4 +1,4 @@
-import type { AttendanceEntityOption } from "./AttendanceEntityCombobox";
+import type { AttendanceEntityOption } from "../components/attendance/AttendanceEntityCombobox";
 
 export type AttendanceEntityMeta = {
   student_count: number;

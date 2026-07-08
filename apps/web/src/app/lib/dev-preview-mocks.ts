@@ -435,7 +435,7 @@ export function resolveDevPreviewMock<T>(
       national_id: s.national_id,
       phone: s.phone,
       guardian_phone: s.guardian_phone,
-      circle_name: s.current_circle_name,
+      circle_name: s.circle_name,
     }));
     if (q) {
       items = items.filter((s) => s.full_name_ar.includes(q));
@@ -484,8 +484,8 @@ export function resolveDevPreviewMock<T>(
   }
 
   if (p === "/api/admin-dept/students/absent-today/template" && m === "PUT") {
-    const body = init?.body
-      ? (JSON.parse(String(init.body)) as { template?: string })
+    const body = bodyText
+      ? (JSON.parse(bodyText) as { template?: string })
       : {};
     return {
       ok: true,
@@ -501,7 +501,7 @@ export function resolveDevPreviewMock<T>(
   }
 
   if (p === "/api/admin/students/bulk" && m === "POST") {
-    const body = init?.body ? (JSON.parse(String(init.body)) as { rows?: unknown[] }) : {};
+    const body = bodyText ? (JSON.parse(bodyText) as { rows?: unknown[] }) : {};
     const total = Array.isArray(body.rows) ? body.rows.length : 0;
     return {
       ok: true,
@@ -1384,7 +1384,7 @@ export function resolveDevPreviewMock<T>(
 
   if (p.startsWith("/api/edu-supervisor/master-grid") && m === "GET") {
     const pendingOnly = url.searchParams.get("pending_acceptance") === "1";
-    const rows = previewStore.listStudents().map((s) => ({
+    const rows = previewStore.getStudents().map((s) => ({
       id: s.id,
       full_name_ar: s.full_name_ar,
       is_active: 1,
@@ -1597,7 +1597,7 @@ export function resolveDevPreviewMock<T>(
   if (p.startsWith("/api/v1/education/supervisor/master-grid") && m === "GET") {
     return {
       date: new Date().toISOString().slice(0, 10),
-      rows: previewStore.listStudents().map((s) => ({
+      rows: previewStore.getStudents().map((s) => ({
         student_id: s.id,
         full_name_ar: s.full_name_ar,
         school_grade: s.school_grade,
@@ -1906,7 +1906,7 @@ export function resolveDevPreviewMock<T>(
       } as T;
     }
     return {
-      quiz: { id: qid, title_ar: res.quiz.title_ar },
+      quiz: { id: qid, title_ar: res.quiz?.title_ar ?? "" },
       student: res.student,
       questions: res.questions,
     } as T;

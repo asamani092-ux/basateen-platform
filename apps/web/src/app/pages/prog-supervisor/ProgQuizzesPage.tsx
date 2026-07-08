@@ -49,7 +49,7 @@ export function ProgQuizzesPage() {
     try {
       const res = await api.progQuizCreate({
         title_ar: titleAr.trim(),
-        access_code: accessCode.trim() || null,
+        access_code: accessCode.trim() || "",
       });
       setTitleAr("");
       setAccessCode("");

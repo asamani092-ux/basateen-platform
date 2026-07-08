@@ -6,7 +6,6 @@ import {
   studentPatchBodySchema,
 } from "./students-schema";
 import {
-  formatFacesToText,
   resolveMemorizationFields,
 } from "./quran-memorization";
 import type { StudentUnifiedFormValues } from "../components/admin/StudentUnifiedSingleForm";

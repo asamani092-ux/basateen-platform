@@ -28,7 +28,7 @@ export function useGuardedAsync<T extends (...args: never[]) => unknown>(
       try {
         const result = fnRef.current(...args);
         if (isPromiseLike(result)) {
-          return result.finally(() => {
+          return Promise.resolve(result).finally(() => {
             lockRef.current = false;
             setPending(false);
           });

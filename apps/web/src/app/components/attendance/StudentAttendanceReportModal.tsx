@@ -54,7 +54,7 @@ export function StudentAttendanceReportModal({
   circles,
   loadingCircles = false,
 }: Props) {
-  const today = todayIso();
+  const today = todayRiyadhIso();
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
   const [circleId, setCircleId] = useState("");

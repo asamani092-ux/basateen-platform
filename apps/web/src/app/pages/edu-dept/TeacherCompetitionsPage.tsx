@@ -38,6 +38,48 @@ import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import { ds, tajawal } from "../../lib/design-system";
 import { queryKeys } from "../../lib/query-keys";
 import { RecitationTableSkeleton } from "../../components/shared/RecitationTableSkeleton";
+import { TaskInputCell, type TaskInputCol } from "../../components/edu/TaskInputCell";
+import {
+  normalizeTaskInput,
+  signedTaskPoints,
+  TEACHER_TASK_INPUT_OPTIONS,
+  TEACHER_TASK_TYPE_OPTIONS,
+  type TaskInputType,
+  type TaskType,
+} from "../../lib/competition-engine";
+
+type TeacherCompetitionTask = {
+  id: number;
+  title_ar: string;
+  weight_points: number;
+  sort_order?: number;
+  type?: string;
+  input_type?: string;
+};
+
+function toTaskInputCol(t: TeacherCompetitionTask): TaskInputCol {
+  return {
+    id: t.id,
+    name_ar: t.title_ar,
+    weight: t.weight_points,
+    type: t.type === "deduction" ? "deduction" : "addition",
+    input_type: t.input_type,
+  };
+}
+
+function taskTypeLabel(type?: string): string {
+  return (
+    TEACHER_TASK_TYPE_OPTIONS.find((o) => o.value === type)?.label ??
+    TEACHER_TASK_TYPE_OPTIONS[0].label
+  );
+}
+
+function taskInputLabel(inputType?: string): string {
+  return (
+    TEACHER_TASK_INPUT_OPTIONS.find((o) => o.value === inputType)?.label ??
+    TEACHER_TASK_INPUT_OPTIONS[0].label
+  );
+}
 
 function printTeacherCompetition() {
   document.body.classList.add("printing-teacher-competition");
@@ -80,6 +122,8 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
   const [taskOpen, setTaskOpen] = useState(false);
   const [taskTitle, setTaskTitle] = useState("");
   const [taskWeight, setTaskWeight] = useState(1);
+  const [taskType, setTaskType] = useState<TaskType>("addition");
+  const [taskInputType, setTaskInputType] = useState<TaskInputType>("boolean");
 
   const listQuery = useQuery({
     queryKey: queryKeys.eduDept.teacherCompetitions,
@@ -200,9 +244,19 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
     if (activeCompetitionId == null) return;
     setError(null);
     try {
-      const payload = Object.entries(scores).map(([key, points]) => {
+      const taskById = new Map(tasks.map((t) => [t.id, t]));
+      const payload = Object.entries(scores).flatMap(([key, raw]) => {
         const [taskId, studentId] = key.split("-").map(Number);
-        return { task_id: taskId, student_id: studentId, points: Number(points) || 0 };
+        const task = taskById.get(taskId);
+        if (!task) return [];
+        const col = toTaskInputCol(task);
+        return [
+          {
+            task_id: taskId,
+            student_id: studentId,
+            points: normalizeTaskInput(col, Number(raw) || 0),
+          },
+        ];
       });
       await api.eduDeptTeacherCompetitionSaveScores(activeCompetitionId, payload);
       toast.success("تم حفظ النقاط.");
@@ -236,10 +290,14 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
       await api.eduDeptTeacherCompetitionAddTask(activeCompetitionId, {
         title_ar: taskTitle.trim(),
         weight_points: taskWeight,
+        type: taskType,
+        input_type: taskInputType,
       });
       setTaskOpen(false);
       setTaskTitle("");
       setTaskWeight(defaultTaskWeight);
+      setTaskType("addition");
+      setTaskInputType("boolean");
       await invalidateCompetitionQueries(activeCompetitionId);
     } catch (err) {
       const msg = getFriendlyTeacherCompetitionError(err);
@@ -264,7 +322,7 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
       setNewName("");
       setActiveCompetitionId(res.id);
       await invalidateCompetitionQueries(res.id);
-      toast.success("تم إنشاء المنافسة مع مهام افتراضية.");
+      toast.success("تم إنشاء المنافسة — أضف المهام يدوياً.");
     } catch (err) {
       const msg = getFriendlyTeacherCompetitionError(err);
       setError(msg);
@@ -315,6 +373,14 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
     return `${taskId}-${studentId}`;
   }
 
+  function studentSignedTotal(stId: number): number {
+    return tasks.reduce((sum, t) => {
+      const raw = Number(scores[scoreKey(t.id, stId)]) || 0;
+      const col = toTaskInputCol(t);
+      return sum + signedTaskPoints(col, normalizeTaskInput(col, raw));
+    }, 0);
+  }
+
   function setScore(taskId: number, studentId: number, value: number) {
     setScores((prev) => ({ ...prev, [scoreKey(taskId, studentId)]: value }));
   }
@@ -329,7 +395,7 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
               منافسات الحلقة
             </h2>
             <p className={ds.page.description} style={tajawal}>
-              منافسات مع مهام جاهزة — رصد النقاط ومتابعة لوحة الصدارة.
+              منافسات الحلقة — أنشئ المهام يدوياً ورصد النقاط حسب نوع كل مهمة.
             </p>
           </div>
           <Button
@@ -359,7 +425,7 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
             style={tajawal}
           >
             <Plus className="w-4 h-4" />
-            جديد
+            منافسة جديدة
           </Button>
         </div>
       )}
@@ -375,40 +441,46 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
       ) : (
         <>
       {!loading && !error && (
-        <div className={`${ds.kpiStrip} print:hidden`}>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 print:hidden">
           <EduKpiCard
-            icon={<Trophy className="w-4 h-4 text-primary" />}
+            compact
+            icon={<Trophy className="w-3.5 h-3.5 text-primary" />}
             label="المنافسات"
             value={items.length}
-            sub={activeCompetition ? activeCompetition.name_ar : "لا منافسة محددة"}
+            sub={activeCompetition ? activeCompetition.name_ar : "—"}
           />
           <EduKpiCard
-            icon={<Medal className="w-4 h-4 text-primary" />}
+            compact
+            icon={<Medal className="w-3.5 h-3.5 text-primary" />}
             label="المهام"
             value={tasks.length}
-            sub={activeCompetitionId != null ? "في المنافسة النشطة" : "—"}
+            sub={activeCompetitionId != null ? "نشطة" : "—"}
           />
           <EduKpiCard
-            icon={<Users className="w-4 h-4 text-primary" />}
+            compact
+            icon={<Users className="w-3.5 h-3.5 text-primary" />}
             label="الطلاب"
             value={students.length}
-            sub="في حلقتك"
+            sub="الحلقة"
           />
           <EduKpiCard
-            icon={<Medal className="w-4 h-4 text-amber-600" />}
+            compact
+            icon={<Medal className="w-3.5 h-3.5 text-amber-600" />}
             label="أعلى نقاط"
             value={topLeaderPoints}
-            sub={leaderboard[0]?.full_name_ar ?? "لا نقاط بعد"}
+            sub={leaderboard[0]?.full_name_ar ?? "—"}
             highlight={topLeaderPoints > 0}
           />
         </div>
       )}
 
-      <div className={`${ds.card} p-4 space-y-3 text-right print:hidden`} dir="rtl">
-        <Label style={tajawal}>المنافسة النشطة</Label>
-        <div className="flex flex-col md:flex-row flex-wrap gap-4 md:items-end">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 print:hidden" dir="rtl">
+        <div className={`${ds.card} p-3 space-y-2 text-right`}>
+          <Label className="text-sm" style={tajawal}>
+            المنافسة النشطة
+          </Label>
           <select
-            className={`${ds.select} w-full md:max-w-xs`}
+            className={`${ds.select} w-full text-sm`}
             value={activeCompetitionId ?? ""}
             onChange={(e) => onCompetitionChange(e.target.value)}
             style={tajawal}
@@ -422,47 +494,77 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
             ))}
           </select>
           {activeCompetition && (
-            <div className="flex items-center gap-1 shrink-0">
-              <span className="text-sm font-medium px-2" style={tajawal}>
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <span className="text-sm font-medium truncate" style={tajawal}>
                 {activeCompetition.name_ar}
               </span>
-              <TableIconAction kind="edit" onClick={openEdit} disabled={detailLoading} />
-              <TableIconAction
-                kind="delete"
-                onClick={() => setDeleteOpen(true)}
-                disabled={detailLoading}
-              />
+              <div className="flex items-center gap-0.5 shrink-0">
+                <TableIconAction kind="edit" onClick={openEdit} disabled={detailLoading} />
+                <TableIconAction
+                  kind="delete"
+                  onClick={() => setDeleteOpen(true)}
+                  disabled={detailLoading}
+                />
+              </div>
             </div>
           )}
         </div>
-        {(loading || detailLoading) && (
-          <RecitationTableSkeleton showFilters={false} rows={3} columns={3} />
-        )}
-        {!detailLoading && activeCompetitionId != null && tab === "scores" && (
-          <div className="flex flex-wrap gap-2 pt-1">
-            <Button
-              type="button"
-              variant="outline"
-              className={cn(ds.btnRound, "rounded-full")}
-              onClick={() => setTaskOpen(true)}
-              style={tajawal}
-            >
-              <Plus className="w-4 h-4" />
-              مهمة
-            </Button>
-            <Button
-              type="button"
-              variant="default"
-              className={cn(ds.btnRound, ds.primaryActionBtn, "rounded-full w-full sm:w-auto")}
-              loading={saving}
-              disabled={saving || tasks.length === 0}
-              onClick={saveScores}
-              style={tajawal}
-            >
-              {saving ? "جاري الحفظ…" : "حفظ النقاط"}
-            </Button>
+
+        <div className={`${ds.card} p-3 space-y-2 text-right`}>
+          <div className="flex items-center justify-between gap-2">
+            <Label className="text-sm" style={tajawal}>
+              المهام
+            </Label>
+            {activeCompetitionId != null && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={cn(ds.btnRound, "rounded-full h-8 px-3")}
+                onClick={() => setTaskOpen(true)}
+                style={tajawal}
+              >
+                <Plus className="w-3.5 h-3.5" />
+                مهمة
+              </Button>
+            )}
           </div>
-        )}
+          {(loading || detailLoading) && activeCompetitionId != null ? (
+            <p className="text-xs text-muted-foreground" style={tajawal}>
+              جاري التحميل…
+            </p>
+          ) : tasks.length === 0 ? (
+            <p className="text-xs text-muted-foreground" style={tajawal}>
+              لا مهام — أضف مهمة يدوياً بعد إنشاء المنافسة.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+              {tasks.map((t) => (
+                <div
+                  key={t.id}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2 py-1 text-xs"
+                  style={tajawal}
+                >
+                  <span className="truncate max-w-[140px]">
+                    {t.title_ar}{" "}
+                    <span className="text-muted-foreground">
+                      ({t.weight_points} · {taskTypeLabel(t.type)} · {taskInputLabel(t.input_type)})
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    className="text-destructive hover:bg-destructive/10 rounded-full p-0.5 disabled:opacity-50"
+                    title="حذف المهمة"
+                    disabled={deletingTask}
+                    onClick={() => deleteTask(t.id)}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {activeCompetitionId != null && (
@@ -506,32 +608,20 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
           </div>
 
           {tab === "scores" && (
-            <div className="space-y-4 text-right" dir="rtl">
-              {tasks.length > 0 && (
-                <div className={`${ds.card} p-4 flex flex-wrap gap-2 justify-start`}>
-                  {tasks.map((t) => (
-                    <div
-                      key={t.id}
-                      className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-1.5 text-sm"
-                      style={tajawal}
-                    >
-                      <span>
-                        {t.title_ar}{" "}
-                        <span className="text-muted-foreground">({t.weight_points})</span>
-                      </span>
-                      <button
-                        type="button"
-                        className="text-destructive hover:bg-destructive/10 rounded-full p-0.5 disabled:opacity-50"
-                        title="حذف المهمة"
-                        disabled={deletingTask}
-                        onClick={() => deleteTask(t.id)}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
+            <div className="space-y-3 text-right" dir="rtl">
+              <div className="flex flex-wrap gap-2 justify-start print:hidden">
+                <Button
+                  type="button"
+                  variant="default"
+                  className={cn(ds.btnRound, ds.primaryActionBtn, "rounded-full")}
+                  loading={saving}
+                  disabled={saving || tasks.length === 0}
+                  onClick={saveScores}
+                  style={tajawal}
+                >
+                  {saving ? "جاري الحفظ…" : "حفظ النقاط"}
+                </Button>
+              </div>
 
               {tasks.length > 0 && students.length > 0 ? (
                 <>
@@ -546,7 +636,9 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                           >
                             الطالب
                           </TableHead>
-                          {tasks.map((t) => (
+                          {tasks.map((t) => {
+                            const col = toTaskInputCol(t);
+                            return (
                             <TableHead
                               key={t.id}
                               className={`${ds.table.head} min-w-[100px] text-center`}
@@ -554,10 +646,11 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                             >
                               {t.title_ar}
                               <span className="block text-[10px] text-muted-foreground font-normal">
-                                ({t.weight_points})
+                                {col.type === "deduction" ? `خصم ×${t.weight_points}` : `+${t.weight_points}`}
                               </span>
                             </TableHead>
-                          ))}
+                            );
+                          })}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -571,16 +664,11 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                             </TableCell>
                             {tasks.map((t) => (
                               <TableCell key={t.id} className={ds.table.cell}>
-                                <Input
-                                  type="number"
-                                  min={0}
-                                  step="0.5"
-                                  dir="ltr"
-                                  className={`${ds.btnRound} w-20 mx-auto text-center`}
+                                <TaskInputCell
+                                  task={toTaskInputCol(t)}
                                   value={scores[scoreKey(t.id, st.id)] ?? 0}
-                                  onChange={(e) =>
-                                    setScore(t.id, st.id, Number(e.target.value) || 0)
-                                  }
+                                  onChange={(v) => setScore(t.id, st.id, v)}
+                                  compact
                                 />
                               </TableCell>
                             ))}
@@ -594,10 +682,7 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                   <div className="md:hidden space-y-2">
                     <Accordion type="single" collapsible className="space-y-2">
                       {students.map((st) => {
-                        const studentTotal = tasks.reduce(
-                          (sum, t) => sum + (Number(scores[scoreKey(t.id, st.id)]) || 0),
-                          0,
-                        );
+                        const studentTotal = studentSignedTotal(st.id);
                         return (
                           <AccordionItem
                             key={st.id}
@@ -632,16 +717,11 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                                         ({t.weight_points})
                                       </span>
                                     </span>
-                                    <Input
-                                      type="number"
-                                      min={0}
-                                      step="0.5"
-                                      dir="ltr"
-                                      className={`${ds.btnRound} w-20 text-center shrink-0`}
+                                    <TaskInputCell
+                                      task={toTaskInputCol(t)}
                                       value={scores[scoreKey(t.id, st.id)] ?? 0}
-                                      onChange={(e) =>
-                                        setScore(t.id, st.id, Number(e.target.value) || 0)
-                                      }
+                                      onChange={(v) => setScore(t.id, st.id, v)}
+                                      compact
                                     />
                                   </div>
                                 ))}
@@ -671,7 +751,7 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
               ) : (
                 <p className={ds.alert.info} style={tajawal}>
                   {tasks.length === 0
-                    ? "أنشئ منافسة جديدة — ستُضاف مهام افتراضية تلقائياً."
+                    ? "أنشئ منافسة جديدة ثم أضف المهام يدوياً من بطاقة المهام."
                     : "لا يوجد طلاب في حلقتك."}
                 </p>
               )}
@@ -904,6 +984,44 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                 style={tajawal}
                 required
               />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="task-type" style={tajawal}>
+                  نوع المهمة
+                </Label>
+                <select
+                  id="task-type"
+                  className={ds.select}
+                  value={taskType}
+                  onChange={(e) => setTaskType(e.target.value as TaskType)}
+                  style={tajawal}
+                >
+                  {TEACHER_TASK_TYPE_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="task-input-type" style={tajawal}>
+                  طريقة الإدخال
+                </Label>
+                <select
+                  id="task-input-type"
+                  className={ds.select}
+                  value={taskInputType}
+                  onChange={(e) => setTaskInputType(e.target.value as TaskInputType)}
+                  style={tajawal}
+                >
+                  {TEACHER_TASK_INPUT_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="task-weight" style={tajawal}>

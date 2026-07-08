@@ -8,6 +8,11 @@ import {
 } from "../middleware/auth";
 import { hasTable, tableHasColumn } from "../lib/db-schema";
 import {
+  hasTaskInputType,
+  parseTaskInputType,
+  type TaskType,
+} from "../lib/competition-engine";
+import {
   resolveTeacherPrimaryCircle,
   studentsInTeacherCircle,
   TEACHER_NO_CIRCLE_ACCOUNT_MSG,
@@ -24,14 +29,6 @@ import {
 } from "../lib/teacher-competition-unified";
 
 const TEACHER_ONLY = ["teacher", "track_supervisor"] as const;
-
-const DEFAULT_COMPETITION_TASKS = [
-  { title_ar: "حفظ إضافي", weight_points: 2 },
-  { title_ar: "مراجعة", weight_points: 2 },
-  { title_ar: "حضور مبكر", weight_points: 1 },
-  { title_ar: "أدب وسلوك", weight_points: 1 },
-  { title_ar: "مهمة إضافية", weight_points: 1 },
-] as const;
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
@@ -59,8 +56,7 @@ async function teacherTasksTable(env: Env): Promise<string | null> {
   }
   if (await hasTable(env, "competition_tasks")) {
     const hasTitle = await tableHasColumn(env, "competition_tasks", "title_ar");
-    const hasType = await tableHasColumn(env, "competition_tasks", "type");
-    if (hasTitle && !hasType) return "competition_tasks";
+    if (hasTitle) return "competition_tasks";
   }
   return null;
 }
@@ -87,34 +83,6 @@ async function assertTeacherOwnsCompetition(
     .bind(competitionId, teacherUserId, complexId)
     .first();
   return Boolean(row);
-}
-
-async function seedDefaultTasks(env: Env, compId: number): Promise<void> {
-  const tasksTable = await teacherTasksTable(env);
-  if (!tasksTable) return;
-  const hasSort = await tableHasColumn(env, tasksTable, "sort_order");
-  for (let i = 0; i < DEFAULT_COMPETITION_TASKS.length; i++) {
-    const t = DEFAULT_COMPETITION_TASKS[i];
-    try {
-      if (hasSort) {
-        await env.DB.prepare(
-          `INSERT INTO ${tasksTable} (competition_id, title_ar, weight_points, sort_order)
-           VALUES (?, ?, ?, ?)`,
-        )
-          .bind(compId, t.title_ar, t.weight_points, i + 1)
-          .run();
-      } else {
-        await env.DB.prepare(
-          `INSERT INTO ${tasksTable} (competition_id, title_ar, weight_points)
-           VALUES (?, ?, ?)`,
-        )
-          .bind(compId, t.title_ar, t.weight_points)
-          .run();
-      }
-    } catch (e) {
-      console.error("[edu-dept-mega] seedDefaultTasks row:", e);
-    }
-  }
 }
 
 type TeacherAuth = { userId: number; complexId: number; role: string };
@@ -266,7 +234,6 @@ export async function handleEduDeptMegaRouter(
         .bind(auth.complexId, auth.userId, name, startDate, endDate)
         .run();
       const compId = Number(ins.meta.last_row_id);
-      await seedDefaultTasks(env, compId);
       return json({ ok: true, id: compId, circle_id: circle.id });
     }
 
@@ -375,13 +342,20 @@ export async function handleEduDeptMegaRouter(
         title_ar: string;
         weight_points: number;
         sort_order?: number;
+        type?: string;
+        input_type?: string;
       }> = [];
 
       if (unifiedEngine) {
+        const hasInputType = await hasTaskInputType(env);
         const platformTasks = await env.DB.prepare(
-          `SELECT id, name_ar AS title_ar, weight AS weight_points, sort_order
-           FROM competition_tasks WHERE competition_id = ?
-           ORDER BY sort_order, id`,
+          hasInputType
+            ? `SELECT id, name_ar AS title_ar, weight AS weight_points, sort_order, type, input_type
+               FROM competition_tasks WHERE competition_id = ?
+               ORDER BY sort_order, id`
+            : `SELECT id, name_ar AS title_ar, weight AS weight_points, sort_order, type
+               FROM competition_tasks WHERE competition_id = ?
+               ORDER BY sort_order, id`,
         )
           .bind(compId)
           .all<{
@@ -389,15 +363,25 @@ export async function handleEduDeptMegaRouter(
             title_ar: string;
             weight_points: number;
             sort_order: number;
+            type?: string;
+            input_type?: string;
           }>();
         taskRows = platformTasks.results ?? [];
       } else {
         const tasksTable = await teacherTasksTable(env);
         if (tasksTable) {
           const hasSort = await tableHasColumn(env, tasksTable, "sort_order");
+          const hasType = await tableHasColumn(env, tasksTable, "type");
+          const hasInputType = await tableHasColumn(env, tasksTable, "input_type");
           const orderCol = hasSort ? "sort_order, id" : "id";
+          const typeCols =
+            hasType && hasInputType
+              ? ", type, input_type"
+              : hasType
+                ? ", type"
+                : "";
           const tasks = await env.DB.prepare(
-            `SELECT id, title_ar, weight_points${hasSort ? ", sort_order" : ""}
+            `SELECT id, title_ar, weight_points${hasSort ? ", sort_order" : ""}${typeCols}
              FROM ${tasksTable} WHERE competition_id = ? ORDER BY ${orderCol}`,
           )
             .bind(compId)
@@ -406,6 +390,8 @@ export async function handleEduDeptMegaRouter(
               title_ar: string;
               weight_points: number;
               sort_order?: number;
+              type?: string;
+              input_type?: string;
             }>();
           taskRows = tasks.results ?? [];
         }
@@ -486,7 +472,12 @@ export async function handleEduDeptMegaRouter(
       if (tasksTableLb && (await hasTable(env, "student_comp_scores"))) {
         const rows = await env.DB.prepare(
           `SELECT scs.student_id,
-                  SUM(scs.points * COALESCE(ct.weight_points, 1)) AS total_points
+                  SUM(
+                    CASE WHEN COALESCE(ct.type, 'addition') = 'deduction'
+                      THEN -ABS(scs.points) * COALESCE(ct.weight_points, 1)
+                      ELSE ABS(scs.points) * COALESCE(ct.weight_points, 1)
+                    END
+                  ) AS total_points
            FROM student_comp_scores scs
            INNER JOIN ${tasksTableLb} ct ON ct.id = scs.task_id
            WHERE ct.competition_id = ?
@@ -532,7 +523,12 @@ export async function handleEduDeptMegaRouter(
       }
 
       if (unifiedEngine) {
-        let body: { title_ar?: string; weight_points?: number };
+        let body: {
+          title_ar?: string;
+          weight_points?: number;
+          type?: string;
+          input_type?: string;
+        };
         try {
           body = await request.json();
         } catch {
@@ -541,18 +537,42 @@ export async function handleEduDeptMegaRouter(
         const title = String(body.title_ar ?? "").trim();
         if (!title) return json({ error: "title_required" }, 400);
         const w = Number(body.weight_points ?? 1);
+        const taskType: TaskType = body.type === "deduction" ? "deduction" : "addition";
+        const inputType = parseTaskInputType(body.input_type, taskType);
+        const hasInputType = await hasTaskInputType(env);
         const maxRow = await env.DB.prepare(
           `SELECT COALESCE(MAX(sort_order), 0) AS m FROM competition_tasks WHERE competition_id = ?`,
         )
           .bind(compId)
           .first<{ m: number }>();
-        const ins = await env.DB.prepare(
-          `INSERT INTO competition_tasks
-           (competition_id, name_ar, weight, type, sort_order)
-           VALUES (?, ?, ?, 'addition', ?)`,
-        )
-          .bind(compId, title, Number.isFinite(w) ? w : 1, (maxRow?.m ?? 0) + 1)
-          .run();
+        const ins = hasInputType
+          ? await env.DB.prepare(
+              `INSERT INTO competition_tasks
+               (competition_id, name_ar, weight, type, input_type, sort_order)
+               VALUES (?, ?, ?, ?, ?, ?)`,
+            )
+              .bind(
+                compId,
+                title,
+                Number.isFinite(w) ? w : 1,
+                taskType,
+                inputType,
+                (maxRow?.m ?? 0) + 1,
+              )
+              .run()
+          : await env.DB.prepare(
+              `INSERT INTO competition_tasks
+               (competition_id, name_ar, weight, type, sort_order)
+               VALUES (?, ?, ?, ?, ?)`,
+            )
+              .bind(
+                compId,
+                title,
+                Number.isFinite(w) ? w : 1,
+                taskType,
+                (maxRow?.m ?? 0) + 1,
+              )
+              .run();
         return json({ ok: true, id: ins.meta.last_row_id });
       }
 
@@ -568,7 +588,12 @@ export async function handleEduDeptMegaRouter(
         return json({ error: TEACHER_NO_CIRCLE_ACCOUNT_MSG }, 400);
       }
 
-      let body: { title_ar?: string; weight_points?: number };
+      let body: {
+        title_ar?: string;
+        weight_points?: number;
+        type?: string;
+        input_type?: string;
+      };
       try {
         body = await request.json();
       } catch {
@@ -577,7 +602,11 @@ export async function handleEduDeptMegaRouter(
       const title = String(body.title_ar ?? "").trim();
       if (!title) return json({ error: "title_required" }, 400);
       const w = Number(body.weight_points ?? 1);
+      const taskType: TaskType = body.type === "deduction" ? "deduction" : "addition";
+      const inputType = parseTaskInputType(body.input_type, taskType);
       const hasSort = await tableHasColumn(env, tasksTable, "sort_order");
+      const hasType = await tableHasColumn(env, tasksTable, "type");
+      const hasInputType = await tableHasColumn(env, tasksTable, "input_type");
       let sortOrder = 1;
       if (hasSort) {
         const maxRow = await env.DB.prepare(
@@ -587,19 +616,61 @@ export async function handleEduDeptMegaRouter(
           .first<{ m: number }>();
         sortOrder = (maxRow?.m ?? 0) + 1;
       }
-      const ins = hasSort
-        ? await env.DB.prepare(
-            `INSERT INTO ${tasksTable} (competition_id, title_ar, weight_points, sort_order)
-             VALUES (?, ?, ?, ?)`,
-          )
-            .bind(compId, title, Number.isFinite(w) ? w : 1, sortOrder)
-            .run()
-        : await env.DB.prepare(
-            `INSERT INTO ${tasksTable} (competition_id, title_ar, weight_points)
-             VALUES (?, ?, ?)`,
-          )
-            .bind(compId, title, Number.isFinite(w) ? w : 1)
-            .run();
+      let ins;
+      if (hasType && hasInputType) {
+        ins = hasSort
+          ? await env.DB.prepare(
+              `INSERT INTO ${tasksTable}
+               (competition_id, title_ar, weight_points, sort_order, type, input_type)
+               VALUES (?, ?, ?, ?, ?, ?)`,
+            )
+              .bind(
+                compId,
+                title,
+                Number.isFinite(w) ? w : 1,
+                sortOrder,
+                taskType,
+                inputType,
+              )
+              .run()
+          : await env.DB.prepare(
+              `INSERT INTO ${tasksTable}
+               (competition_id, title_ar, weight_points, type, input_type)
+               VALUES (?, ?, ?, ?, ?)`,
+            )
+              .bind(compId, title, Number.isFinite(w) ? w : 1, taskType, inputType)
+              .run();
+      } else if (hasType) {
+        ins = hasSort
+          ? await env.DB.prepare(
+              `INSERT INTO ${tasksTable}
+               (competition_id, title_ar, weight_points, sort_order, type)
+               VALUES (?, ?, ?, ?, ?)`,
+            )
+              .bind(compId, title, Number.isFinite(w) ? w : 1, sortOrder, taskType)
+              .run()
+          : await env.DB.prepare(
+              `INSERT INTO ${tasksTable}
+               (competition_id, title_ar, weight_points, type)
+               VALUES (?, ?, ?, ?)`,
+            )
+              .bind(compId, title, Number.isFinite(w) ? w : 1, taskType)
+              .run();
+      } else {
+        ins = hasSort
+          ? await env.DB.prepare(
+              `INSERT INTO ${tasksTable} (competition_id, title_ar, weight_points, sort_order)
+               VALUES (?, ?, ?, ?)`,
+            )
+              .bind(compId, title, Number.isFinite(w) ? w : 1, sortOrder)
+              .run()
+          : await env.DB.prepare(
+              `INSERT INTO ${tasksTable} (competition_id, title_ar, weight_points)
+               VALUES (?, ?, ?)`,
+            )
+              .bind(compId, title, Number.isFinite(w) ? w : 1)
+              .run();
+      }
       return json({ ok: true, id: ins.meta.last_row_id });
     }
 

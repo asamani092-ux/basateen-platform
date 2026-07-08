@@ -233,6 +233,38 @@ export function gradingScoreKey(
   return `${studentId}:${taskId}`;
 }
 
+/** O(1) — normalize raw widget value before persistence (matches engine semantics). */
+export function normalizeTaskInput(
+  task: { type: string; input_type?: string | null },
+  raw: number,
+): number {
+  const inputType = resolveTaskInputType(task);
+  if (inputType === "boolean") return raw > 0 ? 1 : 0;
+  if (inputType === "numeric") return Math.max(0, Number(raw) || 0);
+  return Math.max(0, Math.round(raw));
+}
+
+/** O(1) — signed point contribution for display/leaderboard (weight × normalized input). */
+export function signedTaskPoints(
+  task: { type: string; weight: number },
+  normalizedInput: number,
+): number {
+  const weight = Number(task.weight) || 1;
+  const pts = Math.abs(normalizedInput);
+  return task.type === "deduction" ? -pts * weight : pts * weight;
+}
+
+export const TEACHER_TASK_TYPE_OPTIONS: Array<{ value: TaskType; label: string }> = [
+  { value: "addition", label: "إضافة نقاط" },
+  { value: "deduction", label: "خصم نقاط" },
+];
+
+export const TEACHER_TASK_INPUT_OPTIONS: Array<{ value: TaskInputType; label: string }> = [
+  { value: "boolean", label: "تشيك بوكس" },
+  { value: "numeric", label: "عدد نقاط" },
+  { value: "counter", label: "عدد أوجه" },
+];
+
 export type SirdSettings = {
   base_hizb_score: number;
   mistake_deduction: number;

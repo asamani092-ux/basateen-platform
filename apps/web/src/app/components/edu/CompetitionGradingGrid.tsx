@@ -27,7 +27,7 @@ import {
   isRecitationCategory,
   isReviewCategory,
   parseActiveWeekdays,
-  resolveTaskInputType,
+  normalizeTaskInput,
   type CompetitionCategory,
   type SirdPeriodData,
   type SirdSettings,
@@ -46,13 +46,6 @@ type StudentRow = {
 type Props = {
   competitionId: number;
 };
-
-function normalizePoints(task: TaskInputCol, raw: number): number {
-  const inputType = resolveTaskInputType(task);
-  if (inputType === "boolean") return raw > 0 ? 1 : 0;
-  if (inputType === "numeric") return Math.max(0, Number(raw) || 0);
-  return Math.max(0, Math.round(raw));
-}
 
 function mapSirdPeriods(
   raw: Record<string, Array<Record<string, unknown>>> | undefined,
@@ -267,7 +260,7 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
       return {
         student_id: studentId,
         task_id: task.id,
-        points: normalizePoints(task, raw),
+        points: normalizeTaskInput(task, raw),
       };
     });
   }

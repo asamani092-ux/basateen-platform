@@ -1,5 +1,5 @@
 import type { Env } from "../types";
-import { todayRiyadhIso } from "../lib/today-riyadh-iso";
+import { todayRiyadhIso, addDaysIso } from "../lib/today-riyadh-iso";
 import {
   authUnauthorizedResponse,
   getAuth,
@@ -243,9 +243,7 @@ export async function handleEduDeptMegaRouter(
 
       const today = todayRiyadhIso();
       const startDate = body.start_date?.trim() || today;
-      const endDate =
-        body.end_date?.trim() ||
-        new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+      const endDate = body.end_date?.trim() || addDaysIso(today, 30);
 
       if (unifiedEngine) {
         const compId = await createTeacherCircleCompetition(

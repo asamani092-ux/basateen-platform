@@ -1,5 +1,5 @@
 import type { Env } from "../types";
-import { todayRiyadhIso } from "../lib/today-riyadh-iso";
+import { todayRiyadhIso, addDaysIso } from "../lib/today-riyadh-iso";
 import { fetchHimmaAuditFromLedger } from "../lib/himma-ledger-view";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 import { tableHasColumn } from "../lib/db-schema";
@@ -11,22 +11,11 @@ function json(data: unknown, status = 200): Response {
 }
 
 function periodStart(period: string): string {
-  const now = new Date();
-  const iso = (d: Date) => d.toISOString().slice(0, 10);
-  if (period === "today") return todayRiyadhIso();
-  if (period === "week") {
-    const d = new Date(now);
-    d.setDate(d.getDate() - 6);
-    return iso(d);
-  }
-  if (period === "month") {
-    const d = new Date(now);
-    d.setDate(d.getDate() - 29);
-    return iso(d);
-  }
-  const d = new Date(now);
-  d.setDate(d.getDate() - 119);
-  return iso(d);
+  const today = todayRiyadhIso();
+  if (period === "today") return today;
+  if (period === "week") return addDaysIso(today, -6);
+  if (period === "month") return addDaysIso(today, -29);
+  return addDaysIso(today, -119);
 }
 
 export async function handleAdminStats(

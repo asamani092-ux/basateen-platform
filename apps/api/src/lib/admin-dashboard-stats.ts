@@ -7,7 +7,7 @@ import {
 import { countComplexStaff, countComplexStudents } from "./admin-roster-counts";
 import { resolveAttendanceTableName } from "./student-attendance-db";
 import { fetchSemesterPeriod, semesterQueryRange } from "./semester-period";
-import { todayRiyadhIso } from "./today-riyadh-iso";
+import { todayRiyadhIso } from "../lib/today-riyadh-iso";
 
 export type AdminDashboardStats = {
   complex_name: string | null;
@@ -48,10 +48,9 @@ function attendanceRatePct(present: number, total: number): number {
 }
 
 function currentMonthRange(): { start: string; end: string } {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  const iso = (d: Date) => d.toISOString().slice(0, 10);
-  return { start: iso(start), end: iso(now) };
+  const end = todayRiyadhIso();
+  const [y, m] = end.split("-");
+  return { start: `${y}-${m}-01`, end };
 }
 
 /**

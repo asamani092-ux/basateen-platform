@@ -1,5 +1,5 @@
 import type { Env } from "../types";
-import { todayRiyadhIso } from "./today-riyadh-iso";
+import { todayRiyadhIso, addDaysIso, weekdayIso } from "./today-riyadh-iso";
 import {
   criteriaToCompetitionTasks,
   type CompLogRow,
@@ -133,18 +133,14 @@ export function enumerateActiveCompetitionDates(
   activeWeekdays: number[] = DEFAULT_ACTIVE_WEEKDAYS,
 ): string[] {
   const active = new Set(activeWeekdays);
-  const start = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T00:00:00`);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-    return [startDate];
-  }
+  if (endDate < startDate) return [startDate];
   const dates: string[] = [];
-  const cur = new Date(start);
-  while (cur.getTime() <= end.getTime()) {
-    if (active.has(cur.getDay())) {
-      dates.push(cur.toISOString().slice(0, 10));
+  let cur = startDate;
+  while (cur <= endDate) {
+    if (active.has(weekdayIso(cur))) {
+      dates.push(cur);
     }
-    cur.setDate(cur.getDate() + 1);
+    cur = addDaysIso(cur, 1);
   }
   return dates.length ? dates : [startDate];
 }

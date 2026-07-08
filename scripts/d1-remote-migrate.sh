@@ -230,8 +230,11 @@ case "$MODE" in
   065)
     run_numbered_migration "065_edu_daily_recitation_complex_date_index.sql"
     ;;
+  066)
+    node "$API_DIR/scripts/migrate-066-remote.mjs"
+    ;;
   *)
-    echo "Usage: $0 upgrade|all|demo|apply-pending|bootstrap-tracking|048|061|062|063|064|065|..." >&2
+    echo "Usage: $0 upgrade|all|demo|apply-pending|bootstrap-tracking|048|061|062|063|064|065|066|..." >&2
     exit 1
     ;;
 esac

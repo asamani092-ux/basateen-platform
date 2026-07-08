@@ -86,29 +86,15 @@ export function StudentUnifiedSingleForm({
     ...EMPTY,
     ...initialValues,
   });
-  const [stageFilter, setStageFilter] = useState(
-    requirePlacement ? "" : (initialValues?.stage_id ?? ""),
-  );
 
-  const groupOptions = useMemo(() => {
-    if (requirePlacement && !values.stage_id.trim()) {
-      return [];
-    }
-    let list = groups;
-    const stageKey = values.stage_id.trim() || stageFilter;
-    if (stageKey) {
-      const sid = Number(stageKey);
-      list = list.filter(
-        (g) =>
-          g.stage_id === sid ||
-          (g.stage_ids?.includes(sid) ?? false),
-      );
-    }
-    return list.map((g) => ({
-      value: `${g.entity_type}:${g.id}`,
-      label: `${g.name_ar} (${g.entity_type === "circle" ? "حلقة" : "مسار"})`,
-    }));
-  }, [groups, stageFilter, values.stage_id, requirePlacement]);
+  const groupOptions = useMemo(
+    () =>
+      groups.map((g) => ({
+        value: `${g.entity_type}:${g.id}`,
+        label: `${g.name_ar} (${g.entity_type === "circle" ? "حلقة" : "مسار"})`,
+      })),
+    [groups],
+  );
 
   const missingRequired = useMemo(() => {
     const req: (keyof StudentUnifiedFormValues)[] = [
@@ -119,7 +105,7 @@ export function StudentUnifiedSingleForm({
       "guardian_phone",
     ];
     if (requirePlacement) {
-      req.push("stage_id", "placement");
+      req.push("placement");
     }
     return req.filter((k) => !String(values[k]).trim());
   }, [values, requirePlacement]);
@@ -154,7 +140,6 @@ export function StudentUnifiedSingleForm({
     await onSubmit(values);
     if (resetOnSubmit) {
       setValues(EMPTY);
-      setStageFilter("");
     }
   }
 
@@ -207,13 +192,11 @@ export function StudentUnifiedSingleForm({
             className={ds.btnRound}
           />
         </Field>
-        <Field label={requirePlacement ? "المرحلة *" : "المرحلة (لفلترة الحلقات)"} required={requirePlacement}>
+        <Field label={requirePlacement ? "المرحلة *" : "المرحلة (اختياري)"} required={false}>
           <select
             value={values.stage_id}
             onChange={(e) => {
               set("stage_id", e.target.value);
-              setStageFilter(e.target.value);
-              set("placement", "");
             }}
             className={ds.select}
             style={tajawal}
@@ -239,11 +222,7 @@ export function StudentUnifiedSingleForm({
             required={requirePlacement}
           >
             <option value="">
-              {requirePlacement
-                ? values.stage_id
-                  ? "— اختر الحلقة أو المسار —"
-                  : "— اختر المرحلة أولاً —"
-                : "— بدون تغيير —"}
+              {requirePlacement ? "— اختر الحلقة أو المسار —" : "— بدون تغيير —"}
             </option>
             {groupOptions.map((o) => (
               <option key={o.value} value={o.value}>
@@ -269,20 +248,22 @@ export function StudentUnifiedSingleForm({
           />
         </Field>
         <Field label="مقدار الحفظ" className="sm:col-span-2">
-          {values.memorization_amount ? (
-            <div
-              className="mb-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-base font-semibold text-foreground"
+          <div className="grid grid-cols-2 gap-3" dir="rtl">
+            <select
+              value={values.memorization_unit}
+              onChange={(e) =>
+                setMemorization(
+                  values.memorization_value,
+                  e.target.value as QuranUnit,
+                )
+              }
+              className={`${ds.select} h-14 text-lg font-semibold`}
               style={tajawal}
-              dir="rtl"
             >
-              {values.memorization_amount}
-            </div>
-          ) : (
-            <p className="mb-2 text-sm text-muted-foreground" style={tajawal}>
-              أدخل العدد ثم اختر الوحدة — يظهر التفصيل (أجزاء/أحزاب/أوجه) أعلاه
-            </p>
-          )}
-          <div className="flex gap-2">
+              <option value="face">وجه</option>
+              <option value="hizb">حزب</option>
+              <option value="juz">جزء</option>
+            </select>
             <Input
               type="number"
               min={0}
@@ -292,26 +273,11 @@ export function StudentUnifiedSingleForm({
               onChange={(e) =>
                 setMemorization(e.target.value, values.memorization_unit)
               }
-              className={`${ds.btnRound} flex-1 text-lg font-semibold tabular-nums`}
+              className={`${ds.btnRound} h-14 text-2xl font-bold tabular-nums`}
               style={tajawal}
               dir="ltr"
-              placeholder="مثال: 5"
+              placeholder="0"
             />
-            <select
-              value={values.memorization_unit}
-              onChange={(e) =>
-                setMemorization(
-                  values.memorization_value,
-                  e.target.value as QuranUnit,
-                )
-              }
-              className={ds.select}
-              style={tajawal}
-            >
-              <option value="face">وجه</option>
-              <option value="hizb">حزب</option>
-              <option value="juz">جزء</option>
-            </select>
           </div>
           <p className="text-xs text-muted-foreground mt-1" style={tajawal}>
             {UNIT_MAX_HINT[values.memorization_unit]}

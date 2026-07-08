@@ -132,12 +132,14 @@ export async function loadEntityAttendanceStatus(
   complexId: number,
   date: string,
 ): Promise<{
-  circles: Array<{ id: number; marked: boolean }>;
-  tracks: Array<{ id: number; marked: boolean }>;
+  circles: Array<{ id: number; student_count: number; has_record: boolean }>;
+  tracks: Array<{ id: number; student_count: number; has_record: boolean }>;
 }> {
   const attTable = await resolveAttendanceTableName(env);
-  const circles: Array<{ id: number; marked: boolean }> = [];
-  const tracks: Array<{ id: number; marked: boolean }> = [];
+  const circles: Array<{ id: number; student_count: number; has_record: boolean }> =
+    [];
+  const tracks: Array<{ id: number; student_count: number; has_record: boolean }> =
+    [];
   if (!attTable) return { circles, tracks };
 
   const eligibleExpr = await studentAttendanceEligibleSql(env, "s");
@@ -161,7 +163,8 @@ export async function loadEntityAttendanceStatus(
       const marked = Number(r.marked ?? 0);
       circles.push({
         id: r.id,
-        marked: roster > 0 && marked >= roster,
+        student_count: roster,
+        has_record: marked > 0,
       });
     }
   }
@@ -185,7 +188,8 @@ export async function loadEntityAttendanceStatus(
       const marked = Number(r.marked ?? 0);
       tracks.push({
         id: r.id,
-        marked: roster > 0 && marked >= roster,
+        student_count: roster,
+        has_record: marked > 0,
       });
     }
   }

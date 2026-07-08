@@ -22,6 +22,7 @@ import { canUseApi } from "../../lib/api-access";
 import { normalizeAttendanceStatus } from "../../lib/attendance-status";
 import { matchesArabicName } from "../../lib/attendance-search";
 import { todayRiyadhIso } from "../../lib/attendance-ledger";
+import { buildAttendanceEntityMetaMap } from "../../lib/attendance-entity-meta";
 import { toastAttendanceBulkSaved } from "../../lib/attendance-mutations";
 import { ds, tajawal } from "../../lib/design-system";
 
@@ -51,7 +52,9 @@ export function StudentDailyAttendancePage() {
   const [linksModalOpen, setLinksModalOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [markedToday, setMarkedToday] = useState<Set<string>>(new Set());
+  const [entityMeta, setEntityMeta] = useState(
+    () => new Map<string, { student_count: number; has_record: boolean }>(),
+  );
   const { invalidate } = useAdminDataSyncContext();
 
   const dirtyCount = useMemo(() => Object.keys(statusMap).length, [statusMap]);
@@ -75,21 +78,14 @@ export function StudentDailyAttendancePage() {
 
   const loadEntityStatus = useCallback(async () => {
     if (!canUseApi()) {
-      setMarkedToday(new Set());
+      setEntityMeta(new Map());
       return;
     }
     try {
       const res = await api.adminDeptStudentAttendanceEntityStatus(date);
-      const next = new Set<string>();
-      for (const c of res.circles ?? []) {
-        if (c.marked) next.add(`circle:${c.id}`);
-      }
-      for (const t of res.tracks ?? []) {
-        if (t.marked) next.add(`track:${t.id}`);
-      }
-      setMarkedToday(next);
+      setEntityMeta(buildAttendanceEntityMetaMap(res.circles ?? [], res.tracks ?? []));
     } catch {
-      setMarkedToday(new Set());
+      setEntityMeta(new Map());
     }
   }, [date]);
 
@@ -291,7 +287,7 @@ export function StudentDailyAttendancePage() {
                 onChange={setEntity}
                 circles={circles}
                 tracks={tracks}
-                markedToday={markedToday}
+                entityMeta={entityMeta}
               />
             </div>
           </div>

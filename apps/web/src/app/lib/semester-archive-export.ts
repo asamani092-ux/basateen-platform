@@ -34,7 +34,7 @@ export async function downloadSemesterArchiveXlsx(): Promise<void> {
       s.school_grade ?? "",
       s.circle_name ?? "",
       s.track_name ?? "",
-      s.is_archived ? "نعم" : "لا",
+      "is_archived" in s && s.is_archived ? "نعم" : "لا",
     ]),
   ]);
 
@@ -64,6 +64,44 @@ export async function downloadSemesterArchiveXlsx(): Promise<void> {
       ]),
     ]);
     XLSX.utils.book_append_sheet(wb, dailySheet, "الحضور اليومي");
+  }
+
+  if (data.educational_summary?.length) {
+    const eduSheet = XLSX.utils.aoa_to_sheet([
+      [
+        "الاسم",
+        "أيام استماع",
+        "أيام تكرار",
+        "أيام مراجعة",
+        "مجموع الأخطاء",
+        "أخطاء التجويد",
+        "مجموع الأوجه",
+      ],
+      ...data.educational_summary.map((r) => [
+        r.full_name_ar,
+        r.listened_days,
+        r.repeated_days,
+        r.revised_days,
+        r.error_count,
+        r.tune_errors,
+        r.face_count,
+      ]),
+    ]);
+    XLSX.utils.book_append_sheet(wb, eduSheet, "ملخص البرنامج التعليمي");
+  }
+
+  for (const comp of data.competition_sheets ?? []) {
+    const safeName = comp.name_ar.replace(/[\\/*?:[\]]/g, " ").slice(0, 28) || "منافسة";
+    const sheet = XLSX.utils.aoa_to_sheet([
+      ["الاسم", "المستهدف", "المحقق", "النقاط"],
+      ...comp.rows.map((r) => [
+        r.full_name_ar,
+        r.target_amount,
+        r.achieved_amount,
+        r.points,
+      ]),
+    ]);
+    XLSX.utils.book_append_sheet(wb, sheet, safeName);
   }
 
   const stamp = data.semester.start_date ?? data.exported_at.slice(0, 10);

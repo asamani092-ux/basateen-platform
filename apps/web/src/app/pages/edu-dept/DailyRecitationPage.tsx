@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { todayRiyadhIso } from "../../lib/today-riyadh-iso";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { GuardedForm } from "../../components/ui/guarded-form";
 import {
   Check,
@@ -60,7 +60,6 @@ import { StudentCircleBadge } from "../../components/edu/StudentCircleBadge";
 import { queryKeys } from "../../lib/query-keys";
 import { RecitationTableSkeleton } from "../../components/shared/RecitationTableSkeleton";
 import { teacherBootstrapToRecitationPayload } from "../../lib/teacher-bootstrap";
-import { invalidateTeacherBootstrapQueries } from "../../hooks/use-teacher-bootstrap";
 
 type Row = {
   student_id: number;
@@ -133,6 +132,70 @@ function normalizeRow(
     task_scores: applyDependentScores({ ...base, ...legacyScores }, criteria),
     notes: item.notes ?? "",
   };
+}
+
+function patchRecitationCaches(
+  queryClient: QueryClient,
+  opts: {
+    date: string;
+    studentId: number;
+    row: Row;
+    isTeacher: boolean;
+    isSupervisor: boolean;
+    isBroadSupervisor: boolean;
+    isTrackSupervisor: boolean;
+    trackId: number | null;
+    circleId: number | null;
+  },
+) {
+  const payloadRow = {
+    student_id: opts.row.student_id,
+    full_name_ar: opts.row.full_name_ar,
+    track_name: opts.row.track_name,
+    circle_name: opts.row.circle_name,
+    admin_present: opts.row.admin_present,
+    task_scores: opts.row.task_scores,
+    notes: opts.row.notes,
+  };
+
+  const patchItems = <T extends { items?: Array<{ student_id: number }> }>(
+    old: T | undefined,
+  ): T | undefined => {
+    if (!old?.items) return old;
+    return {
+      ...old,
+      items: old.items.map((item) =>
+        item.student_id === opts.studentId ? { ...item, ...payloadRow } : item,
+      ),
+    };
+  };
+
+  if (opts.isTeacher) {
+    queryClient.setQueryData(
+      queryKeys.eduDept.teacherBootstrap(opts.date),
+      (old: { items?: Array<{ student_id: number }> } | undefined) => {
+        if (!old?.items) return old;
+        return {
+          ...old,
+          items: old.items.map((item) =>
+            item.student_id === opts.studentId ? { ...item, ...payloadRow } : item,
+          ),
+        };
+      },
+    );
+  } else {
+    queryClient.setQueriesData(
+      { queryKey: queryKeys.eduDept.myStudentsAll },
+      patchItems,
+    );
+  }
+
+  void queryClient.invalidateQueries({
+    queryKey: opts.isTeacher
+      ? queryKeys.eduDept.teacherBootstrapAll
+      : queryKeys.eduDept.myStudentsAll,
+    refetchType: "none",
+  });
 }
 
 export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }) {
@@ -341,8 +404,17 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
         ],
       });
       toast.success(`تم حفظ رصد ${row.full_name_ar}`);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.eduDept.myStudentsAll });
-      await invalidateTeacherBootstrapQueries(queryClient);
+      patchRecitationCaches(queryClient, {
+        date,
+        studentId,
+        row,
+        isTeacher,
+        isSupervisor,
+        isBroadSupervisor,
+        isTrackSupervisor,
+        trackId,
+        circleId: supervisorCircle,
+      });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "فشل الحفظ";
       setError(msg);
@@ -368,8 +440,19 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
         })),
       });
       toast.success("تم حفظ الرصد اليومي");
-      await queryClient.invalidateQueries({ queryKey: queryKeys.eduDept.myStudentsAll });
-      await invalidateTeacherBootstrapQueries(queryClient);
+      for (const row of rows) {
+        patchRecitationCaches(queryClient, {
+          date,
+          studentId: row.student_id,
+          row,
+          isTeacher,
+          isSupervisor,
+          isBroadSupervisor,
+          isTrackSupervisor,
+          trackId,
+          circleId: supervisorCircle,
+        });
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "فشل الحفظ";
       setError(msg);

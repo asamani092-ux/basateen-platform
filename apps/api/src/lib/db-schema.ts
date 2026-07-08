@@ -1,24 +1,60 @@
 import type { Env } from "../types";
-import { getOrLoadCached, WORKER_CACHE_TTL_MS } from "./worker-memory-cache";
+import {
+  getOrLoadCached,
+  isCached,
+  primeCached,
+  SCHEMA_CACHE_TTL_MS,
+} from "./worker-memory-cache";
 
 const TABLES_CACHE_KEY = "schema:sqlite_master_tables";
+const columnCacheKey = (table: string) => `schema:columns:${table}`;
+
+async function preloadTableColumns(env: Env, tableNames: string[]): Promise<void> {
+  const pending = tableNames.filter((t) => !isCached(columnCacheKey(t)));
+  if (pending.length === 0) return;
+
+  const results = await env.DB.batch(
+    pending.map((table) => env.DB.prepare(`PRAGMA table_info(${table})`)),
+  );
+
+  for (let i = 0; i < pending.length; i++) {
+    const rows = (results[i]?.results ?? []) as Array<{ name: string }>;
+    primeCached(
+      columnCacheKey(pending[i]),
+      new Set(rows.map((r) => r.name)),
+      SCHEMA_CACHE_TTL_MS,
+    );
+  }
+}
 
 async function loadTableNames(env: Env): Promise<Set<string>> {
-  return getOrLoadCached(TABLES_CACHE_KEY, async () => {
-    const rows = await env.DB.prepare(
-      "SELECT name FROM sqlite_master WHERE type = 'table'",
-    ).all<{ name: string }>();
-    return new Set((rows.results ?? []).map((r) => r.name));
-  }, WORKER_CACHE_TTL_MS);
+  return getOrLoadCached(
+    TABLES_CACHE_KEY,
+    async () => {
+      const rows = await env.DB.prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table'",
+      ).all<{ name: string }>();
+      const names = (rows.results ?? [])
+        .map((r) => r.name)
+        .filter((n) => !n.startsWith("_cf_") && !n.startsWith("sqlite_"));
+      await preloadTableColumns(env, names);
+      return new Set(names);
+    },
+    SCHEMA_CACHE_TTL_MS,
+  );
 }
 
 async function loadTableColumns(env: Env, table: string): Promise<Set<string>> {
-  return getOrLoadCached(`schema:columns:${table}`, async () => {
-    const rows = await env.DB.prepare(`PRAGMA table_info(${table})`).all<{
-      name: string;
-    }>();
-    return new Set((rows.results ?? []).map((r) => r.name));
-  }, WORKER_CACHE_TTL_MS);
+  return getOrLoadCached(
+    columnCacheKey(table),
+    async () => {
+      const rows = await env.DB.prepare(`PRAGMA table_info(${table})`).all<{
+        name: string;
+      }>();
+      return new Set((rows.results ?? []).map((r) => r.name));
+    },
+    SCHEMA_CACHE_TTL_MS,
+  );
 }
 
 export async function hasTable(env: Env, table: string): Promise<boolean> {

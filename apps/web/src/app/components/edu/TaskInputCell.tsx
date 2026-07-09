@@ -4,6 +4,7 @@ import { Input } from "../ui/input";
 import { cn } from "../ui/utils";
 import {
   defaultInputTypeFromTaskType,
+  parseIntegerInputValue,
   type TaskInputType,
 } from "../../lib/competition-engine";
 
@@ -38,13 +39,16 @@ export function TaskInputCell({
   compact,
 }: Props) {
   const inputType = resolveTaskInputType(task);
+  /** مهام قديمة: إضافة + counter تُعرض كإدخال رقمي مباشر */
+  const effectiveType: TaskInputType =
+    task.type === "addition" && inputType === "counter" ? "numeric" : inputType;
   /** بصرياً أصغر مع هدف لمس ≥ 44px عبر منطقة الضغط */
   const btnClass = compact
     ? "h-7 w-7 min-h-11 min-w-11 rounded-lg p-0"
     : "h-8 w-8 min-h-11 min-w-11 rounded-lg p-0";
   const iconClass = compact ? "size-3" : "size-3.5";
 
-  if (inputType === "boolean") {
+  if (effectiveType === "boolean") {
     const checked = value > 0;
     return (
       <div className="flex flex-col items-center gap-0.5">
@@ -78,15 +82,19 @@ export function TaskInputCell({
     );
   }
 
-  if (inputType === "numeric") {
+  if (effectiveType === "numeric") {
+    const display = Number.isFinite(value) && Number.isInteger(value) ? String(value) : "0";
     return (
       <Input
-        type="number"
-        min={0}
-        step={0.1}
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
         disabled={disabled}
-        value={Number.isFinite(value) ? value : 0}
-        onChange={(e) => onChange(Number(e.target.value) || 0)}
+        value={display}
+        onChange={(e) => {
+          const parsed = parseIntegerInputValue(e.target.value);
+          if (parsed != null) onChange(parsed);
+        }}
         className={`h-8 w-16 mx-auto text-center text-sm tabular-nums ${compact ? "" : "max-w-[5.5rem]"}`}
         aria-label={task.name_ar}
       />

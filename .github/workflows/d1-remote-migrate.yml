@@ -13,6 +13,7 @@ on:
           - upgrade
           - all
           - demo
+          - apply-pending
           - "048"
           - competition-stack
           - "051"
@@ -25,6 +26,9 @@ on:
           - "058"
           - "059"
           - "060"
+          - "066"
+          - "067"
+          - "068"
 
 concurrency:
   group: d1-remote-migrate
@@ -43,6 +47,17 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Tracking table BEFORE
+        if: inputs.migration_set == 'apply-pending' || inputs.migration_set == '068'
+        working-directory: apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npm install >/dev/null 2>&1
+          echo "=== _migrations_applied BEFORE ==="
+          npx wrangler d1 execute basateen --remote --yes --command "SELECT * FROM _migrations_applied ORDER BY name;" --json
+
       - name: Run D1 migrations (remote)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -50,6 +65,35 @@ jobs:
         run: |
           chmod +x scripts/d1-remote-migrate.sh
           ./scripts/d1-remote-migrate.sh "${{ inputs.migration_set }}"
+
+      - name: Verify 068 schema + tracking AFTER
+        if: inputs.migration_set == 'apply-pending' || inputs.migration_set == '068'
+        working-directory: apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          echo "=== PRAGMA table_info(student_semester_plans) ==="
+          npx wrangler d1 execute basateen --remote --yes --command "PRAGMA table_info(student_semester_plans);" --json
+          echo "=== PRAGMA index_list(student_semester_plans) ==="
+          npx wrangler d1 execute basateen --remote --yes --command "PRAGMA index_list(student_semester_plans);" --json
+          echo "=== _migrations_applied AFTER ==="
+          npx wrangler d1 execute basateen --remote --yes --command "SELECT * FROM _migrations_applied ORDER BY name;" --json
+          node -e '
+            const {execSync}=require("child_process");
+            const q=(sql)=>JSON.parse(execSync(`npx wrangler d1 execute basateen --remote --yes --command ${JSON.stringify(sql)} --json`,{encoding:"utf8"}));
+            const cols=(q("PRAGMA table_info(student_semester_plans);")[0]?.results||[]).map(r=>r.name);
+            const idxs=(q("PRAGMA index_list(student_semester_plans);")[0]?.results||[]).map(r=>r.name);
+            const applied=(q("SELECT name FROM _migrations_applied ORDER BY name;")[0]?.results||[]).map(r=>r.name);
+            if(!cols.includes("duration_weeks")) { console.error("FAIL: duration_weeks missing"); process.exit(1); }
+            if(idxs.includes("idx_student_semester_plan_active")) { console.error("FAIL: old unique index still present"); process.exit(1); }
+            if(!idxs.includes("idx_student_semester_plans_student_active")) { console.error("FAIL: replacement index missing"); process.exit(1); }
+            for (const m of ["066_semester_plans_columns.sql","067_teacher_competition_task_types.sql","068_student_semester_plans_multi.sql"]) {
+              if(!applied.includes(m)) { console.error("FAIL: tracking missing "+m); process.exit(1); }
+            }
+            console.log("VERIFY OK: duration_weeks + indexes + tracking 066/067/068");
+          '
 
       - name: Summary
         run: |

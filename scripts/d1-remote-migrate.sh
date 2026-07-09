@@ -49,24 +49,85 @@ unrecord_migration() {
 }
 
 fetch_applied_migrations() {
-  npx wrangler d1 execute basateen --remote --yes --command \
-    "SELECT name FROM _migrations_applied ORDER BY name;" --json 2>/dev/null \
-    | node -e "
-      let d = '';
-      process.stdin.on('data', (c) => (d += c));
-      process.stdin.on('end', () => {
-        try {
-          const j = JSON.parse(d);
-          const payload = Array.isArray(j) ? j[0] : j;
-          const rows = payload?.results ?? payload?.result?.results ?? [];
-          for (const row of rows) {
-            if (row?.name) console.log(String(row.name));
-          }
-        } catch {
-          /* empty — table may not exist yet */
-        }
-      });
-    "
+  # ثلاث حالات صريحة: خطأ قراءة/تحليل → فشل؛ جدول فارغ → لا مخرجات؛ صفوف → أسماء
+  local sql="SELECT name FROM _migrations_applied ORDER BY name;"
+  local raw wr_rc=0
+  raw="$(npx wrangler d1 execute basateen --remote --yes --command "$sql" --json 2>&1)" || wr_rc=$?
+
+  local parsed
+  parsed="$(printf '%s' "$raw" | node -e "
+    const exitErr = (msg) => { console.error(msg); process.exit(1); };
+    let d = '';
+    process.stdin.on('data', (c) => (d += c));
+    process.stdin.on('end', () => {
+      const trimmed = d.trim();
+      if (!trimmed) exitErr('fetch_applied_migrations: empty wrangler response');
+      let j;
+      try {
+        j = JSON.parse(trimmed);
+      } catch (e) {
+        exitErr('fetch_applied_migrations: JSON parse error: ' + e.message);
+      }
+      if (j && typeof j === 'object' && !Array.isArray(j) && j.error) {
+        exitErr('fetch_applied_migrations: ' + String(j.error));
+      }
+      const payload = Array.isArray(j) ? j[0] : j;
+      if (!payload || typeof payload !== 'object') {
+        exitErr('fetch_applied_migrations: unexpected response shape');
+      }
+      if (payload.success === false) {
+        const detail = payload.error ?? payload.errors ?? 'query failed';
+        exitErr('fetch_applied_migrations: ' + (typeof detail === 'string' ? detail : JSON.stringify(detail)));
+      }
+      const rows = payload.results ?? payload.result?.results;
+      if (!Array.isArray(rows)) {
+        exitErr('fetch_applied_migrations: missing results array');
+      }
+      if (rows.length === 0) {
+        console.error('fetch_applied_migrations: tracking table empty (0 rows)');
+        process.exit(2);
+      }
+      for (const row of rows) {
+        if (row?.name) console.log(String(row.name));
+      }
+    });
+  ")" || {
+    local node_rc=$?
+    if [[ "$node_rc" -eq 2 ]]; then
+      return 0
+    fi
+    printf '%s\n' "$parsed" >&2
+    return 1
+  }
+
+  if [[ "$wr_rc" -ne 0 ]]; then
+    echo "fetch_applied_migrations: wrangler exited $wr_rc" >&2
+    printf '%s\n' "$raw" >&2
+    return 1
+  fi
+
+  printf '%s\n' "$parsed"
+  return 0
+}
+
+load_applied_migrations() {
+  # يفشل صراحةً عند خطأ قراءة التتبع — لا يُفسَّر أبداً كـ «لا شيء مطبّق»
+  local out
+  if ! out="$(fetch_applied_migrations)"; then
+    echo "::error::Failed to read _migrations_applied (see errors above)" >&2
+    return 1
+  fi
+  APPLIED_MIGRATIONS_BUFFER="$out"
+  return 0
+}
+
+read_applied_into() {
+  local -n _dest=$1
+  _dest=()
+  local line
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && _dest+=("$line")
+  done <<< "${APPLIED_MIGRATIONS_BUFFER:-}"
 }
 
 d1_query_json() {
@@ -75,8 +136,12 @@ d1_query_json() {
 }
 
 # يتحقق من أثر الترحيل على المخطط (ليس مجرد صف في جدول التتبع)
-# يطبع: applied | missing | unknown
+# يطبع: applied | missing | unknown | unverified | trusted
 # O(1) استعلامات لكل ترحيل محروس
+#
+# صيانة إلزامية: كل ترحيل جديد (066+) يجب إضافة case هنا بفحص أثر المخطط.
+# بدون case يُعاد unverified ويُعامل كـ «غير مطبّق» في reconcile — لا يُقبل أبداً كمطبّق.
+# unknown = فحص موجود لكن الاستعلام فشل — لا يُفسَّر كمطبّق ولا يُزال الصف (المسار السعيد).
 migration_effect_status() {
   local file="$1"
   case "$file" in
@@ -141,7 +206,12 @@ migration_effect_status() {
       "
       ;;
     *)
-      echo "unknown"
+      local num="${file%%_*}"
+      if [[ "$num" =~ ^[0-9]{3}$ ]] && (( 10#$num >= 66 )); then
+        echo "unverified"
+      else
+        echo "trusted"
+      fi
       ;;
   esac
 }
@@ -155,11 +225,11 @@ ensure_tracking_table() {
 # السبب الجذري: bootstrap_tracking كان يعلّم كل ملفات schema كـ applied دون تنفيذ
 reconcile_tracking_with_schema() {
   echo "Reconcile: verify tracked migrations against schema effects" >&2
+  if ! load_applied_migrations; then
+    return 1
+  fi
   local applied_files=()
-  local f
-  while IFS= read -r f; do
-    [[ -n "$f" ]] && applied_files+=("$f")
-  done < <(fetch_applied_migrations)
+  read_applied_into applied_files
 
   local status
   for f in "${applied_files[@]}"; do
@@ -167,19 +237,26 @@ reconcile_tracking_with_schema() {
     if [[ "$status" == "missing" ]]; then
       echo "  unmark false-applied: $f (schema effect missing)" >&2
       unrecord_migration "$f"
+    elif [[ "$status" == "unverified" ]]; then
+      echo "  unmark unverified: $f (no effect check — add migration_effect_status case)" >&2
+      unrecord_migration "$f"
+    elif [[ "$status" == "unknown" ]]; then
+      echo "  skip reconcile: $f (effect check inconclusive)" >&2
     fi
   done
 }
 
 list_pending_migrations() {
   ensure_tracking_table >&2
-  reconcile_tracking_with_schema >&2
+  if ! reconcile_tracking_with_schema; then
+    return 1
+  fi
+  if ! load_applied_migrations; then
+    return 1
+  fi
 
   local applied_files=()
-  local f
-  while IFS= read -r f; do
-    [[ -n "$f" ]] && applied_files+=("$f")
-  done < <(fetch_applied_migrations)
+  read_applied_into applied_files
 
   # ترتيب معجمي = ترتيب رقمي لبادئة NNN_
   for f in "$SCHEMA"/[0-9][0-9][0-9]_*.sql; do
@@ -203,9 +280,16 @@ apply_pending() {
   echo "D1 remote migrate: apply-pending (tracked)" >&2
   local pending=()
   local line
+  local pending_raw list_rc=0
+  pending_raw="$(list_pending_migrations)" || list_rc=$?
+  list_rc=${list_rc:-0}
+  if [[ "$list_rc" -ne 0 ]]; then
+    echo "::error::apply-pending aborted: could not list pending migrations" >&2
+    return 1
+  fi
   while IFS= read -r line; do
     [[ -n "$line" ]] && pending+=("$line")
-  done < <(list_pending_migrations)
+  done <<< "$pending_raw"
 
   if [[ ${#pending[@]} -eq 0 ]]; then
     echo "No pending migrations." >&2
@@ -249,7 +333,11 @@ apply_pending() {
       break
     fi
   done
-  return "$failed"
+  if [[ "$failed" -ne 0 ]]; then
+    echo "::error::apply-pending failed (migration error)" >&2
+    return 1
+  fi
+  return 0
 }
 
 # قاعدة إنتاج موجودة مسبقاً — تسجيل الترحيلات القديمة فقط (≤060)
@@ -334,7 +422,7 @@ case "$MODE" in
     run_sql "018_edu_demo_examples.sql"
     ;;
   apply-pending)
-    apply_pending
+    apply_pending || exit 1
     ;;
   bootstrap-tracking)
     bootstrap_tracking

@@ -363,45 +363,24 @@ export const api = {
       body: JSON.stringify({ mobile }),
     }),
   me: () => request<{ user: AuthUser }>("/api/auth/me"),
-  students: (
-    params?:
-      | string
-      | {
-          q?: string;
-          stage_id?: number | null;
-          circle_id?: number | null;
-          track_id?: number | null;
-          status_filter?: "active" | "suspended" | "no_circle" | "no_track" | null;
-          archived?: boolean;
-          page?: number;
-          page_size?: number;
-        },
-  ) => {
+  students: (params?: {
+    q?: string;
+    stage_id?: number | null;
+    circle_id?: number | null;
+    track_id?: number | null;
+  }) => {
     const search = new URLSearchParams();
     const q = typeof params === "string" ? params : params?.q;
     if (q?.trim()) search.set("q", q.trim());
     if (params && typeof params !== "string") {
-      if (params.archived) search.set("archived", "1");
       if (params.stage_id != null) search.set("stage_id", String(params.stage_id));
       if (params.circle_id != null) search.set("circle_id", String(params.circle_id));
       if (params.track_id != null) search.set("track_id", String(params.track_id));
-      if (params.status_filter) search.set("status_filter", params.status_filter);
-      if (params.page != null) search.set("page", String(params.page));
-      if (params.page_size != null) search.set("page_size", String(params.page_size));
     }
     const qs = search.toString();
-    return request<{
-      items: StudentRow[];
-      count: number;
-      page?: {
-        page: number;
-        page_size: number;
-        total: number;
-        total_pages: number;
-        has_prev: boolean;
-        has_next: boolean;
-      };
-    }>(`/api/students${qs ? `?${qs}` : ""}`);
+    return request<{ items: StudentRow[]; count: number }>(
+      `/api/students${qs ? `?${qs}` : ""}`,
+    );
   },
   studentsCreate: (body: {
     full_name_ar: string;
@@ -1749,10 +1728,7 @@ export const api = {
         latest_pledge_id: number | null;
         latest_pledge_date: string | null;
       }>;
-      mode?: "smart" | "search";
-      limit?: number | null;
-    }>(`/api/admin-dept/pledges${qs ? `?${qs}` : ""}`);
-  },
+    }>("/api/admin-dept/pledges"),
   adminDeptPatchPledge: (
     pledgeId: number,
     body: { reason_ar?: string; pledge_date?: string },
@@ -1778,47 +1754,6 @@ export const api = {
     }>(`/api/admin-dept/pledges/entry/${pledgeId}`, {
       method: "DELETE",
     }),
-  adminDeptDeleteAllStudentPledges: (studentId: number) =>
-    request<{
-      ok: boolean;
-      student_id: number;
-      deleted: number;
-      pledge_count: number;
-    }>(`/api/admin-dept/pledges/student/${studentId}`, {
-      method: "DELETE",
-    }),
-  adminDashboardStats: () =>
-    request<{
-      complex_name: string | null;
-      generated_at: string;
-      students: {
-        total: number;
-        circle_only: number;
-        track_only: number;
-        circle_and_track: number;
-        unassigned: number;
-      };
-      groups: {
-        circles_active: number;
-        tracks_active: number;
-      };
-      staff: {
-        total: number;
-        by_role: Record<string, number>;
-      };
-      pledges: {
-        total: number;
-        this_month: number;
-        students_with_pledges: number;
-      } | null;
-      attendance: {
-        date: string;
-        students_marked_today: number;
-        students_present_today: number;
-        staff_marked_today: number;
-        staff_present_today: number;
-      };
-    }>("/api/admin-dept/dashboard-stats"),
   adminDeptReports: (params?: {
     startDate?: string;
     endDate?: string;

@@ -101,11 +101,11 @@ export function StaffAttendanceReportModal({ open, onOpenChange }: Props) {
   const headClass =
     "text-right px-2 py-1 print:text-xs print:font-semibold whitespace-normal align-top border border-black/20 print:border-black";
   const cellClass =
-    "text-right px-2 py-1 print:text-xs whitespace-normal align-top border border-black/10 print:border-black";
+    "text-right px-2 py-1 print:text-sm whitespace-normal align-top";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto print:w-full print:max-w-full print:absolute print:top-0 print:left-0 print:m-0 print:p-0 print:overflow-visible print:bg-white print:text-black print:max-h-none print:border-0 print:shadow-none print:translate-x-0 print:translate-y-0">
+      <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto print:w-[210mm] print:max-w-full print:absolute print:top-0 print:left-0 print:m-0 print:p-0 print:overflow-hidden print:bg-white print:text-black print:max-h-none print:border-0 print:shadow-none print:translate-x-0 print:translate-y-0">
         <DialogHeader className="print:hidden">
           <DialogTitle style={tajawal}>تقرير تحضير المنسوبين</DialogTitle>
           <DialogDescription style={tajawal}>
@@ -156,7 +156,7 @@ export function StaffAttendanceReportModal({ open, onOpenChange }: Props) {
 
         <div
           id="staff-attendance-report-print"
-          className="staff-attendance-report-print space-y-3 print:w-full print:max-w-full print:absolute print:top-0 print:left-0 print:m-0 print:p-4 print:overflow-visible print:bg-white print:text-black"
+          className="staff-attendance-report-print space-y-3 print:w-[210mm] print:max-w-full print:absolute print:top-0 print:left-0 print:m-0 print:p-4 print:overflow-hidden print:bg-white print:text-black"
         >
           <div className="hidden print:flex print:justify-between print:items-start print:border-b print:border-black print:pb-2 print:mb-3 print:pt-0">
             <p className="text-sm font-semibold" style={tajawal}>
@@ -183,8 +183,8 @@ export function StaffAttendanceReportModal({ open, onOpenChange }: Props) {
           </p>
 
           {rows.length > 0 ? (
-            <div className="overflow-x-auto print:overflow-visible">
-            <Table className="border-collapse w-full print:table-fixed print:w-full">
+            <div className="overflow-x-auto print:overflow-hidden">
+            <Table className="border-collapse w-full print:table-fixed">
               <TableHeader>
                 <TableRow className="print:break-inside-avoid">
                   <TableHead

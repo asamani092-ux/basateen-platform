@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { todayRiyadhIso } from "../../lib/today-riyadh-iso";
-import { GuardedForm } from "../../components/ui/guarded-form";
-import { Bell, Plus, Printer, Search, Trash2 } from "lucide-react";
+import { Eye, FileText, Plus, Printer } from "lucide-react";
 import { toast } from "sonner";
 import {
   TableActionsCell,
@@ -126,13 +124,7 @@ export function PledgesPage() {
     id: number;
     reason_ar: string;
   } | null>(null);
-  const [deleteAllStudent, setDeleteAllStudent] = useState<SummaryRow | null>(null);
   const [pledgeBusy, setPledgeBusy] = useState(false);
-
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedQ(searchQ.trim()), 300);
-    return () => clearTimeout(t);
-  }, [searchQ]);
 
   const loadSummary = useCallback(async () => {
     if (!canUseApi()) {
@@ -224,20 +216,6 @@ export function PledgesPage() {
     await loadReport(row.student_id);
   }
 
-  async function printStudentPledges(row: SummaryRow) {
-    const res = await api.adminDeptPledgeReport(row.student_id);
-    const student = res.student as {
-      full_name_ar?: string;
-      guardian_phone?: string | null;
-    };
-    printPledgeForm(
-      student.full_name_ar ?? row.full_name_ar,
-      student.guardian_phone ?? row.guardian_phone,
-      res.pledges,
-      res.pledge_count,
-    );
-  }
-
   async function savePledgeEdit(e: React.FormEvent) {
     e.preventDefault();
     if (!editPledge || !canUseApi()) return;
@@ -274,26 +252,6 @@ export function PledgesPage() {
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "فشل الحذف");
-    } finally {
-      setPledgeBusy(false);
-    }
-  }
-
-  async function confirmDeleteAllPledges() {
-    if (!deleteAllStudent || !canUseApi()) return;
-    setPledgeBusy(true);
-    try {
-      const res = await api.adminDeptDeleteAllStudentPledges(deleteAllStudent.student_id);
-      toast.success(
-        `تم حذف ${res.deleted} تعهد(ات) للطالب ${deleteAllStudent.full_name_ar}`,
-      );
-      setDeleteAllStudent(null);
-      setDetailOpen(false);
-      setReport(null);
-      setReportStudentId(null);
-      await loadSummary();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "فشل حذف التعهدات");
     } finally {
       setPledgeBusy(false);
     }
@@ -561,6 +519,102 @@ export function PledgesPage() {
                   ))}
                 </TableBody>
               </Table>
+            )}
+          </div>
+
+          <div className={`${ds.card} p-4 print:hidden space-y-3`}>
+            <Label style={tajawal}>بحث سريع عن طالب</Label>
+            <AdminStudentSearchCombobox
+              id="pledge-report-student-search"
+              value={reportStudentId}
+              onChange={(id) => {
+                setReportStudentId(id);
+                setReport(null);
+                if (id != null) void loadReport(id);
+              }}
+            />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="escalations" className="mt-4">
+          <div className={ds.card}>
+            <div className="p-4 border-b border-border">
+              <h3 className={ds.page.section} style={tajawal}>
+                تصعيدات المعلمين (معلقة)
+              </h3>
+              <p className="text-sm text-muted-foreground mt-1" style={tajawal}>
+                عرض الطلب، تعديله، قبوله كتعهد رسمي، أو حذفه.
+              </p>
+            </div>
+            <TeacherEscalationsTab onChanged={loadSummary} />
+          </div>
+        </TabsContent>
+      </Tabs>
+
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+        <DialogContent className={ds.dialog} dir="rtl">
+          <DialogHeader>
+            <DialogTitle style={tajawal}>تفاصيل التعهد</DialogTitle>
+          </DialogHeader>
+          {report && (
+            <div className="space-y-3">
+              <p className="font-bold" style={tajawal}>
+                {(report.student as { full_name_ar?: string }).full_name_ar ?? "الطالب"}
+              </p>
+              <p className="text-sm text-muted-foreground" style={tajawal}>
+                عدد التعهدات: {report.pledge_count} / {report.max_pledges}
+              </p>
+              <Table className="w-full border-collapse" dir="rtl">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-right px-2 py-1" style={tajawal}>
+                      التاريخ
+                    </TableHead>
+                    <TableHead className="text-right px-2 py-1" style={tajawal}>
+                      السبب
+                    </TableHead>
+                    <TableHead className="text-right px-2 py-1" style={tajawal}>
+                      المسجّل
+                    </TableHead>
+                    <TableHead className="text-right px-2 py-1" style={tajawal}>
+                      إجراءات
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {report.pledges.map((p) => (
+                    <TableRow key={p.id}>
+                      <TableCell className="text-right px-2 py-1" style={tajawal}>
+                        {p.pledge_date}
+                      </TableCell>
+                      <TableCell className="text-right px-2 py-1" style={tajawal}>
+                        {p.reason_ar}
+                      </TableCell>
+                      <TableCell className="text-right px-2 py-1 text-muted-foreground" style={tajawal}>
+                        {p.created_by_name ?? "—"}
+                      </TableCell>
+                      <TableActionsCell>
+                        <TableIconAction
+                          kind="edit"
+                          onClick={() =>
+                            setEditPledge({
+                              id: p.id,
+                              reason_ar: p.reason_ar,
+                              pledge_date: p.pledge_date,
+                            })
+                          }
+                        />
+                        <TableIconAction
+                          kind="delete"
+                          onClick={() =>
+                            setDeletePledge({ id: p.id, reason_ar: p.reason_ar })
+                          }
+                        />
+                      </TableActionsCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
               <Button
                 type="button"
                 variant="outline"
@@ -578,14 +632,14 @@ export function PledgesPage() {
 
       <Dialog open={editPledge != null} onOpenChange={(o) => !o && setEditPledge(null)}>
         <DialogContent className={ds.dialog} dir="rtl">
-          <DialogHeader className="text-right">
+          <DialogHeader>
             <DialogTitle style={tajawal}>تعديل التعهد</DialogTitle>
             <DialogDescription style={tajawal}>
               عدّل سبب التعهد أو تاريخه
             </DialogDescription>
           </DialogHeader>
           {editPledge && (
-            <GuardedForm onSubmit={savePledgeEdit} className="space-y-4 text-right">
+            <form onSubmit={savePledgeEdit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="edit-pledge-date" style={tajawal}>
                   تاريخ التعهد
@@ -599,7 +653,6 @@ export function PledgesPage() {
                   }
                   disabled={pledgeBusy}
                   className={ds.field}
-                  dir="rtl"
                 />
               </div>
               <div className="space-y-2">
@@ -614,9 +667,8 @@ export function PledgesPage() {
                   }
                   required
                   disabled={pledgeBusy}
-                  className={`${ds.field} text-right`}
+                  className={ds.field}
                   style={tajawal}
-                  dir="rtl"
                 />
               </div>
               <Button
@@ -627,34 +679,43 @@ export function PledgesPage() {
               >
                 {pledgeBusy ? "جاري الحفظ…" : "حفظ التعديل"}
               </Button>
-            </GuardedForm>
+            </form>
           )}
         </DialogContent>
       </Dialog>
 
-      <DoubleConfirmDialog
-        open={deletePledge != null}
-        onOpenChange={(o) => !o && setDeletePledge(null)}
-        title="حذف التعهد"
-        description={`هل تريد حذف التعهد: «${deletePledge?.reason_ar ?? ""}»؟ لا يمكن التراجع.`}
-        confirmLabel="حذف"
-        destructive
-        onConfirm={confirmDeletePledge}
-      />
-
-      <DoubleConfirmDialog
-        open={deleteAllStudent != null}
-        onOpenChange={(o) => !o && setDeleteAllStudent(null)}
-        title="حذف كل تعهدات الطالب"
-        description={
-          deleteAllStudent
-            ? `هل تريد حذف جميع تعهدات «${deleteAllStudent.full_name_ar}» (${deleteAllStudent.pledge_count} تعهد)؟ سيتم تصفير العداد في قاعدة البيانات. لا يمكن التراجع.`
-            : ""
-        }
-        confirmLabel="حذف الكل"
-        destructive
-        onConfirm={confirmDeleteAllPledges}
-      />
+      <Dialog open={deletePledge != null} onOpenChange={(o) => !o && setDeletePledge(null)}>
+        <DialogContent className={ds.dialog} dir="rtl">
+          <DialogHeader>
+            <DialogTitle style={tajawal}>حذف التعهد</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm" style={tajawal}>
+            هل تريد حذف التعهد: «{deletePledge?.reason_ar}»؟ لا يمكن التراجع.
+          </p>
+          <div className="flex gap-2 justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              className={ds.btnRound}
+              onClick={() => setDeletePledge(null)}
+              disabled={pledgeBusy}
+              style={tajawal}
+            >
+              إلغاء
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              className={ds.btnRound}
+              onClick={() => void confirmDeletePledge()}
+              disabled={pledgeBusy}
+              style={tajawal}
+            >
+              {pledgeBusy ? "جاري الحذف…" : "حذف"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent

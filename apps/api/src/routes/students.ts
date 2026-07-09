@@ -43,11 +43,8 @@ async function studentColumn(env: Env, column: string, fallback = "NULL"): Promi
 /** Unified display name — full_name_ar with legacy `name` fallback. */
 async function studentNameSelect(env: Env): Promise<string> {
   const hasFull = await tableHasColumn(env, "students", "full_name_ar");
-  const hasName = await tableHasColumn(env, "students", "name");
-  if (hasFull && hasName) {
-    return "COALESCE(NULLIF(TRIM(s.full_name_ar), ''), s.name) AS full_name_ar";
-  }
   if (hasFull) return "s.full_name_ar";
+  const hasName = await tableHasColumn(env, "students", "name");
   if (hasName) return "s.name AS full_name_ar";
   return "'' AS full_name_ar";
 }
@@ -75,11 +72,11 @@ export async function handleStudentsList(
     const stageFilter = url.searchParams.get("stage_id")?.trim();
     const circleFilter = url.searchParams.get("circle_id")?.trim();
     const trackFilter = url.searchParams.get("track_id")?.trim();
-    const statusFilter = url.searchParams.get("status_filter")?.trim();
-    const archivedOnly =
-      url.searchParams.get("archived")?.trim() === "1" ||
-      url.searchParams.get("active")?.trim() === "0";
-    const pageParams = parsePageParams(url);
+    const defaultLimit = auth.role === "super_admin" ? 500 : 100;
+    const limit = Math.min(
+      Number(url.searchParams.get("limit") ?? defaultLimit),
+      500,
+    );
     const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
     const hasAdmissionStatus = await tableHasColumn(env, "students", "admission_status");
     const hasSupervisorScopes = await hasTable(env, "supervisor_scopes");
@@ -89,6 +86,8 @@ export async function handleStudentsList(
     const rosterExpr = archivedOnly
       ? await studentIsArchivedSql(env, "s")
       : await studentIsActiveSql(env, "s");
+
+    const nameSelect = await studentNameSelect(env);
 
     const nameSelect = await studentNameSelect(env);
 
@@ -221,27 +220,6 @@ export async function handleStudentsList(
       }
     }
 
-    if (statusFilter) {
-      const hasAccountStatus = await tableHasColumn(env, "students", "account_status");
-      if (statusFilter === "active" && hasAccountStatus) {
-        sql += ` AND COALESCE(s.account_status, 'active') = 'active'`;
-      } else if (statusFilter === "suspended" && hasAccountStatus) {
-        sql += ` AND s.account_status = 'suspended'`;
-      } else if (statusFilter === "no_circle") {
-        if (circleRef !== "NULL") {
-          sql += ` AND ${circleRef} IS NULL`;
-        } else {
-          sql += ` AND c.id IS NULL`;
-        }
-      } else if (statusFilter === "no_track") {
-        if (trackRef !== "NULL") {
-          sql += ` AND ${trackRef} IS NULL`;
-        } else {
-          sql += ` AND t.id IS NULL`;
-        }
-      }
-    }
-
     if (q.length > 0) {
       if (await tableHasColumn(env, "students", "full_name_ar")) {
         sql += ` AND s.full_name_ar LIKE ?`;
@@ -257,14 +235,8 @@ export async function handleStudentsList(
         : (await tableHasColumn(env, "students", "name"))
           ? "s.name"
           : "s.id";
-    const countSql = `SELECT COUNT(*) AS c FROM (${sql})`;
-    const countRow = await env.DB.prepare(countSql)
-      .bind(...binds)
-      .first<{ c: number }>();
-    const total = Number(countRow?.c ?? 0);
-
-    sql += ` ORDER BY ${orderName} LIMIT ? OFFSET ?`;
-    binds.push(pageParams.pageSize, pageParams.offset);
+    sql += ` ORDER BY ${orderName} LIMIT ?`;
+    binds.push(limit);
 
     const stmt = env.DB.prepare(sql);
     const result = await stmt.bind(...binds).all<StudentListRow>();

@@ -11,9 +11,7 @@ import {
   Pencil,
   Plus,
   Printer,
-  MessageCircle,
   RefreshCw,
-  Search,
   Trash2,
   Users,
 } from "lucide-react";
@@ -30,10 +28,16 @@ import {
 } from "../../components/ui/select";
 import { EduKpiCard } from "../../components/edu/EduKpiCard";
 import { CompetitionGradingGrid } from "../../components/edu/CompetitionGradingGrid";
+import { CompetitionLeaderboardPanel } from "../../components/edu/CompetitionLeaderboardPanel";
+import { CompetitionLeaderboardPrint } from "../../components/edu/CompetitionLeaderboardPrint";
+import {
+  CompetitionTargetsTable,
+  type CompetitionTargetRow,
+} from "../../components/edu/CompetitionTargetsTable";
+import type { CompetitionLeaderRow } from "../../components/edu/competition-leaderboard-types";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import {
-  buildCompetitionWhatsAppUrl,
   categoryLabel,
   DEFAULT_SIRD_SETTINGS,
   defaultInputTypeFromTaskType,
@@ -49,6 +53,7 @@ import {
   formatFacesToText,
 } from "../../lib/quran-memorization";
 import { defaultDateRange } from "../../lib/local-iso-date";
+import { resolveCompetitionScopeLabel } from "../../lib/competition-table-pagination";
 import { ds, tajawal } from "../../lib/design-system";
 
 type TabId = "dashboard" | "targets" | "tasks" | "grading" | "live";
@@ -62,25 +67,23 @@ type TaskRow = {
   input_type?: string;
 };
 
-type TargetRow = {
-  student_id: number;
-  full_name_ar: string;
-  current_memorization: number | string;
-  target_amount: number | string;
-  achieved_amount?: number | string;
-};
+type TargetRow = CompetitionTargetRow;
 
 function memorizationJuzLabel(juz: number | string): string {
   const faces = convertToFaces(Number(juz) || 0, "juz");
   return formatFacesToText(faces) || "—";
 }
 
-function printCompetitionDashboard() {
-  document.body.classList.add("printing-competition-dashboard");
-  window.print();
-  window.setTimeout(() => {
-    document.body.classList.remove("printing-competition-dashboard");
-  }, 500);
+function runCompetitionDashboardPrint(onMount: (mounted: boolean) => void) {
+  onMount(true);
+  requestAnimationFrame(() => {
+    document.body.classList.add("printing-competition-dashboard");
+    window.print();
+    window.setTimeout(() => {
+      document.body.classList.remove("printing-competition-dashboard");
+      onMount(false);
+    }, 500);
+  });
 }
 
 export function CompetitionDetailPage() {
@@ -119,6 +122,13 @@ export function CompetitionDetailPage() {
   const [sirdSettings, setSirdSettings] = useState<SirdSettings>({
     ...DEFAULT_SIRD_SETTINGS,
   });
+  const [printLeaderboardMount, setPrintLeaderboardMount] = useState(false);
+  const [filterCircles, setFilterCircles] = useState<
+    Array<{ id: number; name_ar: string }>
+  >([]);
+  const [filterTracks, setFilterTracks] = useState<
+    Array<{ id: number; name_ar: string }>
+  >([]);
 
   const load = useCallback(async () => {
     if (!canUseApi() || !id) return;
@@ -188,6 +198,24 @@ export function CompetitionDetailPage() {
   }, [load]);
 
   useEffect(() => {
+    if (!canUseApi()) return;
+    void api.competitionsFilterOptions().then((res) => {
+      setFilterCircles(
+        (res.circles ?? []).map((c) => ({
+          id: Number(c.id),
+          name_ar: String(c.name_ar ?? ""),
+        })),
+      );
+      setFilterTracks(
+        (res.tracks ?? []).map((t) => ({
+          id: Number(t.id),
+          name_ar: String(t.name_ar ?? ""),
+        })),
+      );
+    });
+  }, []);
+
+  useEffect(() => {
     if (tab === "tasks" && isRecitationCategory(category)) {
       setTab("dashboard");
     }
@@ -204,28 +232,23 @@ export function CompetitionDetailPage() {
   }, [comp?.rules]);
   const logs = (data?.logs as Array<Record<string, unknown>>) ?? [];
   const kpis = (dashboard?.kpis ?? {}) as Record<string, number>;
-  const leaders = (dashboard?.leaders ?? []) as Array<{
-    student_id: number;
-    score?: number;
-    overall_pct?: number;
-    grading_days?: number;
-    guardian_phone?: string | null;
-    full_name_ar?: string;
-    target_amount?: number;
-    achievement_pct?: number;
-    read_count?: number;
-    passed_count?: number;
-    failed_count?: number;
-    total_mistakes?: number;
-    total_warnings?: number;
-    mastery_pct?: number;
-  }>;
+  const leaders = (dashboard?.leaders ?? []) as CompetitionLeaderRow[];
   const filteredLeaders = useMemo(
     () =>
       leaders.filter((l) =>
         matchesArabicName(leaderSearch, l.full_name_ar ?? `طالب #${l.student_id}`),
       ),
     [leaders, leaderSearch],
+  );
+  const scopeLabel = useMemo(
+    () =>
+      resolveCompetitionScopeLabel(
+        (comp?.target_scope as { circle_ids?: number[]; track_ids?: number[] }) ??
+          undefined,
+        filterCircles,
+        filterTracks,
+      ),
+    [comp?.target_scope, filterCircles, filterTracks],
   );
   const isNewMemorization = category === "new_memorization";
   const isReview = category === "review";
@@ -604,6 +627,11 @@ export function CompetitionDetailPage() {
                 <p className="text-sm text-muted-foreground" style={tajawal}>
                   {dashRange.start} → {dashRange.end}
                 </p>
+                {scopeLabel ? (
+                  <p className="text-sm font-medium" style={tajawal}>
+                    {scopeLabel}
+                  </p>
+                ) : null}
               </div>
               <div className="flex flex-wrap gap-3 items-end print:hidden">
                 <div className="space-y-1">
@@ -648,7 +676,7 @@ export function CompetitionDetailPage() {
                   type="button"
                   variant="outline"
                   className={ds.btnRound}
-                  onClick={printCompetitionDashboard}
+                  onClick={() => runCompetitionDashboardPrint(setPrintLeaderboardMount)}
                   style={tajawal}
                 >
                   <Printer className="w-4 h-4" />
@@ -712,162 +740,24 @@ export function CompetitionDetailPage() {
                       sub="طلاب مستهدفون"
                     />
                   </div>
-                  {isRecitation ? (
-                    <Card className={ds.card}>
-                      <CardHeader>
-                        <CardTitle style={tajawal}>مؤشرات السرد — جدول الطلاب</CardTitle>
-                      </CardHeader>
-                      <CardContent className="overflow-x-auto">
-                        <table className="w-full text-sm" style={tajawal}>
-                          <thead className="bg-muted/40">
-                            <tr>
-                              <th className="text-right p-2">الطالب</th>
-                              <th className="text-right p-2">المقروء</th>
-                              <th className="text-right p-2">المجتاز</th>
-                              <th className="text-right p-2">غير المجتاز</th>
-                              <th className="text-right p-2">مجموع الأخطاء</th>
-                              <th className="text-right p-2">مجموع التنبيهات</th>
-                              <th className="text-right p-2">نسبة الإتقان</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {filteredLeaders.length === 0 ? (
-                              <tr>
-                                <td colSpan={7} className="p-4 text-muted-foreground">
-                                  لا بيانات سرد بعد.
-                                </td>
-                              </tr>
-                            ) : (
-                              filteredLeaders.map((l) => (
-                                <tr key={l.student_id} className="border-t">
-                                  <td className="p-2">
-                                    {l.full_name_ar ?? `طالب #${l.student_id}`}
-                                  </td>
-                                  <td className="p-2 tabular-nums">{l.read_count ?? 0}</td>
-                                  <td className="p-2 tabular-nums text-success-foreground">
-                                    {l.passed_count ?? 0}
-                                  </td>
-                                  <td className="p-2 tabular-nums text-destructive">
-                                    {l.failed_count ?? 0}
-                                  </td>
-                                  <td className="p-2 tabular-nums">{l.total_mistakes ?? 0}</td>
-                                  <td className="p-2 tabular-nums">{l.total_warnings ?? 0}</td>
-                                  <td className="p-2 tabular-nums">{l.mastery_pct ?? 0}%</td>
-                                </tr>
-                              ))
-                            )}
-                          </tbody>
-                        </table>
-                      </CardContent>
-                    </Card>
+                  <CompetitionLeaderboardPanel
+                    isRecitation={isRecitation}
+                    leaderboardMode={leaderboardMode}
+                    onLeaderboardModeChange={setLeaderboardMode}
+                    leaderSearch={leaderSearch}
+                    onLeaderSearchChange={setLeaderSearch}
+                    leaders={filteredLeaders}
+                  />
+                  {printLeaderboardMount ? (
+                    <CompetitionLeaderboardPrint
+                      competitionName={String(comp.name_ar)}
+                      dateFrom={dashRange.start}
+                      dateTo={dashRange.end}
+                      scopeLabel={scopeLabel}
+                      isRecitation={isRecitation}
+                      leaders={filteredLeaders}
+                    />
                   ) : null}
-                  <Card className={`${ds.card} competition-leaderboard-card`}>
-                    <CardHeader className="space-y-3">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <CardTitle style={tajawal}>
-                          {leaderboardMode === "all" ? "جميع الطلاب" : "الأوائل"}
-                        </CardTitle>
-                        <div className="flex flex-wrap gap-2 print:hidden">
-                          <Button
-                            type="button"
-                            variant={leaderboardMode === "top" ? "default" : "outline"}
-                            size="sm"
-                            className={ds.btnRound}
-                            onClick={() => setLeaderboardMode("top")}
-                            style={tajawal}
-                          >
-                            عرض الأوائل
-                          </Button>
-                          <Button
-                            type="button"
-                            variant={leaderboardMode === "all" ? "default" : "outline"}
-                            size="sm"
-                            className={ds.btnRound}
-                            onClick={() => setLeaderboardMode("all")}
-                            style={tajawal}
-                          >
-                            عرض كل الطلاب
-                          </Button>
-                        </div>
-                      </div>
-                      {leaderboardMode === "all" && (
-                        <div className="relative max-w-sm print:hidden">
-                          <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                          <Input
-                            type="search"
-                            placeholder="بحث عن طالب…"
-                            value={leaderSearch}
-                            onChange={(e) => setLeaderSearch(e.target.value)}
-                            className={`${ds.btnRound} pr-10`}
-                            style={tajawal}
-                          />
-                        </div>
-                      )}
-                    </CardHeader>
-                    <CardContent className="overflow-x-auto text-sm" style={tajawal}>
-                      <table className="w-full text-sm edu-print-table competition-leaderboard-table">
-                        <thead className="bg-muted/40">
-                          <tr>
-                            <th className="text-right p-2 w-12">#</th>
-                            <th className="text-right p-2">الطالب</th>
-                            <th className="text-right p-2">نسبة الإتقان</th>
-                            <th className="text-right p-2 print:hidden w-36">إجراء</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filteredLeaders.length === 0 ? (
-                            <tr>
-                              <td colSpan={4} className="p-4 text-muted-foreground">
-                                لا بيانات إنجاز بعد.
-                              </td>
-                            </tr>
-                          ) : (
-                            filteredLeaders.map((l, i) => {
-                              const rank = i + 1;
-                              const name = l.full_name_ar ?? `طالب #${l.student_id}`;
-                              const overallPct = isRecitation
-                                ? (l.mastery_pct ?? 0)
-                                : (l.overall_pct ?? l.achievement_pct ?? 0);
-                              const waUrl = buildCompetitionWhatsAppUrl(
-                                l.guardian_phone,
-                                name,
-                                overallPct,
-                                rank,
-                              );
-                              return (
-                                <tr key={l.student_id} className="border-t">
-                                  <td className="p-2 tabular-nums">{rank}</td>
-                                  <td className="p-2">{name}</td>
-                                  <td className="p-2 tabular-nums">{overallPct}%</td>
-                                  <td className="p-2 print:hidden">
-                                    {waUrl ? (
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        className={`${ds.btnRound} gap-1`}
-                                        asChild
-                                      >
-                                        <a
-                                          href={waUrl}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          title="إرسال التقرير لولي الأمر"
-                                        >
-                                          <MessageCircle className="w-3.5 h-3.5" />
-                                          إرسال التقرير
-                                        </a>
-                                      </Button>
-                                    ) : null}
-                                  </td>
-                                </tr>
-                              );
-                            })
-                          )}
-                        </tbody>
-                      </table>
-                    </CardContent>
-                  </Card>
                 </>
               )}
             </div>
@@ -879,101 +769,21 @@ export function CompetitionDetailPage() {
                 <CardTitle style={tajawal}>المستهدفون الفرديون</CardTitle>
               </CardHeader>
               <CardContent className="overflow-x-auto">
-                {targets.length === 0 ? (
-                  <p className="text-muted-foreground text-sm" style={tajawal}>
-                    لا مستهدفين — أُنشئت المنافسة بدون طلاب.
-                  </p>
-                ) : (
-                  <table className="w-full text-sm" style={tajawal}>
-                    <thead className="bg-muted/40">
-                      <tr>
-                        <th className="text-right p-2">الطالب</th>
-                        <th className="text-right p-2">المحفوظ عند البدء</th>
-                        <th className="text-right p-2">المستهدف</th>
-                        <th className="text-right p-2">المُنجَز</th>
-                        <th className="text-right p-2 print:hidden">إجراءات</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {targets.map((t) => (
-                        <tr key={t.student_id} className="border-t">
-                          <td className="p-2">{t.full_name_ar}</td>
-                          <td className="p-2 tabular-nums">
-                            {memorizationJuzLabel(t.current_memorization)}
-                          </td>
-                          <td className="p-2 tabular-nums">
-                            {editingTargetId === t.student_id ? (
-                              <Input
-                                type="number"
-                                min={0}
-                                step={0.1}
-                                value={editTargetAmount}
-                                onChange={(e) => setEditTargetAmount(e.target.value)}
-                                className="h-8 w-24"
-                              />
-                            ) : (
-                              String(t.target_amount)
-                            )}
-                          </td>
-                          <td className="p-2 tabular-nums">{String(t.achieved_amount ?? 0)}</td>
-                          <td className="p-2 print:hidden">
-                            <div className="flex items-center gap-1">
-                              {editingTargetId === t.student_id ? (
-                                <>
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="default"
-                                    disabled={saving}
-                                    onClick={() => void saveTargetEdit(t.student_id)}
-                                  >
-                                    حفظ
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => setEditingTargetId(null)}
-                                  >
-                                    إلغاء
-                                  </Button>
-                                </>
-                              ) : (
-                                <>
-                                  <Button
-                                    type="button"
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-8 w-8"
-                                    title="تعديل المستهدف"
-                                    disabled={saving}
-                                    onClick={() => {
-                                      setEditingTargetId(t.student_id);
-                                      setEditTargetAmount(String(t.target_amount));
-                                    }}
-                                  >
-                                    <Pencil className="w-4 h-4" />
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-8 w-8 text-destructive"
-                                    title="حذف من المنافسة"
-                                    disabled={saving}
-                                    onClick={() => void removeTarget(t.student_id)}
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </Button>
-                                </>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
+                <CompetitionTargetsTable
+                  targets={targets}
+                  saving={saving}
+                  editingTargetId={editingTargetId}
+                  editTargetAmount={editTargetAmount}
+                  onEditTargetAmountChange={setEditTargetAmount}
+                  onStartEdit={(t) => {
+                    setEditingTargetId(t.student_id);
+                    setEditTargetAmount(String(t.target_amount));
+                  }}
+                  onCancelEdit={() => setEditingTargetId(null)}
+                  onSaveEdit={(studentId) => void saveTargetEdit(studentId)}
+                  onRemove={(studentId) => void removeTarget(studentId)}
+                  memorizationLabel={memorizationJuzLabel}
+                />
               </CardContent>
             </Card>
           )}

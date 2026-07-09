@@ -990,6 +990,33 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  teacherPlanDaysGet: (planId: number) =>
+    request<{
+      plan_id: number;
+      starts_at: string;
+      ends_at: string;
+      rest_days: string;
+      total_working_days: number;
+      completed_days: number;
+      days: Array<{ day_date: string; completed: number; updated_at?: string }>;
+    }>(`/api/teacher/plans/by-id/${planId}/days`),
+  teacherPlanDaysUpsert: (
+    planId: number,
+    body: { days: Array<{ day_date: string; completed: boolean }> },
+  ) =>
+    request<{
+      ok: boolean;
+      plan_id: number;
+      total_working_days: number;
+      completed_days: number;
+    }>(`/api/teacher/plans/by-id/${planId}/days`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  teacherPlansReport: () =>
+    request<{
+      items: Array<Record<string, unknown>>;
+    }>("/api/teacher/plans/report"),
   teacherDailyMarks: (date?: string) => {
     const qs = date ? `?date=${encodeURIComponent(date)}` : "";
     return request<{

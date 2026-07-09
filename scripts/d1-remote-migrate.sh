@@ -145,6 +145,36 @@ d1_query_json() {
 migration_effect_status() {
   local file="$1"
   case "$file" in
+    033_edu_central_event_weights.sql)
+      d1_query_json "PRAGMA table_info(edu_settings);" | node -e "
+        let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{
+          try {
+            const j=JSON.parse(d); const b=Array.isArray(j)?j[0]:j;
+            const cols=new Set((b?.results??[]).map(r=>r.name));
+            const need=['himma_defaults_json','competition_defaults_json'];
+            console.log(need.every(c=>cols.has(c)) ? 'applied' : 'missing');
+          } catch { console.log('unknown'); }
+        });
+      "
+      ;;
+    062_stage_id_backfill.sql)
+      {
+        d1_query_json "SELECT name FROM sqlite_master WHERE type='table' AND name='stage_id_review_queue';"
+        echo "---SPLIT---"
+        d1_query_json "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_students_stage_complex';"
+      } | node -e "
+        let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{
+          try {
+            const parts=d.split('---SPLIT---');
+            const t=JSON.parse(parts[0]||'[]'); const i=JSON.parse(parts[1]||'[]');
+            const tb=Array.isArray(t)?t[0]:t; const ib=Array.isArray(i)?i[0]:i;
+            const hasTable=(tb?.results??[]).length>0;
+            const hasIndex=(ib?.results??[]).length>0;
+            console.log(hasTable && hasIndex ? 'applied' : 'missing');
+          } catch { console.log('unknown'); }
+        });
+      "
+      ;;
     066_semester_plans_columns.sql)
       d1_query_json "PRAGMA table_info(student_semester_plans);" | node -e "
         let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{
@@ -201,6 +231,32 @@ migration_effect_status() {
             const hasDuration=cols.has('duration_weeks');
             const hasOldUnique=indexes.includes('idx_student_semester_plan_active');
             console.log(hasDuration && !hasOldUnique ? 'applied' : 'missing');
+          } catch { console.log('unknown'); }
+        });
+      "
+      ;;
+    069_plan_daily_followup.sql)
+      {
+        d1_query_json "PRAGMA table_info(student_semester_plans);"
+        echo "---SPLIT---"
+        d1_query_json "SELECT name FROM sqlite_master WHERE type='table' AND name='student_plan_days';"
+        echo "---SPLIT---"
+        d1_query_json "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_student_plan_days_plan';"
+      } | node -e "
+        let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{
+          try {
+            const parts=d.split('---SPLIT---');
+            const info=JSON.parse(parts[0]||'[]');
+            const tbl=JSON.parse(parts[1]||'[]');
+            const idx=JSON.parse(parts[2]||'[]');
+            const ib=Array.isArray(info)?info[0]:info;
+            const tb=Array.isArray(tbl)?tbl[0]:tbl;
+            const xb=Array.isArray(idx)?idx[0]:idx;
+            const cols=new Set((ib?.results??[]).map(r=>r.name));
+            const hasRest=cols.has('rest_days');
+            const hasTable=(tb?.results??[]).length>0;
+            const hasIndex=(xb?.results??[]).length>0;
+            console.log(hasRest && hasTable && hasIndex ? 'applied' : 'missing');
           } catch { console.log('unknown'); }
         });
       "
@@ -302,6 +358,22 @@ apply_pending() {
   local failed=0
   for f in "${pending[@]}"; do
     # ترحيلات محروسة (فحص أعمدة/فهارس) — لا تُنفَّذ كملف SQL خام فقط
+    if [[ "$f" == "033_edu_central_event_weights.sql" ]]; then
+      if node "$API_DIR/scripts/migrate-033-remote.mjs"; then
+        continue
+      else
+        failed=1
+        break
+      fi
+    fi
+    if [[ "$f" == "062_stage_id_backfill.sql" ]]; then
+      if node "$API_DIR/scripts/migrate-062-remote.mjs"; then
+        continue
+      else
+        failed=1
+        break
+      fi
+    fi
     if [[ "$f" == "066_semester_plans_columns.sql" ]]; then
       if node "$API_DIR/scripts/migrate-066-remote.mjs"; then
         continue
@@ -320,6 +392,14 @@ apply_pending() {
     fi
     if [[ "$f" == "068_student_semester_plans_multi.sql" ]]; then
       if node "$API_DIR/scripts/migrate-068-remote.mjs"; then
+        continue
+      else
+        failed=1
+        break
+      fi
+    fi
+    if [[ "$f" == "069_plan_daily_followup.sql" ]]; then
+      if node "$API_DIR/scripts/migrate-069-remote.mjs"; then
         continue
       else
         failed=1
@@ -465,8 +545,11 @@ case "$MODE" in
   068)
     node "$API_DIR/scripts/migrate-068-remote.mjs"
     ;;
+  069)
+    node "$API_DIR/scripts/migrate-069-remote.mjs"
+    ;;
   *)
-    echo "Usage: $0 upgrade|all|demo|apply-pending|bootstrap-tracking|048|061|062|063|064|065|066|067|068|..." >&2
+    echo "Usage: $0 upgrade|all|demo|apply-pending|bootstrap-tracking|048|061|062|063|064|065|066|067|068|069|..." >&2
     exit 1
     ;;
 esac

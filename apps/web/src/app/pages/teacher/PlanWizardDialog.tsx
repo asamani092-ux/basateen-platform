@@ -23,8 +23,10 @@ import { getApiToken } from "../../lib/api-token";
 import { isUiDevPreview } from "../../lib/dev-preview";
 import { ds, tajawal } from "../../lib/design-system";
 import {
+  buildPlanEstimateCalendar,
   estimatePlan,
   type PlanEstimate,
+  type RestDaysSetting,
   type SemesterCalendar,
 } from "../../lib/teacher/plan-estimator";
 
@@ -32,7 +34,7 @@ const PLAN_KINDS = [
   { value: "combined", label: "خطة شاملة (حفظ + مراجعة + ربط)" },
   { value: "hifz_new", label: "حفظ جديد" },
   { value: "muraja", label: "مراجعة محفوظ" },
-  { value: "tilawa", label: "تلوة وتجويد" },
+  { value: "tilawa", label: "تلاوة وتجويد" },
 ] as const;
 
 export type PlanWizardSeed = {
@@ -43,6 +45,7 @@ export type PlanWizardSeed = {
   daily_rabt_faces?: number;
   repeat_target?: number;
   duration_weeks?: number | null;
+  rest_days?: string | null;
 };
 
 type Props = {
@@ -69,6 +72,7 @@ export function PlanWizardDialog({
   const [dailyRabt, setDailyRabt] = useState("2");
   const [repeatTarget, setRepeatTarget] = useState("3");
   const [durationWeeks, setDurationWeeks] = useState("2");
+  const [restDays, setRestDays] = useState<RestDaysSetting>("friday_saturday");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -100,6 +104,9 @@ export function PlanWizardDialog({
         setDailyRabt(String(seed.daily_rabt_faces ?? "2"));
         setRepeatTarget(String(seed.repeat_target ?? "3"));
         setDurationWeeks(String(seed.duration_weeks && seed.duration_weeks > 0 ? seed.duration_weeks : 2));
+        setRestDays(
+          (seed.rest_days as RestDaysSetting) ?? "friday_saturday",
+        );
       } else if (!editPlan) {
         setPlanKind("combined");
         setDailyHifz("0.5");
@@ -107,6 +114,7 @@ export function PlanWizardDialog({
         setDailyRabt("2");
         setRepeatTarget("3");
         setDurationWeeks("2");
+        setRestDays("friday_saturday");
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "تعذّر تحميل الخطة");
@@ -129,6 +137,9 @@ export function PlanWizardDialog({
               : 2,
           ),
         );
+        setRestDays(
+          (editPlan.rest_days as RestDaysSetting) ?? "friday_saturday",
+        );
       }
       void load();
     }
@@ -148,8 +159,9 @@ export function PlanWizardDialog({
 
   const estimate: PlanEstimate | null = useMemo(() => {
     if (!calendar) return null;
-    return estimatePlan(calendar, inputs);
-  }, [calendar, inputs]);
+    const planCal = buildPlanEstimateCalendar(calendar, weeks, restDays);
+    return estimatePlan(planCal, inputs);
+  }, [calendar, inputs, weeks, restDays]);
 
   async function save() {
     if (!canSave) return;
@@ -167,7 +179,8 @@ export function PlanWizardDialog({
         daily_rabt_faces: inputs.daily_rabt_faces,
         repeat_target: inputs.repeat_target,
         duration_weeks: weeks,
-        wizard_json: { plan_kind: planKind, duration_weeks: weeks },
+        rest_days: restDays,
+        wizard_json: { plan_kind: planKind, duration_weeks: weeks, rest_days: restDays },
       };
       if (editPlan?.id != null) {
         body.plan_id = editPlan.id;
@@ -194,8 +207,8 @@ export function PlanWizardDialog({
             {isEdit ? "تعديل الخطة" : "خطة جديدة"} — {student.full_name_ar}
           </DialogTitle>
           <DialogDescription style={tajawal}>
-            حدّد نوع الخطة ومدتها بالأسابيع والمقدار اليومي. تاريخ الانتهاء يُحسب
-            تلقائياً من تاريخ الإنشاء (توقيت الرياض).
+            حدّد نوع الخطة ومدتها بالأسابيع وأيام العطلة والمقدار اليومي. تاريخ الانتهاء يُحسب
+            تلقائياً بعدد أيام العمل (توقيت الرياض).
           </DialogDescription>
         </DialogHeader>
 
@@ -227,8 +240,25 @@ export function PlanWizardDialog({
               className={ds.btnRound}
             />
             <p className="text-xs text-muted-foreground" style={tajawal}>
-              مثال: أسبوعان = 14 يوماً من تاريخ الإنشاء.
+              مثال: أسبوعان بعطلة الجمعة والسبت = 10 أيام عمل.
             </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label style={tajawal}>أيام العطلة الأسبوعية</Label>
+            <Select
+              value={restDays}
+              onValueChange={(v) => setRestDays(v as RestDaysSetting)}
+            >
+              <SelectTrigger className={ds.btnRound}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="friday_saturday">الجمعة والسبت</SelectItem>
+                <SelectItem value="friday">الجمعة فقط</SelectItem>
+                <SelectItem value="saturday">السبت فقط</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -289,7 +319,7 @@ export function PlanWizardDialog({
                 {estimate.summary_ar}
               </p>
               <p className="text-xs text-muted-foreground" style={tajawal}>
-                المدة: {weeks} أسبوع — عدّل الأرقام قبل التأكيد لتناسب قدرة الطالب.
+                المدة: {weeks} أسبوع ({estimate.teaching_days_total} يوم عمل) — عدّل الأرقام قبل التأكيد.
               </p>
             </div>
           )}

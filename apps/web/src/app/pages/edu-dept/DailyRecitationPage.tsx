@@ -12,7 +12,6 @@ import {
 } from "@tanstack/react-query";
 import { GuardedForm } from "../../components/ui/guarded-form";
 import {
-  Check,
   ClipboardList,
   Grid3X3,
   LayoutGrid,
@@ -321,6 +320,10 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
   const editableCriteria = useMemo(
     () => enabledCriteria.filter((c) => !c.requires_all?.length),
     [enabledCriteria],
+  );
+  const { booleans: booleanCriteria, others: nonBooleanCriteria } = useMemo(
+    () => splitEditableCriteria(editableCriteria),
+    [editableCriteria],
   );
   const bonusCriteria = useMemo(
     () => enabledCriteria.filter((c) => c.requires_all?.length),
@@ -812,8 +815,20 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                       ) : r.track_name ? (
                         <StudentTrackBadge trackName={r.track_name} />
                       ) : null}
-                      <div className="space-y-2 text-sm" style={tajawal}>
-                        {editableCriteria.map((c, idx) => (
+                      <div className="space-y-3 text-sm" style={tajawal}>
+                        {booleanCriteria.length > 0 && (
+                          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                            {booleanCriteria.map((c) => (
+                              <BooleanCriterionPill
+                                key={c.id}
+                                criterion={c}
+                                checked={Boolean(r.task_scores[c.id])}
+                                onChange={(v) => patchTaskScore(r.student_id, c.id, v)}
+                              />
+                            ))}
+                          </div>
+                        )}
+                        {nonBooleanCriteria.map((c, idx) => (
                           <div key={c.id} className="flex items-center justify-between gap-2">
                             <span>{c.name}</span>
                             <CriterionInput
@@ -906,14 +921,27 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                         </div>
                       </AccordionTrigger>
                       <AccordionContent className="pb-2 pt-0">
-                        <div className="space-y-1 border-t border-border/80 pt-2">
-                          {editableCriteria.map((c) => (
+                        <div className="space-y-2 border-t border-border/80 pt-2">
+                          {booleanCriteria.length > 0 && (
+                            <div className="grid grid-cols-2 gap-2 py-1">
+                              {booleanCriteria.map((c) => (
+                                <BooleanCriterionPill
+                                  key={c.id}
+                                  criterion={c}
+                                  checked={Boolean(r.task_scores[c.id])}
+                                  onChange={(v) => patchTaskScore(r.student_id, c.id, v)}
+                                  disabled={saving || savingStudentId != null}
+                                />
+                              ))}
+                            </div>
+                          )}
+                          {nonBooleanCriteria.map((c) => (
                             <div
                               key={c.id}
-                              className="flex flex-row flex-wrap items-center gap-x-2 gap-y-1 py-1 min-h-10"
+                              className="flex flex-row flex-wrap items-center gap-x-2 gap-y-1 py-1 min-h-11"
                             >
                               <span
-                                className="shrink-0 text-xs font-medium text-foreground truncate max-w-[32%] sm:max-w-[38%]"
+                                className="shrink-0 text-xs font-medium text-foreground truncate max-w-[38%]"
                                 style={tajawal}
                                 title={c.name}
                               >
@@ -1129,40 +1157,67 @@ function isCounterCriterion(c: EvalCriterion): boolean {
   return c.type === "penalty" || c.input_type === "counter";
 }
 
-function MobileBooleanToggle({
+function isBooleanCriterion(c: EvalCriterion): boolean {
+  if (c.input_type === "boolean") return true;
+  if (
+    c.input_type === "numeric" ||
+    c.input_type === "counter" ||
+    c.type === "penalty" ||
+    c.input === "number"
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function splitEditableCriteria(criteria: EvalCriterion[]) {
+  const booleans: EvalCriterion[] = [];
+  const others: EvalCriterion[] = [];
+  for (const c of criteria) {
+    if (isBooleanCriterion(c)) booleans.push(c);
+    else others.push(c);
+  }
+  return { booleans, others };
+}
+
+function BooleanCriterionPill({
+  criterion,
   checked,
   onChange,
-  label,
   disabled,
+  compact,
 }: {
+  criterion: EvalCriterion;
   checked: boolean;
   onChange: (next: boolean) => void;
-  label: string;
   disabled?: boolean;
+  compact?: boolean;
 }) {
+  const isPenalty = criterion.type === "penalty";
   return (
     <button
       type="button"
       role="checkbox"
       aria-checked={checked}
-      aria-label={label}
+      aria-label={criterion.name}
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
-        "inline-flex h-7 w-7 min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md border transition-colors touch-manipulation",
-        checked
-          ? "border-primary bg-primary text-primary-foreground"
-          : "border-input bg-background text-muted-foreground hover:border-primary/40",
+        ds.btnRound,
+        "inline-flex min-h-11 w-full items-center justify-center border px-2.5 font-semibold transition-colors touch-manipulation",
+        compact ? "py-1.5 text-[11px]" : "py-2 text-xs",
+        isPenalty
+          ? checked
+            ? "border-destructive bg-destructive text-destructive-foreground"
+            : "border-destructive/40 bg-destructive/5 text-destructive hover:border-destructive/60"
+          : checked
+            ? "border-primary bg-primary text-primary-foreground"
+            : "border-border bg-card text-muted-foreground hover:border-primary/40",
         disabled && "pointer-events-none opacity-50",
       )}
+      style={tajawal}
     >
-      <Check
-        className={cn(
-          "size-3.5 transition-opacity",
-          checked ? "opacity-100" : "opacity-0",
-        )}
-        strokeWidth={2.5}
-      />
+      <span className="truncate">{criterion.name}</span>
     </button>
   );
 }
@@ -1246,14 +1301,7 @@ function MobileCriterionInput({
     );
   }
 
-  return (
-    <MobileBooleanToggle
-      checked={Boolean(value)}
-      onChange={(next) => onChange(next)}
-      label={criterion.name}
-      disabled={disabled}
-    />
-  );
+  return null;
 }
 
 function CriterionInput({
@@ -1269,6 +1317,17 @@ function CriterionInput({
   onChange: (v: boolean | number) => void;
   compact?: boolean;
 }) {
+  if (isBooleanCriterion(criterion)) {
+    return (
+      <BooleanCriterionPill
+        criterion={criterion}
+        checked={Boolean(value)}
+        onChange={(next) => onChange(next)}
+        compact={compact}
+      />
+    );
+  }
+
   return (
     <TaskInputCell
       task={taskCol}

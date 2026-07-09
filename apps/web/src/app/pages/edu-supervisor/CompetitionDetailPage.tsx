@@ -53,7 +53,10 @@ import {
   formatFacesToText,
 } from "../../lib/quran-memorization";
 import { defaultDateRange } from "../../lib/local-iso-date";
-import { resolveCompetitionScopeLabel } from "../../lib/competition-table-pagination";
+import {
+  resolveCompetitionScopeLabel,
+  sortLeadersByAchievement,
+} from "../../lib/competition-table-pagination";
 import { ds, tajawal } from "../../lib/design-system";
 
 type TabId = "dashboard" | "targets" | "tasks" | "grading" | "live";
@@ -180,7 +183,7 @@ export function CompetitionDetailPage() {
       const res = await api.competitionsDashboard(id, {
         date_from: dashRange.start,
         date_to: dashRange.end,
-        leaderboard_mode: leaderboardMode,
+        leaderboard_mode: "all",
       });
       setDashboard(res);
     } catch (e) {
@@ -188,7 +191,7 @@ export function CompetitionDetailPage() {
     } finally {
       setDashboardLoading(false);
     }
-  }, [id, dashRange.start, dashRange.end, leaderboardMode]);
+  }, [id, dashRange.start, dashRange.end]);
 
   const comp = data?.competition as Record<string, unknown> | undefined;
   const category = String(comp?.category ?? "recitation");
@@ -233,13 +236,6 @@ export function CompetitionDetailPage() {
   const logs = (data?.logs as Array<Record<string, unknown>>) ?? [];
   const kpis = (dashboard?.kpis ?? {}) as Record<string, number>;
   const leaders = (dashboard?.leaders ?? []) as CompetitionLeaderRow[];
-  const filteredLeaders = useMemo(
-    () =>
-      leaders.filter((l) =>
-        matchesArabicName(leaderSearch, l.full_name_ar ?? `طالب #${l.student_id}`),
-      ),
-    [leaders, leaderSearch],
-  );
   const scopeLabel = useMemo(
     () =>
       resolveCompetitionScopeLabel(
@@ -253,6 +249,17 @@ export function CompetitionDetailPage() {
   const isNewMemorization = category === "new_memorization";
   const isReview = category === "review";
   const isRecitation = isRecitationCategory(category);
+  const rankedLeaders = useMemo(
+    () => sortLeadersByAchievement(leaders, isRecitation),
+    [leaders, isRecitation],
+  );
+  const filteredLeaders = useMemo(
+    () =>
+      rankedLeaders.filter((l) =>
+        matchesArabicName(leaderSearch, l.full_name_ar ?? `طالب #${l.student_id}`),
+      ),
+    [rankedLeaders, leaderSearch],
+  );
   const canCloseWithoutSync =
     (isReview || category === "recitation") && comp?.status !== "closed";
 
@@ -746,8 +753,8 @@ export function CompetitionDetailPage() {
                     onLeaderboardModeChange={setLeaderboardMode}
                     leaderSearch={leaderSearch}
                     onLeaderSearchChange={setLeaderSearch}
-                    leaders={filteredLeaders}
-                  />
+                      leaders={filteredLeaders}
+                    />
                   {printLeaderboardMount ? (
                     <CompetitionLeaderboardPrint
                       competitionName={String(comp.name_ar)}
@@ -755,7 +762,7 @@ export function CompetitionDetailPage() {
                       dateTo={dashRange.end}
                       scopeLabel={scopeLabel}
                       isRecitation={isRecitation}
-                      leaders={filteredLeaders}
+                      leaders={rankedLeaders}
                     />
                   ) : null}
                 </>

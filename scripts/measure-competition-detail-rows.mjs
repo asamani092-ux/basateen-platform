@@ -1,24 +1,21 @@
 /**
- * تحليل عدد صفوف DOM للمنافسة — O(1) عرض بعد الترقيم
+ * تحليل عدد صفوف DOM للمنافسة — O(batchSize) عرض بعد دمج الجدولين
  * التشغيل: node scripts/measure-competition-detail-rows.mjs
  */
 const STUDENTS = 150;
-const PAGE_SIZE = 25;
+const BATCH_SIZE = 20;
 
 const beforeRecitationRows = STUDENTS;
 const beforeLeaderboardRows = STUDENTS;
 const beforeTotal = beforeRecitationRows + beforeLeaderboardRows;
 
-const afterRecitationRows = Math.min(PAGE_SIZE, STUDENTS);
-const afterLeaderboardRows = Math.min(PAGE_SIZE, STUDENTS);
-const afterScreenTotal = afterRecitationRows + afterLeaderboardRows;
-const afterNormalPrintRows = 0;
+const afterScreenRows = Math.min(BATCH_SIZE, STUDENTS);
 const afterPrintMountRows = STUDENTS;
 
 const networkOnLoad = [
   "GET /api/edu-dept/competitions/:id (detail)",
   "GET /api/edu-dept/competitions/filter-options (once)",
-  "GET /api/edu-dept/competitions/:id/dashboard (dashboard tab only)",
+  "GET /api/edu-dept/competitions/:id/dashboard?leaderboard_mode=all (dashboard tab only)",
 ];
 const gradingTabRequests = [
   "GET /api/edu-dept/competitions/:id/grading?date=… (single, not per student)",
@@ -28,8 +25,9 @@ console.log(
   JSON.stringify(
     {
       students: STUDENTS,
-      page_size: PAGE_SIZE,
-      approach: "pagination (TablePagination) — bounded O(pageSize) DOM rows",
+      batch_size: BATCH_SIZE,
+      approach:
+        "single ranked table + cumulativeBatchSlice (عرض المزيد) — O(batchSize) DOM rows",
       before: {
         recitation_table_rows: beforeRecitationRows,
         leaderboard_table_rows: beforeLeaderboardRows,
@@ -37,10 +35,9 @@ console.log(
         print_copy_mounted: true,
       },
       after: {
-        screen_recitation_rows: afterRecitationRows,
-        screen_leaderboard_rows: afterLeaderboardRows,
-        screen_total_rows: afterScreenTotal,
-        print_rows_while_viewing: afterNormalPrintRows,
+        screen_table_rows: afterScreenRows,
+        screen_total_rows: afterScreenRows,
+        print_rows_while_viewing: 0,
         print_rows_during_print_action: afterPrintMountRows,
       },
       network: {

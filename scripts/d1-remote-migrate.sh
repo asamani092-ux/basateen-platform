@@ -132,7 +132,20 @@ read_applied_into() {
 
 d1_query_json() {
   local sql="$1"
-  npx wrangler d1 execute basateen --remote --yes --command "$sql" --json 2>/dev/null
+  # لا تُخفِ أخطاء wrangler — فشل الاستعلام كان يُرجع unknown ويُبقي صف تتبع كاذب
+  npx wrangler d1 execute basateen --remote --yes --command "$sql" --json
+}
+
+# ترحيلات لها فحص أثر صريح في migration_effect_status (ليست trusted)
+has_guarded_effect_check() {
+  case "$1" in
+    033_edu_central_event_weights.sql|062_stage_id_backfill.sql|066_semester_plans_columns.sql|067_teacher_competition_task_types.sql|068_student_semester_plans_multi.sql|069_plan_daily_followup.sql)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 # يتحقق من أثر الترحيل على المخطط (ليس مجرد صف في جدول التتبع)
@@ -141,7 +154,7 @@ d1_query_json() {
 #
 # صيانة إلزامية: كل ترحيل جديد (066+) يجب إضافة case هنا بفحص أثر المخطط.
 # بدون case يُعاد unverified ويُعامل كـ «غير مطبّق» في reconcile — لا يُقبل أبداً كمطبّق.
-# unknown = فحص موجود لكن الاستعلام فشل — لا يُفسَّر كمطبّق ولا يُزال الصف (المسار السعيد).
+# unknown = فحص موجود لكن الاستعلام/التحليل فشل — يُزال الصف للترحيلات المحروسة (لا يُبقى تتبع كاذب).
 migration_effect_status() {
   local file="$1"
   case "$file" in
@@ -290,6 +303,9 @@ reconcile_tracking_with_schema() {
   local status
   for f in "${applied_files[@]}"; do
     status="$(migration_effect_status "$f" | tr -d '[:space:]')"
+    if has_guarded_effect_check "$f"; then
+      echo "  effect-check: $f => $status" >&2
+    fi
     if [[ "$status" == "missing" ]]; then
       echo "  unmark false-applied: $f (schema effect missing)" >&2
       unrecord_migration "$f"
@@ -297,7 +313,12 @@ reconcile_tracking_with_schema() {
       echo "  unmark unverified: $f (no effect check — add migration_effect_status case)" >&2
       unrecord_migration "$f"
     elif [[ "$status" == "unknown" ]]; then
-      echo "  skip reconcile: $f (effect check inconclusive)" >&2
+      if has_guarded_effect_check "$f"; then
+        echo "  unmark inconclusive: $f (guarded effect check failed — will re-apply)" >&2
+        unrecord_migration "$f"
+      else
+        echo "  skip reconcile: $f (effect check inconclusive, not guarded)" >&2
+      fi
     fi
   done
 }
@@ -504,6 +525,14 @@ case "$MODE" in
   apply-pending)
     apply_pending || exit 1
     ;;
+  effect-status)
+    # إثبات: migration_effect_status لملف واحد (مثال: 033_edu_central_event_weights.sql)
+    if [[ -z "${2:-}" ]]; then
+      echo "Usage: $0 effect-status <migration_file.sql>" >&2
+      exit 1
+    fi
+    migration_effect_status "$2"
+    ;;
   bootstrap-tracking)
     bootstrap_tracking
     ;;
@@ -549,7 +578,7 @@ case "$MODE" in
     node "$API_DIR/scripts/migrate-069-remote.mjs"
     ;;
   *)
-    echo "Usage: $0 upgrade|all|demo|apply-pending|bootstrap-tracking|048|061|062|063|064|065|066|067|068|069|..." >&2
+    echo "Usage: $0 upgrade|all|demo|apply-pending|effect-status|bootstrap-tracking|048|061|062|063|064|065|066|067|068|069|..." >&2
     exit 1
     ;;
 esac

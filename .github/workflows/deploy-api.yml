@@ -52,7 +52,13 @@ jobs:
           chmod +x scripts/d1-remote-migrate.sh
           echo "=== _migrations_applied BEFORE ==="
           (cd apps/api && npx wrangler d1 execute basateen --remote --yes --command "SELECT * FROM _migrations_applied ORDER BY name;" --json) || true
+          echo "=== PRAGMA table_info(edu_settings) BEFORE ==="
+          (cd apps/api && npx wrangler d1 execute basateen --remote --yes --command "PRAGMA table_info(edu_settings);" --json)
+          echo "=== migration_effect_status 033 (raw) ==="
+          ./scripts/d1-remote-migrate.sh effect-status 033_edu_central_event_weights.sql
           ./scripts/d1-remote-migrate.sh apply-pending
+          echo "=== PRAGMA table_info(edu_settings) AFTER ==="
+          (cd apps/api && npx wrangler d1 execute basateen --remote --yes --command "PRAGMA table_info(edu_settings);" --json)
           echo "=== PRAGMA table_info(student_semester_plans) ==="
           (cd apps/api && npx wrangler d1 execute basateen --remote --yes --command "PRAGMA table_info(student_semester_plans);" --json)
           echo "=== PRAGMA index_list(student_semester_plans) ==="

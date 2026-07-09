@@ -35,11 +35,23 @@ const PLAN_KINDS = [
   { value: "tilawa", label: "تلوة وتجويد" },
 ] as const;
 
+export type PlanWizardSeed = {
+  id?: number;
+  plan_kind?: string;
+  daily_hifz_pages?: number;
+  daily_muraja_pages?: number;
+  daily_rabt_faces?: number;
+  repeat_target?: number;
+  duration_weeks?: number | null;
+};
+
 type Props = {
   student: StudentRow;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
+  /** عند التعديل — يُمرَّر صف الخطة المستهدفة دون تغيير توقيع المكوّن الأساسي */
+  editPlan?: PlanWizardSeed | null;
 };
 
 export function PlanWizardDialog({
@@ -47,6 +59,7 @@ export function PlanWizardDialog({
   open,
   onOpenChange,
   onSaved,
+  editPlan = null,
 }: Props) {
   const canSave = Boolean(getApiToken()) || isUiDevPreview();
   const [calendar, setCalendar] = useState<SemesterCalendar | null>(null);
@@ -55,6 +68,7 @@ export function PlanWizardDialog({
   const [dailyMuraja, setDailyMuraja] = useState("0.5");
   const [dailyRabt, setDailyRabt] = useState("2");
   const [repeatTarget, setRepeatTarget] = useState("3");
+  const [durationWeeks, setDurationWeeks] = useState("2");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -63,24 +77,62 @@ export function PlanWizardDialog({
     try {
       const res = await api.teacherPlanGet(student.id);
       setCalendar(res.calendar);
-      if (res.plan) {
-        setPlanKind(String(res.plan.plan_kind ?? "combined"));
-        setDailyHifz(String(res.plan.daily_hifz_pages ?? "0.5"));
-        setDailyMuraja(String(res.plan.daily_muraja_pages ?? "0.5"));
-        setDailyRabt(String(res.plan.daily_rabt_faces ?? "2"));
-        setRepeatTarget(String(res.plan.repeat_target ?? "3"));
+      const seed =
+        editPlan ??
+        (res.plan
+          ? {
+              id: Number(res.plan.id),
+              plan_kind: String(res.plan.plan_kind ?? "combined"),
+              daily_hifz_pages: Number(res.plan.daily_hifz_pages),
+              daily_muraja_pages: Number(res.plan.daily_muraja_pages),
+              daily_rabt_faces: Number(res.plan.daily_rabt_faces),
+              repeat_target: Number(res.plan.repeat_target),
+              duration_weeks:
+                res.plan.duration_weeks != null
+                  ? Number(res.plan.duration_weeks)
+                  : null,
+            }
+          : null);
+      if (seed && editPlan) {
+        setPlanKind(String(seed.plan_kind ?? "combined"));
+        setDailyHifz(String(seed.daily_hifz_pages ?? "0.5"));
+        setDailyMuraja(String(seed.daily_muraja_pages ?? "0.5"));
+        setDailyRabt(String(seed.daily_rabt_faces ?? "2"));
+        setRepeatTarget(String(seed.repeat_target ?? "3"));
+        setDurationWeeks(String(seed.duration_weeks && seed.duration_weeks > 0 ? seed.duration_weeks : 2));
+      } else if (!editPlan) {
+        setPlanKind("combined");
+        setDailyHifz("0.5");
+        setDailyMuraja("0.5");
+        setDailyRabt("2");
+        setRepeatTarget("3");
+        setDurationWeeks("2");
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "تعذّر تحميل الخطة");
     }
-  }, [canSave, student.id]);
+  }, [canSave, student.id, editPlan]);
 
   useEffect(() => {
     if (open) {
       setError(null);
+      if (editPlan) {
+        setPlanKind(String(editPlan.plan_kind ?? "combined"));
+        setDailyHifz(String(editPlan.daily_hifz_pages ?? "0.5"));
+        setDailyMuraja(String(editPlan.daily_muraja_pages ?? "0.5"));
+        setDailyRabt(String(editPlan.daily_rabt_faces ?? "2"));
+        setRepeatTarget(String(editPlan.repeat_target ?? "3"));
+        setDurationWeeks(
+          String(
+            editPlan.duration_weeks && editPlan.duration_weeks > 0
+              ? editPlan.duration_weeks
+              : 2,
+          ),
+        );
+      }
       void load();
     }
-  }, [open, load]);
+  }, [open, load, editPlan]);
 
   const inputs = useMemo(
     () => ({
@@ -92,6 +144,8 @@ export function PlanWizardDialog({
     [dailyHifz, dailyMuraja, dailyRabt, repeatTarget],
   );
 
+  const weeks = Math.max(1, Math.floor(Number(durationWeeks) || 0));
+
   const estimate: PlanEstimate | null = useMemo(() => {
     if (!calendar) return null;
     return estimatePlan(calendar, inputs);
@@ -99,17 +153,28 @@ export function PlanWizardDialog({
 
   async function save() {
     if (!canSave) return;
+    if (!Number.isFinite(weeks) || weeks < 1) {
+      setError("أدخل مدة الخطة بالأسابيع (رقم صحيح ≥ 1).");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      await api.teacherPlanSave(student.id, {
+      const body: Record<string, unknown> = {
         plan_kind: planKind,
         daily_hifz_pages: inputs.daily_hifz_pages,
         daily_muraja_pages: inputs.daily_muraja_pages,
         daily_rabt_faces: inputs.daily_rabt_faces,
         repeat_target: inputs.repeat_target,
-        wizard_json: { plan_kind: planKind },
-      });
+        duration_weeks: weeks,
+        wizard_json: { plan_kind: planKind, duration_weeks: weeks },
+      };
+      if (editPlan?.id != null) {
+        body.plan_id = editPlan.id;
+        await api.teacherPlanSave(student.id, body);
+      } else {
+        await api.teacherPlanSave(student.id, body);
+      }
       onSaved();
       onOpenChange(false);
     } catch (e) {
@@ -119,15 +184,18 @@ export function PlanWizardDialog({
     }
   }
 
+  const isEdit = editPlan?.id != null;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle style={tajawal}>خطة الفصل — {student.full_name_ar}</DialogTitle>
+          <DialogTitle style={tajawal}>
+            {isEdit ? "تعديل الخطة" : "خطة جديدة"} — {student.full_name_ar}
+          </DialogTitle>
           <DialogDescription style={tajawal}>
-            حاسبة ذكية مبنية على {calendar?.semester_weeks ?? "—"} أسبوعاً و{" "}
-            {calendar?.school_days?.length ?? "—"} أيام دراسة أسبوعياً (
-            {calendar?.teaching_days_total ?? "—"} يوماً فعلياً).
+            حدّد نوع الخطة ومدتها بالأسابيع والمقدار اليومي. تاريخ الانتهاء يُحسب
+            تلقائياً من تاريخ الإنشاء (توقيت الرياض).
           </DialogDescription>
         </DialogHeader>
 
@@ -146,6 +214,21 @@ export function PlanWizardDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="space-y-1">
+            <Label style={tajawal}>مدة الخطة (أسابيع)</Label>
+            <Input
+              type="number"
+              min={1}
+              step={1}
+              value={durationWeeks}
+              onChange={(e) => setDurationWeeks(e.target.value)}
+              className={ds.btnRound}
+            />
+            <p className="text-xs text-muted-foreground" style={tajawal}>
+              مثال: أسبوعان = 14 يوماً من تاريخ الإنشاء.
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -206,8 +289,7 @@ export function PlanWizardDialog({
                 {estimate.summary_ar}
               </p>
               <p className="text-xs text-muted-foreground" style={tajawal}>
-                التكرار المستهدف: {repeatTarget} مرات — عدّل الأرقام قبل التأكيد لتناسب
-                قدرة الطالب.
+                المدة: {weeks} أسبوع — عدّل الأرقام قبل التأكيد لتناسب قدرة الطالب.
               </p>
             </div>
           )}
@@ -236,7 +318,7 @@ export function PlanWizardDialog({
             onClick={() => void save()}
             style={tajawal}
           >
-            {saving ? "جاري الحفظ…" : "تأكيد الخطة"}
+            {saving ? "جاري الحفظ…" : isEdit ? "حفظ التعديل" : "تأكيد الخطة"}
           </Button>
         </DialogFooter>
       </DialogContent>

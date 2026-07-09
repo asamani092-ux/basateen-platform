@@ -1942,6 +1942,29 @@ export function resolveDevPreviewMock<T>(
     } as T;
   }
 
+  const teacherPlanById = p.match(/^\/api\/teacher\/plans\/by-id\/(\d+)$/);
+  if (teacherPlanById) {
+    const planId = Number(teacherPlanById[1]);
+    if (m === "DELETE") {
+      const res = teacherPreviewStore.deletePlan(planId);
+      if (!res) return { error: "not_found" } as T;
+      return res as T;
+    }
+    if (m === "PATCH") {
+      const body = bodyText ? JSON.parse(bodyText) : {};
+      const existing = teacherPreviewStore
+        .listPlans()
+        .find((x) => x.id === planId);
+      if (!existing) return { error: "not_found" } as T;
+      const res = teacherPreviewStore.savePlan(existing.student_id, {
+        ...body,
+        plan_id: planId,
+      });
+      if (!res) return { error: "not_found" } as T;
+      return res as T;
+    }
+  }
+
   const teacherPlanMatch = p.match(/^\/api\/teacher\/plans\/(\d+)$/);
   if (teacherPlanMatch) {
     const sid = Number(teacherPlanMatch[1]);

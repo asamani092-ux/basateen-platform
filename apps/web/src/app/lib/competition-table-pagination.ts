@@ -1,6 +1,9 @@
 /** حجم الصفحة الافتراضي لجداول المنافسة — O(1) عرض ثابت بغض النظر عن العدد الكلي */
 export const COMPETITION_TABLE_PAGE_SIZE = 25;
 
+/** دفعة عرض المزيد لجدول ترتيب الطلاب */
+export const COMPETITION_LEADERBOARD_BATCH_SIZE = 20;
+
 export type PaginatedSlice<T> = {
   items: T[];
   page: number;
@@ -29,6 +32,60 @@ export function paginateSlice<T>(
     total_pages,
     has_prev: safePage > 1,
     has_next: safePage < total_pages,
+  };
+}
+
+type LeaderAchievementRow = {
+  full_name_ar?: string;
+  mastery_pct?: number;
+  overall_pct?: number;
+  achievement_pct?: number;
+};
+
+/** نسبة الإنجاز حسب فئة المنافسة — نفس مقياس المحرك */
+export function leaderAchievementPct(
+  row: LeaderAchievementRow,
+  isRecitation: boolean,
+): number {
+  return isRecitation
+    ? (row.mastery_pct ?? 0)
+    : (row.overall_pct ?? row.achievement_pct ?? 0);
+}
+
+/**
+ * O(n log n) — ترتيب تنازلي بالإنجاز؛ عند التعادل: الاسم العربي تصاعدياً (محدّد).
+ */
+export function sortLeadersByAchievement<T extends LeaderAchievementRow>(
+  leaders: T[],
+  isRecitation: boolean,
+): T[] {
+  return [...leaders].sort((a, b) => {
+    const diff =
+      leaderAchievementPct(b, isRecitation) - leaderAchievementPct(a, isRecitation);
+    if (diff !== 0) return diff;
+    const nameA = a.full_name_ar ?? "";
+    const nameB = b.full_name_ar ?? "";
+    return nameA.localeCompare(nameB, "ar");
+  });
+}
+
+/** O(n) — شريحة تراكمية لدفعات عرض المزيد (تعتمد paginateSlice للبيانات الوصفية) */
+export function cumulativeBatchSlice<T>(
+  items: T[],
+  batches: number,
+  batchSize = COMPETITION_LEADERBOARD_BATCH_SIZE,
+): PaginatedSlice<T> & { has_more: boolean } {
+  const meta = paginateSlice(items, 1, batchSize);
+  const visibleCount = Math.min(batches * batchSize, items.length);
+  return {
+    items: items.slice(0, visibleCount),
+    page: batches,
+    page_size: batchSize,
+    total: meta.total,
+    total_pages: meta.total_pages,
+    has_prev: batches > 1,
+    has_next: visibleCount < meta.total,
+    has_more: visibleCount < meta.total,
   };
 }
 

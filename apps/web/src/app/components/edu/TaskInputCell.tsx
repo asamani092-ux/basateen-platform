@@ -1,6 +1,7 @@
-import { Minus, Plus } from "lucide-react";
+import { Check, Minus, Plus } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { cn } from "../ui/utils";
 import {
   defaultInputTypeFromTaskType,
   type TaskInputType,
@@ -37,21 +38,39 @@ export function TaskInputCell({
   compact,
 }: Props) {
   const inputType = resolveTaskInputType(task);
-  const btnClass = compact ? "h-7 w-7 rounded-full" : "h-12 w-12 rounded-full";
-  const iconClass = compact ? "w-3 h-3" : "w-6 h-6";
+  /** بصرياً أصغر مع هدف لمس ≥ 44px عبر منطقة الضغط */
+  const btnClass = compact
+    ? "h-7 w-7 min-h-11 min-w-11 rounded-lg p-0"
+    : "h-8 w-8 min-h-11 min-w-11 rounded-lg p-0";
+  const iconClass = compact ? "size-3" : "size-3.5";
 
   if (inputType === "boolean") {
     const checked = value > 0;
     return (
-      <div className="flex flex-col items-center gap-1">
-        <input
-          type="checkbox"
-          checked={checked}
-          disabled={disabled}
-          onChange={(e) => onChange(e.target.checked ? 1 : 0)}
-          className="size-5 rounded border-border cursor-pointer disabled:opacity-50"
+      <div className="flex flex-col items-center gap-0.5">
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={checked}
           aria-label={task.name_ar}
-        />
+          disabled={disabled}
+          onClick={() => onChange(checked ? 0 : 1)}
+          className={cn(
+            "inline-flex h-7 w-7 min-h-11 min-w-11 items-center justify-center rounded-md border transition-colors touch-manipulation",
+            checked
+              ? "border-primary bg-primary text-primary-foreground"
+              : "border-input bg-background text-muted-foreground hover:border-primary/40",
+            disabled && "pointer-events-none opacity-50",
+          )}
+        >
+          <Check
+            className={cn(
+              "size-3.5 transition-opacity",
+              checked ? "opacity-100" : "opacity-0",
+            )}
+            strokeWidth={2.5}
+          />
+        </button>
         {checked && (
           <span className="text-[10px] text-success tabular-nums">+{task.weight}</span>
         )}
@@ -68,7 +87,7 @@ export function TaskInputCell({
         disabled={disabled}
         value={Number.isFinite(value) ? value : 0}
         onChange={(e) => onChange(Number(e.target.value) || 0)}
-        className={`h-8 w-20 mx-auto text-center text-sm tabular-nums ${compact ? "" : "max-w-[6rem]"}`}
+        className={`h-8 w-16 mx-auto text-center text-sm tabular-nums ${compact ? "" : "max-w-[5.5rem]"}`}
         aria-label={task.name_ar}
       />
     );
@@ -78,8 +97,8 @@ export function TaskInputCell({
   const totalPenalty = count * task.weight;
 
   return (
-    <div className="flex flex-col items-center gap-1">
-      <div className="flex items-center justify-center gap-1">
+    <div className="flex flex-col items-center gap-0.5">
+      <div className="flex items-center justify-center gap-0.5">
         <Button
           type="button"
           size="icon"
@@ -92,7 +111,7 @@ export function TaskInputCell({
           <Minus className={iconClass} />
         </Button>
         <span
-          className={`text-center font-semibold tabular-nums ${compact ? "w-6 text-sm" : "w-10 text-2xl"}`}
+          className={`text-center font-semibold tabular-nums ${compact ? "w-5 text-xs" : "w-6 text-sm"}`}
         >
           {count}
         </span>

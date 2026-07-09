@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { todayRiyadhIso } from "../../lib/today-riyadh-iso";
-import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import {
+  formatGregorianAr,
+  formatHijriUmalqura,
+  todayRiyadhIso,
+} from "../../lib/today-riyadh-iso";
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { GuardedForm } from "../../components/ui/guarded-form";
 import {
   Check,
@@ -297,6 +306,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
     },
     enabled: canUseApi(),
     staleTime: 60_000,
+    placeholderData: keepPreviousData,
   });
 
   const criteria = useMemo(
@@ -369,7 +379,10 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
     if (studentsQuery.isSuccess) setError(null);
   }, [studentsQuery.isSuccess, studentsQuery.dataUpdatedAt]);
 
+  /** هيكل الجدول يبقى ظاهراً عند تبديل التاريخ — لا يُفرَّغ إلا عند أول تحميل */
   const loading = studentsQuery.isPending && !studentsQuery.data;
+  const dateRefreshing =
+    studentsQuery.isFetching && Boolean(studentsQuery.data);
 
   function patchTaskScore(studentId: number, taskId: string, value: boolean | number) {
     setRows((prev) =>
@@ -609,18 +622,43 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
             </select>
           </div>
         )}
-        <div className="space-y-1 w-full md:max-w-xs">
+        <div className="space-y-1 w-full md:max-w-sm">
           <Label style={tajawal}>التاريخ</Label>
-          <Input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className={ds.btnRound}
-          />
+          <div
+            className={cn(
+              "flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-2.5 py-1.5",
+              dateRefreshing && "opacity-80",
+            )}
+          >
+            <Input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className={cn(
+                ds.btnRound,
+                "h-9 w-[9.5rem] shrink-0 border-0 bg-transparent px-1 shadow-none focus-visible:ring-1",
+              )}
+              aria-label="التاريخ الميلادي"
+            />
+            <div className="min-w-0 flex-1 leading-tight">
+              <p className="text-xs font-medium text-foreground truncate" style={tajawal}>
+                {formatGregorianAr(date)}
+              </p>
+              <p className="text-[11px] text-muted-foreground truncate" style={tajawal}>
+                {formatHijriUmalqura(date)}
+              </p>
+            </div>
+            {dateRefreshing && (
+              <Loader2
+                className="size-3.5 shrink-0 animate-spin text-primary"
+                aria-label="جاري تحديث التاريخ"
+              />
+            )}
+          </div>
         </div>
       </div>
 
-      <div className={ds.card}>
+      <div className={cn(ds.card, dateRefreshing && "relative")}>
         {loading ? (
           <RecitationTableSkeleton showFilters={false} columns={editableCriteria.length || 4} />
         ) : isBroadSupervisor && circleId == null ? (
@@ -695,6 +733,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                                 taskCol={criterionToTaskCol(c, idx)}
                                 value={r.task_scores[c.id]}
                                 onChange={(v) => patchTaskScore(r.student_id, c.id, v)}
+                                compact
                               />
                             </TableCell>
                           ))}
@@ -1104,23 +1143,23 @@ function MobileBooleanToggle({
   return (
     <button
       type="button"
-      role="switch"
+      role="checkbox"
       aria-checked={checked}
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
-        "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-all duration-200 touch-manipulation",
+        "inline-flex h-7 w-7 min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md border transition-colors touch-manipulation",
         checked
-          ? "border-secondary bg-secondary text-secondary-foreground shadow-sm"
-          : "border-input bg-input-background text-muted-foreground hover:border-border hover:bg-muted/50",
+          ? "border-primary bg-primary text-primary-foreground"
+          : "border-input bg-background text-muted-foreground hover:border-primary/40",
         disabled && "pointer-events-none opacity-50",
       )}
     >
       <Check
         className={cn(
-          "size-4 transition-all duration-200",
-          checked ? "scale-100 opacity-100" : "scale-75 opacity-0",
+          "size-3.5 transition-opacity",
+          checked ? "opacity-100" : "opacity-0",
         )}
         strokeWidth={2.5}
       />
@@ -1141,28 +1180,28 @@ function MobileCounterInput({
 }) {
   const count = Math.max(0, Math.round(value));
   return (
-    <div className="inline-flex shrink-0 items-center gap-1" aria-label={label}>
+    <div className="inline-flex shrink-0 items-center gap-0.5" aria-label={label}>
       <Button
         type="button"
         size="icon"
         variant="outline"
-        className="h-8 w-8 rounded-lg"
+        className="h-7 w-7 min-h-11 min-w-11 rounded-lg p-0"
         disabled={disabled || count <= 0}
         onClick={() => onChange(count - 1)}
         aria-label="إنقاص"
       >
-        <Minus className="size-3.5" />
+        <Minus className="size-3" />
       </Button>
-      <span className="w-7 text-center text-sm font-semibold tabular-nums">{count}</span>
+      <span className="w-5 text-center text-xs font-semibold tabular-nums">{count}</span>
       <Button
         type="button"
         size="icon"
-        className="h-8 w-8 rounded-lg"
+        className="h-7 w-7 min-h-11 min-w-11 rounded-lg p-0"
         disabled={disabled}
         onClick={() => onChange(count + 1)}
         aria-label="زيادة"
       >
-        <Plus className="size-3.5" />
+        <Plus className="size-3" />
       </Button>
     </div>
   );

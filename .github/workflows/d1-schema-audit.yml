@@ -3,6 +3,11 @@ name: D1 Schema Audit (read-only)
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/audit-migrations-readonly.mjs"
+      - ".github/workflows/d1-schema-audit.yml"
 
 concurrency:
   group: d1-schema-audit

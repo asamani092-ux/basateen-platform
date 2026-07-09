@@ -874,6 +874,8 @@ export function resolveDevPreviewMock<T>(
   if (p === "/api/edu-dept/teacher-competitions" && m === "GET") {
     return {
       items: [{ id: 1, name_ar: "منافسة رمضان", start_date: date, end_date: null, created_at: date }],
+      circle_id: 1,
+      circle_name: "حلقة الصديق",
     } as T;
   }
   if (p === "/api/edu-dept/teacher-competitions" && m === "POST") {
@@ -906,6 +908,8 @@ export function resolveDevPreviewMock<T>(
       ],
       students: students.map((s) => ({ id: s.id, full_name_ar: s.full_name_ar })),
       scores: [],
+      circle_id: 1,
+      circle_name: "حلقة الصديق",
     } as T;
   }
   const tcTask = p.match(/^\/api\/edu-dept\/teacher-competitions\/(\d+)\/tasks$/);

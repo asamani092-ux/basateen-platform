@@ -427,6 +427,7 @@ export async function handleEduDeptMegaRouter(
         students,
         scores,
         circle_id: circle?.id ?? null,
+        circle_name: circle?.name_ar ?? null,
       });
     }
 

@@ -260,7 +260,7 @@ export const TEACHER_TASK_TYPE_OPTIONS: Array<{ value: TaskType; label: string }
 ];
 
 export const TEACHER_TASK_INPUT_OPTIONS: Array<{ value: TaskInputType; label: string }> = [
-  { value: "boolean", label: "تشيك بوكس" },
+  { value: "boolean", label: "مربع اختيار" },
   { value: "numeric", label: "عدد نقاط" },
   { value: "counter", label: "عدد أوجه" },
 ];

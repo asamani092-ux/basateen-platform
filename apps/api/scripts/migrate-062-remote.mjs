@@ -2,17 +2,17 @@
 /**
  * 062 remote: stage_id backfill artifacts (guarded re-apply)
  *
+ * السبب الجذري: الملف التاريخي 062 يتضمّن UPDATE يعتمد track_stages غير موجود في الإنتاج.
+ * نُطبّق فقط الأثر الناقص المؤكَّد: stage_id_review_queue + idx_students_stage_complex.
+ *
  * Usage (from apps/api): node scripts/migrate-062-remote.mjs
  */
 import { execSync } from "node:child_process";
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const apiDir = path.dirname(fileURLToPath(import.meta.url));
 const apiRoot = path.resolve(apiDir, "..");
-const schemaRoot = path.resolve(apiRoot, "../../packages/database/schema");
 const remote = "--remote --yes";
 
 function queryJson(sql) {
@@ -41,6 +41,10 @@ function indexExists(name) {
   );
 }
 
+function columnExists(table, column) {
+  return queryJson(`PRAGMA table_info(${table})`).some((r) => r.name === column);
+}
+
 function runCommand(sql) {
   execSync(
     `npx wrangler d1 execute basateen ${remote} --command ${JSON.stringify(sql)}`,
@@ -48,39 +52,46 @@ function runCommand(sql) {
   );
 }
 
-function runFile(sqlText) {
-  const tmp = path.join(os.tmpdir(), `migrate-062-${Date.now()}.sql`);
-  fs.writeFileSync(tmp, sqlText, "utf8");
-  try {
-    execSync(`npx wrangler d1 execute basateen ${remote} --file=${tmp}`, {
-      cwd: apiRoot,
-      stdio: "inherit",
-      env: process.env,
-    });
-  } finally {
-    try {
-      fs.unlinkSync(tmp);
-    } catch {
-      /* ignore */
-    }
-  }
-}
-
-console.log("\n>>> 062 stage_id_backfill (guarded)");
-
-const fullSql = fs.readFileSync(
-  path.join(schemaRoot, "062_stage_id_backfill.sql"),
-  "utf8",
-);
+console.log("\n>>> 062 stage_id_backfill (guarded — schema artifacts only)");
 
 if (!tableExists("stage_id_review_queue")) {
-  console.log("apply 062 SQL (review queue + index missing)");
-  runFile(fullSql);
-} else if (!indexExists("idx_students_stage_complex")) {
-  console.log("apply 062 SQL (index missing)");
-  runFile(fullSql);
+  console.log("create table stage_id_review_queue");
+  runCommand(`CREATE TABLE IF NOT EXISTS stage_id_review_queue (
+    entity_type TEXT NOT NULL CHECK (entity_type IN ('student', 'circle', 'track')),
+    entity_id INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    flagged_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (entity_type, entity_id)
+  )`);
 } else {
-  console.log("skip 062 body — artifacts present");
+  console.log("skip table stage_id_review_queue (exists)");
+}
+
+if (tableExists("students") && columnExists("students", "stage_id")) {
+  console.log("seed review queue — students missing stage_id");
+  runCommand(`INSERT OR IGNORE INTO stage_id_review_queue (entity_type, entity_id, reason)
+    SELECT 'student', id, 'missing stage_id after backfill'
+    FROM students WHERE stage_id IS NULL`);
+} else {
+  console.log("skip student review queue seed (table/column missing)");
+}
+
+if (tableExists("circles") && columnExists("circles", "stage_id")) {
+  console.log("seed review queue — circles missing stage_id");
+  runCommand(`INSERT OR IGNORE INTO stage_id_review_queue (entity_type, entity_id, reason)
+    SELECT 'circle', id, 'missing stage_id after backfill'
+    FROM circles WHERE stage_id IS NULL`);
+} else {
+  console.log("skip circle review queue seed (table/column missing)");
+}
+
+if (!indexExists("idx_students_stage_complex")) {
+  console.log("create index idx_students_stage_complex");
+  runCommand(
+    "CREATE INDEX IF NOT EXISTS idx_students_stage_complex ON students(stage_id, complex_id) WHERE stage_id IS NOT NULL",
+  );
+} else {
+  console.log("skip index idx_students_stage_complex (exists)");
 }
 
 runCommand(

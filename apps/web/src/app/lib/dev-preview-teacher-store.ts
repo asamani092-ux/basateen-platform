@@ -28,8 +28,13 @@ type PlanRow = {
 };
 
 const plans = new Map<number, PlanRow>();
+const planDays = new Map<string, { day_date: string; completed: number }>();
 let planSeq = 1;
 const marks = new Map<string, { metrics: DailyMetrics; score: number }>();
+
+function planDayKey(planId: number, dayDate: string) {
+  return `${planId}:${dayDate}`;
+}
 
 function markKey(studentId: number, date: string) {
   return `${studentId}:${date}`;
@@ -185,7 +190,91 @@ export const teacherPreviewStore = {
     const prev = plans.get(planId);
     if (!prev) return null;
     plans.set(planId, { ...prev, is_active: 0 });
-    return { ok: true, id: planId };
+    return { ok: true, id: planId, closed: true };
+  },
+
+  permanentDeletePlan(planId: number) {
+    const prev = plans.get(planId);
+    if (!prev) return null;
+    for (const key of [...planDays.keys()]) {
+      if (key.startsWith(`${planId}:`)) planDays.delete(key);
+    }
+    plans.delete(planId);
+    return { ok: true, id: planId, deleted: true };
+  },
+
+  listPlanDays(planId: number) {
+    const plan = plans.get(planId);
+    if (!plan) return null;
+    const days = [...planDays.entries()]
+      .filter(([k]) => k.startsWith(`${planId}:`))
+      .map(([, v]) => v);
+    const completed = days.filter((d) => d.completed === 1).length;
+    return {
+      plan_id: planId,
+      starts_at: plan.starts_at,
+      ends_at: plan.ends_at,
+      rest_days: "friday_saturday",
+      total_working_days: 10,
+      completed_days: completed,
+      days,
+    };
+  },
+
+  upsertPlanDays(
+    planId: number,
+    entries: Array<{ day_date?: string; completed?: boolean | number }>,
+  ) {
+    const plan = plans.get(planId);
+    if (!plan) return null;
+    for (const entry of entries) {
+      const dayDate = String(entry.day_date ?? "").slice(0, 10);
+      if (!dayDate) continue;
+      planDays.set(planDayKey(planId, dayDate), {
+        day_date: dayDate,
+        completed: entry.completed ? 1 : 0,
+      });
+    }
+    const days = [...planDays.entries()]
+      .filter(([k]) => k.startsWith(`${planId}:`))
+      .map(([, v]) => v);
+    const completed = days.filter((d) => d.completed === 1).length;
+    return {
+      ok: true,
+      plan_id: planId,
+      total_working_days: 10,
+      completed_days: completed,
+    };
+  },
+
+  listPlansReport() {
+    return [...plans.values()].map((p) => {
+      const meta = refreshMeta(p);
+      const daily =
+        (meta.daily_hifz_pages || 0) +
+        (meta.daily_muraja_pages || 0) +
+        (meta.daily_rabt_faces || 0);
+      const completed = [...planDays.entries()].filter(
+        ([k, v]) => k.startsWith(`${meta.id}:`) && v.completed === 1,
+      ).length;
+      const total = 10;
+      const achieved = completed * daily;
+      const target = total * daily;
+      const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+      return {
+        ...meta,
+        rest_days: "friday_saturday",
+        plan_status: meta.is_active ? "active" : "closed",
+        plan_status_ar: meta.is_active ? "نشطة" : "مغلقة",
+        total_working_days: total,
+        completed_days: completed,
+        progress_pct: pct,
+        daily_amount: daily,
+        achieved,
+        target,
+        completion_pct: pct,
+      };
+    });
   },
 
   listMarks(date: string) {

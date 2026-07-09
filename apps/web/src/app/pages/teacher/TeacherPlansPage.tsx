@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BookOpen, CalendarCheck, Pencil, Plus, Trash2 } from "lucide-react";
+import {
+  BookOpen,
+  Lock,
+  Pencil,
+  Plus,
+  Printer,
+  Trash2,
+} from "lucide-react";
 import { Button } from "../../components/ui/button";
 import {
   Card,
@@ -8,11 +15,20 @@ import {
   CardHeader,
   CardTitle,
 } from "../../components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
 import { api, type StudentRow } from "../../lib/api-client";
+import { getAuthUser } from "../../lib/auth-store";
 import { getApiToken } from "../../lib/api-token";
 import { isUiDevPreview } from "../../lib/dev-preview";
 import { ds, tajawal } from "../../lib/design-system";
-import { PlanDaysDialog } from "./PlanDaysDialog";
+import { PlanDayGrid } from "./PlanDayGrid";
 import { PlanWizardDialog, type PlanWizardSeed } from "./PlanWizardDialog";
 
 const PLAN_KIND_LABEL: Record<string, string> = {
@@ -58,6 +74,20 @@ type ReportRow = PlanRow & {
   completion_pct?: number;
 };
 
+function todayLabel(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Riyadh" }).format(
+    new Date(),
+  );
+}
+
+function printPlansReport() {
+  document.body.classList.add("printing-teacher-plans");
+  window.print();
+  window.setTimeout(() => {
+    document.body.classList.remove("printing-teacher-plans");
+  }, 500);
+}
+
 function dailyAmountLabel(p: PlanRow): string {
   if (p.plan_kind === "muraja") return `مراجعة ${p.daily_muraja_pages} ص/يوم`;
   if (p.plan_kind === "tilawa") return `ربط ${p.daily_rabt_faces} وجه/يوم`;
@@ -78,6 +108,7 @@ function countdownLabel(p: PlanRow): string {
 
 export function TeacherPlansPage() {
   const canLoad = Boolean(getApiToken()) || isUiDevPreview();
+  const teacherName = getAuthUser()?.full_name_ar ?? "—";
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [plans, setPlans] = useState<PlanRow[]>([]);
   const [report, setReport] = useState<ReportRow[]>([]);
@@ -85,9 +116,14 @@ export function TeacherPlansPage() {
   const [wizardStudent, setWizardStudent] = useState<StudentRow | null>(null);
   const [editPlan, setEditPlan] = useState<PlanWizardSeed | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
-  const [daysPlan, setDaysPlan] = useState<PlanRow | null>(null);
+  const [busyPlanId, setBusyPlanId] = useState<number | null>(null);
   const [showReport, setShowReport] = useState(false);
+
+  const [closeTarget, setCloseTarget] = useState<PlanRow | null>(null);
+  const [permanentTarget, setPermanentTarget] = useState<PlanRow | null>(null);
+  const [permanentStep, setPermanentStep] = useState<1 | 2>(1);
+  const [permanentDayRecords, setPermanentDayRecords] = useState(0);
+  const [permanentLoading, setPermanentLoading] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -131,6 +167,15 @@ export function TeacherPlansPage() {
     return map;
   }, [plans]);
 
+  const reportCirclesLabel = useMemo(() => {
+    const names = [
+      ...new Set(report.map((r) => r.circle_name).filter(Boolean)),
+    ] as string[];
+    if (names.length === 0) return "—";
+    if (names.length === 1) return names[0];
+    return names.join(" · ");
+  }, [report]);
+
   function openCreate(s: StudentRow) {
     setEditPlan(null);
     setWizardStudent(s);
@@ -150,36 +195,68 @@ export function TeacherPlansPage() {
     setWizardStudent(s);
   }
 
-  async function closePlan(planId: number) {
-    if (!window.confirm("إغلاق هذه الخطة؟ تُحفظ سجلات المتابعة ولا تُحذف.")) return;
-    setDeletingId(planId);
+  async function confirmClosePlan() {
+    if (!closeTarget) return;
+    setBusyPlanId(closeTarget.id);
     setError(null);
     try {
-      await api.teacherPlanDelete(planId);
+      await api.teacherPlanDelete(closeTarget.id);
+      setCloseTarget(null);
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل إغلاق الخطة");
     } finally {
-      setDeletingId(null);
+      setBusyPlanId(null);
+    }
+  }
+
+  async function openPermanentDelete(p: PlanRow) {
+    setPermanentTarget(p);
+    setPermanentStep(1);
+    setPermanentDayRecords(0);
+    setPermanentLoading(true);
+    try {
+      const res = await api.teacherPlanDaysGet(p.id);
+      setPermanentDayRecords((res.days ?? []).length);
+    } catch {
+      setPermanentDayRecords(0);
+    } finally {
+      setPermanentLoading(false);
+    }
+  }
+
+  async function confirmPermanentDelete() {
+    if (!permanentTarget) return;
+    setBusyPlanId(permanentTarget.id);
+    setError(null);
+    try {
+      await api.teacherPlanPermanentDelete(permanentTarget.id);
+      setPermanentTarget(null);
+      setPermanentStep(1);
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "فشل الحذف النهائي");
+    } finally {
+      setBusyPlanId(null);
     }
   }
 
   return (
-    <div className="space-y-4">
-      <Card className={ds.card}>
-        <CardHeader>
+    <div className={ds.pageShell}>
+      <Card className={`${ds.card} print:hidden`}>
+        <CardHeader className="space-y-1.5 pb-4">
           <CardTitle className="flex items-center gap-2" style={tajawal}>
             <BookOpen className="size-5" />
             خطط الفصل — معالج الإعداد
           </CardTitle>
           <CardDescription style={tajawal}>
-            يمكن للطالب أكثر من خطة نشطة في آن واحد. تُحسب أيام العمل باستثناء أيام
+            يمكن للطالب أكثر من خطة نشطة في آن واحد. تُحسب الأيام باستثناء أيام
             العطلة المختارة (افتراضياً الجمعة والسبت).
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           {error && (
-            <p className="text-sm text-destructive mb-3" style={tajawal}>
+            <p className={`${ds.alert.error} text-sm`} style={tajawal}>
               {error}
             </p>
           )}
@@ -192,20 +269,20 @@ export function TeacherPlansPage() {
               لا طلاب في نطاقك حالياً.
             </p>
           ) : (
-            <ul className="space-y-3">
+            <ul className="space-y-4">
               {students.map((s) => {
                 const studentPlans = plansByStudent.get(s.id) ?? [];
                 return (
                   <li
                     key={s.id}
-                    className="border rounded-xl px-3 py-3 space-y-2"
+                    className={`${ds.card} space-y-3 p-3.5`}
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <p className="font-medium text-sm" style={tajawal}>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="min-w-0 space-y-1">
+                        <p className={`${ds.page.data} font-semibold`} style={tajawal}>
                           {s.full_name_ar}
                         </p>
-                        <p className="text-xs text-muted-foreground" style={tajawal}>
+                        <p className={ds.page.caption} style={tajawal}>
                           {s.circle_name ?? "—"}
                           {studentPlans.length === 0 ? " · بلا خطة" : ""}
                         </p>
@@ -214,38 +291,33 @@ export function TeacherPlansPage() {
                         type="button"
                         size="sm"
                         variant="default"
-                        className={ds.btnRound}
+                        className={`${ds.btnRound} ${ds.primaryActionBtn} gap-2`}
                         onClick={() => openCreate(s)}
                         style={tajawal}
                       >
-                        <Plus className="size-3.5" />
+                        <Plus className="size-4" />
                         خطة جديدة
                       </Button>
                     </div>
 
                     {studentPlans.length > 0 && (
-                      <ul className="space-y-1.5">
+                      <ul className="space-y-3">
                         {studentPlans.map((p) => {
                           const expired =
                             Boolean(p.is_expired) ||
                             (p.days_remaining != null && p.days_remaining < 0);
-                          const total = p.total_working_days ?? 0;
-                          const done = p.completed_days ?? 0;
-                          const pct =
-                            p.progress_pct ??
-                            (total > 0 ? Math.round((done / total) * 100) : 0);
                           return (
                             <li
                               key={p.id}
-                              className={`flex flex-col gap-2 rounded-lg border px-2.5 py-2 text-xs ${
+                              className={`space-y-3 rounded-2xl border p-3.5 ${
                                 expired
-                                  ? "border-border/60 bg-muted/40 text-muted-foreground"
-                                  : "border-primary/20 bg-primary/5"
+                                  ? "border-border/70 bg-muted/30 text-muted-foreground"
+                                  : "border-primary/25 bg-primary/5"
                               }`}
                             >
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <div className="min-w-0 space-y-0.5">
-                                  <p className="font-medium" style={tajawal}>
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div className="min-w-0 space-y-1">
+                                  <p className="font-semibold text-sm" style={tajawal}>
                                     {PLAN_KIND_LABEL[p.plan_kind] ?? p.plan_kind}
                                     {" · "}
                                     {dailyAmountLabel(p)}
@@ -253,78 +325,65 @@ export function TeacherPlansPage() {
                                       ? ` · ${p.duration_weeks} أسابيع`
                                       : ""}
                                   </p>
-                                  <p style={tajawal}>{countdownLabel(p)}</p>
+                                  <p className="text-xs" style={tajawal}>
+                                    {countdownLabel(p)}
+                                  </p>
                                   {expired && (
                                     <p
-                                      className="text-destructive font-medium"
+                                      className="text-xs text-destructive font-semibold"
                                       style={tajawal}
                                     >
-                                      انتهت مدة الخطة — اضغط «أغلق الخطة» عند الانتهاء من
-                                      المتابعة.
+                                      انتهت مدة الخطة — اضغط «أغلق الخطة» عند الانتهاء
+                                      من المتابعة.
                                     </p>
                                   )}
                                 </div>
-                                <div className="flex items-center gap-1 shrink-0 flex-wrap">
+                                <div className="flex flex-wrap items-center gap-2 shrink-0">
                                   <Button
                                     type="button"
                                     size="sm"
                                     variant="outline"
-                                    className={`${ds.btnRound} h-8 px-2`}
-                                    onClick={() => setDaysPlan(p)}
-                                    style={tajawal}
-                                    title="متابعة يومية"
-                                  >
-                                    <CalendarCheck className="size-3.5" />
-                                    متابعة
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    className={`${ds.btnRound} h-8 px-2`}
+                                    className={`${ds.btnRound} min-h-11 gap-1.5 px-3`}
                                     onClick={() => openEdit(s, p)}
                                     style={tajawal}
-                                    title="تعديل"
                                   >
-                                    <Pencil className="size-3.5" />
+                                    <Pencil className="size-4" />
                                     تعديل
                                   </Button>
                                   <Button
                                     type="button"
                                     size="sm"
-                                    variant={expired ? "default" : "ghost"}
-                                    className={`${ds.btnRound} h-8 px-2 ${
-                                      expired ? "" : "text-destructive"
-                                    }`}
-                                    disabled={deletingId === p.id}
-                                    onClick={() => void closePlan(p.id)}
+                                    variant={expired ? "default" : "outline"}
+                                    className={`${ds.btnRound} min-h-11 gap-1.5 px-3`}
+                                    disabled={busyPlanId === p.id}
+                                    onClick={() => setCloseTarget(p)}
                                     style={tajawal}
-                                    title={expired ? "أغلق الخطة" : "إغلاق"}
                                   >
-                                    <Trash2 className="size-3.5" />
+                                    <Lock className="size-4" />
                                     {expired ? "أغلق الخطة" : "إغلاق"}
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="ghost"
+                                    className={`${ds.btnRound} min-h-11 gap-1.5 px-3 text-destructive hover:text-destructive`}
+                                    disabled={busyPlanId === p.id}
+                                    onClick={() => void openPermanentDelete(p)}
+                                    style={tajawal}
+                                  >
+                                    <Trash2 className="size-4" />
+                                    حذف نهائي
                                   </Button>
                                 </div>
                               </div>
-                              {total > 0 && (
-                                <div className="space-y-0.5">
-                                  <div
-                                    className="flex justify-between text-[11px]"
-                                    style={tajawal}
-                                  >
-                                    <span>
-                                      {done} من {total} يوماً
-                                    </span>
-                                    <span>{pct}%</span>
-                                  </div>
-                                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                                    <div
-                                      className="h-full bg-primary transition-all"
-                                      style={{ width: `${Math.min(100, pct)}%` }}
-                                    />
-                                  </div>
-                                </div>
-                              )}
+
+                              <PlanDayGrid
+                                planId={p.id}
+                                startsAt={p.starts_at}
+                                endsAt={p.ends_at}
+                                restDays={p.rest_days}
+                                onSaved={() => void refresh()}
+                              />
                             </li>
                           );
                         })}
@@ -338,95 +397,132 @@ export function TeacherPlansPage() {
         </CardContent>
       </Card>
 
-      <Card className={ds.card}>
-        <CardHeader className="flex flex-row items-center justify-between gap-2">
-          <div>
+      <Card className={ds.card} id="teacher-plans-report-print">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between print:hidden">
+          <div className="space-y-1.5">
             <CardTitle style={tajawal}>تقرير خطط الطلاب</CardTitle>
             <CardDescription style={tajawal}>
               جميع الخطط (نشطة، منتهية، مغلقة) — المنجز والمستهدف مشتقان من المقدار
               اليومي.
             </CardDescription>
           </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className={ds.btnRound}
-            onClick={() => setShowReport((v) => !v)}
-            style={tajawal}
-          >
-            {showReport ? "إخفاء" : "عرض التقرير"}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className={`${ds.btnRound} min-h-11 gap-2 px-4`}
+              onClick={() => setShowReport((v) => !v)}
+              style={tajawal}
+            >
+              {showReport ? "إخفاء" : "عرض التقرير"}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className={`${ds.btnRound} min-h-11 gap-2 px-4`}
+              disabled={report.length === 0}
+              onClick={printPlansReport}
+              style={tajawal}
+            >
+              <Printer className="size-4" />
+              طباعة التقرير
+            </Button>
+          </div>
         </CardHeader>
-        {showReport && (
-          <CardContent className="overflow-x-auto">
+
+        <div className="teacher-plans-print-header hidden print:block border-b border-black pb-3 mb-4 px-6 pt-6">
+          <h2 className="text-xl font-bold" style={tajawal}>
+            تقرير خطط الطلاب
+          </h2>
+          <p className="text-sm font-medium mt-1" style={tajawal}>
+            المعلم: {teacherName}
+          </p>
+          <p className="text-sm font-medium" style={tajawal}>
+            الحلقة / المسار: {reportCirclesLabel}
+          </p>
+          <p className="text-sm" style={tajawal}>
+            التاريخ: {todayLabel()}
+          </p>
+        </div>
+
+        <CardContent
+          className={`overflow-x-auto ${showReport ? "" : "hidden print:block"}`}
+        >
             {report.length === 0 ? (
-              <p className="text-sm text-muted-foreground" style={tajawal}>
+              <p className="text-sm text-muted-foreground print:hidden" style={tajawal}>
                 لا خطط في نطاقك.
               </p>
             ) : (
-              <table className="w-full text-xs border-collapse min-w-[720px]">
+              <table className={`${ds.printTable} w-full text-xs border-collapse min-w-[720px]`}>
                 <thead>
-                  <tr className="border-b text-muted-foreground">
-                    <th className="text-start py-2 px-1" style={tajawal}>
+                  <tr className="border-b text-muted-foreground print:text-black">
+                    <th className={`${ds.table.head} print:border print:border-black`} style={tajawal}>
                       الطالب
                     </th>
-                    <th className="text-start py-2 px-1" style={tajawal}>
+                    <th className={`${ds.table.head} print:border print:border-black`} style={tajawal}>
                       النوع
                     </th>
-                    <th className="text-start py-2 px-1" style={tajawal}>
+                    <th className={`${ds.table.head} print:border print:border-black`} style={tajawal}>
                       المقدار
                     </th>
-                    <th className="text-start py-2 px-1" style={tajawal}>
+                    <th className={`${ds.table.head} print:border print:border-black`} style={tajawal}>
                       العطلة
                     </th>
-                    <th className="text-start py-2 px-1" style={tajawal}>
+                    <th className={`${ds.table.head} print:border print:border-black`} style={tajawal}>
                       البداية–النهاية
                     </th>
-                    <th className="text-start py-2 px-1" style={tajawal}>
-                      أيام العمل
+                    <th className={`${ds.table.head} print:border print:border-black`} style={tajawal}>
+                      الأيام
                     </th>
-                    <th className="text-start py-2 px-1" style={tajawal}>
+                    <th className={`${ds.table.head} print:border print:border-black`} style={tajawal}>
                       منجَز / مستهدف
                     </th>
-                    <th className="text-start py-2 px-1" style={tajawal}>
+                    <th className={`${ds.table.head} print:border print:border-black`} style={tajawal}>
                       %
                     </th>
-                    <th className="text-start py-2 px-1" style={tajawal}>
+                    <th className={`${ds.table.head} print:border print:border-black`} style={tajawal}>
                       الحالة
                     </th>
                   </tr>
                 </thead>
                 <tbody>
                   {report.map((r) => (
-                    <tr key={r.id} className="border-b border-border/50">
-                      <td className="py-2 px-1" style={tajawal}>
+                    <tr
+                      key={r.id}
+                      className="border-b border-border/50 print:break-inside-avoid"
+                    >
+                      <td className={`${ds.table.cell} print:border print:border-black`} style={tajawal}>
                         {r.full_name_ar}
                       </td>
-                      <td className="py-2 px-1" style={tajawal}>
+                      <td className={`${ds.table.cell} print:border print:border-black`} style={tajawal}>
                         {PLAN_KIND_LABEL[r.plan_kind] ?? r.plan_kind}
                       </td>
-                      <td className="py-2 px-1" style={tajawal}>
+                      <td className={`${ds.table.cell} print:border print:border-black`} style={tajawal}>
                         {dailyAmountLabel(r)}
                       </td>
-                      <td className="py-2 px-1" style={tajawal}>
+                      <td className={`${ds.table.cell} print:border print:border-black`} style={tajawal}>
                         {REST_DAYS_LABEL[String(r.rest_days)] ?? r.rest_days}
                       </td>
-                      <td className="py-2 px-1 whitespace-nowrap" style={tajawal}>
+                      <td
+                        className={`${ds.table.cell} whitespace-nowrap print:border print:border-black`}
+                        style={tajawal}
+                      >
                         {String(r.starts_at ?? "—").slice(0, 10)} →{" "}
                         {String(r.ends_at ?? "—").slice(0, 10)}
                       </td>
-                      <td className="py-2 px-1" style={tajawal}>
+                      <td className={`${ds.table.cell} print:border print:border-black`} style={tajawal}>
                         {r.completed_days ?? 0}/{r.total_working_days ?? 0}
                       </td>
-                      <td className="py-2 px-1" style={tajawal}>
+                      <td className={`${ds.table.cell} print:border print:border-black`} style={tajawal}>
                         {Math.round(Number(r.achieved) || 0)} /{" "}
                         {Math.round(Number(r.target) || 0)}
                       </td>
-                      <td className="py-2 px-1" style={tajawal}>
+                      <td className={`${ds.table.cell} print:border print:border-black`} style={tajawal}>
                         {r.completion_pct ?? 0}%
                       </td>
-                      <td className="py-2 px-1" style={tajawal}>
+                      <td className={`${ds.table.cell} print:border print:border-black`} style={tajawal}>
                         {r.plan_status_ar ?? r.plan_status}
                       </td>
                     </tr>
@@ -434,9 +530,132 @@ export function TeacherPlansPage() {
                 </tbody>
               </table>
             )}
-          </CardContent>
-        )}
+        </CardContent>
       </Card>
+
+      <Dialog open={Boolean(closeTarget)} onOpenChange={(o) => !o && setCloseTarget(null)}>
+        <DialogContent className={ds.dialog}>
+          <DialogHeader>
+            <DialogTitle style={tajawal}>إغلاق الخطة</DialogTitle>
+            <DialogDescription style={tajawal}>
+              {closeTarget
+                ? `إغلاق خطة ${closeTarget.full_name_ar}؟ تُحفظ سجلات المتابعة ولا تُحذف.`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              className={`${ds.btnRound} min-h-11`}
+              onClick={() => setCloseTarget(null)}
+              style={tajawal}
+            >
+              إلغاء
+            </Button>
+            <Button
+              type="button"
+              className={`${ds.btnRound} min-h-11`}
+              disabled={busyPlanId != null}
+              onClick={() => void confirmClosePlan()}
+              style={tajawal}
+            >
+              إغلاق الخطة
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(permanentTarget)}
+        onOpenChange={(o) => {
+          if (!o) {
+            setPermanentTarget(null);
+            setPermanentStep(1);
+          }
+        }}
+      >
+        <DialogContent className={ds.dialog}>
+          {permanentStep === 1 ? (
+            <>
+              <DialogHeader>
+                <DialogTitle style={tajawal}>حذف نهائي للخطة</DialogTitle>
+                <DialogDescription asChild>
+                  <div className="space-y-2 text-sm text-muted-foreground" style={tajawal}>
+                    {permanentTarget && (
+                      <>
+                        <p>
+                          سيتم حذف خطة <strong>{permanentTarget.full_name_ar}</strong> نهائياً
+                          من النظام.
+                        </p>
+                        <p>
+                          {permanentLoading
+                            ? "جاري عد سجلات المتابعة…"
+                            : `سيُحذف معها ${permanentDayRecords} سجل متابعة يومية.`}
+                        </p>
+                        <p className="text-destructive font-semibold">
+                          لا يمكن التراجع عن هذا الإجراء.
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter className="gap-2 sm:gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={`${ds.btnRound} min-h-11`}
+                  onClick={() => setPermanentTarget(null)}
+                  style={tajawal}
+                >
+                  إلغاء
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className={`${ds.btnRound} min-h-11`}
+                  disabled={permanentLoading}
+                  onClick={() => setPermanentStep(2)}
+                  style={tajawal}
+                >
+                  متابعة الحذف
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle style={tajawal}>تأكيد الحذف النهائي</DialogTitle>
+                <DialogDescription style={tajawal}>
+                  اضغط الزر أدناه لتأكيد الحذف الدائم للخطة وسجلاتها.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter className="gap-2 sm:gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={`${ds.btnRound} min-h-11`}
+                  onClick={() => setPermanentStep(1)}
+                  style={tajawal}
+                >
+                  رجوع
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className={`${ds.btnRound} min-h-11`}
+                  disabled={busyPlanId != null}
+                  onClick={() => void confirmPermanentDelete()}
+                  style={tajawal}
+                >
+                  نعم، احذف نهائياً
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {wizardStudent && (
         <PlanWizardDialog
@@ -450,20 +669,6 @@ export function TeacherPlansPage() {
           }}
           onSaved={() => void refresh()}
           editPlan={editPlan}
-        />
-      )}
-
-      {daysPlan && (
-        <PlanDaysDialog
-          planId={daysPlan.id}
-          studentName={daysPlan.full_name_ar}
-          open={Boolean(daysPlan)}
-          onOpenChange={(o) => {
-            if (!o) setDaysPlan(null);
-          }}
-          onSaved={() => void refresh()}
-          totalWorkingDays={daysPlan.total_working_days}
-          completedDays={daysPlan.completed_days}
         />
       )}
     </div>

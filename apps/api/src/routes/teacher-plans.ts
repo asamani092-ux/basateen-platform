@@ -444,6 +444,43 @@ export async function handleTeacherRouter(
     return json({ error: "method_not_allowed" }, 405);
   }
 
+  const planPermanentMatch = path.match(
+    /^\/api\/teacher\/plans\/by-id\/(\d+)\/permanent$/,
+  );
+  if (planPermanentMatch) {
+    const planId = Number(planPermanentMatch[1]);
+    if (!Number.isFinite(planId)) return json({ error: "invalid_id" }, 400);
+
+    const existing = await loadPlanById(env, planId);
+    if (!existing) return json({ error: "not_found" }, 404);
+
+    const studentId = Number(existing.student_id);
+    if (
+      !(await teacherCanAccessStudent(env, auth.userId, studentId, {
+        complexId: auth.complexId,
+      }))
+    ) {
+      return json({ error: "forbidden_student" }, 403);
+    }
+
+    if (request.method === "DELETE") {
+      // O(1) — حذف دفعي: سجلات المتابعة ثم الخطة (بدون round-trip لكل يوم)
+      const stmts = [];
+      if (hasPlanDaysTable) {
+        stmts.push(
+          env.DB.prepare(`DELETE FROM student_plan_days WHERE plan_id = ?`).bind(planId),
+        );
+      }
+      stmts.push(
+        env.DB.prepare(`DELETE FROM student_semester_plans WHERE id = ?`).bind(planId),
+      );
+      await env.DB.batch(stmts);
+      return json({ ok: true, id: planId, deleted: true });
+    }
+
+    return json({ error: "method_not_allowed" }, 405);
+  }
+
   const planByIdMatch = path.match(/^\/api\/teacher\/plans\/by-id\/(\d+)$/);
   if (planByIdMatch) {
     const planId = Number(planByIdMatch[1]);

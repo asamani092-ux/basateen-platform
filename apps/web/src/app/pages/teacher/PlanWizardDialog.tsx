@@ -208,7 +208,7 @@ export function PlanWizardDialog({
           </DialogTitle>
           <DialogDescription style={tajawal}>
             حدّد نوع الخطة ومدتها بالأسابيع وأيام العطلة والمقدار اليومي. تاريخ الانتهاء يُحسب
-            تلقائياً بعدد أيام العمل (توقيت الرياض).
+            تلقائياً بعدد أيام الخطة (توقيت الرياض).
           </DialogDescription>
         </DialogHeader>
 

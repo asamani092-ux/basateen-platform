@@ -139,7 +139,7 @@ d1_query_json() {
 # ترحيلات لها فحص أثر صريح في migration_effect_status (ليست trusted)
 has_guarded_effect_check() {
   case "$1" in
-    033_edu_central_event_weights.sql|062_stage_id_backfill.sql|066_semester_plans_columns.sql|067_teacher_competition_task_types.sql|068_student_semester_plans_multi.sql|069_plan_daily_followup.sql)
+    033_edu_central_event_weights.sql|062_stage_id_backfill.sql|066_semester_plans_columns.sql|067_teacher_competition_task_types.sql|068_student_semester_plans_multi.sql|069_plan_daily_followup.sql|070_competition_source.sql)
       return 0
       ;;
     *)
@@ -270,6 +270,27 @@ migration_effect_status() {
             const hasTable=(tb?.results??[]).length>0;
             const hasIndex=(xb?.results??[]).length>0;
             console.log(hasRest && hasTable && hasIndex ? 'applied' : 'missing');
+          } catch { console.log('unknown'); }
+        });
+      "
+      ;;
+    070_competition_source.sql)
+      {
+        d1_query_json "PRAGMA table_info(competitions);"
+        echo "---SPLIT---"
+        d1_query_json "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_competitions_complex_source';"
+      } | node -e "
+        let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{
+          try {
+            const parts=d.split('---SPLIT---');
+            const info=JSON.parse(parts[0]||'[]');
+            const idx=JSON.parse(parts[1]||'[]');
+            const ib=Array.isArray(info)?info[0]:info;
+            const xb=Array.isArray(idx)?idx[0]:idx;
+            const cols=new Set((ib?.results??[]).map(r=>r.name));
+            const hasSource=cols.has('competition_source');
+            const hasIndex=(xb?.results??[]).length>0;
+            console.log(hasSource && hasIndex ? 'applied' : 'missing');
           } catch { console.log('unknown'); }
         });
       "
@@ -427,6 +448,14 @@ apply_pending() {
         break
       fi
     fi
+    if [[ "$f" == "070_competition_source.sql" ]]; then
+      if node "$API_DIR/scripts/migrate-070-remote.mjs"; then
+        continue
+      else
+        failed=1
+        break
+      fi
+    fi
     if run_sql "$f"; then
       record_migration "$f"
     else
@@ -577,8 +606,11 @@ case "$MODE" in
   069)
     node "$API_DIR/scripts/migrate-069-remote.mjs"
     ;;
+  070)
+    node "$API_DIR/scripts/migrate-070-remote.mjs"
+    ;;
   *)
-    echo "Usage: $0 upgrade|all|demo|apply-pending|effect-status|bootstrap-tracking|048|061|062|063|064|065|066|067|068|069|..." >&2
+    echo "Usage: $0 upgrade|all|demo|apply-pending|effect-status|bootstrap-tracking|048|061|062|063|064|065|066|067|068|069|070|..." >&2
     exit 1
     ;;
 esac

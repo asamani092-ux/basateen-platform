@@ -29,6 +29,7 @@ import {
   isTeacherCircleCompetition,
   loadTeacherCompetitionScores,
   teacherCompetitionLeaderboard,
+  teacherCircleSourceSql,
   useUnifiedTeacherCompetitions,
 } from "../lib/teacher-competition-unified";
 
@@ -138,12 +139,18 @@ export async function handleEduDeptMegaRouter(
       const hasCreatedBy = unifiedEngine
         ? await tableHasColumn(env, "competitions", "created_by_user_id")
         : false;
+      const hasSource = unifiedEngine
+        ? await tableHasColumn(env, "competitions", "competition_source")
+        : false;
+      const sourceWhere = unifiedEngine
+        ? ` AND ${teacherCircleSourceSql("", hasSource)}`
+        : "";
       const rows = unifiedEngine
         ? hasCreatedBy
           ? await env.DB.prepare(
               `SELECT id, name_ar, start_date, end_date, created_at, rules_json
                FROM competitions
-               WHERE complex_id = ? AND created_by_user_id = ?
+               WHERE complex_id = ? AND created_by_user_id = ?${sourceWhere}
                ORDER BY created_at DESC`,
             )
               .bind(auth.complexId, auth.userId)
@@ -158,7 +165,7 @@ export async function handleEduDeptMegaRouter(
           : await env.DB.prepare(
               `SELECT id, name_ar, start_date, end_date, created_at, rules_json
                FROM competitions
-               WHERE complex_id = ?
+               WHERE complex_id = ?${sourceWhere}
                ORDER BY created_at DESC`,
             )
               .bind(auth.complexId)
@@ -179,9 +186,11 @@ export async function handleEduDeptMegaRouter(
             .bind(auth.userId, auth.complexId)
             .all();
       const items = unifiedEngine
-        ? (rows.results ?? []).filter((r) =>
-            isTeacherCircleCompetition(String(r.rules_json ?? "")),
-          )
+        ? hasSource
+          ? (rows.results ?? [])
+          : (rows.results ?? []).filter((r) =>
+              isTeacherCircleCompetition(String(r.rules_json ?? "")),
+            )
         : (rows.results ?? []);
       const circle =
         auth.role === "track_supervisor"
@@ -338,15 +347,17 @@ export async function handleEduDeptMegaRouter(
       if (request.method === "DELETE") {
         if (unifiedEngine) {
           const hasCreatedBy = await tableHasColumn(env, "competitions", "created_by_user_id");
+          const hasSource = await tableHasColumn(env, "competitions", "competition_source");
+          const sourceWhere = ` AND ${teacherCircleSourceSql("", hasSource)}`;
           if (hasCreatedBy) {
             await env.DB.prepare(
-              `DELETE FROM competitions WHERE id = ? AND complex_id = ? AND created_by_user_id = ?`,
+              `DELETE FROM competitions WHERE id = ? AND complex_id = ? AND created_by_user_id = ?${sourceWhere}`,
             )
               .bind(compId, auth.complexId, auth.userId)
               .run();
           } else {
             await env.DB.prepare(
-              `DELETE FROM competitions WHERE id = ? AND complex_id = ?`,
+              `DELETE FROM competitions WHERE id = ? AND complex_id = ?${sourceWhere}`,
             )
               .bind(compId, auth.complexId)
               .run();

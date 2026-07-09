@@ -78,6 +78,10 @@ import { DEFAULT_COMPETITION } from "../lib/edu-settings-defaults";
 import { loadEvaluationCriteria } from "../lib/evaluation-criteria";
 import { COMPETITION_MANAGER_ROLES } from "../lib/roles";
 import {
+  COMPETITION_SOURCE_EDU_DEPT,
+  eduDeptSourceSql,
+} from "../lib/teacher-competition-unified";
+import {
   clampFaces,
   convertToFaces,
   facesToJuz,
@@ -122,6 +126,7 @@ type CompetitionSchema = {
   stage_id: boolean;
   category: boolean;
   target_scope: boolean;
+  competition_source: boolean;
 };
 
 async function competitionSchema(env: Env): Promise<CompetitionSchema> {
@@ -135,6 +140,7 @@ async function competitionSchema(env: Env): Promise<CompetitionSchema> {
     stage_id,
     category,
     target_scope,
+    competition_source,
   ] = await Promise.all([
     tableHasColumn(env, t, "description"),
     tableHasColumn(env, t, "telemetry_type"),
@@ -144,6 +150,7 @@ async function competitionSchema(env: Env): Promise<CompetitionSchema> {
     tableHasColumn(env, t, "stage_id"),
     tableHasColumn(env, t, "category"),
     tableHasColumn(env, t, "target_scope"),
+    tableHasColumn(env, t, "competition_source"),
   ]);
   return {
     description,
@@ -154,6 +161,7 @@ async function competitionSchema(env: Env): Promise<CompetitionSchema> {
     stage_id,
     category,
     target_scope,
+    competition_source,
   };
 }
 
@@ -247,6 +255,11 @@ async function insertCompetitionRow(
     cols.push("created_by_user_id");
     placeholders.push("?");
     binds.push(params.userId);
+  }
+  if (schema.competition_source) {
+    cols.push("competition_source");
+    placeholders.push("?");
+    binds.push(COMPETITION_SOURCE_EDU_DEPT);
   }
 
   return env.DB.prepare(
@@ -409,13 +422,14 @@ export async function handleEduCompetitionsRouter(
 
   if (request.method === "GET" && path === "/api/edu-dept/competitions") {
     const scopeClause = competitionsScopeClause(scope, schema.stage_id);
+    const sourceClause = eduDeptSourceSql("c", schema.competition_source);
     const descCol = schema.description ? ", c.description" : "";
     const catCol = schema.category ? ", c.category, c.custom_category" : "";
     const rows = await env.DB.prepare(
       `SELECT c.id, c.name_ar${descCol}${catCol}, c.start_date, c.end_date, c.status,
               c.live_log_token, c.tv_launch_key
        FROM competitions c
-       WHERE c.complex_id = ? AND ${scopeClause.where}
+       WHERE c.complex_id = ? AND ${sourceClause} AND ${scopeClause.where}
        ORDER BY c.start_date DESC LIMIT 100`,
     )
       .bind(auth.complexId, ...scopeClause.binds)

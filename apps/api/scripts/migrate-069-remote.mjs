@@ -2,6 +2,8 @@
 /**
  * 069 remote: student_plan_days + rest_days on student_semester_plans
  *
+ * أوامر SQL سطر واحد — wrangler --command يفشل مع \\n حرفي.
+ *
  * Usage (from apps/api): node scripts/migrate-069-remote.mjs
  */
 import { execSync } from "node:child_process";
@@ -43,8 +45,9 @@ function indexExists(name) {
 }
 
 function runCommand(sql) {
+  const oneLine = sql.replace(/\s+/g, " ").trim();
   execSync(
-    `npx wrangler d1 execute basateen ${remote} --command ${JSON.stringify(sql)}`,
+    `npx wrangler d1 execute basateen ${remote} --command ${JSON.stringify(oneLine)}`,
     { cwd: apiRoot, stdio: "inherit", env: process.env },
   );
 }
@@ -62,16 +65,9 @@ if (tableExists("student_semester_plans") && !columnExists("student_semester_pla
 
 if (!tableExists("student_plan_days")) {
   console.log("create table student_plan_days");
-  runCommand(`CREATE TABLE student_plan_days (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    plan_id INTEGER NOT NULL,
-    day_date TEXT NOT NULL,
-    completed INTEGER NOT NULL DEFAULT 0,
-    recorded_by_user_id INTEGER,
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (plan_id) REFERENCES student_semester_plans(id) ON DELETE CASCADE,
-    UNIQUE(plan_id, day_date)
-  )`);
+  runCommand(
+    "CREATE TABLE student_plan_days (id INTEGER PRIMARY KEY AUTOINCREMENT, plan_id INTEGER NOT NULL, day_date TEXT NOT NULL, completed INTEGER NOT NULL DEFAULT 0, recorded_by_user_id INTEGER, updated_at TEXT NOT NULL DEFAULT (datetime('now')), FOREIGN KEY (plan_id) REFERENCES student_semester_plans(id) ON DELETE CASCADE, UNIQUE(plan_id, day_date))",
+  );
 } else {
   console.log("skip table student_plan_days (exists)");
 }

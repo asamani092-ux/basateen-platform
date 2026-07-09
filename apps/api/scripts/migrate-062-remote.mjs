@@ -3,7 +3,8 @@
  * 062 remote: stage_id backfill artifacts (guarded re-apply)
  *
  * السبب الجذري: الملف التاريخي 062 يتضمّن UPDATE يعتمد track_stages غير موجود في الإنتاج.
- * نُطبّق فقط الأثر الناقص المؤكَّد: stage_id_review_queue + idx_students_stage_complex.
+ * نُطبّق فقط الأثر الناقص: stage_id_review_queue + idx_students_stage_complex.
+ * أوامر SQL سطر واحد — wrangler --command يفشل مع \\n حرفي.
  *
  * Usage (from apps/api): node scripts/migrate-062-remote.mjs
  */
@@ -46,8 +47,9 @@ function columnExists(table, column) {
 }
 
 function runCommand(sql) {
+  const oneLine = sql.replace(/\s+/g, " ").trim();
   execSync(
-    `npx wrangler d1 execute basateen ${remote} --command ${JSON.stringify(sql)}`,
+    `npx wrangler d1 execute basateen ${remote} --command ${JSON.stringify(oneLine)}`,
     { cwd: apiRoot, stdio: "inherit", env: process.env },
   );
 }
@@ -56,31 +58,27 @@ console.log("\n>>> 062 stage_id_backfill (guarded — schema artifacts only)");
 
 if (!tableExists("stage_id_review_queue")) {
   console.log("create table stage_id_review_queue");
-  runCommand(`CREATE TABLE IF NOT EXISTS stage_id_review_queue (
-    entity_type TEXT NOT NULL CHECK (entity_type IN ('student', 'circle', 'track')),
-    entity_id INTEGER NOT NULL,
-    reason TEXT NOT NULL,
-    flagged_at TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (entity_type, entity_id)
-  )`);
+  runCommand(
+    "CREATE TABLE IF NOT EXISTS stage_id_review_queue (entity_type TEXT NOT NULL CHECK (entity_type IN ('student', 'circle', 'track')), entity_id INTEGER NOT NULL, reason TEXT NOT NULL, flagged_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (entity_type, entity_id))",
+  );
 } else {
   console.log("skip table stage_id_review_queue (exists)");
 }
 
 if (tableExists("students") && columnExists("students", "stage_id")) {
   console.log("seed review queue — students missing stage_id");
-  runCommand(`INSERT OR IGNORE INTO stage_id_review_queue (entity_type, entity_id, reason)
-    SELECT 'student', id, 'missing stage_id after backfill'
-    FROM students WHERE stage_id IS NULL`);
+  runCommand(
+    "INSERT OR IGNORE INTO stage_id_review_queue (entity_type, entity_id, reason) SELECT 'student', id, 'missing stage_id after backfill' FROM students WHERE stage_id IS NULL",
+  );
 } else {
   console.log("skip student review queue seed (table/column missing)");
 }
 
 if (tableExists("circles") && columnExists("circles", "stage_id")) {
   console.log("seed review queue — circles missing stage_id");
-  runCommand(`INSERT OR IGNORE INTO stage_id_review_queue (entity_type, entity_id, reason)
-    SELECT 'circle', id, 'missing stage_id after backfill'
-    FROM circles WHERE stage_id IS NULL`);
+  runCommand(
+    "INSERT OR IGNORE INTO stage_id_review_queue (entity_type, entity_id, reason) SELECT 'circle', id, 'missing stage_id after backfill' FROM circles WHERE stage_id IS NULL",
+  );
 } else {
   console.log("skip circle review queue seed (table/column missing)");
 }

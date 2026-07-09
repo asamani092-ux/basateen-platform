@@ -37,6 +37,7 @@ import {
   categoryLabel,
   DEFAULT_SIRD_SETTINGS,
   defaultInputTypeFromTaskType,
+  inputTypeOptionsForTaskType,
   isRecitationCategory,
   parseSirdSettings,
   TASK_INPUT_TYPE_OPTIONS,
@@ -104,6 +105,10 @@ export function CompetitionDetailPage() {
   const [newTaskInputType, setNewTaskInputType] = useState<
     "boolean" | "numeric" | "counter"
   >("boolean");
+  const newTaskInputOptions = useMemo(
+    () => inputTypeOptionsForTaskType(newTaskType, TASK_INPUT_TYPE_OPTIONS),
+    [newTaskType],
+  );
   const [dashRange, setDashRange] = useState(defaultDateRange(7));
   const [leaderboardMode, setLeaderboardMode] = useState<LeaderboardMode>("top");
   const [leaderSearch, setLeaderSearch] = useState("");
@@ -1031,7 +1036,7 @@ export function CompetitionDetailPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {TASK_INPUT_TYPE_OPTIONS.map((opt) => (
+                        {newTaskInputOptions.map((opt) => (
                           <SelectItem key={opt.value} value={opt.value}>
                             {opt.label}
                           </SelectItem>

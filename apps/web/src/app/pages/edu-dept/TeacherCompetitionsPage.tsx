@@ -46,6 +46,8 @@ import {
   signedTaskPoints,
   TEACHER_TASK_INPUT_OPTIONS,
   TEACHER_TASK_TYPE_OPTIONS,
+  defaultInputTypeFromTaskType,
+  inputTypeOptionsForTaskType,
   type TaskInputType,
   type TaskType,
 } from "../../lib/competition-engine";
@@ -129,6 +131,17 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
   const [taskWeight, setTaskWeight] = useState(1);
   const [taskType, setTaskType] = useState<TaskType>("addition");
   const [taskInputType, setTaskInputType] = useState<TaskInputType>("boolean");
+
+  const taskInputOptions = useMemo(
+    () => inputTypeOptionsForTaskType(taskType, TEACHER_TASK_INPUT_OPTIONS),
+    [taskType],
+  );
+
+  useEffect(() => {
+    if (!taskInputOptions.some((o) => o.value === taskInputType)) {
+      setTaskInputType(defaultInputTypeFromTaskType(taskType));
+    }
+  }, [taskType, taskInputOptions, taskInputType]);
 
   const listQuery = useQuery({
     queryKey: queryKeys.eduDept.teacherCompetitions,
@@ -1129,7 +1142,11 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                   className={cn(ds.select, "text-right w-full")}
                   dir="rtl"
                   value={taskType}
-                  onChange={(e) => setTaskType(e.target.value as TaskType)}
+                  onChange={(e) => {
+                    const next = e.target.value as TaskType;
+                    setTaskType(next);
+                    setTaskInputType(defaultInputTypeFromTaskType(next));
+                  }}
                   style={tajawal}
                 >
                   {TEACHER_TASK_TYPE_OPTIONS.map((o) => (
@@ -1151,7 +1168,7 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                   onChange={(e) => setTaskInputType(e.target.value as TaskInputType)}
                   style={tajawal}
                 >
-                  {TEACHER_TASK_INPUT_OPTIONS.map((o) => (
+                  {taskInputOptions.map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
                     </option>

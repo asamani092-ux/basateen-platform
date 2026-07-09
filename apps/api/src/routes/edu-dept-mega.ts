@@ -9,7 +9,9 @@ import {
 import { hasTable, tableHasColumn } from "../lib/db-schema";
 import {
   hasTaskInputType,
+  isInputTypeAllowedForTaskType,
   parseTaskInputType,
+  validateCompetitionScoreEntries,
   type TaskType,
 } from "../lib/competition-engine";
 import {
@@ -616,6 +618,9 @@ export async function handleEduDeptMegaRouter(
         const w = Number(body.weight_points ?? 1);
         const taskType: TaskType = body.type === "deduction" ? "deduction" : "addition";
         const inputType = parseTaskInputType(body.input_type, taskType);
+        if (!isInputTypeAllowedForTaskType(inputType, taskType)) {
+          return json({ error: "input_type_not_allowed" }, 400);
+        }
         const hasInputType = await hasTaskInputType(env);
         const maxRow = await env.DB.prepare(
           `SELECT COALESCE(MAX(sort_order), 0) AS m FROM competition_tasks WHERE competition_id = ?`,
@@ -681,6 +686,9 @@ export async function handleEduDeptMegaRouter(
       const w = Number(body.weight_points ?? 1);
       const taskType: TaskType = body.type === "deduction" ? "deduction" : "addition";
       const inputType = parseTaskInputType(body.input_type, taskType);
+      if (!isInputTypeAllowedForTaskType(inputType, taskType)) {
+        return json({ error: "input_type_not_allowed" }, 400);
+      }
       const hasSort = await tableHasColumn(env, tasksTable, "sort_order");
       const hasType = await tableHasColumn(env, tasksTable, "type");
       const hasInputType = await tableHasColumn(env, tasksTable, "input_type");
@@ -846,10 +854,14 @@ export async function handleEduDeptMegaRouter(
           compRow?.start_date ?? todayRiyadhIso(),
         );
         const taskRows = await env.DB.prepare(
-          `SELECT id FROM competition_tasks WHERE competition_id = ?`,
+          `SELECT id, type, input_type FROM competition_tasks WHERE competition_id = ?`,
         )
           .bind(compId)
-          .all<{ id: number }>();
+          .all<{ id: number; type: string; input_type?: string | null }>();
+        const scoreCheck = validateCompetitionScoreEntries(list, taskRows.results ?? []);
+        if (!scoreCheck.ok) {
+          return json({ error: scoreCheck.error }, 400);
+        }
         const validTaskIds = new Set((taskRows.results ?? []).map((t) => t.id));
         const validStudentIds = new Set(students.map((s) => s.id));
 
@@ -889,11 +901,22 @@ export async function handleEduDeptMegaRouter(
       if (!(await hasTable(env, "student_comp_scores"))) return migrationRequired();
       const scoresTasksTable = await teacherTasksTable(env);
       if (!scoresTasksTable) return migrationRequired();
+      const hasTaskType = await tableHasColumn(env, scoresTasksTable, "type");
+      const hasTaskInputTypeCol = await tableHasColumn(env, scoresTasksTable, "input_type");
+      const taskSelectCols = hasTaskType && hasTaskInputTypeCol
+        ? "id, type, input_type"
+        : hasTaskType
+          ? "id, type, NULL AS input_type"
+          : "id, 'addition' AS type, NULL AS input_type";
       const taskRows = await env.DB.prepare(
-        `SELECT id FROM ${scoresTasksTable} WHERE competition_id = ?`,
+        `SELECT ${taskSelectCols} FROM ${scoresTasksTable} WHERE competition_id = ?`,
       )
         .bind(compId)
-        .all<{ id: number }>();
+        .all<{ id: number; type: string; input_type?: string | null }>();
+      const scoreCheck = validateCompetitionScoreEntries(list, taskRows.results ?? []);
+      if (!scoreCheck.ok) {
+        return json({ error: scoreCheck.error }, 400);
+      }
       const validTaskIds = new Set((taskRows.results ?? []).map((t) => t.id));
       const validStudentIds = new Set(students.map((s) => s.id));
 

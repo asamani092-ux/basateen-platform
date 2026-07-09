@@ -779,9 +779,67 @@ export function defaultInputTypeFromTaskType(type: TaskType): TaskInputType {
   return type === "deduction" ? "counter" : "boolean";
 }
 
+/** O(1) — هل نوع الإدخال مسموح لنوع المهمة */
+export function isInputTypeAllowedForTaskType(
+  inputType: TaskInputType,
+  taskType: TaskType,
+): boolean {
+  if (taskType === "addition") {
+    return inputType === "boolean" || inputType === "numeric";
+  }
+  return inputType === "boolean" || inputType === "counter";
+}
+
 export function parseTaskInputType(raw: unknown, fallbackType: TaskType): TaskInputType {
   if (raw === "boolean" || raw === "numeric" || raw === "counter") return raw;
   return defaultInputTypeFromTaskType(fallbackType);
+}
+
+/** O(1) — رفض صريح للكسور على numeric/boolean/counter */
+export function validateTaskScoreValue(
+  points: unknown,
+  inputType: TaskInputType,
+): { ok: true; value: number } | { ok: false; error: string } {
+  const n = Number(points);
+  if (!Number.isFinite(n)) {
+    return { ok: false, error: "invalid_score" };
+  }
+  if (inputType === "boolean") {
+    if (n !== 0 && n !== 1) {
+      return { ok: false, error: "boolean_score_must_be_0_or_1" };
+    }
+    return { ok: true, value: n };
+  }
+  if (!Number.isInteger(n)) {
+    return { ok: false, error: "score_must_be_integer" };
+  }
+  if (n < 0) {
+    return { ok: false, error: "score_must_be_non_negative" };
+  }
+  return { ok: true, value: n };
+}
+
+export type CompetitionTaskInputMeta = {
+  id: number;
+  type: string;
+  input_type?: string | null;
+};
+
+/** O(S) — التحقق من صحة نقاط المهام قبل الحفظ */
+export function validateCompetitionScoreEntries(
+  list: Array<{ task_id: number; student_id: number; points: number }>,
+  tasks: CompetitionTaskInputMeta[],
+): { ok: true } | { ok: false; error: string } {
+  const taskById = new Map(tasks.map((t) => [t.id, t]));
+  for (const s of list) {
+    const meta = taskById.get(Number(s.task_id));
+    if (!meta) continue;
+    const taskType: TaskType = meta.type === "deduction" ? "deduction" : "addition";
+    const inputType = parseTaskInputType(meta.input_type, taskType);
+    const check = validateTaskScoreValue(s.points, inputType);
+    if (!check.ok) return { ok: false, error: check.error };
+  }
+  return { ok: true };
 }
 
 export async function hasTaskInputType(env: Env): Promise<boolean> {

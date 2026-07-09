@@ -34,6 +34,8 @@ import {
   hasCriterionId,
   competitionTaskSelectSql,
   parseTaskInputType,
+  isInputTypeAllowedForTaskType,
+  validateCompetitionScoreEntries,
   buildCompetitionLeaderboard,
   loadCompetitionLogsForLeaderboard,
   loadCompetitionTaskMeta,
@@ -588,6 +590,9 @@ export async function handleEduCompetitionsRouter(
       if (!body.name_ar?.trim()) return json({ error: "name_required" }, 400);
       const taskType = body.type === "deduction" ? "deduction" : "addition";
       const inputType = parseTaskInputType(body.input_type, taskType);
+      if (!isInputTypeAllowedForTaskType(inputType, taskType)) {
+        return json({ error: "input_type_not_allowed" }, 400);
+      }
       const hasInputType = await hasTaskInputType(env);
       const maxSort = await env.DB.prepare(
         `SELECT COALESCE(MAX(sort_order), 0) AS m FROM competition_tasks WHERE competition_id = ?`,
@@ -1168,6 +1173,13 @@ export async function handleEduCompetitionsRouter(
       const logDate =
         body.log_date?.trim() || todayRiyadhIso();
       const records = body.records ?? [];
+      if (records.length > 0 && engineTasks) {
+        const taskMeta = await loadCompetitionTaskMeta(env, id);
+        const scoreCheck = validateCompetitionScoreEntries(records, taskMeta);
+        if (!scoreCheck.ok) {
+          return json({ error: scoreCheck.error }, 400);
+        }
+      }
       const category = String(row.category ?? "recitation");
       const compRules = JSON.parse(String(row.rules_json ?? "{}")) as Record<
         string,

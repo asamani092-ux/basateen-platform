@@ -498,6 +498,14 @@
     print-color-adjust: exact;
   }
 
+  body.printing-competition-dashboard .competition-leaderboard-screen {
+    display: none !important;
+  }
+
+  body.printing-competition-dashboard .competition-leaderboard-print-root {
+    display: block !important;
+  }
+
   body.printing-competition-dashboard .competition-leaderboard-card {
     break-inside: auto !important;
     page-break-inside: auto !important;

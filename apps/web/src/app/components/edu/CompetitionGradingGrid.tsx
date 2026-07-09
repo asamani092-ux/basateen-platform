@@ -4,6 +4,7 @@ import { Loader2, Search } from "lucide-react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { TablePagination } from "../shared/TablePagination";
 import {
   Table,
   TableBody,
@@ -32,6 +33,7 @@ import {
   type SirdPeriodData,
   type SirdSettings,
 } from "../../lib/competition-engine";
+import { paginateSlice } from "../../lib/competition-table-pagination";
 import { ds, tajawal } from "../../lib/design-system";
 
 type StudentRow = {
@@ -93,6 +95,7 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
   const [savingStudentId, setSavingStudentId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [studentPage, setStudentPage] = useState(1);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -195,6 +198,15 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
   const filtered = useMemo(
     () => students.filter((s) => matchesArabicName(query, s.full_name_ar)),
     [students, query],
+  );
+
+  useEffect(() => {
+    setStudentPage(1);
+  }, [query, students.length, logDate]);
+
+  const pagedStudents = useMemo(
+    () => paginateSlice(filtered, studentPage),
+    [filtered, studentPage],
   );
 
   const recitationStudent = recitationStudentId
@@ -524,7 +536,7 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((student) => {
+              {pagedStudents.items.map((student) => {
                 const rowDisabled =
                   saving || savingStudentId === student.student_id;
                 return (
@@ -605,6 +617,9 @@ export function CompetitionGradingGrid({ competitionId }: Props) {
               })}
             </TableBody>
           </Table>
+          {pagedStudents.total > pagedStudents.page_size && (
+            <TablePagination page={pagedStudents} onPageChange={setStudentPage} />
+          )}
         </div>
       )}
 

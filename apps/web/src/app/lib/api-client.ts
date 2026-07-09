@@ -2256,6 +2256,8 @@ export const api = {
         created_at: string;
       }>;
       default_task_weight?: number;
+      circle_id?: number | null;
+      circle_name?: string | null;
     }>("/api/edu-dept/teacher-competitions"),
   eduDeptTeacherCompetitionCreate: (body: {
     name_ar: string;
@@ -2279,6 +2281,8 @@ export const api = {
       }>;
       students: Array<{ id: number; full_name_ar: string }>;
       scores: Array<{ task_id: number; student_id: number; points: number }>;
+      circle_id?: number | null;
+      circle_name?: string | null;
     }>(`/api/edu-dept/teacher-competitions/${id}`),
   eduDeptTeacherCompetitionUpdate: (
     id: number,

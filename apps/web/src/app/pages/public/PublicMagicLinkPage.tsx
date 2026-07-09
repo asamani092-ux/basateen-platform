@@ -1,45 +1,58 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router";
-import { CheckCircle2 } from "lucide-react";
+import { CalendarDays, CheckCircle2, Loader2, Users } from "lucide-react";
+import { toast } from "sonner";
+import { AttendanceDailyTable } from "../../components/attendance/AttendanceDailyTable";
 import { Button } from "../../components/ui/button";
 import { api } from "../../lib/api-client";
 import { normalizeAttendanceStatus } from "../../lib/attendance-status";
+import type { AttendanceStatusValue } from "../../lib/attendance-mutations";
 import { ds, tajawal } from "../../lib/design-system";
 
-type Row = { student_id: number; full_name_ar: string; status: string };
+type Row = {
+  student_id: number;
+  full_name_ar: string;
+  status: string;
+  has_record: boolean;
+  isDirty?: boolean;
+};
 
-/** تحضير عام بدون تسجيل دخول — رابط سحري */
+/** تحضير عام بدون تسجيل دخول — رابط سحري (حلقة أو مسار) */
 export function PublicMagicLinkPage() {
   const { token = "" } = useParams<{ token: string }>();
   const [date, setDate] = useState("");
-  const [circleName, setCircleName] = useState("");
+  const [entityType, setEntityType] = useState<"circle" | "track">("circle");
+  const [entityName, setEntityName] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
-  const [baseline, setBaseline] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
+  const [fatalError, setFatalError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!token) return;
     setLoading(true);
-    setError(null);
+    setFatalError(null);
     try {
       const res = await api.publicAttendanceGet(token);
       setDate(res.attendance_date);
-      setCircleName(res.circle?.name_ar ?? "");
+      setEntityType(res.entity_type ?? (res.track ? "track" : "circle"));
+      setEntityName(
+        res.entity_type === "track"
+          ? (res.track?.name_ar ?? "")
+          : (res.circle?.name_ar ?? ""),
+      );
       const items = (res.items ?? []).map((r) => ({
         student_id: r.student_id,
         full_name_ar: r.full_name_ar,
         status: normalizeAttendanceStatus(r.status),
+        has_record: Boolean(r.has_record),
       }));
       setRows(items);
-      const base: Record<number, string> = {};
-      for (const r of items) base[r.student_id] = r.status;
-      setBaseline(base);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "الرابط غير صالح أو موقوف");
+      const msg = e instanceof Error ? e.message : "الرابط غير صالح أو موقوف";
+      setFatalError(msg);
       setRows([]);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -49,126 +62,194 @@ export function PublicMagicLinkPage() {
     load();
   }, [load]);
 
-  function pickStatus(studentId: number, status: string) {
+  const counts = useMemo(() => {
+    let present = 0;
+    let absent = 0;
+    let excused = 0;
+    for (const row of rows) {
+      if (row.status === "present") present += 1;
+      else if (row.status === "absent") absent += 1;
+      else if (row.status === "excused") excused += 1;
+    }
+    return { present, absent, excused, total: rows.length };
+  }, [rows]);
+
+  function pickStatus(studentId: number, status: AttendanceStatusValue) {
     setRows((prev) =>
-      prev.map((r) => (r.student_id === studentId ? { ...r, status } : r)),
+      prev.map((r) =>
+        r.student_id === studentId ? { ...r, status, isDirty: true } : r,
+      ),
     );
   }
 
   async function save() {
-    const changed = rows.filter(
-      (r) => (baseline[r.student_id] ?? "present") !== r.status,
-    );
-    if (changed.length === 0) {
-      setDone(true);
-      return;
-    }
+    if (rows.length === 0) return;
     setSaving(true);
-    setError(null);
     try {
       await api.publicAttendanceSave(token, {
-        records: changed.map((r) => ({
+        records: rows.map((r) => ({
           student_id: r.student_id,
           status: r.status,
         })),
       });
-      const base: Record<number, string> = {};
-      for (const r of rows) base[r.student_id] = r.status;
-      setBaseline(base);
-      setDone(true);
+      toast.success("تم حفظ التحضير بنجاح — شكراً لكم");
+      await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل الحفظ");
+      const msg = e instanceof Error ? e.message : "فشل حفظ التحضير";
+      toast.error(msg);
     } finally {
       setSaving(false);
     }
   }
 
+  const title = entityType === "track" ? "تحضير المسار" : "تحضير الحلقة";
+  const emptyMsg =
+    entityType === "track"
+      ? "لا يوجد طلاب في هذا المسار."
+      : "لا يوجد طلاب في هذه الحلقة.";
+
   return (
-    <div className="min-h-screen bg-background p-4 sm:p-8" dir="rtl">
-      <div className="max-w-lg mx-auto space-y-4">
-        <div className="text-center">
+    <div className="min-h-screen bg-background text-foreground" dir="rtl">
+      <div className="mx-auto max-w-2xl space-y-4 p-4 pb-28 sm:p-8 sm:pb-8">
+        <header className={`${ds.card} p-5 sm:p-6 text-center space-y-3`}>
           <img
             src="/logo-light.png"
-            alt="بساتين"
-            className="h-20 mx-auto mb-3 dark:hidden"
+            alt="مجمع بساتين"
+            className="mx-auto h-16 sm:h-20 dark:hidden"
           />
-          <h1 className={ds.page.title} style={tajawal}>
-            تحضير الحلقة
-          </h1>
-          <p className={ds.page.description} style={tajawal}>
-            {circleName || "—"} · تحضير يوم {date || "اليوم"}
-          </p>
-        </div>
+          <img
+            src="/logo-dark.png"
+            alt="مجمع بساتين"
+            className="mx-auto hidden h-16 sm:h-20 dark:block"
+          />
+          <div>
+            <h1 className={ds.page.title} style={tajawal}>
+              {title}
+            </h1>
+            <p className={ds.page.description} style={tajawal}>
+              {entityName || "—"}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-2 text-sm text-muted-foreground">
+            <span
+              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-muted/40 px-3 py-1.5"
+              style={tajawal}
+            >
+              <CalendarDays className="size-4 shrink-0" aria-hidden />
+              تحضير يوم {date || "اليوم"}
+            </span>
+            {!loading && rows.length > 0 ? (
+              <span
+                className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-muted/40 px-3 py-1.5"
+                style={tajawal}
+              >
+                <Users className="size-4 shrink-0" aria-hidden />
+                {counts.total} طالب
+              </span>
+            ) : null}
+          </div>
+        </header>
 
-        {error && (
-          <p className={ds.alert.error} style={tajawal}>
-            {error}
+        {fatalError ? (
+          <p className={ds.alert.error} style={tajawal} role="alert">
+            {fatalError}
           </p>
-        )}
-        {done && !error && (
-          <p className={ds.alert.success} style={tajawal}>
-            تم حفظ التحضير بنجاح. شكراً لكم.
-          </p>
-        )}
+        ) : null}
 
         {loading ? (
-          <p className="text-center text-muted-foreground text-sm" style={tajawal}>
-            جاري التحميل…
-          </p>
-        ) : (
-          <div className={`${ds.card} p-4 space-y-3`}>
-            {rows.map((r) => (
-              <div
-                key={r.student_id}
-                className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-border pb-3 last:border-0"
-              >
-                <span className="font-medium" style={tajawal}>
-                  {r.full_name_ar}
-                </span>
-                <div className="grid grid-cols-3 gap-2 w-full sm:flex sm:flex-wrap sm:justify-end">
-                  {(["present", "absent", "excused"] as const).map((st) => {
-                    const labels = {
-                      present: "حاضر",
-                      absent: "غائب",
-                      excused: "مستأذن",
-                    };
-                    const active = r.status === st;
-                    return (
-                      <button
-                        key={st}
-                        type="button"
-                        disabled={saving}
-                        onClick={() => pickStatus(r.student_id, st)}
-                        className={`w-full sm:w-auto h-11 px-3 rounded-full text-xs font-medium touch-manipulation ${
-                          active ? ds.tab.active : ds.tab.idle
-                        }`}
-                        style={tajawal}
-                      >
-                        {labels[st]}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-            {rows.length === 0 && !error && (
-              <p className={ds.alert.info} style={tajawal}>
-                لا يوجد طلاب في هذه الحلقة.
-              </p>
-            )}
+          <div className={`${ds.card} ${ds.loading}`}>
+            <Loader2
+              className="size-8 animate-spin text-primary"
+              aria-hidden
+            />
+            <span className="sr-only">جاري التحميل</span>
           </div>
-        )}
+        ) : rows.length === 0 && !fatalError ? (
+          <p className={`${ds.card} p-5 ${ds.alert.info}`} style={tajawal}>
+            {emptyMsg}
+          </p>
+        ) : rows.length > 0 ? (
+          <>
+            <div className={ds.kpiStrip}>
+              <div className={`${ds.card} p-3 text-center`}>
+                <p className="text-xs text-muted-foreground" style={tajawal}>
+                  حاضر
+                </p>
+                <p
+                  className="text-xl font-bold text-success"
+                  style={tajawal}
+                >
+                  {counts.present}
+                </p>
+              </div>
+              <div className={`${ds.card} p-3 text-center`}>
+                <p className="text-xs text-muted-foreground" style={tajawal}>
+                  مستأذن
+                </p>
+                <p
+                  className="text-xl font-bold text-warning"
+                  style={tajawal}
+                >
+                  {counts.excused}
+                </p>
+              </div>
+              <div className={`${ds.card} p-3 text-center`}>
+                <p className="text-xs text-muted-foreground" style={tajawal}>
+                  غائب
+                </p>
+                <p className="text-xl font-bold text-destructive" style={tajawal}>
+                  {counts.absent}
+                </p>
+              </div>
+              <div className={`${ds.card} p-3 text-center`}>
+                <p className="text-xs text-muted-foreground" style={tajawal}>
+                  الإجمالي
+                </p>
+                <p className="text-xl font-bold text-foreground" style={tajawal}>
+                  {counts.total}
+                </p>
+              </div>
+            </div>
 
-        <Button
-          type="button"
-          className={`w-full min-h-11 ${ds.btnRound}`}
-          disabled={loading || saving || rows.length === 0}
-          onClick={save}
-          style={tajawal}
-        >
-          <CheckCircle2 className="w-4 h-4" />
-          {saving ? "جاري الحفظ…" : "حفظ التحضير"}
-        </Button>
+            <div className={`${ds.card} overflow-hidden p-3 sm:p-4`}>
+              <AttendanceDailyTable
+                rows={rows.map((r) => ({
+                  id: r.student_id,
+                  full_name_ar: r.full_name_ar,
+                  status: r.status,
+                  has_record: r.has_record,
+                  isDirty: r.isDirty,
+                }))}
+                disabled={saving}
+                onStatusChange={pickStatus}
+              />
+            </div>
+          </>
+        ) : null}
+
+        {rows.length > 0 ? (
+          <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 p-4 backdrop-blur supports-[backdrop-filter]:bg-card/90 sm:static sm:border-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none">
+            <div className={ds.saveActionWrap}>
+              <Button
+                type="button"
+                className={`w-full sm:w-auto ${ds.btnRound} ${ds.primaryActionBtn}`}
+                disabled={loading || saving}
+                onClick={() => void save()}
+                style={tajawal}
+              >
+                {saving ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                ) : (
+                  <CheckCircle2 className="size-4" aria-hidden />
+                )}
+                {saving ? "جاري الحفظ…" : "حفظ التحضير"}
+              </Button>
+              <p className="text-xs text-muted-foreground text-center" style={tajawal}>
+                اضغط حفظ بعد تسجيل حالة كل طالب
+              </p>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

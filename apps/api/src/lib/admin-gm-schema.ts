@@ -1,5 +1,10 @@
 import type { Env } from "../types";
-import { activePlacementSql, hasTable, tableHasColumn } from "./db-schema";
+import {
+  activePlacementSql,
+  hasTable,
+  sqliteActiveEq1,
+  tableHasColumn,
+} from "./db-schema";
 import { teachersListSqlV25, usesV25FlatStaffSchema } from "./schema-v25";
 import { usersHaveRoleColumn } from "./db-user";
 
@@ -174,11 +179,14 @@ export async function circleTrackSelectSql(env: Env): Promise<{
 }
 
 export async function circleStudentCountSubquery(env: Env): Promise<string> {
+  const activeFilter = (await tableHasColumn(env, "students", "is_active"))
+    ? `AND ${sqliteActiveEq1("s.is_active")}`
+    : "";
   if (await tableHasColumn(env, "students", "current_circle_id")) {
     return `(SELECT COUNT(*) FROM students s
              WHERE s.current_circle_id = c.id
                AND s.complex_id = c.complex_id
-               AND COALESCE(s.is_active, 1) = 1)`;
+               ${activeFilter})`;
   }
 
   const hasHist = await hasTable(env, "student_circle_history");

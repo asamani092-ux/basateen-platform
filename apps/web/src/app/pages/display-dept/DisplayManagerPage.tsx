@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { GuardedForm } from "../../components/ui/guarded-form";
 import { MonitorPlay, Plus } from "lucide-react";
 import { TableIconAction } from "../../components/admin/TableIconAction";
 import { DoubleConfirmDialog } from "../../components/shared/DoubleConfirmDialog";
@@ -249,7 +250,7 @@ export function DisplayManagerPage() {
           <DialogHeader>
             <DialogTitle style={tajawal}>وسائط جديدة</DialogTitle>
           </DialogHeader>
-          <form onSubmit={saveMedia} className="space-y-4">
+          <GuardedForm onSubmit={saveMedia} className="space-y-4">
             <div className="flex gap-2">
               {(["image", "gif", "video"] as const).map((t) => (
                 <button
@@ -284,7 +285,7 @@ export function DisplayManagerPage() {
                 إلغاء
               </Button>
             </DialogFooter>
-          </form>
+          </GuardedForm>
         </DialogContent>
       </Dialog>
 

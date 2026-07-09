@@ -1,16 +1,65 @@
 import type { Env } from "../types";
+import {
+  getOrLoadCached,
+  isCached,
+  primeCached,
+  SCHEMA_CACHE_TTL_MS,
+} from "./worker-memory-cache";
 
-let cachedTables: Set<string> | null = null;
-const cachedColumns = new Map<string, Set<string>>();
+const TABLES_CACHE_KEY = "schema:sqlite_master_tables";
+const columnCacheKey = (table: string) => `schema:columns:${table}`;
+
+async function preloadTableColumns(env: Env, tableNames: string[]): Promise<void> {
+  const pending = tableNames.filter((t) => !isCached(columnCacheKey(t)));
+  if (pending.length === 0) return;
+
+  const results = await env.DB.batch(
+    pending.map((table) => env.DB.prepare(`PRAGMA table_info(${table})`)),
+  );
+
+  for (let i = 0; i < pending.length; i++) {
+    const rows = (results[i]?.results ?? []) as Array<{ name: string }>;
+    primeCached(
+      columnCacheKey(pending[i]),
+      new Set(rows.map((r) => r.name)),
+      SCHEMA_CACHE_TTL_MS,
+    );
+  }
+}
+
+async function loadTableNames(env: Env): Promise<Set<string>> {
+  return getOrLoadCached(
+    TABLES_CACHE_KEY,
+    async () => {
+      const rows = await env.DB.prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table'",
+      ).all<{ name: string }>();
+      const names = (rows.results ?? [])
+        .map((r) => r.name)
+        .filter((n) => !n.startsWith("_cf_") && !n.startsWith("sqlite_"));
+      await preloadTableColumns(env, names);
+      return new Set(names);
+    },
+    SCHEMA_CACHE_TTL_MS,
+  );
+}
+
+async function loadTableColumns(env: Env, table: string): Promise<Set<string>> {
+  return getOrLoadCached(
+    columnCacheKey(table),
+    async () => {
+      const rows = await env.DB.prepare(`PRAGMA table_info(${table})`).all<{
+        name: string;
+      }>();
+      return new Set((rows.results ?? []).map((r) => r.name));
+    },
+    SCHEMA_CACHE_TTL_MS,
+  );
+}
 
 export async function hasTable(env: Env, table: string): Promise<boolean> {
-  if (!cachedTables) {
-    const rows = await env.DB.prepare(
-      "SELECT name FROM sqlite_master WHERE type = 'table'",
-    ).all<{ name: string }>();
-    cachedTables = new Set((rows.results ?? []).map((r) => r.name));
-  }
-  return cachedTables.has(table);
+  const tables = await loadTableNames(env);
+  return tables.has(table);
 }
 
 export async function tableHasColumn(
@@ -18,14 +67,7 @@ export async function tableHasColumn(
   table: string,
   column: string,
 ): Promise<boolean> {
-  let cols = cachedColumns.get(table);
-  if (!cols) {
-    const rows = await env.DB.prepare(`PRAGMA table_info(${table})`).all<{
-      name: string;
-    }>();
-    cols = new Set((rows.results ?? []).map((r) => r.name));
-    cachedColumns.set(table, cols);
-  }
+  const cols = await loadTableColumns(env, table);
   return cols.has(column);
 }
 
@@ -74,6 +116,51 @@ export async function historyTrackColumn(
     return `${alias}.new_track_id`;
   }
   return null;
+}
+
+/**
+ * SQLite-safe «active» predicate — D1 may store is_active as TEXT '1.0' not INTEGER 1.
+ * Time O(1) per row evaluation; Space O(1).
+ */
+export function sqliteActiveEq1(columnExpr: string): string {
+  return `COALESCE(CAST(${columnExpr} AS INTEGER), 1) = 1`;
+}
+
+export async function studentIsActiveSql(
+  env: Env,
+  alias = "s",
+): Promise<string> {
+  const parts: string[] = [];
+  if (await tableHasColumn(env, "students", "is_active")) {
+    const col = alias ? `${alias}.is_active` : "is_active";
+    parts.push(sqliteActiveEq1(col));
+  }
+  return parts.length > 0 ? parts.join(" AND ") : "1=1";
+}
+
+/** Archived / soft-deleted students — is_active = 0 (Time O(1) per row; Space O(1)). */
+export async function studentIsArchivedSql(
+  env: Env,
+  alias = "s",
+): Promise<string> {
+  if (!(await tableHasColumn(env, "students", "is_active"))) {
+    return "1=0";
+  }
+  const col = alias ? `${alias}.is_active` : "is_active";
+  return `COALESCE(CAST(${col} AS INTEGER), 1) = 0`;
+}
+
+/** طالب مؤهل للتحضير والتقارير النشطة — يستبعد المعلّقين */
+export async function studentAttendanceEligibleSql(
+  env: Env,
+  alias = "s",
+): Promise<string> {
+  const parts = [await studentIsActiveSql(env, alias)];
+  if (await tableHasColumn(env, "students", "account_status")) {
+    const col = alias ? `${alias}.account_status` : "account_status";
+    parts.push(`COALESCE(${col}, 'active') != 'suspended'`);
+  }
+  return parts.join(" AND ");
 }
 
 /** Join history only when it represents current placement (legacy schema). */

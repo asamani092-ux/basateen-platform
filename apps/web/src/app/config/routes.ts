@@ -24,25 +24,13 @@ const ADMIN_DEPT_ROLES: UserRole[] = ["super_admin"];
 
 const EDU_SUPERVISOR_ROLES: UserRole[] = ["edu_supervisor", "super_admin"];
 
-/** مرحلة 1 — أساسيات القسم التعليمي */
-const EDU_DEPT_CORE_NAV: NavItem[] = [
+/** القسم التعليمي — 4 تبويبات قيادية للمشرف العام والمشرف التعليمي */
+export const SUPERVISOR_EDU_NAV: NavItem[] = [
   {
     id: "edu-settings",
     label: "إعدادات التعليم",
     path: "/edu-dept/settings",
     roles: EDU_SUPERVISOR_ROLES,
-  },
-  {
-    id: "daily-recitation",
-    label: "الرصد اليومي",
-    path: "/edu-dept/daily-recitation",
-    roles: ["teacher", "edu_supervisor", "programs_supervisor", "track_supervisor"],
-  },
-  {
-    id: "teacher-competitions",
-    label: "منافسات الحلقة",
-    path: "/edu-dept/teacher-competitions",
-    roles: ["teacher", "track_supervisor"],
   },
   {
     id: "edu-reports",
@@ -51,36 +39,36 @@ const EDU_DEPT_CORE_NAV: NavItem[] = [
     roles: EDU_SUPERVISOR_ROLES,
   },
   {
-    id: "quranic-days",
-    label: "اليوم القرآني / يوم الهمة",
-    path: "/edu-dept/quranic-days",
+    id: "transfers",
+    label: "نقل الطلاب",
+    path: "/edu-dept/transfers",
     roles: EDU_SUPERVISOR_ROLES,
   },
   {
-    id: "transfer-requests",
-    label: "متابعة النقل",
-    path: "/edu-dept/transfer-requests",
+    id: "competitions",
+    label: "المنافسات",
+    path: "/edu-dept/competitions",
     roles: EDU_SUPERVISOR_ROLES,
   },
 ];
 
-/** القسم التعليمي — لوحات المشرف التعليمي */
-export const EDU_DEPT_NAV: NavItem[] = [
-  { id: "dashboard", label: "لوحة المتابعة", path: "/edu-dept/dashboard", roles: ["edu_supervisor"] },
+/** بوابة المعلم — رابط واحد */
+const TEACHER_EDU_NAV: NavItem[] = [
   {
-    id: "master-grid",
-    label: "انتظار القبول والتوزيع",
-    path: "/edu-dept/master-grid",
-    roles: ["edu_supervisor"],
+    id: "teacher-hub",
+    label: "بوابة المعلم",
+    path: "/teacher",
+    roles: ["teacher"],
   },
-  { id: "students", label: "الطلاب و Excel", path: "/edu-dept/students", roles: ["edu_supervisor"] },
-  { id: "transfers", label: "نقل الطلاب", path: "/edu-dept/transfers", roles: ["edu_supervisor"] },
-  { id: "circles", label: "الحلقات التشغيلية", path: "/edu-dept/circles", roles: ["edu_supervisor"] },
+];
+
+/** بوابة مشرف المسار — رابط واحد */
+const TRACK_SUPERVISOR_EDU_NAV: NavItem[] = [
   {
-    id: "events-engine",
-    label: "محرك الفعاليات",
-    path: "/edu-dept/events-engine",
-    roles: ["edu_supervisor"],
+    id: "track-supervisor-hub",
+    label: "بوابة مشرف المسار",
+    path: "/track-supervisor",
+    roles: ["track_supervisor"],
   },
 ];
 
@@ -88,7 +76,7 @@ export const EDU_DEPT_GROUP: NavGroup = {
   id: "edu-dept",
   label: "القسم التعليمي",
   roles: ["edu_supervisor", "super_admin", "teacher", "track_supervisor"],
-  children: [...EDU_DEPT_CORE_NAV, ...EDU_DEPT_NAV],
+  children: [...SUPERVISOR_EDU_NAV, ...TEACHER_EDU_NAV, ...TRACK_SUPERVISOR_EDU_NAV],
 };
 
 /** القسم الإداري — مسارات v2.6 (كل التبويبات داخل القائمة المنسدلة) */
@@ -103,6 +91,12 @@ export const ADMIN_DEPT_NAV: NavItem[] = [
     id: "circles-setup",
     label: "إعداد الحلقات والمسارات",
     path: "/super-admin/circles-setup",
+    roles: ["super_admin"],
+  },
+  {
+    id: "general-settings",
+    label: "الإعدادات العامة",
+    path: "/super-admin/settings",
     roles: ["super_admin"],
   },
   {
@@ -201,8 +195,8 @@ export const ADMIN_DEPT_GROUP: NavGroup = {
 };
 
 export const navItems: NavItem[] = [
-  ...EDU_DEPT_CORE_NAV,
-  ...EDU_DEPT_NAV,
+  ...SUPERVISOR_EDU_NAV,
+  ...TEACHER_EDU_NAV,
   ...ADMIN_DEPT_NAV,
   ...PROG_DEPT_NAV,
   ...TEACHER_NAV,
@@ -234,23 +228,26 @@ export function navGroupIsActive(group: NavGroup, pathname: string): boolean {
 }
 
 export function isNavActive(path: string, pathname: string): boolean {
-  if (path === "/teacher" || path === "/edu-dept/daily-recitation") {
+  if (path === "/teacher") {
+    return pathname === "/teacher" || pathname.startsWith("/teacher/");
+  }
+  if (path === "/track-supervisor") {
+    return pathname === "/track-supervisor" || pathname.startsWith("/track-supervisor/");
+  }
+  if (path === "/edu-dept/daily-recitation") {
     return (
-      pathname === "/teacher" ||
-      pathname.startsWith("/teacher/") ||
       pathname === "/edu-dept/daily-recitation" ||
       pathname.startsWith("/edu-dept/daily-recitation/")
     );
   }
-  if (path === "/edu-dept/events-engine") {
+  if (path === "/edu-dept/competitions") {
     return (
+      pathname === "/edu-dept/competitions" ||
+      pathname.startsWith("/edu-dept/competitions/") ||
       pathname === "/edu-dept/events-engine" ||
-      pathname === "/edu-dept/yom-himma" ||
-      pathname.startsWith("/edu-dept/competitions")
+      pathname === "/edu-dept/quranic-days" ||
+      pathname === "/edu-dept/yom-himma"
     );
-  }
-  if (path === "/edu-dept/students") {
-    return pathname === "/edu-dept/students" || pathname.startsWith("/edu-dept/students/");
   }
   if (path === "/prog-dept/quizzes") {
     return (

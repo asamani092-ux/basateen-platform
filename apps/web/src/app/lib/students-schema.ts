@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { resolveMemorizationFields } from "./quran-memorization";
 
 /** يحوّل "" و null و undefined إلى null للحقول الاختيارية */
 export const optionalText = z.preprocess(
@@ -36,6 +37,20 @@ export function parsePositiveIntField(v: unknown): number | null {
   const n = Math.trunc(Number(s));
   return Number.isFinite(n) && n > 0 ? n : null;
 }
+
+/** O(1) — optional age 4–25; empty/invalid → null */
+export function parseOptionalAge(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  const n = Math.trunc(Number(v));
+  if (!Number.isFinite(n)) return null;
+  if (n < 4 || n > 25) return null;
+  return n;
+}
+
+export const optionalAge = z.preprocess(
+  (v) => parseOptionalAge(v),
+  z.number().int().min(4).max(25).nullable().optional(),
+);
 
 const OPTIONAL_STRING_KEYS = [
   "school_name",
@@ -116,65 +131,74 @@ const studentCreateBaseSchema = z
     school_name: optionalText.optional(),
     school_grade: optionalText.optional(),
     memorization_amount: optionalText.optional(),
+    memorization_faces: z.unknown().optional().nullable(),
+    memorization_value: z.unknown().optional().nullable(),
+    memorization_unit: z.unknown().optional().nullable(),
     guardian_national_id: optionalText.optional(),
     guardian_work: optionalText.optional(),
     health_notes: optionalText.optional(),
     stage_id: z.unknown().optional().nullable(),
-    age: z.unknown().optional().nullable(),
+    age: optionalAge,
   })
   .merge(placementFields);
 
+function transformStudentBody(body: z.infer<typeof studentCreateBaseSchema>) {
+  let circle_id = parsePositiveIntField(body.circle_id);
+  let track_id = parsePositiveIntField(body.track_id);
+
+  const groupId = parsePositiveIntField(body.group_id);
+  if (groupId && body.group_type === "circle") {
+    circle_id = groupId;
+  } else if (groupId && body.group_type === "track") {
+    track_id = groupId;
+  }
+
+  const placementKey = (body.placement ?? "").trim();
+  if (placementKey.includes(":")) {
+    const [kind, idStr] = placementKey.split(":");
+    const id = parsePositiveIntField(idStr);
+    if (id && kind === "circle") {
+      circle_id = id;
+      track_id = null;
+    } else if (id && kind === "track") {
+      track_id = id;
+      circle_id = null;
+    }
+  }
+
+  const stage_id = parsePositiveIntField(body.stage_id);
+  const age = parseOptionalAge(body.age);
+
+  const memorization = resolveMemorizationFields({
+    memorization_faces: body.memorization_faces,
+    memorization_value: body.memorization_value,
+    memorization_unit: body.memorization_unit,
+    memorization_amount: body.memorization_amount,
+  });
+
+  return {
+    full_name_ar: body.full_name_ar,
+    national_id: body.national_id,
+    nationality: body.nationality,
+    phone: body.phone,
+    guardian_phone: body.guardian_phone,
+    school_name: body.school_name ?? null,
+    school_grade: body.school_grade ?? null,
+    memorization_amount: memorization.text,
+    memorization_faces: memorization.faces,
+    guardian_national_id: body.guardian_national_id ?? null,
+    guardian_work: body.guardian_work ?? null,
+    health_notes: body.health_notes ?? null,
+    stage_id,
+    age,
+    circle_id,
+    track_id,
+  };
+}
+
 export const studentCreateBodySchema = z.preprocess(
   (raw) => normalizeIncomingStudentPayload(raw),
-  studentCreateBaseSchema.transform((body) => {
-    let circle_id = parsePositiveIntField(body.circle_id);
-    let track_id = parsePositiveIntField(body.track_id);
-
-    const groupId = parsePositiveIntField(body.group_id);
-    if (groupId && body.group_type === "circle") {
-      circle_id = groupId;
-    } else if (groupId && body.group_type === "track") {
-      track_id = groupId;
-    }
-
-    const placementKey = (body.placement ?? "").trim();
-    if (placementKey.includes(":")) {
-      const [kind, idStr] = placementKey.split(":");
-      const id = parsePositiveIntField(idStr);
-      if (id && kind === "circle") {
-        circle_id = id;
-        track_id = null;
-      } else if (id && kind === "track") {
-        track_id = id;
-        circle_id = null;
-      }
-    }
-
-    const stage_id = parsePositiveIntField(body.stage_id);
-    let age: number | null = null;
-    if (body.age != null && body.age !== "") {
-      const n = Math.trunc(Number(body.age));
-      if (Number.isFinite(n) && n >= 4 && n <= 25) age = n;
-    }
-
-    return {
-      full_name_ar: body.full_name_ar,
-      national_id: body.national_id,
-      nationality: body.nationality,
-      phone: body.phone,
-      guardian_phone: body.guardian_phone,
-      school_name: body.school_name ?? null,
-      school_grade: body.school_grade ?? null,
-      memorization_amount: body.memorization_amount ?? null,
-      guardian_national_id: body.guardian_national_id ?? null,
-      guardian_work: body.guardian_work ?? null,
-      health_notes: body.health_notes ?? null,
-      stage_id,
-      age,
-      circle_id,
-      track_id,
-    };
-  }),
+  studentCreateBaseSchema.transform(transformStudentBody),
 ).superRefine((data, ctx) => {
   if (data.circle_id == null && data.track_id == null) {
     ctx.addIssue({
@@ -184,6 +208,12 @@ export const studentCreateBodySchema = z.preprocess(
     });
   }
 });
+
+/** PATCH — لا يشترط الإسناد؛ العمر اختياري بالكامل */
+export const studentPatchBodySchema = z.preprocess(
+  (raw) => normalizeIncomingStudentPayload(raw),
+  studentCreateBaseSchema.transform(transformStudentBody),
+);
 
 export const studentBulkRowSchema = z.object({
   full_name_ar: requiredText,

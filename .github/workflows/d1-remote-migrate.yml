@@ -13,6 +13,18 @@ on:
           - upgrade
           - all
           - demo
+          - "048"
+          - competition-stack
+          - "051"
+          - "052"
+          - "053"
+          - "054"
+          - "055"
+          - "056"
+          - "057"
+          - "058"
+          - "059"
+          - "060"
 
 concurrency:
   group: d1-remote-migrate

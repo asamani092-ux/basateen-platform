@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { DoubleConfirmDialog } from "../shared/DoubleConfirmDialog";
 import {
   TableActionsCell,
@@ -13,6 +15,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog";
+import { Label } from "../ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 import {
   Table,
   TableBody,
@@ -21,24 +31,31 @@ import {
   TableHeader,
   TableRow,
 } from "../ui/table";
-import { api } from "../../lib/api-client";
+import { api, type AdminTrackRow, type CircleOption } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { ds, tajawal } from "../../lib/design-system";
 
 type LinkRow = {
   id: number;
-  circle_name: string | null;
+  group_type: "circle" | "track";
+  group_label: string;
   public_path: string;
   is_active: number;
   evergreen?: boolean;
 };
 
+type EntityType = "circle" | "track";
+
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** عند التوفير: زر إنشاء رابط لهذه الحلقة */
+  defaultEntityType?: EntityType;
   defaultCircleId?: number;
   defaultCircleName?: string;
+  defaultTrackId?: number;
+  defaultTrackName?: string;
+  circles?: CircleOption[];
+  tracks?: AdminTrackRow[];
 };
 
 function shortenPath(path: string, max = 28): string {
@@ -49,15 +66,38 @@ function shortenPath(path: string, max = 28): string {
 export function AttendanceMagicLinksModal({
   open,
   onOpenChange,
+  defaultEntityType = "circle",
   defaultCircleId,
   defaultCircleName,
+  defaultTrackId,
+  defaultTrackName,
+  circles = [],
+  tracks = [],
 }: Props) {
   const [items, setItems] = useState<LinkRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copyHint, setCopyHint] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [createType, setCreateType] = useState<EntityType>(defaultEntityType);
+  const [createCircleId, setCreateCircleId] = useState(
+    defaultCircleId != null ? String(defaultCircleId) : "",
+  );
+  const [createTrackId, setCreateTrackId] = useState(
+    defaultTrackId != null ? String(defaultTrackId) : "",
+  );
+
+  useEffect(() => {
+    if (open) {
+      setCreateType(defaultEntityType);
+      setCreateCircleId(
+        defaultCircleId != null ? String(defaultCircleId) : "",
+      );
+      setCreateTrackId(defaultTrackId != null ? String(defaultTrackId) : "");
+    }
+  }, [open, defaultEntityType, defaultCircleId, defaultTrackId]);
 
   const load = useCallback(async () => {
     if (!canUseApi()) return;
@@ -68,7 +108,11 @@ export function AttendanceMagicLinksModal({
       setItems(
         res.items.map((r) => ({
           id: r.id,
-          circle_name: r.circle_name,
+          group_type: r.group_type ?? (r.track_id ? "track" : "circle"),
+          group_label:
+            r.group_type === "track" || r.track_id
+              ? (r.track_name ?? "مسار")
+              : (r.circle_name ?? "حلقة"),
           public_path: r.public_path,
           is_active: r.is_active,
           evergreen: r.evergreen,
@@ -113,21 +157,44 @@ export function AttendanceMagicLinksModal({
     }
   }
 
-  async function createForCircle() {
-    const cid = defaultCircleId;
-    if (cid == null || !Number.isFinite(cid)) {
-      setError("اختر الحلقة في صفحة التحضير أولاً");
-      return;
-    }
+  async function createLink() {
     setBusy(true);
     setError(null);
     try {
-      await api.adminDeptCreateMagicLink({
-        circle_id: cid,
-        feature_name: "student_attendance",
-      });
+      if (createType === "circle") {
+        const cid = Number(createCircleId);
+        if (!Number.isFinite(cid)) {
+          setError("اختر الحلقة");
+          return;
+        }
+        await api.adminDeptCreateMagicLink({
+          group_type: "circle",
+          circle_id: cid,
+          feature_name: "student_attendance",
+        });
+        const name =
+          circles.find((c) => c.id === cid)?.name_ar ??
+          defaultCircleName ??
+          "الحلقة";
+        setCopyHint(`تم إنشاء رابط لحلقة ${name}`);
+      } else {
+        const tid = Number(createTrackId);
+        if (!Number.isFinite(tid)) {
+          setError("اختر المسار");
+          return;
+        }
+        await api.adminDeptCreateMagicLink({
+          group_type: "track",
+          track_id: tid,
+          feature_name: "student_attendance",
+        });
+        const name =
+          tracks.find((t) => t.id === tid)?.name_ar ??
+          defaultTrackName ??
+          "المسار";
+        setCopyHint(`تم إنشاء رابط لمسار ${name}`);
+      }
       await load();
-      setCopyHint(`تم إنشاء رابط لـ ${defaultCircleName ?? "الحلقة"}`);
       setTimeout(() => setCopyHint(null), 2500);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل إنشاء الرابط");
@@ -138,9 +205,18 @@ export function AttendanceMagicLinksModal({
 
   async function confirmDelete() {
     if (deleteId == null) return;
-    await api.adminDeptMagicLinksDelete(deleteId);
-    setDeleteId(null);
-    await load();
+    setDeletingId(deleteId);
+    try {
+      await api.adminDeptMagicLinksDelete(deleteId);
+      toast.success("تم حذف رابط التحضير");
+      setDeleteId(null);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "فشل حذف رابط التحضير");
+      throw e;
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   return (
@@ -150,7 +226,7 @@ export function AttendanceMagicLinksModal({
           <DialogHeader>
             <DialogTitle style={tajawal}>إدارة روابط التحضير 🔗</DialogTitle>
             <DialogDescription style={tajawal}>
-              الرابط مرتبط بالحلقة فقط — كل فتح يعرض تحضير يوم اليوم تلقائياً.
+              الرابط مرتبط بحلقة أو مسار — كل فتح يعرض تحضير يوم اليوم تلقائياً.
             </DialogDescription>
           </DialogHeader>
 
@@ -165,17 +241,72 @@ export function AttendanceMagicLinksModal({
             </p>
           )}
 
-          {defaultCircleId != null && (
+          <div className={`${ds.card} p-4 space-y-4`}>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant={createType === "circle" ? "default" : "outline"}
+                className={ds.btnRound}
+                onClick={() => setCreateType("circle")}
+                style={tajawal}
+              >
+                رابط حلقة
+              </Button>
+              <Button
+                type="button"
+                variant={createType === "track" ? "default" : "outline"}
+                className={ds.btnRound}
+                onClick={() => setCreateType("track")}
+                style={tajawal}
+              >
+                رابط مسار
+              </Button>
+            </div>
+
+            {createType === "circle" ? (
+              <div className="space-y-2">
+                <Label style={tajawal}>الحلقة</Label>
+                <Select value={createCircleId} onValueChange={setCreateCircleId}>
+                  <SelectTrigger className={ds.btnRound}>
+                    <SelectValue placeholder="اختر الحلقة" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {circles.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        {c.name_ar}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label style={tajawal}>المسار</Label>
+                <Select value={createTrackId} onValueChange={setCreateTrackId}>
+                  <SelectTrigger className={ds.btnRound}>
+                    <SelectValue placeholder="اختر المسار" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {tracks.map((t) => (
+                      <SelectItem key={t.id} value={String(t.id)}>
+                        {t.name_ar}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <Button
               type="button"
               className={`${ds.btnRound} w-full sm:w-auto`}
               disabled={busy}
-              onClick={createForCircle}
+              onClick={createLink}
               style={tajawal}
             >
-              {busy ? "جاري التوليد…" : `توليد رابط لـ ${defaultCircleName ?? "الحلقة المختارة"}`}
+              {busy ? "جاري التوليد…" : "توليد رابط جديد"}
             </Button>
-          )}
+          </div>
 
           {loading ? (
             <p className="text-muted-foreground text-sm" style={tajawal}>
@@ -183,7 +314,7 @@ export function AttendanceMagicLinksModal({
             </p>
           ) : items.length === 0 ? (
             <p className={ds.alert.info} style={tajawal}>
-              لا توجد روابط نشطة — أنشئ رابطاً من الحلقة المختارة.
+              لا توجد روابط — أنشئ رابطاً لحلقة أو مسار.
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -191,10 +322,10 @@ export function AttendanceMagicLinksModal({
                 <TableHeader>
                   <TableRow>
                     <TableHead className={ds.table.head} style={tajawal}>
-                      الحلقة
+                      النوع
                     </TableHead>
                     <TableHead className={ds.table.head} style={tajawal}>
-                      النوع
+                      الكيان
                     </TableHead>
                     <TableHead className={ds.table.head} style={tajawal}>
                       الرابط
@@ -211,10 +342,10 @@ export function AttendanceMagicLinksModal({
                   {items.map((row) => (
                     <TableRow key={row.id}>
                       <TableCell className={ds.table.cell} style={tajawal}>
-                        {row.circle_name ?? "—"}
+                        {row.group_type === "track" ? "مسار" : "حلقة"}
                       </TableCell>
                       <TableCell className={ds.table.cell} style={tajawal}>
-                        {row.evergreen ? "يومي (دائم)" : "—"}
+                        {row.group_label}
                       </TableCell>
                       <TableCell className={ds.table.cell}>
                         <span
@@ -243,10 +374,20 @@ export function AttendanceMagicLinksModal({
                           onClick={() => toggleLink(row.id)}
                           disabled={busy}
                         />
-                        <TableIconAction
-                          kind="delete"
-                          onClick={() => setDeleteId(row.id)}
-                        />
+                        {deletingId === row.id ? (
+                          <span
+                            className="inline-flex size-8 items-center justify-center"
+                            aria-label="جاري الحذف"
+                          >
+                            <Loader2 className="size-4 animate-spin text-destructive" />
+                          </span>
+                        ) : (
+                          <TableIconAction
+                            kind="delete"
+                            onClick={() => setDeleteId(row.id)}
+                            disabled={deletingId != null || busy}
+                          />
+                        )}
                       </TableActionsCell>
                     </TableRow>
                   ))}

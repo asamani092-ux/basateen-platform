@@ -4,10 +4,20 @@ import {
   getCircleCapacity,
   capacityWarningMessage,
 } from "../lib/circle-capacity";
-import { canManageCircle } from "../lib/dept-scope";
-import { activePlacementSql, hasTable, tableHasColumn } from "../lib/db-schema";
+import { canManageCircle, teacherCanAccessStudent } from "../lib/dept-scope";
+import {
+  activePlacementSql,
+  hasTable,
+  studentIsActiveSql,
+  studentIsArchivedSql,
+  tableHasColumn,
+} from "../lib/db-schema";
+import { buildStudentPlacementSql } from "../lib/student-list-sql";
+import { applyStudentPlacement } from "../lib/students-admin";
+import { resolveCircleTrackId } from "../lib/circle-track";
 import { transferStudentCircle } from "../lib/edu-transfer";
-import { safeDeleteStudent } from "../lib/students-admin";
+import { safeDeleteStudent, restoreStudent } from "../lib/students-admin";
+import { resolveMemorizationFields } from "../lib/quran-memorization";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 
 type PlacementRow = {
@@ -56,9 +66,7 @@ export async function handleStudentDetail(
   const studentId = parseStudentId(url);
   if (!studentId) return json({ error: "invalid_student_id" }, 400);
 
-  const isActiveExpr = (await tableHasColumn(env, "students", "is_active"))
-    ? "COALESCE(is_active, 1) = 1"
-    : "1=1";
+  const isActiveExpr = await studentIsActiveSql(env, "");
   const phoneSelect = (await tableHasColumn(env, "students", "phone"))
     ? "phone"
     : "NULL AS phone";
@@ -72,46 +80,118 @@ export async function handleStudentDetail(
   if (!student) return json({ error: "student_not_found" }, 404);
 
     const hasHistory = await hasTable(env, "student_circle_history");
-    const hasLegacyHistory = hasHistory && (await tableHasColumn(env, "student_circle_history", "circle_id"));
-    const activePlacement = hasLegacyHistory ? await activePlacementSql(env, "h") : "1=0";
-    const current = hasLegacyHistory
-      ? await env.DB.prepare(
+    const hasLegacyHistory =
+      hasHistory && (await tableHasColumn(env, "student_circle_history", "circle_id"));
+    const hasFlatHistory =
+      hasHistory &&
+      !hasLegacyHistory &&
+      (await tableHasColumn(env, "student_circle_history", "new_circle_id"));
+    const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
+    const hasCurrentTrack = await tableHasColumn(env, "students", "current_track_id");
+
+    let current: PlacementRow | null = null;
+
+    if (hasCurrentCircle || hasCurrentTrack) {
+      const placement = await buildStudentPlacementSql(env);
+      const row = await env.DB.prepare(
+        `SELECT ${placement.circleRef} AS circle_id,
+                c.name_ar AS circle_name,
+                ${placement.trackRef} AS track_id,
+                t.name_ar AS track_name
+         FROM students s
+         ${placement.circleJoin}
+         ${placement.trackJoin}
+         WHERE s.id = ? AND s.complex_id = ?`,
+      )
+        .bind(studentId, auth.complexId)
+        .first<{
+          circle_id: number | null;
+          circle_name: string | null;
+          track_id: number | null;
+          track_name: string | null;
+        }>();
+
+      if (
+        row &&
+        (row.circle_id != null ||
+          row.track_id != null ||
+          row.circle_name ||
+          row.track_name)
+      ) {
+        current = {
+          history_id: 0,
+          circle_id: row.circle_id ?? 0,
+          circle_name: row.circle_name ?? "",
+          track_id: row.track_id,
+          track_name: row.track_name,
+          from_at: "",
+          to_at: null,
+        };
+      }
+    }
+
+    if (!current && hasLegacyHistory) {
+      const activePlacement = await activePlacementSql(env, "h");
+      current = await env.DB.prepare(
         `SELECT h.id AS history_id, h.circle_id, c.name_ar AS circle_name,
-            h.track_id, t.name_ar AS track_name, h.from_at, h.to_at
-     FROM student_circle_history h
-     JOIN circles c ON c.id = h.circle_id
-     LEFT JOIN tracks t ON t.id = h.track_id
-     WHERE h.student_id = ? AND ${activePlacement}
-     ORDER BY h.id DESC LIMIT 1`,
+                h.track_id, t.name_ar AS track_name, h.from_at, h.to_at
+         FROM student_circle_history h
+         JOIN circles c ON c.id = h.circle_id
+         LEFT JOIN tracks t ON t.id = h.track_id
+         WHERE h.student_id = ? AND ${activePlacement}
+         ORDER BY h.id DESC LIMIT 1`,
       )
         .bind(studentId)
-        .first<PlacementRow>()
-      : null;
+        .first<PlacementRow>();
+    }
 
-  if (current && auth.role === "edu_supervisor") {
+  if (current?.circle_id && auth.role === "edu_supervisor") {
     const ok = await canManageCircle(env, auth, current.circle_id);
     if (!ok) return json({ error: "forbidden" }, 403);
   }
 
-    const history = hasLegacyHistory
-      ? await env.DB.prepare(
+    let history: HistoryRow[] = [];
+    if (hasLegacyHistory) {
+      const legacyHistory = await env.DB.prepare(
         `SELECT h.id, c.name_ar AS circle_name, t.name_ar AS track_name,
-            h.from_at, h.to_at, h.frozen_at, h.note
-     FROM student_circle_history h
-     JOIN circles c ON c.id = h.circle_id
-     LEFT JOIN tracks t ON t.id = h.track_id
-     WHERE h.student_id = ?
-     ORDER BY h.id DESC
-     LIMIT 20`,
+                h.from_at, h.to_at, h.frozen_at, h.note
+         FROM student_circle_history h
+         JOIN circles c ON c.id = h.circle_id
+         LEFT JOIN tracks t ON t.id = h.track_id
+         WHERE h.student_id = ?
+         ORDER BY h.id DESC
+         LIMIT 20`,
       )
         .bind(studentId)
-        .all<HistoryRow>()
-      : { results: [] as HistoryRow[] };
+        .all<HistoryRow>();
+      history = legacyHistory.results ?? [];
+    } else if (hasFlatHistory) {
+      const flatHistory = await env.DB.prepare(
+        `SELECT h.id,
+                COALESCE(nc.name_ar, oc.name_ar, '—') AS circle_name,
+                COALESCE(nt.name_ar, ot.name_ar) AS track_name,
+                h.moved_at AS from_at,
+                NULL AS to_at,
+                NULL AS frozen_at,
+                h.reason AS note
+         FROM student_circle_history h
+         LEFT JOIN circles oc ON oc.id = h.old_circle_id
+         LEFT JOIN circles nc ON nc.id = h.new_circle_id
+         LEFT JOIN tracks ot ON ot.id = h.old_track_id
+         LEFT JOIN tracks nt ON nt.id = h.new_track_id
+         WHERE h.student_id = ?
+         ORDER BY h.id DESC
+         LIMIT 20`,
+      )
+        .bind(studentId)
+        .all<HistoryRow>();
+      history = flatHistory.results ?? [];
+    }
 
     return json({
       student,
       current: current ?? null,
-      history: history.results ?? [],
+      history,
     });
   } catch (err) {
     console.error("student_detail_failed", err);
@@ -158,8 +238,9 @@ export async function handleStudentTransfer(
     return json({ error: "circle_id_required" }, 400);
   }
 
+  const transferActiveExpr = await studentIsActiveSql(env, "");
   const student = await env.DB.prepare(
-    `SELECT id FROM students WHERE id = ? AND complex_id = ? AND is_active = 1`,
+    `SELECT id FROM students WHERE id = ? AND complex_id = ? AND ${transferActiveExpr}`,
   )
     .bind(studentId, auth.complexId)
     .first<{ id: number }>();
@@ -167,11 +248,11 @@ export async function handleStudentTransfer(
   if (!student) return json({ error: "student_not_found" }, 404);
 
   const targetCircle = await env.DB.prepare(
-    `SELECT id, track_id, name_ar FROM circles
+    `SELECT id, name_ar FROM circles
      WHERE id = ? AND complex_id = ? AND is_active = 1`,
   )
     .bind(targetCircleId, auth.complexId)
-    .first<{ id: number; track_id: number | null; name_ar: string }>();
+    .first<{ id: number; name_ar: string }>();
 
   if (!targetCircle) return json({ error: "circle_not_found" }, 404);
 
@@ -184,10 +265,14 @@ export async function handleStudentTransfer(
     ? capacityWarningMessage(targetCapacity)
     : null;
 
-  const trackId =
+  const trackId = await resolveCircleTrackId(
+    env,
+    targetCircleId,
+    auth.complexId,
     body.track_id != null && body.track_id !== undefined
       ? Number(body.track_id)
-      : targetCircle.track_id;
+      : null,
+  );
 
     const hasHistory = await hasTable(env, "student_circle_history");
     const hasLegacyHistory = hasHistory && (await tableHasColumn(env, "student_circle_history", "circle_id"));
@@ -211,7 +296,17 @@ export async function handleStudentTransfer(
         : null;
 
   if (current?.circle_id) {
-    if (!(await canManageCircle(env, auth, current.circle_id))) {
+    const staffRole =
+      auth.role === "teacher" || auth.role === "track_supervisor";
+    if (staffRole) {
+      if (
+        !(await teacherCanAccessStudent(env, auth.userId, studentId, {
+          complexId: auth.complexId,
+        }))
+      ) {
+        return json({ error: "forbidden_student" }, 403);
+      }
+    } else if (!(await canManageCircle(env, auth, current.circle_id))) {
       return json({ error: "forbidden_current_circle" }, 403);
     }
     const sameCircle = current.circle_id === targetCircleId;
@@ -219,6 +314,14 @@ export async function handleStudentTransfer(
       (current.track_id ?? null) === (trackId ?? null);
     if (sameCircle && sameTrack) {
       return json({ error: "already_in_circle" }, 409);
+    }
+  } else if (auth.role === "teacher" || auth.role === "track_supervisor") {
+    if (
+      !(await teacherCanAccessStudent(env, auth.userId, studentId, {
+        complexId: auth.complexId,
+      }))
+    ) {
+      return json({ error: "forbidden_student" }, 403);
     }
   }
 
@@ -229,6 +332,7 @@ export async function handleStudentTransfer(
       newTrackId: trackId,
       movedByUserId: auth.userId,
       reason: note,
+      complexId: auth.complexId,
     });
 
     const hasAdmission = await tableHasColumn(env, "students", "admission_status");
@@ -308,9 +412,7 @@ export async function handleStudentPatch(
       return json({ error: "invalid_json" }, 400);
     }
 
-    const isActiveExpr = (await tableHasColumn(env, "students", "is_active"))
-      ? "COALESCE(is_active, 1) = 1"
-      : "1=1";
+    const isActiveExpr = await studentIsActiveSql(env, "");
     const exists = await env.DB.prepare(
       `SELECT id FROM students WHERE id = ? AND complex_id = ? AND ${isActiveExpr}`,
     )
@@ -324,15 +426,40 @@ export async function handleStudentPatch(
       "phone",
       "guardian_phone",
       "guardian_national_id",
+      "guardian_work",
       "school_name",
       "school_grade",
       "nationality",
       "health_notes",
-      "memorization_amount",
+      "stage_id",
+      "age",
       "account_status",
     ] as const;
     const sets: string[] = [];
     const binds: (string | number | null)[] = [];
+
+    const hasMemInput =
+      body.memorization_amount !== undefined ||
+      body.memorization_faces !== undefined ||
+      body.memorization_value !== undefined ||
+      body.memorization_unit !== undefined;
+    if (hasMemInput) {
+      const mem = resolveMemorizationFields({
+        memorization_faces: body.memorization_faces,
+        memorization_value: body.memorization_value,
+        memorization_unit: body.memorization_unit,
+        memorization_amount: body.memorization_amount,
+      });
+      if (await tableHasColumn(env, "students", "memorization_amount")) {
+        sets.push("memorization_amount = ?");
+        binds.push(mem.text);
+      }
+      if (await tableHasColumn(env, "students", "memorization_faces")) {
+        sets.push("memorization_faces = ?");
+        binds.push(mem.faces);
+      }
+    }
+
     for (const col of allowed) {
       if (body[col] === undefined) continue;
       if (!(await tableHasColumn(env, "students", col))) continue;
@@ -348,20 +475,104 @@ export async function handleStudentPatch(
         binds.push(status);
         continue;
       }
+      if (col === "stage_id" || col === "age") {
+        if (body[col] === null || body[col] === "") {
+          sets.push(`${col} = ?`);
+          binds.push(null);
+          continue;
+        }
+        const n = Math.trunc(Number(body[col]));
+        if (!Number.isFinite(n)) continue;
+        if (col === "age" && (n < 4 || n > 25)) {
+          sets.push(`${col} = ?`);
+          binds.push(null);
+          continue;
+        }
+        sets.push(`${col} = ?`);
+        binds.push(n);
+        continue;
+      }
       sets.push(`${col} = ?`);
       binds.push(
         typeof body[col] === "string" ? body[col].trim().slice(0, 500) : null,
       );
     }
-    if (sets.length === 0) return json({ error: "no_fields" }, 400);
-    binds.push(studentId);
-    await env.DB.prepare(
-      `UPDATE students SET ${sets.join(", ")} WHERE id = ?`,
-    )
-      .bind(...binds)
-      .run();
+    if (sets.length > 0) {
+      binds.push(studentId);
+      await env.DB.prepare(
+        `UPDATE students SET ${sets.join(", ")} WHERE id = ?`,
+      )
+        .bind(...binds)
+        .run();
+    }
 
-    return json({ ok: true });
+    const circleId =
+      body.circle_id != null ? Number(body.circle_id) : null;
+    const trackOnlyId =
+      body.track_id != null && (circleId == null || !Number.isFinite(circleId))
+        ? Number(body.track_id)
+        : null;
+
+    if (circleId != null && Number.isFinite(circleId) && circleId > 0) {
+      const targetCircle = await env.DB.prepare(
+        `SELECT id, track_id FROM circles WHERE id = ? AND complex_id = ?`,
+      )
+        .bind(circleId, auth.complexId)
+        .first<{ id: number; track_id: number | null }>();
+      if (!targetCircle) return json({ error: "circle_not_found" }, 404);
+      const trackId =
+        body.track_id != null && Number.isFinite(Number(body.track_id))
+          ? Number(body.track_id)
+          : null;
+      await transferStudentCircle(env, {
+        studentId,
+        newCircleId: circleId,
+        newTrackId: trackId,
+        movedByUserId: auth.userId,
+        reason: "تعديل إسناد من بيانات الطلاب",
+        complexId: auth.complexId,
+      });
+    } else if (trackOnlyId != null && Number.isFinite(trackOnlyId) && trackOnlyId > 0) {
+      const track = await env.DB.prepare(
+        `SELECT id FROM tracks WHERE id = ? AND complex_id = ?`,
+      )
+        .bind(trackOnlyId, auth.complexId)
+        .first<{ id: number }>();
+      if (!track) return json({ error: "track_not_found" }, 404);
+      await applyStudentPlacement(
+        env,
+        studentId,
+        { kind: "track", id: trackOnlyId },
+        "تعديل إسناد مسار من بيانات الطلاب",
+      );
+    }
+
+    if (sets.length === 0 && circleId == null && trackOnlyId == null) {
+      return json({ error: "no_fields" }, 400);
+    }
+
+    const placement = await buildStudentPlacementSql(env);
+    const row = await env.DB.prepare(
+      `SELECT s.id, s.full_name_ar,
+              c.name_ar AS circle_name,
+              t.name_ar AS track_name
+       FROM students s
+       ${placement.circleJoin}
+       ${placement.trackJoin}
+       WHERE s.id = ? AND s.complex_id = ?`,
+    )
+      .bind(studentId, auth.complexId)
+      .first<{
+        id: number;
+        full_name_ar: string;
+        circle_name: string | null;
+        track_name: string | null;
+      }>();
+
+    return json({
+      ok: true,
+      student: row ?? { id: studentId, full_name_ar: "", circle_name: null, track_name: null },
+    });
   } catch (err) {
     console.error("student_patch_failed", err);
     return json(
@@ -389,8 +600,9 @@ export async function handleStudentDelete(
     const studentId = parseStudentId(url);
     if (!studentId) return json({ error: "invalid_student_id" }, 400);
 
+    const isActiveExpr = await studentIsActiveSql(env, "");
     const row = await env.DB.prepare(
-      `SELECT id FROM students WHERE id = ? AND complex_id = ?`,
+      `SELECT id FROM students WHERE id = ? AND complex_id = ? AND ${isActiveExpr}`,
     )
       .bind(studentId, auth.complexId)
       .first();
@@ -398,12 +610,50 @@ export async function handleStudentDelete(
 
     await safeDeleteStudent(env, studentId);
 
-    return json({ ok: true, deleted: true });
+    return json({ ok: true, deleted: true, id: studentId });
   } catch (err) {
     console.error("student_delete_failed", err);
     return json(
       {
         error: "student_delete_failed",
+        message: err instanceof Error ? err.message : String(err),
+      },
+      500,
+    );
+  }
+}
+
+export async function handleStudentRestore(
+  request: Request,
+  env: Env,
+  url: URL,
+): Promise<Response> {
+  try {
+    const auth = await getAuth(request, env);
+    if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
+    if (!requireRoles(auth, ADMIN_DATA_ROLES)) {
+      return json({ error: "forbidden" }, 403);
+    }
+
+    const studentId = parseStudentId(url);
+    if (!studentId) return json({ error: "invalid_student_id" }, 400);
+
+    const archivedExpr = await studentIsArchivedSql(env, "");
+    const row = await env.DB.prepare(
+      `SELECT id FROM students WHERE id = ? AND complex_id = ? AND ${archivedExpr}`,
+    )
+      .bind(studentId, auth.complexId)
+      .first();
+    if (!row) return json({ error: "student_not_found" }, 404);
+
+    await restoreStudent(env, studentId);
+
+    return json({ ok: true, restored: true });
+  } catch (err) {
+    console.error("student_restore_failed", err);
+    return json(
+      {
+        error: "student_restore_failed",
         message: err instanceof Error ? err.message : String(err),
       },
       500,

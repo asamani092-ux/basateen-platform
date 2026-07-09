@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Search } from "lucide-react";
+import { Filter, Search } from "lucide-react";
 import { AdminEntityActionModal } from "../../components/admin/AdminEntityActionModal";
 import {
   TableActionsCell,
   TableIconAction,
 } from "../../components/admin/TableIconAction";
+import { StudentPlacementCell } from "../../components/shared/StudentPlacementCell";
+import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import { Button } from "../../components/ui/button";
 import {
   Dialog,
@@ -54,12 +56,34 @@ import { EDUCATIONAL_STAGES } from "../../lib/stages";
 import { ds, tajawal } from "../../lib/design-system";
 import { cn } from "../../components/ui/utils";
 import {
+  adminInvalidateFor,
+  useAdminDataSync,
+  useAdminDataSyncContext,
+} from "../../context/AdminDataSyncContext";
+import {
+  buildStudentPatchPayload,
   downloadStudentTemplateCsv,
   downloadStudentTemplateXlsx,
   formatStudentApiError,
   parseStudentImportFile,
   validateStudentCreateForm,
+  validateStudentPatchForm,
 } from "../../lib/students-import";
+import {
+  facesToStructuredInput,
+  parseMemorizationTextToFaces,
+} from "../../lib/quran-memorization";
+
+const ALL_FILTER = "all";
+
+type StatusFilterValue = "active" | "suspended" | "no_circle" | "no_track";
+
+const STATUS_FILTER_OPTIONS: { value: StatusFilterValue; label: string }[] = [
+  { value: "active", label: "نشط" },
+  { value: "suspended", label: "معلّق" },
+  { value: "no_circle", label: "بدون حلقة" },
+  { value: "no_track", label: "بدون مسار" },
+];
 
 const ALL_FILTER = "all";
 
@@ -69,6 +93,8 @@ export function StudentsPage() {
   const [circleFilter, setCircleFilter] = useState(ALL_FILTER);
   const [trackFilter, setTrackFilter] = useState(ALL_FILTER);
   const [items, setItems] = useState<StudentRow[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageInfo, setPageInfo] = useState<PageInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -76,13 +102,16 @@ export function StudentsPage() {
   const [actionStudent, setActionStudent] = useState<StudentRow | null>(null);
   const [groups, setGroups] = useState<EducationalGroupRow[]>([]);
   const hasApi = Boolean(getApiToken());
+  const { invalidate } = useAdminDataSyncContext();
 
-  useEffect(() => {
+  const loadGroups = useCallback(async () => {
     if (!hasApi) return;
-    void api
-      .adminEducationalGroups()
-      .then((res) => setGroups(res.items))
-      .catch(() => setGroups([]));
+    try {
+      const res = await api.adminEducationalGroups();
+      setGroups(res.items ?? []);
+    } catch {
+      setGroups([]);
+    }
   }, [hasApi]);
 
   const circles = useMemo(
@@ -120,10 +149,12 @@ export function StudentsPage() {
         setItems(payload.items ?? []);
       } else {
         setItems(payload.items ?? []);
+        setPageInfo((res as { page?: PageInfo }).page ?? null);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل تحميل الطلاب");
       setItems([]);
+      setPageInfo(null);
     } finally {
       setLoading(false);
     }
@@ -244,22 +275,23 @@ export function StudentsPage() {
               جاري التحميل...
             </p>
           ) : (
+            <div className={ds.tableWrap}>
             <Table className={ds.tableMin}>
               <TableHeader>
                 <TableRow>
-                  <TableHead className={ds.table.head} style={tajawal}>
+                  <TableHead className={`${ds.table.head} ${ds.table.colName}`} style={tajawal}>
                     الاسم
                   </TableHead>
-                  <TableHead className={ds.table.head} style={tajawal}>
+                  <TableHead className={`${ds.table.head} ${ds.table.colId}`} style={tajawal}>
                     الهوية
                   </TableHead>
-                  <TableHead className={ds.table.head} style={tajawal}>
+                  <TableHead className={`${ds.table.head} ${ds.table.colPhone}`} style={tajawal}>
                     الجوال
                   </TableHead>
-                  <TableHead className={ds.table.head} style={tajawal}>
+                  <TableHead className={`${ds.table.head} ${ds.table.colPlacement}`} style={tajawal}>
                     الحلقة / المسار
                   </TableHead>
-                  <TableHead className={ds.table.head} style={tajawal}>
+                  <TableHead className={`${ds.table.head} ${ds.table.colStatus}`} style={tajawal}>
                     الحالة
                   </TableHead>
                   <TableHead className={ds.table.headActions} style={tajawal}>
@@ -290,7 +322,7 @@ export function StudentsPage() {
                           <Badge variant="outline">نشط</Badge>
                         )}
                       </TableCell>
-                      <TableActionsCell wide>
+                      <TableActionsCell>
                         <TableIconAction
                           kind="edit"
                           onClick={() => setEditStudent(s)}
@@ -316,6 +348,10 @@ export function StudentsPage() {
                 )}
               </TableBody>
             </Table>
+            {pageInfo && (
+              <TablePagination page={pageInfo} onPageChange={setPage} />
+            )}
+            </div>
           )}
         </CardContent>
       </Card>
@@ -352,6 +388,7 @@ export function StudentsPage() {
                 ),
               );
               setActionStudent(null);
+              afterStudentMutation();
               toast.success(suspended ? "تم تنشيط الطالب" : "تم تعليق الطالب");
             } catch (e) {
               toast.error(e instanceof Error ? e.message : "فشل تحديث الحالة");
@@ -363,6 +400,7 @@ export function StudentsPage() {
               await api.studentsDelete(actionStudent.id);
               setItems((prev) => prev.filter((x) => x.id !== actionStudent.id));
               setActionStudent(null);
+              afterStudentMutation();
               toast.success("تم الحذف");
             } catch (e) {
               toast.error(e instanceof Error ? e.message : "فشل الحذف");
@@ -387,6 +425,7 @@ export function StudentsPage() {
             );
             setEditStudent(null);
             toast.success("تم حفظ التعديلات");
+            afterStudentMutation();
           }}
         />
       )}
@@ -454,7 +493,9 @@ function StudentAddDialog({
       toast.success("تمت إضافة الطالب");
       onCreated();
     } catch (err) {
-      setFormError(formatStudentApiError(err));
+      const msg = formatStudentApiError(err);
+      setFormError(msg);
+      toast.error(msg);
     } finally {
       setSaving(false);
     }
@@ -484,7 +525,9 @@ function StudentAddDialog({
         onCreated();
       }
     } catch (err) {
-      setFormError(formatStudentApiError(err));
+      const msg = formatStudentApiError(err);
+      setFormError(msg);
+      toast.error(msg);
     } finally {
       setBulkLoading(false);
     }
@@ -593,54 +636,73 @@ function StudentEditDialog({
   onOpenChange: (open: boolean) => void;
   onSaved: (student: StudentRow) => void;
 }) {
-  const [name, setName] = useState(student.full_name_ar);
-  const [nationalId, setNationalId] = useState(student.national_id ?? "");
-  const [nationality, setNationality] = useState(student.nationality ?? "سعودي");
-  const [phone, setPhone] = useState(student.phone ?? "");
-  const [guardianPhone, setGuardianPhone] = useState(student.guardian_phone ?? "");
-  const [school, setSchool] = useState(student.school_name ?? "");
-  const [grade, setGrade] = useState(student.school_grade ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const unassigned = !student.circle_name && !student.track_name;
 
-  useEffect(() => {
-    if (!open) return;
-    setName(student.full_name_ar);
-    setNationalId(student.national_id ?? "");
-    setNationality(student.nationality ?? "سعودي");
-    setPhone(student.phone ?? "");
-    setGuardianPhone(student.guardian_phone ?? "");
-    setSchool(student.school_name ?? "");
-    setGrade(student.school_grade ?? "");
-    setError(null);
-  }, [open, student]);
+  const initialValues = useMemo<Partial<StudentUnifiedFormValues>>(() => {
+    const faces =
+      student.memorization_faces != null && student.memorization_faces > 0
+        ? student.memorization_faces
+        : parseMemorizationTextToFaces(student.memorization_amount);
+    const structured = facesToStructuredInput(faces);
+    return {
+      full_name_ar: student.full_name_ar,
+      national_id: student.national_id ?? "",
+      nationality: student.nationality ?? "سعودي",
+      phone: student.phone ?? "",
+      guardian_phone: student.guardian_phone ?? "",
+      school_name: student.school_name ?? "",
+      school_grade: student.school_grade ?? "",
+      memorization_amount: student.memorization_amount ?? "",
+      memorization_value: structured.value,
+      memorization_unit: structured.unit,
+      health_notes: student.health_notes ?? "",
+      stage_id: student.stage_id != null ? String(student.stage_id) : "",
+      age: student.age != null ? String(student.age) : "",
+      placement: "",
+    };
+  }, [student]);
 
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
+  async function save(values: StudentUnifiedFormValues) {
+    if (unassigned && !values.placement.trim()) {
+      setError("الطالب غير مسند — اختر حلقة أو مسار للإسناد");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      await api.studentsPatch(student.id, {
-        full_name_ar: name.trim(),
-        national_id: nationalId.trim() || null,
-        nationality: nationality.trim() || null,
-        phone: phone.trim() || null,
-        guardian_phone: guardianPhone.trim() || null,
-        school_name: school.trim() || null,
-        school_grade: grade.trim() || null,
-      });
+      const validated = validateStudentPatchForm(values);
+      if (!validated.success) {
+        const issues = validated.error.issues
+          .map((i) => `${i.path.join(".")}: ${i.message}`)
+          .join(" — ");
+        setError(issues || "تحقق من الحقول");
+        return;
+      }
+      const payload = buildStudentPatchPayload(values);
+      const res = await api.studentsPatch(student.id, payload);
+      const updated = res.student;
       onSaved({
         ...student,
-        full_name_ar: name.trim(),
-        national_id: nationalId.trim() || null,
-        nationality: nationality.trim() || null,
-        phone: phone.trim() || null,
-        guardian_phone: guardianPhone.trim() || null,
-        school_name: school.trim() || null,
-        school_grade: grade.trim() || null,
+        full_name_ar: (updated?.full_name_ar ?? payload.full_name_ar) as string,
+        national_id: payload.national_id as string | null,
+        nationality: payload.nationality as string | null,
+        phone: payload.phone as string | null,
+        guardian_phone: payload.guardian_phone as string | null,
+        school_name: payload.school_name as string | null,
+        school_grade: payload.school_grade as string | null,
+        memorization_amount: payload.memorization_amount as string | null,
+        health_notes: payload.health_notes as string | null,
+        stage_id: payload.stage_id as number | null,
+        age: payload.age as number | null,
+        circle_name: updated?.circle_name ?? student.circle_name,
+        track_name: updated?.track_name ?? student.track_name,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "فشل الحفظ");
+      const msg = formatStudentApiError(err);
+      setError(msg);
+      toast.error(msg);
     } finally {
       setSaving(false);
     }
@@ -648,14 +710,17 @@ function StudentEditDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={`${ds.card} max-w-md`} dir="rtl">
+      <DialogContent
+        className={`${ds.card} max-w-2xl max-h-[90vh] overflow-y-auto`}
+        dir="rtl"
+      >
         <DialogHeader>
-          <DialogTitle style={tajawal}>تعديل طالب ✏️</DialogTitle>
+          <DialogTitle style={tajawal}>تعديل بيانات الطالب ✏️</DialogTitle>
           <DialogDescription style={tajawal}>{student.full_name_ar}</DialogDescription>
         </DialogHeader>
-        {groups.length > 0 && (
-          <p className="text-xs text-muted-foreground" style={tajawal}>
-            لتغيير الحلقة استخدم أدوات النقل من قسم التعليم عند الحاجة.
+        {unassigned && (
+          <p className={`${ds.alert.info} text-sm`} style={tajawal}>
+            هذا الطالب غير مسند — يجب اختيار حلقة أو مسار عند الحفظ.
           </p>
         )}
         {error && (
@@ -663,42 +728,16 @@ function StudentEditDialog({
             {error}
           </p>
         )}
-        <form onSubmit={save} className="grid gap-3">
-          <div>
-            <Label style={tajawal}>الاسم</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} required />
-          </div>
-          <div>
-            <Label style={tajawal}>الهوية</Label>
-            <Input value={nationalId} onChange={(e) => setNationalId(e.target.value)} />
-          </div>
-          <div>
-            <Label style={tajawal}>الجنسية</Label>
-            <Input value={nationality} onChange={(e) => setNationality(e.target.value)} />
-          </div>
-          <div>
-            <Label style={tajawal}>جوال الطالب</Label>
-            <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
-          </div>
-          <div>
-            <Label style={tajawal}>جوال ولي الأمر</Label>
-            <Input
-              value={guardianPhone}
-              onChange={(e) => setGuardianPhone(e.target.value)}
-            />
-          </div>
-          <div>
-            <Label style={tajawal}>المدرسة</Label>
-            <Input value={school} onChange={(e) => setSchool(e.target.value)} />
-          </div>
-          <div>
-            <Label style={tajawal}>الصف</Label>
-            <Input value={grade} onChange={(e) => setGrade(e.target.value)} />
-          </div>
-          <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
-            {saving ? "جاري الحفظ…" : "حفظ"}
-          </Button>
-        </form>
+        <StudentUnifiedSingleForm
+          key={student.id}
+          groups={groups}
+          initialValues={initialValues}
+          requirePlacement={unassigned}
+          resetOnSubmit={false}
+          submitLabel="حفظ التعديلات"
+          submitting={saving}
+          onSubmit={save}
+        />
       </DialogContent>
     </Dialog>
   );

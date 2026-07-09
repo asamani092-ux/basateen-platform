@@ -10,9 +10,22 @@ export const onRequest: PagesFunction = async (context) => {
   const method = context.request.method;
   const hasBody = method !== "GET" && method !== "HEAD";
 
-  return fetch(target, {
+  const response = await fetch(target, {
     method,
     headers: context.request.headers,
     body: hasBody ? await context.request.arrayBuffer() : undefined,
   });
+
+  if (url.pathname.includes("/competitions")) {
+    const headers = new Headers(response.headers);
+    headers.set("Cache-Control", "no-cache, no-store, must-revalidate");
+    headers.set("Pragma", "no-cache");
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+
+  return response;
 };

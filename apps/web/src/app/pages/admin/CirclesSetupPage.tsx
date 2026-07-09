@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { GuardedForm } from "../../components/ui/guarded-form";
 import { toast } from "sonner";
 import { Layers } from "lucide-react";
 import { AdminEntityActionModal } from "../../components/admin/AdminEntityActionModal";
@@ -39,7 +40,13 @@ import {
 } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
 import { EDUCATIONAL_STAGES, type StageId } from "../../lib/stages";
+import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import { ds, tajawal } from "../../lib/design-system";
+import {
+  adminInvalidateFor,
+  useAdminDataSync,
+  useAdminDataSyncContext,
+} from "../../context/AdminDataSyncContext";
 
 type EntityKind = "circle" | "track";
 
@@ -57,6 +64,53 @@ function apiErrorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
+function teacherSelectOption(
+  teacher: StaffMemberRow,
+  currentCircleId?: number,
+): { label: string; disabled: boolean } {
+  if (
+    teacher.circle_id != null &&
+    teacher.circle_id !== currentCircleId
+  ) {
+    const circleHint = teacher.circle_name?.trim() || "حلقة أخرى";
+    return {
+      label: `${teacher.full_name_ar} — ${circleHint}`,
+      disabled: true,
+    };
+  }
+  return { label: teacher.full_name_ar, disabled: false };
+}
+
+function trackSupervisorSelectOption(
+  supervisor: StaffMemberRow,
+  currentTrackId?: number,
+): { label: string; disabled: boolean } {
+  if (
+    supervisor.track_id != null &&
+    supervisor.track_id !== currentTrackId
+  ) {
+    const trackHint = supervisor.track_name?.trim() || "مسار آخر";
+    return {
+      label: `${supervisor.full_name_ar} — ${trackHint}`,
+      disabled: true,
+    };
+  }
+  return { label: supervisor.full_name_ar, disabled: false };
+}
+
+async function fetchStaffByRole(role: string): Promise<StaffMemberRow[]> {
+  const all: StaffMemberRow[] = [];
+  let p = 1;
+  let hasNext = true;
+  while (hasNext) {
+    const res = await api.adminStaff({ role, page: p });
+    all.push(...(res.items ?? []));
+    hasNext = res.page?.has_next ?? false;
+    p += 1;
+  }
+  return all;
+}
+
 export function CirclesSetupPage() {
   const [items, setItems] = useState<EducationalGroupRow[]>([]);
   const [staff, setStaff] = useState<StaffMemberRow[]>([]);
@@ -65,6 +119,7 @@ export function CirclesSetupPage() {
   const [editRow, setEditRow] = useState<EducationalGroupRow | null>(null);
   const [actionRow, setActionRow] = useState<EducationalGroupRow | null>(null);
   const hasApi = Boolean(getApiToken());
+  const { invalidate } = useAdminDataSyncContext();
 
   const teachers = useMemo(
     () => staff.filter((s) => s.role === "teacher"),
@@ -82,9 +137,10 @@ export function CirclesSetupPage() {
       return;
     }
     setLoading(true);
-    const [groupsRes, staffRes] = await Promise.allSettled([
+    const [groupsRes, teachersRes, trackSupRes] = await Promise.allSettled([
       api.adminEducationalGroups(),
-      api.adminStaff(),
+      fetchStaffByRole("teacher"),
+      fetchStaffByRole("track_supervisor"),
     ]);
     if (groupsRes.status === "fulfilled") {
       setItems(groupsRes.value.items ?? []);
@@ -93,8 +149,8 @@ export function CirclesSetupPage() {
       setItems([]);
       toast.error(apiErrorMessage(groupsRes.reason, "تعذر تحميل الحلقات والمسارات"));
     }
-    if (staffRes.status === "fulfilled") {
-      setStaff(staffRes.value.items ?? []);
+    if (teachersRes.status === "fulfilled" && trackSupRes.status === "fulfilled") {
+      setStaff([...teachersRes.value, ...trackSupRes.value]);
     } else {
       setStaff([]);
     }
@@ -104,6 +160,13 @@ export function CirclesSetupPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useAdminDataSync(["groups", "staff"], load);
+
+  function afterGroupMutation() {
+    invalidate(adminInvalidateFor("group"));
+    void load();
+  }
 
   function openCreate() {
     setEditRow(null);
@@ -152,6 +215,7 @@ export function CirclesSetupPage() {
               جاري التحميل…
             </p>
           ) : (
+            <div className={ds.tableWrap}>
             <Table className={ds.tableMin}>
               <TableHeader>
                 <TableRow>
@@ -195,7 +259,7 @@ export function CirclesSetupPage() {
                       key={`${row.entity_type}-${row.id}`}
                       className={row.is_active === 0 ? "opacity-60" : undefined}
                     >
-                      <TableCell className={ds.table.cell} style={tajawal}>
+                      <TableTruncatedCell style={tajawal}>
                         {row.name_ar}
                         {row.is_active === 0 ? (
                           <Badge
@@ -206,7 +270,7 @@ export function CirclesSetupPage() {
                             معلّق
                           </Badge>
                         ) : null}
-                      </TableCell>
+                      </TableTruncatedCell>
                       <TableCell className={ds.table.cell}>
                         <Badge
                           variant={
@@ -215,14 +279,14 @@ export function CirclesSetupPage() {
                           className={
                             row.entity_type === "track"
                               ? "bg-sky-600 hover:bg-sky-600 text-white"
-                              : "bg-emerald-700 hover:bg-emerald-700 text-white"
+                              : "bg-success hover:bg-success text-white"
                           }
                           style={tajawal}
                         >
                           {ENTITY_BADGE[row.entity_type]}
                         </Badge>
                       </TableCell>
-                      <TableCell className={ds.table.cell} style={tajawal}>
+                      <TableTruncatedCell style={tajawal}>
                         {row.assignee_id ? (
                           row.assignee_name ?? "—"
                         ) : (
@@ -230,22 +294,21 @@ export function CirclesSetupPage() {
                             غير معين
                           </span>
                         )}
-                      </TableCell>
+                      </TableTruncatedCell>
                       <TableCell className={ds.table.cell} style={tajawal}>
                         {row.student_count}
                       </TableCell>
                       <TableCell className={ds.table.cell} style={tajawal}>
                         {row.student_count}/{row.default_capacity}
                       </TableCell>
-                      <TableCell className={ds.table.cell} style={tajawal}>
-                        {row.entity_type === "circle" && row.capacity_warning ? (
-                          <span className="text-sm text-amber-700 dark:text-amber-400">
-                            {row.capacity_warning}
-                          </span>
-                        ) : (
-                          "—"
-                        )}
-                      </TableCell>
+                      <TableTruncatedCell
+                        className="max-w-[10rem] text-warning-foreground dark:text-amber-400"
+                        style={tajawal}
+                      >
+                        {row.entity_type === "circle" && row.capacity_warning
+                          ? row.capacity_warning
+                          : "—"}
+                      </TableTruncatedCell>
                       <TableActionsCell>
                         <TableIconAction
                           kind="edit"
@@ -261,6 +324,7 @@ export function CirclesSetupPage() {
                 )}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -290,6 +354,7 @@ export function CirclesSetupPage() {
               ),
             );
             setActionRow(null);
+            afterGroupMutation();
             toast.success(next ? "تم التنشيط" : "تم التعليق");
             } catch (err) {
               toast.error(apiErrorMessage(err, "فشل تحديث الحالة"));
@@ -314,6 +379,7 @@ export function CirclesSetupPage() {
                 ),
               );
               setActionRow(null);
+              afterGroupMutation();
               toast.success("تم الحذف بنجاح");
             } catch (err) {
               toast.error(apiErrorMessage(err, "فشل الحذف"));
@@ -333,7 +399,7 @@ export function CirclesSetupPage() {
         onSaved={() => {
           setModalOpen(false);
           setEditRow(null);
-          void load();
+          afterGroupMutation();
           toast.success(editRow ? "تم حفظ التعديلات" : "تمت الإضافة بنجاح");
         }}
       />
@@ -420,9 +486,14 @@ function GroupFormDialog({
             teacher_user_id: Number(teacherId),
           });
         } else {
+          if (!supervisorId) {
+            toast.error("اختر مشرف مسار");
+            return;
+          }
           await api.adminTracksPatch(editRow.id, {
             name_ar: name.trim(),
             default_capacity: Number(capacity),
+            supervisor_id: Number(supervisorId),
           });
         }
       } else if (isCircle) {
@@ -485,7 +556,7 @@ function GroupFormDialog({
             اختر نوع الكيان ثم أكمل البيانات
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={submit} className="grid gap-4">
+        <GuardedForm onSubmit={submit} className="grid gap-4">
           <fieldset className="space-y-2" disabled={isEdit}>
             <legend className="text-sm font-semibold mb-2" style={tajawal}>
               نوع الكيان *
@@ -563,11 +634,23 @@ function GroupFormDialog({
                   <option value="">
                     {isEdit ? "— اختر معلمًا —" : "— معلم جديد أدناه —"}
                   </option>
-                  {teachers.map((t) => (
-                    <option key={t.id} value={String(t.id)}>
-                      {t.full_name_ar}
-                    </option>
-                  ))}
+                  {teachers.map((t) => {
+                    const opt = teacherSelectOption(
+                      t,
+                      isEdit && editRow?.entity_type === "circle"
+                        ? editRow.id
+                        : undefined,
+                    );
+                    return (
+                      <option
+                        key={t.id}
+                        value={String(t.id)}
+                        disabled={opt.disabled}
+                      >
+                        {opt.label}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
               {!teacherId && !isEdit && (
@@ -604,11 +687,23 @@ function GroupFormDialog({
                   <option value="">
                     {isEdit ? "— اختر المشرف —" : "— مشرف جديد أدناه —"}
                   </option>
-                  {trackSupervisors.map((s) => (
-                    <option key={s.id} value={String(s.id)}>
-                      {s.full_name_ar}
-                    </option>
-                  ))}
+                  {trackSupervisors.map((s) => {
+                    const opt = trackSupervisorSelectOption(
+                      s,
+                      isEdit && editRow?.entity_type === "track"
+                        ? editRow.id
+                        : undefined,
+                    );
+                    return (
+                      <option
+                        key={s.id}
+                        value={String(s.id)}
+                        disabled={opt.disabled}
+                      >
+                        {opt.label}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
               {!supervisorId && !isEdit && (
@@ -636,7 +731,7 @@ function GroupFormDialog({
           <Button type="submit" disabled={saving} className={ds.btnRound} style={tajawal}>
             {saving ? "جاري الحفظ…" : isEdit ? "حفظ التعديلات" : "حفظ"}
           </Button>
-        </form>
+        </GuardedForm>
       </DialogContent>
     </Dialog>
   );

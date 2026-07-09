@@ -5,27 +5,72 @@ import {
   requireAuth,
   requireRoles,
 } from "../middleware/auth";
+import { enforceRateLimit } from "../lib/rate-limit";
 import {
   circleLabelRow,
   studentCircleScopeSql,
   syncStudentPlacementColumns,
   validateCircleStage,
 } from "../lib/admin-dept-schema";
-import { teachersListSql } from "../lib/admin-gm-schema";
-import { activePlacementSql, hasTable, tableHasColumn } from "../lib/db-schema";
+import { staffListSql as unifiedStaffListSql } from "../lib/admin-staff";
+import {
+  countComplexStaff,
+  countComplexStudents,
+} from "../lib/admin-roster-counts";
+import { fetchStudentForAdminReport } from "../lib/admin-student-report";
+import {
+  activePlacementSql,
+  hasTable,
+  studentAttendanceEligibleSql,
+  studentIsActiveSql,
+  tableHasColumn,
+} from "../lib/db-schema";
 import { buildStudentPlacementSql } from "../lib/student-list-sql";
 import { STAGE_LABELS } from "../lib/dept-scope";
-import { randomMagicToken, type MagicLinkContext } from "../lib/magic-link";
+import {
+  deleteSharedAccessToken,
+  findActiveMagicLinkForEntity,
+  randomMagicToken,
+  resolveMagicGroupId,
+  type MagicLinkContext,
+} from "../lib/magic-link";
+import { pageMeta, parsePageParams } from "../lib/pagination";
+import { fetchSemesterPeriod, semesterQueryRange } from "../lib/semester-period";
 import {
   batchSaveStaffAttendance,
   batchSaveStudentAttendance,
 } from "../lib/attendance-batch";
+import {
+  assertTrackInComplex,
+  loadEntityAttendanceStatus,
+  loadStudentsForEntityAttendance,
+  parseAttendanceEntity,
+  studentBelongsToEntity,
+} from "../lib/admin-attendance-entities";
+import {
+  bulkClearAttendanceRange,
+  bulkPatchAttendanceRecords,
+  fetchAttendanceLedger,
+} from "../lib/admin-attendance-ledger";
+import {
+  bulkClearAttendanceDay,
+  deleteAttendanceById,
+  parseBeneficiaryType,
+  patchAttendanceById,
+  upsertAttendanceRecord,
+} from "../lib/admin-attendance-mutations";
+import { fetchAdminDashboardStats } from "../lib/admin-dashboard-stats";
+import {
+  buildSemesterExportCsvBundle,
+  semesterExportCsvResponse,
+} from "../lib/semester-export-all";
 import { assignStudentCircle } from "../lib/placement";
 import {
   resolveAttendanceTableName,
   upsertStudentAttendance,
   type AttendanceStatus,
 } from "../lib/student-attendance-db";
+import { todayRiyadhIso } from "../lib/today-riyadh-iso";
 
 const ADMIN_ROLES = ["super_admin"] as const;
 
@@ -40,8 +85,18 @@ function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
 }
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+function applyWhatsappAbsenceTemplate(
+  template: string,
+  ctx: { studentName: string; circleOrTrack: string; date: string },
+): string {
+  return template
+    .replace(/\{\{student_name\}\}/g, ctx.studentName)
+    .replace(/\{\{اسم_الطالب\}\}/g, ctx.studentName)
+    .replace(/\{\{circle_name\}\}/g, ctx.circleOrTrack)
+    .replace(/\{\{الحلقة_أو_المسار\}\}/g, ctx.circleOrTrack)
+    .replace(/\{\{الجهة\}\}/g, ctx.circleOrTrack)
+    .replace(/\{\{date\}\}/g, ctx.date)
+    .replace(/\{\{التاريخ\}\}/g, ctx.date);
 }
 
 function parseStatus(raw: unknown): AttendanceStatus | null {
@@ -77,6 +132,8 @@ async function staffListSql(env: Env): Promise<{ sql: string; flat: boolean }> {
   return {
     flat: !hasRole,
     sql: `SELECT u.id AS user_id, u.full_name_ar, ${roleExpr},
+                 sa.id AS attendance_id,
+                 CASE WHEN sa.id IS NOT NULL THEN 1 ELSE 0 END AS has_record,
                  sa.status AS saved_status, sa.recorded_at
           FROM users u
           LEFT JOIN staff_attendance sa
@@ -99,53 +156,6 @@ async function assertCircleInComplex(
   return Boolean(row);
 }
 
-async function loadStudentsForCircleAttendance(
-  env: Env,
-  complexId: number,
-  circleId: number,
-  date: string,
-): Promise<{ items: unknown[]; attTable: string } | { error: Response }> {
-  if (!(await tableHasColumn(env, "students", "current_circle_id"))) {
-    return {
-      error: json(
-        {
-          error: "migration_required",
-          hint: "students.current_circle_id — run D1 migrate 025",
-        },
-        503,
-      ),
-    };
-  }
-
-  const attTable = await resolveAttendanceTableName(env);
-  if (!attTable) {
-    return {
-      error: json({ error: "migration_required", table: "student_attendance" }, 503),
-    };
-  }
-
-  const attSourceCol = (await tableHasColumn(env, attTable, "source"))
-    ? ", sa.source"
-    : "";
-
-  const rows = await env.DB.prepare(
-    `SELECT s.id AS student_id, s.full_name_ar,
-            COALESCE(s.stage_id, 0) AS stage_id,
-            COALESCE(sa.status, 'present') AS status,
-            sa.recorded_at${attSourceCol}
-     FROM students s
-     LEFT JOIN ${attTable} sa
-       ON sa.student_id = s.id AND sa.attendance_date = ?
-     WHERE s.complex_id = ? AND COALESCE(s.is_active, 1) = 1
-       AND s.current_circle_id = ?
-     ORDER BY s.full_name_ar`,
-  )
-    .bind(date, complexId, circleId)
-    .all();
-
-  return { items: rows.results ?? [], attTable };
-}
-
 async function getMaxPledges(env: Env, complexId: number): Promise<number> {
   const hasMax = await tableHasColumn(env, "complex_settings", "max_pledges_per_student");
   if (!hasMax) return 3;
@@ -155,6 +165,106 @@ async function getMaxPledges(env: Env, complexId: number): Promise<number> {
     .bind(complexId)
     .first<{ max_pledges_per_student: number }>();
   return Number(row?.max_pledges_per_student ?? 3);
+}
+
+const PLEDGES_PAGE_LIMIT = 20;
+const PLEDGES_CRITICAL_MIN = 3;
+
+type PledgeSummaryRow = {
+  student_id: number;
+  full_name_ar: string;
+  guardian_phone: string | null;
+  pledge_count: number;
+  latest_pledge_id: number | null;
+  latest_reason: string | null;
+  latest_pledge_date: string | null;
+};
+
+async function pledgeSummarySelectSql(
+  env: Env,
+  guardianCol: string,
+  isActiveExpr: string,
+): Promise<string> {
+  return `SELECT s.id AS student_id, s.full_name_ar, ${guardianCol},
+              COALESCE(d.pledge_count, pc.cnt, 0) AS pledge_count,
+              lp.id AS latest_pledge_id,
+              lp.reason_ar AS latest_reason,
+              lp.pledge_date AS latest_pledge_date
+       FROM students s
+       INNER JOIN (
+         SELECT student_id, COUNT(*) AS cnt
+         FROM student_pledges
+         WHERE complex_id = ?
+         GROUP BY student_id
+       ) pc ON pc.student_id = s.id
+       LEFT JOIN student_disciplinary_summary d ON d.student_id = s.id
+       LEFT JOIN student_pledges lp ON lp.id = (
+         SELECT p2.id FROM student_pledges p2
+         WHERE p2.student_id = s.id
+         ORDER BY p2.pledge_date DESC, p2.id DESC
+         LIMIT 1
+       )
+       WHERE s.complex_id = ? AND ${isActiveExpr}`;
+}
+
+async function loadPledgesSummaryList(
+  env: Env,
+  complexId: number,
+  q?: string,
+): Promise<PledgeSummaryRow[]> {
+  const hasGuardian = await tableHasColumn(env, "students", "guardian_phone");
+  const guardianCol = hasGuardian ? "s.guardian_phone" : "NULL AS guardian_phone";
+  const hasNationalId = await tableHasColumn(env, "students", "national_id");
+  const isActiveExpr = await studentIsActiveSql(env, "s");
+  const baseSql = await pledgeSummarySelectSql(env, guardianCol, isActiveExpr);
+
+  if (q && q.trim().length > 0) {
+    const term = q.trim();
+    const like = `%${term}%`;
+    const filters = ["s.full_name_ar LIKE ?"];
+    const binds: (string | number)[] = [complexId, complexId, like];
+    if (hasNationalId) {
+      filters.push("s.national_id LIKE ?");
+      binds.push(like);
+    }
+    if (/^\d+$/.test(term)) {
+      filters.push("CAST(s.id AS TEXT) = ?");
+      binds.push(term);
+    }
+    const rows = await env.DB.prepare(
+      `${baseSql} AND (${filters.join(" OR ")})
+       ORDER BY pledge_count DESC, s.full_name_ar`,
+    )
+      .bind(...binds)
+      .all<PledgeSummaryRow>();
+    return rows.results ?? [];
+  }
+
+  const critical = await env.DB.prepare(
+    `${baseSql} AND COALESCE(d.pledge_count, pc.cnt, 0) >= ?
+     ORDER BY pledge_count DESC, s.full_name_ar
+     LIMIT ?`,
+  )
+    .bind(complexId, complexId, PLEDGES_CRITICAL_MIN, PLEDGES_PAGE_LIMIT)
+    .all<PledgeSummaryRow>();
+  const items = [...(critical.results ?? [])];
+  if (items.length >= PLEDGES_PAGE_LIMIT) return items;
+
+  const excludeIds = items.map((r) => r.student_id);
+  const remaining = PLEDGES_PAGE_LIMIT - items.length;
+  let recentSql = `${baseSql}`;
+  const recentBinds: (string | number)[] = [complexId, complexId];
+  if (excludeIds.length > 0) {
+    recentSql += ` AND s.id NOT IN (${excludeIds.map(() => "?").join(",")})`;
+    recentBinds.push(...excludeIds);
+  }
+  recentSql += ` ORDER BY lp.pledge_date DESC, lp.id DESC, pledge_count DESC LIMIT ?`;
+  recentBinds.push(remaining);
+
+  const recent = await env.DB.prepare(recentSql)
+    .bind(...recentBinds)
+    .all<PledgeSummaryRow>();
+  return [...items, ...(recent.results ?? [])];
 }
 
 async function bumpPledgeSummary(env: Env, studentId: number): Promise<number> {
@@ -224,7 +334,16 @@ export async function handleAdminDeptRouter(
   const path = url.pathname;
   const isAdminDeptPath = path.startsWith("/api/admin-dept/");
   const isStaffReportAlias = path === "/api/admin/staff/attendance";
-  if (!isAdminDeptPath && !isStaffReportAlias) return null;
+  const isDashboardStatsAlias = path === "/api/admin/dashboard-stats";
+  const isAttendanceAlias = path.startsWith("/api/admin/attendance");
+  if (
+    !isAdminDeptPath &&
+    !isStaffReportAlias &&
+    !isDashboardStatsAlias &&
+    !isAttendanceAlias
+  ) {
+    return null;
+  }
 
   try {
     return await handleAdminDeptRouterImpl(request, env, url, path);
@@ -239,6 +358,351 @@ export async function handleAdminDeptRouter(
       500,
     );
   }
+}
+
+/** Time O(n+m+d) students + summary + daily rows; Space O(n+m+d). */
+async function buildSemesterExportPayload(
+  env: Env,
+  complexId: number,
+  mode: "active" | "all",
+): Promise<{
+  semester: {
+    start_date: string | null;
+    end_date: string | null;
+    active: boolean;
+    semester_weeks: number;
+    graduates_count: number;
+    huffadh_count: number;
+    export_range: { start: string; end: string };
+  };
+  students: Array<Record<string, unknown>>;
+  attendance_summary: Array<{
+    student_id: number;
+    full_name_ar: string;
+    present_days: number;
+    absent_days: number;
+    excused_days: number;
+  }>;
+  attendance_daily?: Array<{
+    student_id: number;
+    full_name_ar: string;
+    attendance_date: string;
+    status: string;
+  }>;
+  educational_summary?: Array<{
+    student_id: number;
+    full_name_ar: string;
+    listened_days: number;
+    repeated_days: number;
+    revised_days: number;
+    error_count: number;
+    tune_errors: number;
+    face_count: number;
+  }>;
+  competition_sheets?: Array<{
+    competition_id: number;
+    name_ar: string;
+    rows: Array<{
+      student_id: number;
+      full_name_ar: string;
+      target_amount: number;
+      achieved_amount: number;
+      points: number;
+    }>;
+  }>;
+  export_type: "standard" | "comprehensive";
+  exported_at: string;
+}> {
+  const semester = await fetchSemesterPeriod(env, complexId);
+  const semesterRange = semesterQueryRange(semester);
+  const placement = await buildStudentPlacementSql(env);
+  const isActiveExpr = await studentIsActiveSql(env, "s");
+  const hasFull = await tableHasColumn(env, "students", "full_name_ar");
+  const nameSelect = hasFull ? "s.full_name_ar" : "s.name AS full_name_ar";
+  const hasIsActive = await tableHasColumn(env, "students", "is_active");
+  const rosterFilter = mode === "all" ? "1=1" : isActiveExpr;
+
+  const studentSql = `
+    SELECT
+      s.id,
+      ${nameSelect},
+      ${(await tableHasColumn(env, "students", "national_id")) ? "s.national_id" : "NULL AS national_id"},
+      ${(await tableHasColumn(env, "students", "phone")) ? "s.phone" : "NULL AS phone"},
+      ${(await tableHasColumn(env, "students", "school_grade")) ? "s.school_grade" : "NULL AS school_grade"},
+      ${hasIsActive ? "COALESCE(CAST(s.is_active AS INTEGER), 1) AS is_active" : "1 AS is_active"},
+      c.name_ar AS circle_name,
+      t.name_ar AS track_name
+    FROM students s
+    ${placement.historyJoin}
+    ${placement.circleJoin}
+    ${placement.trackJoin}
+    WHERE s.complex_id = ? AND ${rosterFilter}
+    ORDER BY ${hasFull ? "s.full_name_ar" : "s.name"}
+    LIMIT 5000`;
+
+  const students = await env.DB.prepare(studentSql)
+    .bind(complexId)
+    .all<{
+      id: number;
+      full_name_ar: string;
+      national_id: string | null;
+      phone: string | null;
+      school_grade: string | null;
+      is_active: number;
+      circle_name: string | null;
+      track_name: string | null;
+    }>();
+
+  const attTable = await resolveAttendanceTableName(env);
+  let attendanceRows: Array<{
+    student_id: number;
+    full_name_ar: string;
+    present_days: number;
+    absent_days: number;
+    excused_days: number;
+  }> = [];
+  let attendanceDaily: Array<{
+    student_id: number;
+    full_name_ar: string;
+    attendance_date: string;
+    status: string;
+  }> | undefined;
+
+  if (attTable) {
+    const attSql = `
+      SELECT s.id AS student_id, s.full_name_ar,
+             SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) AS present_days,
+             SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) AS absent_days,
+             SUM(CASE WHEN sa.status = 'excused' THEN 1 ELSE 0 END) AS excused_days
+      FROM students s
+      LEFT JOIN ${attTable} sa
+        ON sa.student_id = s.id
+       AND sa.complex_id = s.complex_id
+       AND sa.attendance_date BETWEEN ? AND ?
+      WHERE s.complex_id = ? AND ${rosterFilter}
+      GROUP BY s.id, s.full_name_ar
+      ORDER BY s.full_name_ar
+      LIMIT 5000`;
+    const attResult = await env.DB.prepare(attSql)
+      .bind(semesterRange.start, semesterRange.end, complexId)
+      .all<{
+        student_id: number;
+        full_name_ar: string;
+        present_days: number;
+        absent_days: number;
+        excused_days: number;
+      }>();
+    attendanceRows = attResult.results ?? [];
+
+    if (mode === "all") {
+      const dailySql = `
+        SELECT sa.student_id, s.full_name_ar, sa.attendance_date, sa.status
+        FROM ${attTable} sa
+        INNER JOIN students s ON s.id = sa.student_id AND s.complex_id = sa.complex_id
+        WHERE sa.complex_id = ? AND sa.attendance_date BETWEEN ? AND ?
+        ORDER BY sa.attendance_date, s.full_name_ar
+        LIMIT 50000`;
+      const dailyResult = await env.DB.prepare(dailySql)
+        .bind(complexId, semesterRange.start, semesterRange.end)
+        .all<{
+          student_id: number;
+          full_name_ar: string;
+          attendance_date: string;
+          status: string;
+        }>();
+      attendanceDaily = dailyResult.results ?? [];
+    }
+  }
+
+  const settings = await env.DB.prepare(
+    `SELECT semester_weeks, graduates_count, huffadh_count FROM complex_settings WHERE complex_id = ?`,
+  )
+    .bind(complexId)
+    .first<{
+      semester_weeks: number;
+      graduates_count: number;
+      huffadh_count: number;
+    }>();
+
+  const studentRows = (students.results ?? []).map((s) => ({
+    id: s.id,
+    full_name_ar: s.full_name_ar,
+    national_id: s.national_id,
+    phone: s.phone,
+    school_grade: s.school_grade,
+    circle_name: s.circle_name,
+    track_name: s.track_name,
+    ...(mode === "all"
+      ? {
+          is_archived: s.is_active === 0,
+        }
+      : {}),
+  }));
+
+  let educationalSummary:
+    | Array<{
+        student_id: number;
+        full_name_ar: string;
+        listened_days: number;
+        repeated_days: number;
+        revised_days: number;
+        error_count: number;
+        tune_errors: number;
+        face_count: number;
+      }>
+    | undefined;
+  let competitionSheets:
+    | Array<{
+        competition_id: number;
+        name_ar: string;
+        rows: Array<{
+          student_id: number;
+          full_name_ar: string;
+          target_amount: number;
+          achieved_amount: number;
+          points: number;
+        }>;
+      }>
+    | undefined;
+
+  if (mode === "all") {
+    if (await hasTable(env, "edu_daily_recitation")) {
+      const hasFace = await tableHasColumn(env, "edu_daily_recitation", "face_count");
+      const faceSum = hasFace
+        ? "SUM(COALESCE(edr.face_count, 0))"
+        : "0";
+      const hasComplexCol = await tableHasColumn(
+        env,
+        "edu_daily_recitation",
+        "complex_id",
+      );
+      const complexClause = hasComplexCol ? "AND edr.complex_id = ?" : "";
+      const eduBinds: Array<string | number> = [
+        semesterRange.start,
+        semesterRange.end,
+      ];
+      if (hasComplexCol) eduBinds.push(complexId);
+
+      const eduRows = await env.DB.prepare(
+        `SELECT s.id AS student_id, s.full_name_ar,
+                SUM(CASE WHEN COALESCE(edr.listened, 0) = 1 THEN 1 ELSE 0 END) AS listened_days,
+                SUM(CASE WHEN COALESCE(edr.repeated, 0) = 1 THEN 1 ELSE 0 END) AS repeated_days,
+                SUM(CASE WHEN COALESCE(edr.revised, 0) = 1 THEN 1 ELSE 0 END) AS revised_days,
+                SUM(COALESCE(edr.error_count, 0)) AS error_count,
+                SUM(COALESCE(edr.tune_errors, 0)) AS tune_errors,
+                ${faceSum} AS face_count
+         FROM edu_daily_recitation edr
+         INNER JOIN students s ON s.id = edr.student_id
+         WHERE edr.recitation_date BETWEEN ? AND ?
+           ${complexClause}
+         GROUP BY s.id, s.full_name_ar
+         ORDER BY s.full_name_ar
+         LIMIT 5000`,
+      )
+        .bind(...eduBinds)
+        .all<{
+          student_id: number;
+          full_name_ar: string;
+          listened_days: number;
+          repeated_days: number;
+          revised_days: number;
+          error_count: number;
+          tune_errors: number;
+          face_count: number;
+        }>();
+      educationalSummary = eduRows.results ?? [];
+    }
+
+    if (
+      (await hasTable(env, "competitions")) &&
+      (await hasTable(env, "competition_targets"))
+    ) {
+      const hasAchieved = await tableHasColumn(
+        env,
+        "competition_targets",
+        "achieved_amount",
+      );
+      const hasLogPoints =
+        (await hasTable(env, "competition_logs")) &&
+        (await tableHasColumn(env, "competition_logs", "points"));
+      const achievedCol = hasAchieved
+        ? "COALESCE(ct.achieved_amount, 0)"
+        : "0";
+      const pointsSubquery = hasLogPoints
+        ? `(SELECT COALESCE(SUM(cl.points), 0)
+            FROM competition_logs cl
+            WHERE cl.competition_id = ct.competition_id
+              AND cl.student_id = ct.student_id
+              AND cl.log_date BETWEEN ? AND ?)`
+        : "0";
+
+      const comps = await env.DB.prepare(
+        `SELECT id, name_ar FROM competitions
+         WHERE complex_id = ?
+           AND COALESCE(start_date, '0000-01-01') <= ?
+           AND COALESCE(end_date, '9999-12-31') >= ?
+         ORDER BY name_ar
+         LIMIT 200`,
+      )
+        .bind(complexId, semesterRange.end, semesterRange.start)
+        .all<{ id: number; name_ar: string }>();
+
+      const sheets: NonNullable<typeof competitionSheets> = [];
+      for (const comp of comps.results ?? []) {
+        const rowBinds: Array<string | number> = hasLogPoints
+          ? [semesterRange.start, semesterRange.end, comp.id, complexId]
+          : [comp.id, complexId];
+        const rows = await env.DB.prepare(
+          `SELECT s.id AS student_id, s.full_name_ar,
+                  COALESCE(ct.target_amount, 0) AS target_amount,
+                  ${achievedCol} AS achieved_amount,
+                  ${pointsSubquery} AS points
+           FROM competition_targets ct
+           INNER JOIN students s ON s.id = ct.student_id
+           WHERE ct.competition_id = ? AND s.complex_id = ?
+           ORDER BY s.full_name_ar
+           LIMIT 5000`,
+        )
+          .bind(...rowBinds)
+          .all<{
+            student_id: number;
+            full_name_ar: string;
+            target_amount: number;
+            achieved_amount: number;
+            points: number;
+          }>();
+        sheets.push({
+          competition_id: comp.id,
+          name_ar: comp.name_ar,
+          rows: rows.results ?? [],
+        });
+      }
+      competitionSheets = sheets;
+    }
+  }
+
+  return {
+    semester: {
+      start_date: semester.start_date,
+      end_date: semester.end_date,
+      active: semester.active,
+      semester_weeks: settings?.semester_weeks ?? 16,
+      graduates_count: settings?.graduates_count ?? 0,
+      huffadh_count: settings?.huffadh_count ?? 0,
+      export_range: semesterRange,
+    },
+    students: studentRows,
+    attendance_summary: attendanceRows,
+    ...(mode === "all" && attendanceDaily ? { attendance_daily: attendanceDaily } : {}),
+    ...(mode === "all" && educationalSummary
+      ? { educational_summary: educationalSummary }
+      : {}),
+    ...(mode === "all" && competitionSheets
+      ? { competition_sheets: competitionSheets }
+      : {}),
+    export_type: mode === "all" ? "comprehensive" : "standard",
+    exported_at: new Date().toISOString(),
+  };
 }
 
 async function handleAdminDeptRouterImpl(
@@ -256,14 +720,24 @@ async function handleAdminDeptRouterImpl(
 
   // GET /api/admin-dept/staff
   if (request.method === "GET" && path === "/api/admin-dept/staff") {
-    const date = url.searchParams.get("date")?.trim() || todayIso();
+    const date = url.searchParams.get("date")?.trim() || todayRiyadhIso();
+    const pageParams = parsePageParams(url);
     const { sql } = await staffListSql(env);
-    const rows = await env.DB.prepare(sql)
+    const countRow = await env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM (${sql})`,
+    )
       .bind(date, admin.complexId, admin.complexId)
+      .first<{ c: number }>();
+    const total = Number(countRow?.c ?? 0);
+
+    const rows = await env.DB.prepare(`${sql} LIMIT ? OFFSET ?`)
+      .bind(date, admin.complexId, admin.complexId, pageParams.pageSize, pageParams.offset)
       .all<{
         user_id: number;
         full_name_ar: string;
         role?: string;
+        attendance_id: number | null;
+        has_record: number;
         saved_status: string | null;
         recorded_at: string | null;
       }>();
@@ -275,11 +749,18 @@ async function handleAdminDeptRouterImpl(
         typeof r.role === "string" && r.role.trim().length > 0
           ? r.role.trim()
           : null,
+      attendance_id: r.attendance_id ?? null,
+      has_record: Number(r.has_record ?? 0) === 1,
       status: r.saved_status ?? "present",
       recorded_at: r.recorded_at,
     }));
 
-    return json({ date, items, default_status: "present" });
+    return json({
+      date,
+      items,
+      default_status: "present",
+      page: pageMeta(total, pageParams),
+    });
   }
 
   // GET /api/admin-dept/staff/attendance | GET /api/admin/staff/attendance (تقرير مجمّع)
@@ -290,7 +771,7 @@ async function handleAdminDeptRouterImpl(
     const start =
       url.searchParams.get("start")?.trim() ||
       url.searchParams.get("start_date")?.trim() ||
-      todayIso();
+      todayRiyadhIso();
     const end =
       url.searchParams.get("end")?.trim() ||
       url.searchParams.get("end_date")?.trim() ||
@@ -367,7 +848,7 @@ async function handleAdminDeptRouterImpl(
       return json({ error: "invalid_json" }, 400);
     }
 
-    const date = body.attendance_date?.trim() || todayIso();
+    const date = body.attendance_date?.trim() || todayRiyadhIso();
     const records = body.records ?? [];
     if (!Array.isArray(records) || records.length === 0) {
       return json({ error: "records_required" }, 400);
@@ -398,6 +879,62 @@ async function handleAdminDeptRouterImpl(
     return json({ ok: true, attendance_date: date, saved });
   }
 
+  // GET /api/admin-dept/students/attendance/entity-status — حالة محضّر اليوم لكل حلقة/مسار
+  if (
+    request.method === "GET" &&
+    path === "/api/admin-dept/students/attendance/entity-status"
+  ) {
+    const date = url.searchParams.get("date")?.trim() || todayRiyadhIso();
+    const status = await loadEntityAttendanceStatus(
+      env,
+      admin.complexId,
+      date,
+    );
+    return json({ date, ...status });
+  }
+
+  // GET /api/admin-dept/students/attendance/track/:trackId
+  const trackAttGet = path.match(
+    /^\/api\/admin-dept\/students\/attendance\/track\/(\d+)$/,
+  );
+  if (request.method === "GET" && trackAttGet) {
+    const trackId = Number(trackAttGet[1]);
+    if (!Number.isFinite(trackId)) {
+      return json({ error: "invalid_track_id" }, 400);
+    }
+    if (!(await assertTrackInComplex(env, admin.complexId, trackId))) {
+      return json({ error: "track_not_found" }, 404);
+    }
+
+    const date = url.searchParams.get("date")?.trim() || todayRiyadhIso();
+    const pageParams = parsePageParams(url);
+    const loaded = await loadStudentsForEntityAttendance(
+      env,
+      admin.complexId,
+      { type: "track", id: trackId },
+      date,
+      pageParams,
+    );
+    if ("error" in loaded) {
+      return json(loaded, loaded.error === "migration_required" ? 503 : 500);
+    }
+
+    const track = await env.DB.prepare(
+      `SELECT id, name_ar FROM tracks WHERE id = ? AND complex_id = ?`,
+    )
+      .bind(trackId, admin.complexId)
+      .first<{ id: number; name_ar: string }>();
+
+    return json({
+      attendance_date: date,
+      entity_type: "track",
+      track,
+      items: loaded.items,
+      default_status: "present",
+      page: loaded.page,
+    });
+  }
+
   // GET /api/admin-dept/students/attendance/:circleId
   const circleAttGet = path.match(/^\/api\/admin-dept\/students\/attendance\/(\d+)$/);
   if (request.method === "GET" && circleAttGet) {
@@ -409,22 +946,28 @@ async function handleAdminDeptRouterImpl(
       return json({ error: "circle_not_found" }, 404);
     }
 
-    const date = url.searchParams.get("date")?.trim() || todayIso();
-    const loaded = await loadStudentsForCircleAttendance(
+    const date = url.searchParams.get("date")?.trim() || todayRiyadhIso();
+    const pageParams = parsePageParams(url);
+    const loaded = await loadStudentsForEntityAttendance(
       env,
       admin.complexId,
-      circleId,
+      { type: "circle", id: circleId },
       date,
+      pageParams,
     );
-    if ("error" in loaded) return loaded.error;
+    if ("error" in loaded) {
+      return json(loaded, loaded.error === "migration_required" ? 503 : 500);
+    }
 
     const circle = await circleLabelRow(env, circleId);
 
     return json({
       attendance_date: date,
+      entity_type: "circle",
       circle,
       items: loaded.items,
       default_status: "present",
+      page: loaded.page,
     });
   }
 
@@ -432,6 +975,7 @@ async function handleAdminDeptRouterImpl(
   if (request.method === "POST" && path === "/api/admin-dept/students/attendance") {
     let body: {
       circle_id?: number;
+      track_id?: number;
       attendance_date?: string;
       records?: Array<{ student_id?: number; status?: string; notes?: string }>;
     };
@@ -441,13 +985,23 @@ async function handleAdminDeptRouterImpl(
       return json({ error: "invalid_json" }, 400);
     }
 
-    const circleId = Number(body.circle_id);
-    if (!Number.isFinite(circleId)) return json({ error: "circle_id_required" }, 400);
-    if (!(await assertCircleInComplex(env, admin.complexId, circleId))) {
-      return json({ error: "circle_not_found" }, 404);
+    const entity = parseAttendanceEntity(body);
+    if (!entity) {
+      return json(
+        { error: "entity_required", hint: "circle_id XOR track_id" },
+        400,
+      );
     }
 
-    const date = body.attendance_date?.trim() || todayIso();
+    if (entity.type === "circle") {
+      if (!(await assertCircleInComplex(env, admin.complexId, entity.id))) {
+        return json({ error: "circle_not_found" }, 404);
+      }
+    } else if (!(await assertTrackInComplex(env, admin.complexId, entity.id))) {
+      return json({ error: "track_not_found" }, 404);
+    }
+
+    const date = body.attendance_date?.trim() || todayRiyadhIso();
     const records = body.records ?? [];
     if (!Array.isArray(records) || records.length === 0) {
       return json({ error: "records_required" }, 400);
@@ -464,30 +1018,12 @@ async function handleAdminDeptRouterImpl(
       const status = parseStatus(rec.status);
       if (!Number.isFinite(studentId) || !status) continue;
 
-      let allowed: { id: number } | null = null;
-      if (await tableHasColumn(env, "students", "current_circle_id")) {
-        allowed = await env.DB.prepare(
-          `SELECT id FROM students
-           WHERE id = ? AND complex_id = ? AND COALESCE(is_active, 1) = 1
-             AND current_circle_id = ?`,
-        )
-          .bind(studentId, admin.complexId, circleId)
-          .first<{ id: number }>();
-      } else {
-        const scope = await studentCircleScopeSql(env);
-        allowed = await env.DB.prepare(
-          `SELECT s.id FROM students s
-           ${scope.joinSql}
-           WHERE s.id = ? AND s.complex_id = ? AND s.is_active = 1 AND ${scope.circlePredicate}`,
-        )
-          .bind(
-            ...(scope.usesFlatColumn
-              ? [studentId, admin.complexId, circleId]
-              : [circleId, studentId, admin.complexId]),
-          )
-          .first<{ id: number }>();
-      }
-
+      const allowed = await studentBelongsToEntity(
+        env,
+        admin.complexId,
+        studentId,
+        entity,
+      );
       if (!allowed) continue;
       batchRecords.push({
         student_id: studentId,
@@ -499,13 +1035,21 @@ async function handleAdminDeptRouterImpl(
     const saved = await batchSaveStudentAttendance(env, {
       complexId: admin.complexId,
       attendanceDate: date,
-      circleId,
+      circleId: entity.type === "circle" ? entity.id : null,
+      trackId: entity.type === "track" ? entity.id : null,
       source: "admin_supervisor",
       recordedByUserId: admin.userId,
       records: batchRecords,
     });
 
-    return json({ ok: true, attendance_date: date, circle_id: circleId, saved });
+    return json({
+      ok: true,
+      attendance_date: date,
+      entity_type: entity.type,
+      circle_id: entity.type === "circle" ? entity.id : null,
+      track_id: entity.type === "track" ? entity.id : null,
+      saved,
+    });
   }
 
   // GET /api/admin-dept/students/attendance/report — ملخص تحضير الطلاب بالحلقة والفترة
@@ -516,7 +1060,7 @@ async function handleAdminDeptRouterImpl(
     const start =
       url.searchParams.get("start")?.trim() ||
       url.searchParams.get("start_date")?.trim() ||
-      todayIso();
+      todayRiyadhIso();
     const end =
       url.searchParams.get("end")?.trim() ||
       url.searchParams.get("end_date")?.trim() ||
@@ -595,9 +1139,11 @@ async function handleAdminDeptRouterImpl(
 
   // GET /api/admin-dept/students/absent-today
   if (request.method === "GET" && path === "/api/admin-dept/students/absent-today") {
-    const date = url.searchParams.get("date")?.trim() || todayIso();
+    const date = url.searchParams.get("date")?.trim() || todayRiyadhIso();
     const circleIdParam = url.searchParams.get("circle_id");
     const circleId = circleIdParam ? Number(circleIdParam) : null;
+    const trackIdParam = url.searchParams.get("track_id");
+    const trackId = trackIdParam ? Number(trackIdParam) : null;
 
     const attTable = await resolveAttendanceTableName(env);
     if (!attTable) {
@@ -605,28 +1151,59 @@ async function handleAdminDeptRouterImpl(
     }
 
     const placement = await buildStudentPlacementSql(env);
-    const isActiveExpr = (await tableHasColumn(env, "students", "is_active"))
-      ? "COALESCE(s.is_active, 1) = 1"
-      : "1=1";
+    const isActiveExpr = await studentAttendanceEligibleSql(env, "s");
+    const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
+    const hasCurrentTrack = await tableHasColumn(env, "students", "current_track_id");
+
+    const placementParts: string[] = [];
+    if (hasCurrentCircle) placementParts.push("s.current_circle_id IS NOT NULL");
+    if (hasCurrentTrack) placementParts.push("s.current_track_id IS NOT NULL");
+    if (placement.circleRef !== "NULL") {
+      placementParts.push(`${placement.circleRef} IS NOT NULL`);
+    }
+    if (placement.trackRef !== "NULL") {
+      placementParts.push(`${placement.trackRef} IS NOT NULL`);
+    }
+    const placementFilter =
+      placementParts.length > 0 ? `(${placementParts.join(" OR ")})` : "1=1";
 
     let sql = `
       SELECT s.id AS student_id, s.full_name_ar, s.guardian_phone, s.stage_id,
-             sa.status, c.id AS circle_id, c.name_ar AS circle_name
+             sa.status,
+             c.id AS circle_id, c.name_ar AS circle_name,
+             t.id AS track_id, t.name_ar AS track_name
       FROM students s
       INNER JOIN ${attTable} sa
-        ON sa.student_id = s.id AND sa.attendance_date = ?
+        ON sa.student_id = s.id
+       AND sa.attendance_date = ?
+       AND sa.complex_id = s.complex_id
       ${placement.historyJoin}
       ${placement.circleJoin}
+      ${placement.trackJoin}
       WHERE s.complex_id = ? AND ${isActiveExpr}
-        AND sa.status IN ('absent', 'excused')`;
+        AND sa.status IN ('absent', 'excused')
+        AND ${placementFilter}`;
     const binds: (number | string)[] = [date, admin.complexId];
 
     if (circleId != null && Number.isFinite(circleId)) {
-      sql += ` AND ${placement.circleRef} = ?`;
-      binds.push(circleId);
+      if (await hasTable(env, "track_circles")) {
+        sql += ` AND (
+          ${placement.circleRef} = ?
+          OR ${placement.trackRef} IN (
+            SELECT tc.track_id FROM track_circles tc WHERE tc.circle_id = ?
+          )
+        )`;
+        binds.push(circleId, circleId);
+      } else {
+        sql += ` AND ${placement.circleRef} = ?`;
+        binds.push(circleId);
+      }
+    } else if (trackId != null && Number.isFinite(trackId)) {
+      sql += ` AND ${placement.trackRef} = ?`;
+      binds.push(trackId);
     }
 
-    sql += ` ORDER BY c.name_ar, s.full_name_ar`;
+    sql += ` ORDER BY COALESCE(c.name_ar, t.name_ar), s.full_name_ar`;
 
     const rows = await env.DB.prepare(sql).bind(...binds).all();
 
@@ -648,9 +1225,14 @@ async function handleAdminDeptRouterImpl(
 
     const items = (rows.results ?? []).map((r: Record<string, unknown>) => {
       const name = String(r.full_name_ar ?? "");
-      const msg = template
-        .replace(/\{\{student_name\}\}/g, name)
-        .replace(/\{\{date\}\}/g, date);
+      const circleOrTrack = String(
+        r.circle_name ?? r.track_name ?? "الحلقة أو المسار",
+      );
+      const msg = applyWhatsappAbsenceTemplate(template, {
+        studentName: name,
+        circleOrTrack,
+        date,
+      });
       const phone = String(r.guardian_phone ?? "").replace(/\D/g, "");
       const waUrl = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(msg)}` : null;
       return { ...r, whatsapp_message: msg, whatsapp_url: waUrl };
@@ -659,18 +1241,73 @@ async function handleAdminDeptRouterImpl(
     return json({ date, items, template });
   }
 
-  // POST /api/admin-dept/admission — مُلغى: مصدر الحقيقة POST /api/admin/students
-  if (request.method === "POST" && path === "/api/admin-dept/admission") {
-    console.warn("deprecated_admission_endpoint", path);
-    return json(
-      {
-        error: "endpoint_deprecated",
-        message:
-          "تم دمج القبول والتسجيل في بيانات الطلاب — استخدم POST /api/admin/students",
-        use: "/api/admin/students",
-      },
-      410,
+  // GET /api/admin-dept/students/absent-today/template
+  if (
+    request.method === "GET" &&
+    path === "/api/admin-dept/students/absent-today/template"
+  ) {
+    const hasTemplate = await tableHasColumn(
+      env,
+      "complex_settings",
+      "whatsapp_absence_template_ar",
     );
+    const defaultTemplate =
+      "السلام عليكم، نود إبلاغكم بغياب الطالب {{student_name}} عن {{الحلقة_أو_المسار}} يوم {{date}}.";
+    if (!hasTemplate) {
+      return json({ template: defaultTemplate, migration_required: true });
+    }
+    const row = await env.DB.prepare(
+      `SELECT whatsapp_absence_template_ar FROM complex_settings WHERE complex_id = ?`,
+    )
+      .bind(admin.complexId)
+      .first<{ whatsapp_absence_template_ar: string | null }>();
+    return json({
+      template: row?.whatsapp_absence_template_ar?.trim() || defaultTemplate,
+    });
+  }
+
+  // PUT /api/admin-dept/students/absent-today/template
+  if (
+    request.method === "PUT" &&
+    path === "/api/admin-dept/students/absent-today/template"
+  ) {
+    const hasTemplate = await tableHasColumn(
+      env,
+      "complex_settings",
+      "whatsapp_absence_template_ar",
+    );
+    if (!hasTemplate) {
+      return json(
+        { error: "migration_required", column: "whatsapp_absence_template_ar" },
+        503,
+      );
+    }
+
+    let body: { template?: string };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+
+    const template = body.template?.trim();
+    if (!template) {
+      return json({ error: "template_required" }, 400);
+    }
+
+    const updated = await env.DB.prepare(
+      `UPDATE complex_settings
+       SET whatsapp_absence_template_ar = ?, updated_at = datetime('now')
+       WHERE complex_id = ?`,
+    )
+      .bind(template, admin.complexId)
+      .run();
+
+    if ((updated.meta.changes ?? 0) === 0) {
+      return json({ error: "complex_settings_not_found" }, 404);
+    }
+
+    return json({ ok: true, template });
   }
 
   // POST /api/admin-dept/pledges
@@ -688,14 +1325,15 @@ async function handleAdminDeptRouterImpl(
 
     const studentId = Number(body.student_id);
     const reason = body.reason_ar?.trim();
-    const pledgeDate = body.pledge_date?.trim() || todayIso();
+    const pledgeDate = body.pledge_date?.trim() || todayRiyadhIso();
 
     if (!Number.isFinite(studentId) || !reason) {
       return json({ error: "student_id_and_reason_required" }, 400);
     }
 
+    const isActiveExpr = await studentIsActiveSql(env, "");
     const student = await env.DB.prepare(
-      `SELECT id, full_name_ar FROM students WHERE id = ? AND complex_id = ? AND is_active = 1`,
+      `SELECT id, full_name_ar FROM students WHERE id = ? AND complex_id = ? AND ${isActiveExpr}`,
     )
       .bind(studentId, admin.complexId)
       .first<{ id: number; full_name_ar: string }>();
@@ -816,37 +1454,130 @@ async function handleAdminDeptRouterImpl(
     if (!(await hasTable(env, "student_pledges"))) {
       return json({ error: "migration_required", migration: "024_admin_department" }, 503);
     }
-    const hasGuardian = await tableHasColumn(env, "students", "guardian_phone");
-    const guardianCol = hasGuardian ? "s.guardian_phone" : "NULL AS guardian_phone";
-    const rows = await env.DB.prepare(
-      `SELECT s.id AS student_id, s.full_name_ar, ${guardianCol},
-              COALESCE(d.pledge_count, pc.cnt, 0) AS pledge_count,
-              lp.reason_ar AS latest_reason
-       FROM students s
-       INNER JOIN (
-         SELECT student_id, COUNT(*) AS cnt
-         FROM student_pledges
-         GROUP BY student_id
-       ) pc ON pc.student_id = s.id
-       LEFT JOIN student_disciplinary_summary d ON d.student_id = s.id
-       LEFT JOIN student_pledges lp ON lp.id = (
-         SELECT p2.id FROM student_pledges p2
-         WHERE p2.student_id = s.id
-         ORDER BY p2.pledge_date DESC, p2.id DESC
-         LIMIT 1
-       )
-       WHERE s.complex_id = ? AND COALESCE(s.is_active, 1) = 1
-       ORDER BY pledge_count DESC, s.full_name_ar`,
+
+    const pledgeId = Number(pledgeEntryPatch[1]);
+    let body: { reason_ar?: string; pledge_date?: string };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+
+    const existing = await env.DB.prepare(
+      `SELECT id, student_id FROM student_pledges
+       WHERE id = ? AND complex_id = ?`,
     )
-      .bind(admin.complexId)
-      .all<{
-        student_id: number;
-        full_name_ar: string;
-        guardian_phone: string | null;
-        pledge_count: number;
-        latest_reason: string | null;
-      }>();
-    return json({ items: rows.results ?? [] });
+      .bind(pledgeId, admin.complexId)
+      .first<{ id: number; student_id: number }>();
+    if (!existing) return json({ error: "pledge_not_found" }, 404);
+
+    const reason = body.reason_ar?.trim();
+    const pledgeDate = body.pledge_date?.trim();
+    if (!reason && !pledgeDate) {
+      return json({ error: "reason_or_date_required" }, 400);
+    }
+
+    if (reason) {
+      await env.DB.prepare(`UPDATE student_pledges SET reason_ar = ? WHERE id = ?`)
+        .bind(reason, pledgeId)
+        .run();
+    }
+    if (pledgeDate) {
+      await env.DB.prepare(`UPDATE student_pledges SET pledge_date = ? WHERE id = ?`)
+        .bind(pledgeDate, pledgeId)
+        .run();
+    }
+
+    const pledgeCount = await syncPledgeSummary(env, existing.student_id);
+    const maxPledges = await getMaxPledges(env, admin.complexId);
+
+    return json({
+      ok: true,
+      pledge_id: pledgeId,
+      student_id: existing.student_id,
+      pledge_count: pledgeCount,
+      max_pledges: maxPledges,
+      threshold_reached: pledgeCount >= maxPledges,
+    });
+  }
+
+  // DELETE /api/admin-dept/pledges/entry/:id
+  const pledgeEntryDelete = path.match(/^\/api\/admin-dept\/pledges\/entry\/(\d+)$/);
+  if (request.method === "DELETE" && pledgeEntryDelete) {
+    if (!(await hasTable(env, "student_pledges"))) {
+      return json({ error: "migration_required", migration: "024_admin_department" }, 503);
+    }
+
+    const pledgeId = Number(pledgeEntryDelete[1]);
+    const existing = await env.DB.prepare(
+      `SELECT id, student_id FROM student_pledges
+       WHERE id = ? AND complex_id = ?`,
+    )
+      .bind(pledgeId, admin.complexId)
+      .first<{ id: number; student_id: number }>();
+    if (!existing) return json({ error: "pledge_not_found" }, 404);
+
+    await env.DB.prepare(`DELETE FROM student_pledges WHERE id = ?`)
+      .bind(pledgeId)
+      .run();
+
+    const pledgeCount = await syncPledgeSummary(env, existing.student_id);
+    const maxPledges = await getMaxPledges(env, admin.complexId);
+
+    return json({
+      ok: true,
+      student_id: existing.student_id,
+      pledge_count: pledgeCount,
+      max_pledges: maxPledges,
+      threshold_reached: pledgeCount >= maxPledges,
+    });
+  }
+
+  // DELETE /api/admin-dept/pledges/student/:studentId — حذف كل تعهدات الطالب
+  const pledgeStudentDelete = path.match(
+    /^\/api\/admin-dept\/pledges\/student\/(\d+)$/,
+  );
+  if (request.method === "DELETE" && pledgeStudentDelete) {
+    if (!(await hasTable(env, "student_pledges"))) {
+      return json({ error: "migration_required", migration: "024_admin_department" }, 503);
+    }
+
+    const studentId = Number(pledgeStudentDelete[1]);
+    const student = await env.DB.prepare(
+      `SELECT id, full_name_ar FROM students WHERE id = ? AND complex_id = ?`,
+    )
+      .bind(studentId, admin.complexId)
+      .first<{ id: number; full_name_ar: string }>();
+    if (!student) return json({ error: "student_not_found" }, 404);
+
+    const del = await env.DB.prepare(
+      `DELETE FROM student_pledges WHERE student_id = ? AND complex_id = ?`,
+    )
+      .bind(studentId, admin.complexId)
+      .run();
+
+    await syncPledgeSummary(env, studentId);
+
+    return json({
+      ok: true,
+      student_id: studentId,
+      deleted: Number(del.meta.changes ?? 0),
+      pledge_count: 0,
+    });
+  }
+
+  // GET /api/admin-dept/pledges — جدول ملخص التعهدات (ذكي + بحث)
+  if (request.method === "GET" && path === "/api/admin-dept/pledges") {
+    if (!(await hasTable(env, "student_pledges"))) {
+      return json({ error: "migration_required", migration: "024_admin_department" }, 503);
+    }
+    const q = url.searchParams.get("q")?.trim() ?? "";
+    const items = await loadPledgesSummaryList(env, admin.complexId, q || undefined);
+    return json({
+      items,
+      mode: q ? "search" : "smart",
+      limit: q ? null : PLEDGES_PAGE_LIMIT,
+    });
   }
 
   // GET /api/admin-dept/pledges/:studentId
@@ -898,16 +1629,264 @@ async function handleAdminDeptRouterImpl(
     });
   }
 
+  // GET /api/admin/attendance/ledger — سجل التحضير التاريخي (نطاق زمني)
+  if (
+    request.method === "GET" &&
+    (path === "/api/admin/attendance/ledger" ||
+      path === "/api/admin-dept/attendance/ledger")
+  ) {
+    const beneficiaryType = parseBeneficiaryType(
+      url.searchParams.get("beneficiary_type"),
+    );
+    if (!beneficiaryType) {
+      return json({ error: "invalid_beneficiary_type" }, 400);
+    }
+    const result = await fetchAttendanceLedger(env, admin.complexId, {
+      beneficiary_type: beneficiaryType,
+      start_date: url.searchParams.get("start_date") ?? undefined,
+      end_date: url.searchParams.get("end_date") ?? undefined,
+      attendance_date: url.searchParams.get("date") ?? undefined,
+      circle_id: Number(url.searchParams.get("circle_id")) || undefined,
+      track_id: Number(url.searchParams.get("track_id")) || undefined,
+    });
+    if ("error" in result) {
+      return json(result, 400);
+    }
+    return json({
+      start_date: result.start_date,
+      end_date: result.end_date,
+      beneficiary_type: beneficiaryType,
+      items: result.items,
+      count: result.items.length,
+    });
+  }
+
+  // POST /api/admin/attendance — upsert سجل واحد (إنشاء أو تحديث بدون معرّف)
+  if (
+    request.method === "POST" &&
+    (path === "/api/admin/attendance" || path === "/api/admin-dept/attendance")
+  ) {
+    let body: {
+      beneficiary_type?: string;
+      person_id?: number;
+      attendance_date?: string;
+      status?: string;
+      circle_id?: number;
+      track_id?: number;
+    };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+    const beneficiaryType = parseBeneficiaryType(body.beneficiary_type);
+    const status = parseStatus(body.status);
+    if (!beneficiaryType) {
+      return json({ error: "invalid_beneficiary_type" }, 400);
+    }
+    if (!status) return json({ error: "invalid_status" }, 400);
+    const date = body.attendance_date?.trim() || todayRiyadhIso();
+    const result = await upsertAttendanceRecord(env, admin.complexId, admin.userId, {
+      beneficiary_type: beneficiaryType,
+      person_id: Number(body.person_id),
+      attendance_date: date,
+      status,
+      circle_id: body.circle_id,
+      track_id: body.track_id,
+    });
+    if ("error" in result) {
+      const code = result.error === "not_found" ? 404 : 400;
+      return json(result, code);
+    }
+    return json({ ok: true, attendance_id: result.attendance_id, attendance_date: date });
+  }
+
+  // PATCH /api/admin/attendance/:id
+  const attPatch = path.match(/^\/api\/admin(?:-dept)?\/attendance\/(\d+)$/);
+  if (request.method === "PATCH" && attPatch) {
+    let body: { beneficiary_type?: string; status?: string };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+    const beneficiaryType = parseBeneficiaryType(body.beneficiary_type);
+    const status = parseStatus(body.status);
+    const attendanceId = Number(attPatch[1]);
+    if (!beneficiaryType) {
+      return json({ error: "invalid_beneficiary_type" }, 400);
+    }
+    if (!status) return json({ error: "invalid_status" }, 400);
+    if (!Number.isFinite(attendanceId)) {
+      return json({ error: "invalid_id" }, 400);
+    }
+    const result = await patchAttendanceById(
+      env,
+      admin.complexId,
+      attendanceId,
+      beneficiaryType,
+      status,
+      admin.userId,
+    );
+    if ("error" in result) {
+      return json(result, result.error === "not_found" ? 404 : 400);
+    }
+    return json({ ok: true, id: result.id, status });
+  }
+
+  // DELETE /api/admin/attendance/:id
+  const attDelete = path.match(/^\/api\/admin(?:-dept)?\/attendance\/(\d+)$/);
+  if (request.method === "DELETE" && attDelete) {
+    const beneficiaryType = parseBeneficiaryType(
+      url.searchParams.get("beneficiary_type"),
+    );
+    const attendanceId = Number(attDelete[1]);
+    if (!beneficiaryType) {
+      return json({ error: "beneficiary_type_required" }, 400);
+    }
+    if (!Number.isFinite(attendanceId)) {
+      return json({ error: "invalid_id" }, 400);
+    }
+    const result = await deleteAttendanceById(
+      env,
+      admin.complexId,
+      attendanceId,
+      beneficiaryType,
+    );
+    if ("error" in result) {
+      return json(result, 400);
+    }
+    return json({ ok: true, deleted: result.deleted });
+  }
+
+  // PATCH /api/admin/attendance/bulk — تحديث جماعي للسجلات
+  if (
+    request.method === "PATCH" &&
+    (path === "/api/admin/attendance/bulk" ||
+      path === "/api/admin-dept/attendance/bulk")
+  ) {
+    let body: {
+      beneficiary_type?: string;
+      records?: Array<{
+        attendance_id?: number;
+        person_id?: number;
+        attendance_date?: string;
+        status?: string;
+        circle_id?: number;
+        track_id?: number;
+      }>;
+    };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+    const beneficiaryType = parseBeneficiaryType(body.beneficiary_type);
+    if (!beneficiaryType) {
+      return json({ error: "invalid_beneficiary_type" }, 400);
+    }
+    const result = await bulkPatchAttendanceRecords(
+      env,
+      admin.complexId,
+      admin.userId,
+      beneficiaryType,
+      body.records ?? [],
+    );
+    if ("error" in result) {
+      return json(result, 400);
+    }
+    return json({ ok: true, saved: result.saved });
+  }
+
+  // DELETE /api/admin/attendance/bulk — حذف جماعي (يوم / نطاق / معرّفات)
+  if (
+    request.method === "DELETE" &&
+    (path === "/api/admin/attendance/bulk" ||
+      path === "/api/admin-dept/attendance/bulk")
+  ) {
+    let body: {
+      beneficiary_type?: string;
+      attendance_date?: string;
+      start_date?: string;
+      end_date?: string;
+      circle_id?: number;
+      track_id?: number;
+      attendance_ids?: number[];
+    };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "invalid_json" }, 400);
+    }
+    const beneficiaryType = parseBeneficiaryType(body.beneficiary_type);
+    if (!beneficiaryType) {
+      return json({ error: "invalid_beneficiary_type" }, 400);
+    }
+
+    const hasRange =
+      Boolean(body.start_date?.trim()) ||
+      Boolean(body.end_date?.trim()) ||
+      (body.attendance_ids?.length ?? 0) > 0;
+
+    if (hasRange) {
+      const result = await bulkClearAttendanceRange(env, admin.complexId, {
+        beneficiary_type: beneficiaryType,
+        attendance_date: body.attendance_date,
+        start_date: body.start_date,
+        end_date: body.end_date,
+        circle_id: body.circle_id,
+        track_id: body.track_id,
+        attendance_ids: body.attendance_ids,
+      });
+      if ("error" in result) {
+        return json(result, 400);
+      }
+      return json({
+        ok: true,
+        deleted: result.deleted,
+        start_date: result.start_date,
+        end_date: result.end_date,
+      });
+    }
+
+    const result = await bulkClearAttendanceDay(env, admin.complexId, {
+      beneficiary_type: beneficiaryType,
+      attendance_date: body.attendance_date?.trim() || todayRiyadhIso(),
+      circle_id: body.circle_id,
+      track_id: body.track_id,
+    });
+    if ("error" in result) {
+      return json(result, 400);
+    }
+    return json({
+      ok: true,
+      deleted: result.deleted,
+      attendance_date: body.attendance_date?.trim() || todayRiyadhIso(),
+    });
+  }
+
+  // GET /api/admin-dept/dashboard-stats | GET /api/admin/dashboard-stats
+  if (
+    request.method === "GET" &&
+    (path === "/api/admin-dept/dashboard-stats" ||
+      path === "/api/admin/dashboard-stats")
+  ) {
+    const stats = await fetchAdminDashboardStats(env, admin.complexId);
+    return json(stats);
+  }
+
   // GET /api/admin-dept/reports
   if (request.method === "GET" && path === "/api/admin-dept/reports") {
+    const semester = await fetchSemesterPeriod(env, admin.complexId);
+    const semesterRange = semesterQueryRange(semester);
     const startDate =
       url.searchParams.get("startDate")?.trim() ||
       url.searchParams.get("start_date")?.trim() ||
-      todayIso();
+      semesterRange.start;
     const endDate =
       url.searchParams.get("endDate")?.trim() ||
       url.searchParams.get("end_date")?.trim() ||
-      startDate;
+      semesterRange.end;
     const statusFilter = (
       url.searchParams.get("status")?.trim() || "all"
     ).toLowerCase();
@@ -919,6 +1898,7 @@ async function handleAdminDeptRouterImpl(
     const includeStaff = typeFilter === "all" || typeFilter === "staff";
     const includeStudents = typeFilter === "all" || typeFilter === "student";
     const includeItems = url.searchParams.get("include_items") !== "false";
+    const isActiveExpr = await studentAttendanceEligibleSql(env, "s");
 
     type ReportRow = {
       name: string;
@@ -933,7 +1913,8 @@ async function handleAdminDeptRouterImpl(
         SELECT u.full_name_ar AS name, sa.attendance_date AS date, sa.status
         FROM staff_attendance sa
         JOIN users u ON u.id = sa.user_id
-        WHERE sa.complex_id = ? AND sa.attendance_date BETWEEN ? AND ?`;
+        WHERE sa.complex_id = ? AND sa.attendance_date BETWEEN ? AND ?
+          AND u.is_active = 1`;
       if (absentOnly) staffSql += ` AND sa.status IN ('absent', 'excused')`;
       staffSql += ` ORDER BY sa.attendance_date DESC, u.full_name_ar`;
       const staffRows = await env.DB.prepare(staffSql)
@@ -963,7 +1944,7 @@ async function handleAdminDeptRouterImpl(
         JOIN students s ON s.id = sa.student_id
         ${placement.historyJoin}
         WHERE sa.complex_id = ? AND sa.attendance_date BETWEEN ? AND ?
-          AND COALESCE(s.is_active, 1) = 1`;
+          AND ${isActiveExpr}`;
       const stuBinds: (string | number)[] = [
         admin.complexId,
         startDate,
@@ -1000,87 +1981,52 @@ async function handleAdminDeptRouterImpl(
       }
     }
 
-    const staffRosterSql = await teachersListSql(env);
-    const staffAll = await env.DB.prepare(staffRosterSql)
-      .bind(admin.complexId)
-      .all<{ id: number }>();
-    const staffTotal = staffAll.results?.length ?? 0;
+    const staffCounts = await countComplexStaff(env, admin.complexId);
+    const staffTotal = staffCounts.total;
+    const today = todayRiyadhIso();
+    const rateDate = endDate <= today ? endDate : today;
 
-    const staffOnEnd = await env.DB.prepare(
-      `SELECT user_id, status FROM staff_attendance
-       WHERE complex_id = ? AND attendance_date = ?`,
+    const staffOnToday = await env.DB.prepare(
+      `SELECT sa.user_id, sa.status
+       FROM staff_attendance sa
+       JOIN users u ON u.id = sa.user_id
+       WHERE sa.complex_id = ? AND sa.attendance_date = ?
+         AND COALESCE(u.is_active, 1) = 1`,
     )
-      .bind(admin.complexId, endDate)
+      .bind(admin.complexId, rateDate)
       .all<{ user_id: number; status: string }>();
-    const staffStatusMap = new Map(
-      (staffOnEnd.results ?? []).map((r) => [r.user_id, r.status]),
-    );
     let staffPresent = 0;
-    for (const u of staffAll.results ?? []) {
-      const st = staffStatusMap.get(u.id) ?? "present";
-      if (st === "present") staffPresent++;
+    for (const r of staffOnToday.results ?? []) {
+      if (r.status === "present") staffPresent++;
     }
 
-    const studentsTotalRow = await env.DB.prepare(
-      `SELECT COUNT(*) AS c FROM students WHERE complex_id = ? AND COALESCE(is_active, 1) = 1`,
-    )
-      .bind(admin.complexId)
-      .first<{ c: number }>();
-    const studentsTotal = Number(studentsTotalRow?.c ?? 0);
+    const studentCounts = await countComplexStudents(env, admin.complexId);
+    const studentsTotal = studentCounts.total;
 
-    let studentsPresent = studentsTotal;
+    let studentsPresent = 0;
     if (attTable) {
-      const absentOnEnd = await env.DB.prepare(
-        `SELECT COUNT(DISTINCT student_id) AS c FROM ${attTable}
-         WHERE complex_id = ? AND attendance_date = ?
-           AND status IN ('absent', 'excused')`,
+      const isActiveExpr = await studentAttendanceEligibleSql(env, "s");
+      const presentToday = await env.DB.prepare(
+        `SELECT COUNT(DISTINCT sa.student_id) AS c
+         FROM ${attTable} sa
+         JOIN students s ON s.id = sa.student_id
+         WHERE sa.complex_id = ? AND sa.attendance_date = ? AND sa.status = 'present'
+           AND ${isActiveExpr}`,
       )
-        .bind(admin.complexId, endDate)
+        .bind(admin.complexId, rateDate)
         .first<{ c: number }>();
-      studentsPresent = Math.max(
-        0,
-        studentsTotal - Number(absentOnEnd?.c ?? 0),
-      );
+      studentsPresent = Number(presentToday?.c ?? 0);
     }
 
     const pct = (n: number, total: number) =>
-      total > 0 ? Math.round((n / total) * 100) : 0;
+      total > 0 ? Math.round((n / total) * 1000) / 10 : 0;
 
     const staffAbsent = Math.max(0, staffTotal - staffPresent);
     const studentsAbsent = Math.max(0, studentsTotal - studentsPresent);
 
-    let staffDisciplinePct = 0;
-    let studentsDisciplinePct = 0;
-    if (await hasTable(env, "staff_attendance")) {
-      const staffDisc = await env.DB.prepare(
-        `SELECT SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) AS present_cnt,
-                COUNT(*) AS total_cnt
-         FROM staff_attendance
-         WHERE complex_id = ? AND attendance_date BETWEEN ? AND ?`,
-      )
-        .bind(admin.complexId, startDate, endDate)
-        .first<{ present_cnt: number; total_cnt: number }>();
-      const stTotal = Number(staffDisc?.total_cnt ?? 0);
-      staffDisciplinePct =
-        stTotal > 0
-          ? Math.round((Number(staffDisc?.present_cnt ?? 0) / stTotal) * 100)
-          : 0;
-    }
-    if (attTable) {
-      const stuDisc = await env.DB.prepare(
-        `SELECT SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) AS present_cnt,
-                COUNT(*) AS total_cnt
-         FROM ${attTable}
-         WHERE complex_id = ? AND attendance_date BETWEEN ? AND ?`,
-      )
-        .bind(admin.complexId, startDate, endDate)
-        .first<{ present_cnt: number; total_cnt: number }>();
-      const stuTotal = Number(stuDisc?.total_cnt ?? 0);
-      studentsDisciplinePct =
-        stuTotal > 0
-          ? Math.round((Number(stuDisc?.present_cnt ?? 0) / stuTotal) * 100)
-          : 0;
-    }
+    // Same denominator as staff_present_pct / students_present_pct: present on rateDate ÷ roster total.
+    const staffDisciplinePct = pct(staffPresent, staffTotal);
+    const studentsDisciplinePct = pct(studentsPresent, studentsTotal);
 
     const complex = await env.DB.prepare(
       `SELECT name_ar FROM complexes WHERE id = ?`,
@@ -1111,6 +2057,23 @@ async function handleAdminDeptRouterImpl(
     });
   }
 
+  // GET /api/admin-dept/reports/semester-export — أرشيف الفصل (JSON للتحويل إلى Excel)
+  if (request.method === "GET" && path === "/api/admin-dept/reports/semester-export") {
+    const payload = await buildSemesterExportPayload(env, admin.complexId, "active");
+    return json(payload);
+  }
+
+  // GET /api/admin-dept/reports/semester-export-all — تصدير الفصل (CSV متعدد الأقسام)
+  if (request.method === "GET" && path === "/api/admin-dept/reports/semester-export-all") {
+    const format = (url.searchParams.get("format") ?? "csv").trim().toLowerCase();
+    if (format === "json") {
+      const payload = await buildSemesterExportPayload(env, admin.complexId, "all");
+      return json(payload);
+    }
+    const bundle = await buildSemesterExportCsvBundle(env, admin.complexId);
+    return semesterExportCsvResponse(bundle);
+  }
+
   // GET /api/admin-dept/reports/individual — تقرير انضباط تفصيلي لفرد
   if (request.method === "GET" && path === "/api/admin-dept/reports/individual") {
     const beneficiaryType = (
@@ -1127,7 +2090,7 @@ async function handleAdminDeptRouterImpl(
       url.searchParams.get("start")?.trim() ||
       url.searchParams.get("startDate")?.trim() ||
       url.searchParams.get("start_date")?.trim() ||
-      todayIso();
+      todayRiyadhIso();
     const endDate =
       url.searchParams.get("end")?.trim() ||
       url.searchParams.get("endDate")?.trim() ||
@@ -1154,24 +2117,16 @@ async function handleAdminDeptRouterImpl(
     const history: AttRow[] = [];
 
     if (beneficiaryType === "student") {
-      const hasGuardian = await tableHasColumn(env, "students", "guardian_phone");
-      const student = await env.DB.prepare(
-        hasGuardian
-          ? `SELECT id, full_name_ar, guardian_phone, stage_id, current_circle_id
-             FROM students
-             WHERE id = ? AND complex_id = ? AND COALESCE(is_active, 1) = 1`
-          : `SELECT id, full_name_ar, stage_id, current_circle_id
-             FROM students
-             WHERE id = ? AND complex_id = ? AND COALESCE(is_active, 1) = 1`,
-      )
-        .bind(personId, admin.complexId)
-        .first<{
-          id: number;
-          full_name_ar: string;
-          guardian_phone?: string | null;
-          stage_id: number | null;
-          current_circle_id: number | null;
-        }>();
+      const personRef =
+        url.searchParams.get("person_id") ??
+        url.searchParams.get("student_id") ??
+        url.searchParams.get("id") ??
+        "";
+      const student = await fetchStudentForAdminReport(
+        env,
+        admin.complexId,
+        personRef,
+      );
       if (!student) return json({ error: "student_not_found" }, 404);
 
       const attTable = await resolveAttendanceTableName(env);
@@ -1183,7 +2138,7 @@ async function handleAdminDeptRouterImpl(
              AND attendance_date BETWEEN ? AND ?
            ORDER BY attendance_date DESC`,
         )
-          .bind(personId, admin.complexId, startDate, endDate)
+          .bind(student.id, admin.complexId, startDate, endDate)
           .all<AttRow>();
         for (const r of attRows.results ?? []) history.push(r);
       }
@@ -1200,11 +2155,9 @@ async function handleAdminDeptRouterImpl(
       const disciplinePct =
         total > 0 ? Math.round((present / total) * 100) : 100;
 
-      let circleName: string | null = null;
-      if (student.current_circle_id) {
-        const circle = await circleLabelRow(env, student.current_circle_id);
-        circleName = circle?.name_ar ?? null;
-      }
+      const placementLabel =
+        [student.circle_name, student.track_name].filter(Boolean).join(" · ") ||
+        null;
 
       return json({
         type: "student",
@@ -1216,7 +2169,7 @@ async function handleAdminDeptRouterImpl(
           full_name_ar: student.full_name_ar,
           guardian_phone: student.guardian_phone ?? null,
           stage_id: student.stage_id,
-          circle_name: circleName,
+          circle_name: placementLabel,
         },
         summary: { present, absent, excused, total },
         discipline_pct: disciplinePct,
@@ -1283,22 +2236,12 @@ async function handleAdminDeptRouterImpl(
   // GET /api/admin-dept/reports/student/:studentId — سجل حضور طالب كامل
   const studentReport = path.match(/^\/api\/admin-dept\/reports\/student\/(\d+)$/);
   if (request.method === "GET" && studentReport) {
-    const studentId = Number(studentReport[1]);
-    const hasGuardian = await tableHasColumn(env, "students", "guardian_phone");
-    const student = await env.DB.prepare(
-      hasGuardian
-        ? `SELECT id, full_name_ar, guardian_phone, stage_id FROM students
-           WHERE id = ? AND complex_id = ? AND COALESCE(is_active, 1) = 1`
-        : `SELECT id, full_name_ar, stage_id FROM students
-           WHERE id = ? AND complex_id = ? AND COALESCE(is_active, 1) = 1`,
-    )
-      .bind(studentId, admin.complexId)
-      .first<{
-        id: number;
-        full_name_ar: string;
-        guardian_phone: string | null;
-        stage_id: number | null;
-      }>();
+    const studentRef = studentReport[1];
+    const student = await fetchStudentForAdminReport(
+      env,
+      admin.complexId,
+      studentRef,
+    );
     if (!student) return json({ error: "student_not_found" }, 404);
 
     type AttRow = { date: string; status: string };
@@ -1311,7 +2254,7 @@ async function handleAdminDeptRouterImpl(
          WHERE student_id = ? AND complex_id = ?
          ORDER BY attendance_date DESC`,
       )
-        .bind(studentId, admin.complexId)
+        .bind(student.id, admin.complexId)
         .all<AttRow>();
       for (const r of attRows.results ?? []) history.push(r);
     }
@@ -1338,7 +2281,7 @@ async function handleAdminDeptRouterImpl(
     const startDate =
       url.searchParams.get("startDate")?.trim() ||
       url.searchParams.get("start_date")?.trim() ||
-      todayIso();
+      todayRiyadhIso();
     const endDate =
       url.searchParams.get("endDate")?.trim() ||
       url.searchParams.get("end_date")?.trim() ||
@@ -1428,9 +2371,15 @@ async function handleAdminDeptRouterImpl(
       const limit = Math.min(Number(url.searchParams.get("limit") ?? 20), 50);
 
       const hasCircleCol = await tableHasColumn(env, "students", "current_circle_id");
+      const hasTrackCol = await tableHasColumn(env, "students", "current_track_id");
+      const hasTracksTable = await hasTable(env, "tracks");
       const circleJoin = hasCircleCol
         ? `LEFT JOIN circles c ON c.id = s.current_circle_id AND c.complex_id = s.complex_id`
         : `LEFT JOIN circles c ON 1 = 0`;
+      const trackJoin =
+        hasTrackCol && hasTracksTable
+          ? `LEFT JOIN tracks t ON t.id = s.current_track_id AND t.complex_id = s.complex_id`
+          : `LEFT JOIN (SELECT NULL AS id, NULL AS name_ar) t ON 1 = 0`;
 
       const nationalExpr = (await tableHasColumn(env, "students", "national_id"))
         ? "s.national_id"
@@ -1442,12 +2391,16 @@ async function handleAdminDeptRouterImpl(
         ? "s.guardian_phone"
         : "NULL AS guardian_phone";
 
+      const isActiveExpr = await studentIsActiveSql(env, "s");
+
       let sql = `
       SELECT s.id, s.full_name_ar, ${nationalExpr}, ${phoneExpr}, ${guardianExpr},
-             c.name_ar AS circle_name
+             c.name_ar AS circle_name,
+             t.name_ar AS track_name
       FROM students s
       ${circleJoin}
-      WHERE s.complex_id = ? AND COALESCE(s.is_active, 1) = 1`;
+      ${trackJoin}
+      WHERE s.complex_id = ? AND ${isActiveExpr}`;
       const binds: (string | number)[] = [admin.complexId];
 
       if (q.length > 0) {
@@ -1466,6 +2419,7 @@ async function handleAdminDeptRouterImpl(
           phone: string | null;
           guardian_phone: string | null;
           circle_name: string | null;
+          track_name: string | null;
         }>();
 
       return json({ items: rows.results ?? [], count: rows.results?.length ?? 0 });
@@ -1506,27 +2460,43 @@ async function handleAdminDeptRouterImpl(
 
     const items = [];
     for (const row of rows.results ?? []) {
-      let circleId: number | null = null;
+      let groupType: "circle" | "track" = "circle";
+      let groupId: number | null = null;
       try {
         const ctx = JSON.parse(row.context_data) as MagicLinkContext;
-        const group = ctx.group_id ?? ctx.circle_id;
-        circleId = group != null ? Number(group) : null;
+        const resolved = resolveMagicGroupId(ctx);
+        groupType = resolved.groupType;
+        groupId = resolved.groupId;
       } catch {
         /* ignore malformed context */
       }
 
       let circleName: string | null = null;
-      if (circleId != null && Number.isFinite(circleId)) {
-        const circle = await circleLabelRow(env, circleId);
-        circleName = circle?.name_ar ?? null;
+      let trackName: string | null = null;
+      if (groupId != null && Number.isFinite(groupId)) {
+        if (groupType === "track") {
+          const track = await env.DB.prepare(
+            `SELECT name_ar FROM tracks WHERE id = ? AND complex_id = ?`,
+          )
+            .bind(groupId, admin.complexId)
+            .first<{ name_ar: string }>();
+          trackName = track?.name_ar ?? null;
+        } else {
+          const circle = await circleLabelRow(env, groupId);
+          circleName = circle?.name_ar ?? null;
+        }
       }
 
       const publicPath = `/public/attendance/${row.token}`;
       items.push({
         id: row.id,
         token: row.token,
-        circle_id: circleId,
+        group_type: groupType,
+        group_id: groupId,
+        circle_id: groupType === "circle" ? groupId : null,
         circle_name: circleName,
+        track_id: groupType === "track" ? groupId : null,
+        track_name: trackName,
         evergreen: true,
         is_active: row.is_active,
         created_at: row.created_at,
@@ -1545,28 +2515,28 @@ async function handleAdminDeptRouterImpl(
     }
 
     const linkId = Number(magicDeleteMatch[1]);
-    const row = await env.DB.prepare(
-      `SELECT id FROM shared_access_tokens WHERE id = ? AND complex_id = ?`,
-    )
-      .bind(linkId, admin.complexId)
-      .first();
-    if (!row) return json({ error: "not_found" }, 404);
+    const result = await deleteSharedAccessToken(env, linkId, admin.complexId);
+    if (!result.ok) {
+      if (result.reason === "not_found") return json({ error: "not_found" }, 404);
+      return json({ error: "delete_failed" }, 500);
+    }
 
-    await env.DB.prepare(`DELETE FROM shared_access_tokens WHERE id = ?`)
-      .bind(linkId)
-      .run();
-
-    return json({ ok: true, id: linkId });
+    return json({ ok: true, success: true, id: linkId });
   }
 
   // POST /api/admin-dept/magic-links
   if (request.method === "POST" && path === "/api/admin-dept/magic-links") {
+    const limited = await enforceRateLimit(request, "magic-links-create", 15, 60);
+    if (limited) return limited;
+
     if (!(await hasTable(env, "shared_access_tokens"))) {
       return json({ error: "migration_required", migration: "024_admin_department" }, 503);
     }
 
     let body: {
       circle_id?: number;
+      track_id?: number;
+      group_type?: string;
       attendance_date?: string;
       feature_name?: string;
     };
@@ -1576,22 +2546,57 @@ async function handleAdminDeptRouterImpl(
       return json({ error: "invalid_json" }, 400);
     }
 
-    const circleId = Number(body.circle_id);
     const featureName = body.feature_name?.trim() || "student_attendance";
     if (featureName !== "student_attendance") {
       return json({ error: "unsupported_feature", allowed: ["student_attendance"] }, 400);
     }
-    if (!Number.isFinite(circleId)) return json({ error: "circle_id_required" }, 400);
-    if (!(await assertCircleInComplex(env, admin.complexId, circleId))) {
-      return json({ error: "circle_not_found" }, 404);
+
+    const explicitType =
+      body.group_type === "track"
+        ? "track"
+        : body.group_type === "circle"
+          ? "circle"
+          : null;
+    const entity =
+      explicitType === "track" && body.track_id != null
+        ? { type: "track" as const, id: Number(body.track_id) }
+        : explicitType === "circle" && body.circle_id != null
+          ? { type: "circle" as const, id: Number(body.circle_id) }
+          : parseAttendanceEntity(body);
+
+    if (!entity || !Number.isFinite(entity.id)) {
+      return json(
+        { error: "entity_required", hint: "circle_id XOR track_id with group_type" },
+        400,
+      );
+    }
+
+    if (entity.type === "circle") {
+      if (!(await assertCircleInComplex(env, admin.complexId, entity.id))) {
+        return json({ error: "circle_not_found" }, 404);
+      }
+    } else if (!(await assertTrackInComplex(env, admin.complexId, entity.id))) {
+      return json({ error: "track_not_found" }, 404);
+    }
+
+    const existing = await findActiveMagicLinkForEntity(env, admin.complexId, entity);
+    if (existing) {
+      return json(
+        {
+          error: "active_link_exists",
+          message:
+            "يوجد رابط فعال مسبقاً لهذه الحلقة/المسار، يرجى تعطيله أولاً",
+        },
+        409,
+      );
     }
 
     const token = randomMagicToken();
     const contextObj: MagicLinkContext = {
-      group_type: "circle",
-      group_id: circleId,
-      circle_id: circleId,
-      scope: "circle",
+      group_type: entity.type,
+      group_id: entity.id,
+      circle_id: entity.type === "circle" ? entity.id : undefined,
+      scope: entity.type,
     };
     const context = JSON.stringify(contextObj);
 
@@ -1746,7 +2751,7 @@ async function handleAdminDeptRouterImpl(
     const reason =
       row.notes?.trim() ||
       "تصعيد من المعلم — تحويل إلى تعهد رسمي";
-    const pledgeDate = todayIso();
+    const pledgeDate = todayRiyadhIso();
 
     const ins = await env.DB.prepare(
       `INSERT INTO student_pledges (complex_id, student_id, reason_ar, pledge_date, created_by_user_id)

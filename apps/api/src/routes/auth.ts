@@ -1,5 +1,4 @@
-import type { Env } from "../types";
-import type { UserRow } from "../types";
+import type { Env, UserRow } from "../types";
 import { createToken, getAuth } from "../middleware/auth";
 import { verifyPassword } from "../lib/password";
 import { sha256Hex } from "../lib/crypto";
@@ -9,6 +8,7 @@ import {
   loadUserByMobile,
   loadUserPayload,
 } from "../lib/db-user";
+import { resolveJwtSecret } from "../lib/setup-guard";
 
 async function issueSession(
   env: Env,
@@ -20,7 +20,7 @@ async function issueSession(
       role: user.role,
       complexId: user.complex_id,
     },
-    env.JWT_SECRET || "dev-only-change-in-production",
+    resolveJwtSecret(env),
   );
 
   const tokenHash = await sha256Hex(token);
@@ -35,7 +35,7 @@ async function issueSession(
   return { token, expiresAt };
 }
 
-/** Legacy email/password — used by api-token bridge until full mobile API */
+/** Legacy email/password — api-token bridge / أدوات داخلية فقط */
 export async function handleLogin(
   request: Request,
   env: Env,
@@ -68,7 +68,7 @@ export async function handleLogin(
   return Response.json({ token, user: payload });
 }
 
-/** Mobile-only login — MASTER-SPEC */
+/** دخول بالجوال فقط — الواجهة */
 export async function handleLoginMobile(
   request: Request,
   env: Env,

@@ -55,13 +55,14 @@ export async function batchSaveStaffAttendance(
   return stmts.length;
 }
 
-/** O(n) — دفعة لتحضير الطلاب مع Upsert */
+/** O(n) — دفعة لتحضير الطلاب مع Upsert (حلقة أو مسار) */
 export async function batchSaveStudentAttendance(
   env: Env,
   opts: {
     complexId: number;
     attendanceDate: string;
-    circleId: number;
+    circleId?: number | null;
+    trackId?: number | null;
     source: AttendanceSource;
     recordedByUserId: number | null;
     sharedTokenId?: number | null;
@@ -73,6 +74,7 @@ export async function batchSaveStudentAttendance(
 
   const source = resolveSourceForTable(table, opts.source);
   const hasCircle = await tableHasColumn(env, table, "circle_id");
+  const hasTrack = await tableHasColumn(env, table, "track_id");
   const hasToken = await tableHasColumn(env, table, "shared_token_id");
 
   const stmts: D1PreparedStatement[] = [];
@@ -81,32 +83,62 @@ export async function batchSaveStudentAttendance(
     if (!Number.isFinite(studentId)) continue;
     const status = rec.status ?? "present";
 
-    if (hasCircle || hasToken) {
+    if (hasCircle || hasTrack || hasToken) {
+      const cols = [
+        "complex_id",
+        "student_id",
+        "attendance_date",
+        "status",
+        "source",
+      ];
+      const vals: (string | number | null)[] = [
+        opts.complexId,
+        studentId,
+        opts.attendanceDate,
+        status,
+        source,
+      ];
+      const updates: string[] = [
+        "status = excluded.status",
+        "source = excluded.source",
+        "recorded_by_user_id = excluded.recorded_by_user_id",
+        "recorded_at = datetime('now')",
+        "notes = excluded.notes",
+      ];
+
+      if (hasCircle) {
+        cols.push("circle_id");
+        vals.push(opts.circleId ?? null);
+        updates.push(
+          `circle_id = COALESCE(excluded.circle_id, ${table}.circle_id)`,
+        );
+      }
+      if (hasTrack) {
+        cols.push("track_id");
+        vals.push(opts.trackId ?? null);
+        updates.push(
+          `track_id = COALESCE(excluded.track_id, ${table}.track_id)`,
+        );
+      }
+      if (hasToken) {
+        cols.push("shared_token_id");
+        vals.push(opts.sharedTokenId ?? null);
+        updates.push(
+          `shared_token_id = COALESCE(excluded.shared_token_id, ${table}.shared_token_id)`,
+        );
+      }
+
+      cols.push("recorded_by_user_id", "notes");
+      vals.push(opts.recordedByUserId, rec.notes ?? null);
+
+      const placeholders = cols.map(() => "?").join(", ");
       stmts.push(
         env.DB.prepare(
-          `INSERT INTO ${table} (
-             complex_id, student_id, attendance_date, status, source,
-             circle_id, shared_token_id, recorded_by_user_id, notes
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO ${table} (${cols.join(", ")})
+           VALUES (${placeholders})
            ON CONFLICT(student_id, attendance_date) DO UPDATE SET
-             status = excluded.status,
-             source = excluded.source,
-             circle_id = COALESCE(excluded.circle_id, ${table}.circle_id),
-             shared_token_id = COALESCE(excluded.shared_token_id, ${table}.shared_token_id),
-             recorded_by_user_id = excluded.recorded_by_user_id,
-             recorded_at = datetime('now'),
-             notes = excluded.notes`,
-        ).bind(
-          opts.complexId,
-          studentId,
-          opts.attendanceDate,
-          status,
-          source,
-          opts.circleId,
-          opts.sharedTokenId ?? null,
-          opts.recordedByUserId,
-          rec.notes ?? null,
-        ),
+             ${updates.join(", ")}`,
+        ).bind(...vals),
       );
     } else {
       stmts.push(

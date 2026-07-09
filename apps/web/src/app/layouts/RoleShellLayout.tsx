@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, LogOut, Menu, X } from "lucide-react";
 import { Button } from "../components/ui/button";
 import {
@@ -12,10 +13,14 @@ import {
   type NavItem,
 } from "../config/routes";
 import { useAuth } from "../context/AuthContext";
+import { AdminDataSyncProvider } from "../context/AdminDataSyncContext";
 import type { UserRole } from "../lib/auth-store";
 import { DevPreviewBanner } from "../components/DevPreviewBanner";
+import { TeacherNotificationsBanner } from "../components/edu/TeacherNotificationsBanner";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { ds, tajawal } from "../lib/design-system";
+import { canUseApi } from "../lib/api-access";
+import { prefetchTeacherBootstrap } from "../hooks/use-teacher-bootstrap";
 
 function NavLinkItem({
   item,
@@ -124,17 +129,17 @@ function SidebarBrand({ userName }: { userName?: string }) {
     <div className="p-6 border-b border-border flex items-center gap-3">
       <img
         src="/logo-light.png"
-        alt="مجمع حلقات البساتين"
+        alt="مجمع حلقات بساتين"
         className="h-12 w-auto object-contain shrink-0 dark:hidden"
       />
       <img
         src="/logo-dark.png"
-        alt="مجمع حلقات البساتين"
+        alt="مجمع حلقات بساتين"
         className="h-12 w-auto object-contain shrink-0 hidden dark:block"
       />
       <div className="min-w-0">
         <p className="font-bold text-base text-foreground truncate" style={tajawal}>
-          مجمع البساتين
+          مجمع بساتين
         </p>
         <p className="text-[10px] text-muted-foreground" style={tajawal}>
           منصة بساتين
@@ -183,6 +188,13 @@ export function RoleShellLayout() {
   }
 
   const visibleNav = user ? navForRole(user.role) : [];
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (user?.role === "teacher" && canUseApi()) {
+      void prefetchTeacherBootstrap(queryClient);
+    }
+  }, [user?.role, queryClient]);
 
   const nav = renderNav(
     visibleNav,
@@ -192,9 +204,10 @@ export function RoleShellLayout() {
   );
 
   return (
-    <div className="min-h-screen bg-background text-foreground" dir="rtl">
+    <AdminDataSyncProvider>
+    <div className="main-layout min-h-screen bg-background text-foreground" dir="rtl">
       <div className="min-h-screen flex">
-        <aside className="w-64 shrink-0 bg-card border-l border-border hidden lg:flex flex-col print:hidden">
+        <aside className="w-64 shrink-0 bg-sidebar border-l border-sidebar-border hidden lg:flex flex-col print:hidden">
           <SidebarBrand userName={user?.full_name_ar} />
           <nav className="p-4 flex-1 overflow-y-auto space-y-1 min-h-0">{nav}</nav>
           <SidebarFooter onLogout={handleLogout} />
@@ -208,7 +221,7 @@ export function RoleShellLayout() {
               aria-label="إغلاق القائمة"
               onClick={() => setMobileOpen(false)}
             />
-            <aside className="absolute right-0 top-0 bottom-0 w-72 max-w-[85vw] bg-card border-l border-border flex flex-col shadow-xl">
+            <aside className="absolute right-0 top-0 bottom-0 w-72 max-w-[85vw] bg-sidebar border-l border-sidebar-border flex flex-col shadow-[var(--elevated-shadow)]">
               <div className="p-4 flex justify-between items-center border-b border-border shrink-0">
                 <span className="font-bold text-sm" style={tajawal}>
                   القائمة
@@ -250,16 +263,18 @@ export function RoleShellLayout() {
               <Menu className="w-5 h-5" />
             </Button>
             <p className="font-bold text-sm truncate flex-1 text-center" style={tajawal}>
-              مجمع البساتين
+              مجمع بساتين
             </p>
             <div className="w-10" aria-hidden />
           </div>
           <main className="flex-1 min-h-0 p-4 sm:p-6 md:p-8 overflow-auto">
             <DevPreviewBanner />
+            <TeacherNotificationsBanner />
             <Outlet />
           </main>
         </div>
       </div>
     </div>
+    </AdminDataSyncProvider>
   );
 }

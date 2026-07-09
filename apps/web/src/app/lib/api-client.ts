@@ -35,6 +35,7 @@ export type StudentRow = {
   school_name: string | null;
   school_grade: string | null;
   memorization_amount: string | null;
+  memorization_faces?: number | null;
   guardian_phone: string | null;
   health_notes: string | null;
   circle_name: string | null;
@@ -192,7 +193,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (isUiDevPreview()) {
     await new Promise((r) => setTimeout(r, 60));
-    return resolveDevPreviewMock<T>(path, method, bodyText);
+    return resolveDevPreviewMock<T>(path, method, bodyText) ?? ({} as T);
   }
 
   const url = `${API_BASE.replace(/\/$/, "")}${path}`;
@@ -220,7 +221,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     };
     const err = new Error(
       payload.message ?? payload.error ?? `HTTP ${res.status}`,
-    ) as Error & { details?: unknown; issues?: unknown };
+    ) as Error & { details?: unknown; issues?: unknown; code?: string };
+    err.code = payload.error;
     err.details = payload.details ?? payload.issues;
     throw err;
   }
@@ -235,9 +237,121 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+const COMPETITION_NO_CACHE: Record<string, string> = {
+  "Cache-Control": "no-cache, no-store, must-revalidate",
+  Pragma: "no-cache",
+};
+
+async function competitionRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  return request<T>(path, {
+    ...init,
+    headers: {
+      ...COMPETITION_NO_CACHE,
+      ...(init?.headers as Record<string, string> | undefined),
+    },
+  });
+}
+
+export type SemesterExportPayload = {
+  semester: {
+    start_date: string | null;
+    end_date: string | null;
+    active: boolean;
+    semester_weeks: number;
+    graduates_count: number;
+    huffadh_count: number;
+    export_range: { start: string; end: string };
+  };
+  students: Array<{
+    id: number;
+    full_name_ar: string;
+    national_id: string | null;
+    phone: string | null;
+    school_grade: string | null;
+    circle_name: string | null;
+    track_name: string | null;
+  }>;
+  attendance_summary: Array<{
+    student_id: number;
+    full_name_ar: string;
+    present_days: number;
+    absent_days: number;
+    excused_days: number;
+  }>;
+  export_type?: "standard" | "comprehensive";
+  exported_at: string;
+};
+
+export type SemesterExportAllPayload = SemesterExportPayload & {
+  export_type: "comprehensive";
+  students: Array<
+    SemesterExportPayload["students"][number] & {
+      is_archived?: boolean;
+    }
+  >;
+  attendance_daily?: Array<{
+    student_id: number;
+    full_name_ar: string;
+    attendance_date: string;
+    status: string;
+  }>;
+  educational_summary?: Array<{
+    student_id: number;
+    full_name_ar: string;
+    listened_days: number;
+    repeated_days: number;
+    revised_days: number;
+    error_count: number;
+    tune_errors: number;
+    face_count: number;
+  }>;
+  competition_sheets?: Array<{
+    competition_id: number;
+    name_ar: string;
+    rows: Array<{
+      student_id: number;
+      full_name_ar: string;
+      target_amount: number;
+      achieved_amount: number;
+      points: number;
+    }>;
+  }>;
+};
+
+async function requestFileDownload(path: string): Promise<{
+  blob: Blob;
+  filename: string;
+}> {
+  if (isUiDevPreview()) {
+    const blob = new Blob(["# preview export"], { type: "text/csv" });
+    return { blob, filename: "semester-export-preview.csv" };
+  }
+
+  const url = `${API_BASE.replace(/\/$/, "")}${path}`;
+  const token = getApiToken();
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const payload = body as { error?: string; message?: string };
+    throw new Error(payload.message ?? payload.error ?? `HTTP ${res.status}`);
+  }
+
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const match = disposition.match(/filename="([^"]+)"/);
+  const filename = match?.[1] ?? "semester-export.csv";
+  const blob = await res.blob();
+  return { blob, filename };
+}
+
 export const api = {
   health: () => request<{ ok: boolean; service?: string }>("/api/health"),
-  tvSummary: () => request<TvSummary>("/api/tv/summary"),
+  tvSummary: (token?: string) =>
+    request<TvSummary>(
+      token ? `/api/tv/summary?token=${encodeURIComponent(token)}` : "/api/tv/summary",
+    ),
   login: (email: string, password: string) =>
     request<{ token: string; user: AuthUser }>("/api/auth/login", {
       method: "POST",
@@ -278,6 +392,9 @@ export const api = {
     school_grade?: string | null;
     health_notes?: string | null;
     memorization_amount?: string | null;
+    memorization_faces?: number | null;
+    memorization_value?: string | null;
+    memorization_unit?: string | null;
     guardian_national_id?: string | null;
     guardian_work?: string | null;
     stage_id?: number | null;
@@ -324,20 +441,42 @@ export const api = {
       national_id?: string | null;
       phone?: string | null;
       guardian_phone?: string | null;
+      guardian_national_id?: string | null;
+      guardian_work?: string | null;
       school_name?: string | null;
       school_grade?: string | null;
       nationality?: string | null;
       health_notes?: string | null;
       memorization_amount?: string | null;
+      memorization_faces?: number | null;
+      memorization_value?: string | null;
+      memorization_unit?: string | null;
+      stage_id?: number | null;
+      age?: number | null;
+      circle_id?: number | null;
+      track_id?: number | null;
       account_status?: "active" | "suspended";
     },
   ) =>
-    request<{ ok: boolean }>(`/api/students/${id}`, {
+    request<{
+      ok: boolean;
+      student?: {
+        id: number;
+        full_name_ar: string;
+        circle_name: string | null;
+        track_name: string | null;
+      };
+    }>(`/api/students/${id}`, {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
   studentsDelete: (id: number) =>
     request<{ ok: boolean }>(`/api/students/${id}`, { method: "DELETE" }),
+  studentsRestore: (id: number) =>
+    request<{ ok: boolean; restored: boolean }>(`/api/students/${id}/restore`, {
+      method: "POST",
+      body: "{}",
+    }),
   transferStudent: (
     id: number,
     body: { circle_id: number; track_id?: number | null; note?: string },
@@ -420,16 +559,28 @@ export const api = {
       `/api/yom-himma/${sessionId}/live-log-token`,
       { method: "POST", body: "{}" },
     ),
-  liveLogSession: (token: string, pin: string) =>
-    request<{
+  liveLogSession: (token: string, pin: string, logDate?: string) => {
+    const qs = logDate ? `?log_date=${encodeURIComponent(logDate)}` : "";
+    return request<{
       kind: "yom_himma" | "competition";
-      session: Record<string, unknown>;
+      session: Record<string, unknown> & {
+        category?: string;
+        start_date?: string;
+        end_date?: string;
+        memorization_unit?: string;
+        competition_days?: number;
+        active_dates?: string[];
+        graded_dates?: string[];
+        log_date?: string;
+      };
       students: Array<Record<string, unknown>>;
+      tasks?: Array<Record<string, unknown>>;
       audit?: Array<Record<string, unknown>>;
       logs?: Array<Record<string, unknown>>;
-    }>(`/api/live-log/${encodeURIComponent(token)}`, {
+    }>(`/api/live-log/${encodeURIComponent(token)}${qs}`, {
       headers: { "X-Live-Pin": pin },
-    }),
+    });
+  },
   liveLogUpsert: (
     token: string,
     body: Record<string, unknown>,
@@ -444,24 +595,253 @@ export const api = {
       },
     ),
   competitionsList: () =>
-    request<{ items: Array<Record<string, unknown>> }>(
+    competitionRequest<{ items: Array<Record<string, unknown>> }>(
       "/api/edu-dept/competitions",
     ),
+  competitionsFilterOptions: () =>
+    competitionRequest<{
+      circles: Array<{ id: number; name_ar: string; stage_id?: number | null }>;
+      tracks: Array<{ id: number; name_ar: string }>;
+    }>("/api/edu-dept/competitions/filter-options"),
+  competitionsPreviewTargets: (body: {
+    target_scope: Record<string, unknown>;
+    competition_id?: number;
+  }) =>
+    competitionRequest<{ items: Array<Record<string, unknown>>; error?: string }>(
+      "/api/edu-dept/competitions/preview-targets",
+      { method: "POST", body: JSON.stringify(body) },
+    ),
   competitionsCreate: (body: Record<string, unknown>) =>
-    request<{ ok: boolean; id: number; tv_launch_key: string }>(
+    competitionRequest<{ ok: boolean; id: number; tv_launch_key: string }>(
       "/api/edu-dept/competitions",
       { method: "POST", body: JSON.stringify(body) },
     ),
   competitionsDetail: (id: number) =>
-    request<{
+    competitionRequest<{
       competition: Record<string, unknown>;
       targets: Array<Record<string, unknown>>;
-      plans: Array<Record<string, unknown>>;
+      tasks: Array<Record<string, unknown>>;
+      logs: Array<Record<string, unknown>>;
     }>(`/api/edu-dept/competitions/${id}`),
-  competitionsLiveLogToken: (id: number) =>
-    request<{ ok: boolean; live_log_token: string; path: string }>(
+  competitionsTasksList: (id: number) =>
+    competitionRequest<{ items: Array<Record<string, unknown>> }>(
+      `/api/edu-dept/competitions/${id}/tasks`,
+    ),
+  competitionsAddTask: (
+    id: number,
+    body: {
+      name_ar: string;
+      weight: number;
+      type: "addition" | "deduction";
+      input_type?: "boolean" | "numeric" | "counter";
+    },
+  ) =>
+    competitionRequest<{ ok: boolean; id: number }>(`/api/edu-dept/competitions/${id}/tasks`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  competitionsDeleteTask: (competitionId: number, taskId: number) =>
+    competitionRequest<{ ok: boolean }>(
+      `/api/edu-dept/competitions/${competitionId}/tasks/${taskId}`,
+      { method: "DELETE" },
+    ),
+  competitionsSyncMemorization: (id: number) =>
+    competitionRequest<{
+      ok: boolean;
+      updated_count: number;
+      updated: Array<{ student_id: number; new_memorization: number }>;
+    }>(`/api/edu-dept/competitions/${id}/sync-memorization`, { method: "POST" }),
+  competitionsDelete: (id: number) =>
+    competitionRequest<{ ok: boolean }>(`/api/edu-dept/competitions/${id}`, {
+      method: "DELETE",
+    }),
+  competitionsPatch: (id: number, body: Record<string, unknown>) =>
+    competitionRequest<{ ok: boolean }>(`/api/edu-dept/competitions/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  competitionsUpdateTarget: (
+    competitionId: number,
+    studentId: number,
+    target_amount: number,
+  ) =>
+    competitionRequest<{ ok: boolean }>(
+      `/api/edu-dept/competitions/${competitionId}/targets/${studentId}`,
+      { method: "PATCH", body: JSON.stringify({ target_amount }) },
+    ),
+  competitionsDeleteTarget: (competitionId: number, studentId: number) =>
+    competitionRequest<{ ok: boolean }>(
+      `/api/edu-dept/competitions/${competitionId}/targets/${studentId}`,
+      { method: "DELETE" },
+    ),
+  competitionsDashboard: (
+    id: number,
+    params: { date_from: string; date_to: string; leaderboard_mode?: "top" | "all" },
+  ) => {
+    const q = new URLSearchParams({
+      date_from: params.date_from,
+      date_to: params.date_to,
+    });
+    if (params.leaderboard_mode) {
+      q.set("leaderboard_mode", params.leaderboard_mode);
+    }
+    return competitionRequest<{
+      date_from: string;
+      date_to: string;
+      category?: string;
+      kpis: {
+        discipline_pct: number;
+        achievement_pct: number;
+        participants: number;
+        target_juz: number;
+        achieved_juz: number;
+        mastery_pct?: number;
+        total_read?: number;
+        total_passed?: number;
+      };
+      leaders: Array<{
+        student_id: number;
+        score?: number;
+        full_name_ar?: string;
+        target_amount?: number;
+        achievement_pct?: number;
+        read_count?: number;
+        passed_count?: number;
+        failed_count?: number;
+        total_mistakes?: number;
+        total_warnings?: number;
+        mastery_pct?: number;
+      }>;
+      sird_students?: Array<{
+        student_id: number;
+        full_name_ar: string;
+        read_count: number;
+        passed_count: number;
+        failed_count: number;
+        total_mistakes: number;
+        total_warnings: number;
+        mastery_pct: number;
+      }>;
+    }>(`/api/edu-dept/competitions/${id}/dashboard?${q.toString()}`);
+  },
+  competitionsGradingGet: (id: number, logDate: string) =>
+    competitionRequest<{
+      log_date: string;
+      category?: string;
+      memorization_unit?: string;
+      competition_days?: number;
+      start_date?: string;
+      end_date?: string;
+      active_weekdays?: number[];
+      active_dates?: string[];
+      graded_dates?: string[];
+      sird_settings?: {
+        base_hizb_score: number;
+        mistake_deduction: number;
+        warning_deduction: number;
+        pass_threshold: number;
+      };
+      sird_periods?: Record<
+        string,
+        Array<{
+          period_index: number;
+          hizb_number: number;
+          mistakes_count: number;
+          warnings_count: number;
+          is_passed: boolean;
+          score: number | null;
+        }>
+      >;
+      tasks: Array<{
+        id: number;
+        name_ar: string;
+        weight: number;
+        type: string;
+        sort_order: number;
+      }>;
+      students: Array<{
+        student_id: number;
+        full_name_ar: string;
+        target_amount: number;
+        achieved_amount: number;
+        current_memorization: number;
+        target_hizb?: number;
+        daily_faces?: number;
+      }>;
+      scores: Record<string, number>;
+      day_achievement?: Record<string, number>;
+    }>(
+      `/api/edu-dept/competitions/${id}/grading?log_date=${encodeURIComponent(logDate)}`,
+    ),
+  competitionsGradingSave: (
+    id: number,
+    body: {
+      log_date: string;
+      records: Array<{
+        student_id: number;
+        task_id: number;
+        points: number;
+        hizb_index?: number;
+      }>;
+      sird_records?: Array<{
+        student_id: number;
+        period_index: number;
+        hizb_number: number;
+        mistakes_count: number;
+        warnings_count: number;
+      }>;
+      targets?: Array<{ student_id: number; target_amount: number }>;
+      day_achievement?: Array<{ student_id: number; juz_done: number }>;
+    },
+  ) =>
+    competitionRequest<{ ok: boolean; saved: number; log_date?: string }>(
+      `/api/edu-dept/competitions/${id}/grading`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    ),
+  competitionsAttendanceGet: (id: number, date: string) =>
+    request<{
+      date: string;
+      items: Array<{
+        student_id: number;
+        full_name_ar: string;
+        present: boolean;
+        status?: "present" | "excused" | "absent";
+      }>;
+      present_count: number;
+      total: number;
+    }>(
+      `/api/edu-dept/competitions/${id}/attendance?date=${encodeURIComponent(date)}`,
+    ),
+  competitionsAttendanceSave: (
+    id: number,
+    body: {
+      date: string;
+      records: Array<{
+        student_id: number;
+        present?: boolean;
+        status?: "present" | "excused" | "absent";
+      }>;
+    },
+  ) =>
+    request<{ ok: boolean }>(`/api/edu-dept/competitions/${id}/attendance`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  competitionsLiveLogToken: (id: number, access_pin?: string) =>
+    request<{ ok: boolean; live_log_token: string; access_pin?: string; path: string }>(
       `/api/edu-dept/competitions/${id}/live-log-token`,
-      { method: "POST", body: "{}" },
+      {
+        method: "POST",
+        body: JSON.stringify(access_pin ? { access_pin } : {}),
+      },
+    ),
+  competitionsDeleteLiveLogToken: (id: number) =>
+    request<{ ok: boolean; deleted: boolean }>(
+      `/api/edu-dept/competitions/${id}/live-log-token`,
+      { method: "DELETE" },
     ),
   competitionsActivate: (id: number) =>
     request<{ ok: boolean }>(
@@ -486,7 +866,11 @@ export const api = {
     }>("/api/edu-dept/scope"),
   eduStudentProfile: (studentId: number) =>
     request<{
-      student: Record<string, unknown>;
+      student: Record<string, unknown> & {
+        memorization_faces?: number | null;
+        memorization_amount?: string | null;
+        memorization_display?: string | null;
+      };
       current: Record<string, unknown> | null;
       edu_plan: { targets: Record<string, unknown>; notes: string | null };
       teacher_marks: Array<Record<string, unknown>>;
@@ -534,6 +918,7 @@ export const api = {
   teacherPlanGet: (studentId: number) =>
     request<{
       plan: Record<string, unknown> | null;
+      plans?: Array<Record<string, unknown>>;
       calendar: {
         semester_weeks: number;
         school_days: number[];
@@ -542,9 +927,35 @@ export const api = {
       estimate: Record<string, unknown> | null;
     }>(`/api/teacher/plans/${studentId}`),
   teacherPlanSave: (studentId: number, body: Record<string, unknown>) =>
-    request<{ ok: boolean; id: number; estimate: Record<string, unknown> }>(
-      `/api/teacher/plans/${studentId}`,
-      { method: "PUT", body: JSON.stringify(body) },
+    request<{
+      ok: boolean;
+      id: number;
+      estimate: Record<string, unknown>;
+      starts_at?: string;
+      ends_at?: string;
+      duration_weeks?: number;
+      days_remaining?: number | null;
+    }>(`/api/teacher/plans/${studentId}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  teacherPlanPatch: (planId: number, body: Record<string, unknown>) =>
+    request<{
+      ok: boolean;
+      id: number;
+      estimate: Record<string, unknown>;
+      starts_at?: string;
+      ends_at?: string;
+      duration_weeks?: number;
+      days_remaining?: number | null;
+    }>(`/api/teacher/plans/by-id/${planId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  teacherPlanDelete: (planId: number) =>
+    request<{ ok: boolean; id: number }>(
+      `/api/teacher/plans/by-id/${planId}`,
+      { method: "DELETE" },
     ),
   teacherPlanEstimate: (body: Record<string, unknown>) =>
     request<{
@@ -596,7 +1007,24 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  adminStaff: () => request<{ items: StaffMemberRow[] }>("/api/admin/staff"),
+  adminStaff: (params?: { page?: number; page_size?: number; role?: string }) => {
+    const search = new URLSearchParams();
+    if (params?.page != null) search.set("page", String(params.page));
+    if (params?.page_size != null) search.set("page_size", String(params.page_size));
+    if (params?.role?.trim()) search.set("role", params.role.trim());
+    const qs = search.toString();
+    return request<{
+      items: StaffMemberRow[];
+      page?: {
+        page: number;
+        page_size: number;
+        total: number;
+        total_pages: number;
+        has_prev: boolean;
+        has_next: boolean;
+      };
+    }>(`/api/admin/staff${qs ? `?${qs}` : ""}`);
+  },
   adminStaffPatch: (
     id: number,
     body: {
@@ -700,6 +1128,7 @@ export const api = {
       is_active?: number;
       stage_ids?: number[];
       circle_ids?: number[];
+      supervisor_id?: number;
     },
   ) =>
     request<{ ok: boolean }>(`/api/admin/tracks/${id}`, {
@@ -810,7 +1239,20 @@ export const api = {
       school_days: number[];
       graduates_count: number;
       huffadh_count: number;
+      semester_active?: boolean;
+      semester_start_date?: string | null;
+      semester_end_date?: string | null;
     }>("/api/admin/complex-settings"),
+  adminSemesterStart: () =>
+    request<{ ok: boolean; semester_start_date: string; semester_active: boolean }>(
+      "/api/admin/complex-settings/semester/start",
+      { method: "POST", body: "{}" },
+    ),
+  adminSemesterEnd: (confirm_text: string) =>
+    request<{ ok: boolean; semester_end_date: string; semester_active: boolean }>(
+      "/api/admin/complex-settings/semester/end",
+      { method: "POST", body: JSON.stringify({ confirm_text }) },
+    ),
   adminPatchComplexSettings: (body: {
     semester_weeks?: number;
     school_days?: number[];
@@ -857,19 +1299,126 @@ export const api = {
       body: JSON.stringify(body),
     }),
   /** القسم الإداري — API v2.6 */
-  adminDeptStaff: (date?: string) => {
-    const qs = date ? `?date=${encodeURIComponent(date)}` : "";
+  adminDeptStaff: (date?: string, page = 1) => {
+    const search = new URLSearchParams();
+    if (date) search.set("date", date);
+    search.set("page", String(page));
+    const qs = search.toString();
     return request<{
       date: string;
       items: Array<{
         user_id: number;
         full_name_ar: string;
         role: string | null;
+        attendance_id: number | null;
+        has_record: boolean;
         status: string;
         recorded_at?: string | null;
       }>;
       default_status: string;
-    }>(`/api/admin-dept/staff${qs}`);
+      page?: {
+        page: number;
+        page_size: number;
+        total: number;
+        total_pages: number;
+        has_prev: boolean;
+        has_next: boolean;
+      };
+    }>(`/api/admin-dept/staff?${qs}`);
+  },
+  adminPatchAttendance: (
+    id: number,
+    body: { beneficiary_type: "student" | "staff"; status: string },
+  ) =>
+    request<{ ok: boolean; id: number; status: string }>(
+      `/api/admin/attendance/${id}`,
+      { method: "PATCH", body: JSON.stringify(body) },
+    ),
+  adminUpsertAttendance: (body: {
+    beneficiary_type: "student" | "staff";
+    person_id: number;
+    attendance_date: string;
+    status: string;
+    circle_id?: number;
+    track_id?: number;
+  }) =>
+    request<{ ok: boolean; attendance_id: number; attendance_date: string }>(
+      "/api/admin/attendance",
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  adminDeleteAttendance: (
+    id: number,
+    beneficiaryType: "student" | "staff",
+  ) =>
+    request<{ ok: boolean; deleted: number }>(
+      `/api/admin/attendance/${id}?beneficiary_type=${beneficiaryType}`,
+      { method: "DELETE" },
+    ),
+  adminBulkDeleteAttendance: (body: {
+    beneficiary_type: "student" | "staff";
+    attendance_date?: string;
+    start_date?: string;
+    end_date?: string;
+    circle_id?: number;
+    track_id?: number;
+    attendance_ids?: number[];
+  }) =>
+    request<{
+      ok: boolean;
+      deleted: number;
+      attendance_date?: string;
+      start_date?: string;
+      end_date?: string;
+    }>("/api/admin/attendance/bulk", {
+      method: "DELETE",
+      body: JSON.stringify(body),
+    }),
+  adminBulkPatchAttendance: (body: {
+    beneficiary_type: "student" | "staff";
+    records: Array<{
+      attendance_id?: number;
+      person_id?: number;
+      attendance_date?: string;
+      status: string;
+      circle_id?: number;
+      track_id?: number;
+    }>;
+  }) =>
+    request<{ ok: boolean; saved: number }>("/api/admin/attendance/bulk", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  adminAttendanceLedger: (params: {
+    beneficiary_type: "student" | "staff";
+    start_date?: string;
+    end_date?: string;
+    date?: string;
+    circle_id?: number;
+    track_id?: number;
+  }) => {
+    const qs = new URLSearchParams({ beneficiary_type: params.beneficiary_type });
+    if (params.start_date) qs.set("start_date", params.start_date);
+    if (params.end_date) qs.set("end_date", params.end_date);
+    if (params.date) qs.set("date", params.date);
+    if (params.circle_id != null) qs.set("circle_id", String(params.circle_id));
+    if (params.track_id != null) qs.set("track_id", String(params.track_id));
+    return request<{
+      start_date: string;
+      end_date: string;
+      beneficiary_type: string;
+      count: number;
+      items: Array<{
+        attendance_id: number;
+        person_id: number;
+        full_name_ar: string;
+        attendance_date: string;
+        status: string;
+        role?: string | null;
+        circle_name?: string | null;
+        track_name?: string | null;
+        recorded_at?: string | null;
+      }>;
+    }>(`/api/admin/attendance/ledger?${qs}`);
   },
   adminDeptSaveStaffAttendance: (body: {
     attendance_date?: string;
@@ -895,31 +1444,95 @@ export const api = {
       }>;
     }>(`/api/admin-dept/staff/attendance?${qs}`);
   },
-  adminDeptStudentAttendance: (circleId: number, date?: string) => {
-    const qs = date ? `?date=${encodeURIComponent(date)}` : "";
+  adminDeptStudentAttendance: (circleId: number, date?: string, page = 1) => {
+    const search = new URLSearchParams();
+    if (date) search.set("date", date);
+    search.set("page", String(page));
+    const qs = search.toString();
     return request<{
       attendance_date: string;
+      entity_type?: "circle";
       circle: { id: number; name_ar: string; stage: string } | null;
       items: Array<{
         student_id: number;
         full_name_ar: string;
         stage_id?: number | null;
+        attendance_id?: number | null;
+        has_record?: boolean;
         status: string;
         recorded_at?: string | null;
         source?: string | null;
       }>;
       default_status: string;
-    }>(`/api/admin-dept/students/attendance/${circleId}${qs}`);
+      page?: {
+        page: number;
+        page_size: number;
+        total: number;
+        total_pages: number;
+        has_prev: boolean;
+        has_next: boolean;
+      };
+    }>(`/api/admin-dept/students/attendance/${circleId}?${qs}`);
+  },
+  adminDeptTrackAttendance: (trackId: number, date?: string, page = 1) => {
+    const search = new URLSearchParams();
+    if (date) search.set("date", date);
+    search.set("page", String(page));
+    const qs = search.toString();
+    return request<{
+      attendance_date: string;
+      entity_type: "track";
+      track: { id: number; name_ar: string } | null;
+      items: Array<{
+        student_id: number;
+        full_name_ar: string;
+        stage_id?: number | null;
+        attendance_id?: number | null;
+        has_record?: boolean;
+        status: string;
+        recorded_at?: string | null;
+        source?: string | null;
+      }>;
+      default_status: string;
+      page?: {
+        page: number;
+        page_size: number;
+        total: number;
+        total_pages: number;
+        has_prev: boolean;
+        has_next: boolean;
+      };
+    }>(`/api/admin-dept/students/attendance/track/${trackId}?${qs}`);
+  },
+  adminDeptStudentAttendanceEntityStatus: (date?: string) => {
+    const search = new URLSearchParams();
+    if (date) search.set("date", date);
+    const qs = search.toString();
+    return request<{
+      date: string;
+      circles: Array<{ id: number; student_count: number; has_record: boolean }>;
+      tracks: Array<{ id: number; student_count: number; has_record: boolean }>;
+    }>(
+      `/api/admin-dept/students/attendance/entity-status${qs ? `?${qs}` : ""}`,
+    );
   },
   adminDeptSaveStudentAttendance: (body: {
-    circle_id: number;
+    circle_id?: number;
+    track_id?: number;
     attendance_date?: string;
     records: Array<{ student_id: number; status: string; notes?: string }>;
   }) =>
-    request<{ ok: boolean; attendance_date: string; circle_id: number; saved: number }>(
-      "/api/admin-dept/students/attendance",
-      { method: "POST", body: JSON.stringify(body) },
-    ),
+    request<{
+      ok: boolean;
+      attendance_date: string;
+      entity_type: "circle" | "track";
+      circle_id: number | null;
+      track_id: number | null;
+      saved: number;
+    }>("/api/admin-dept/students/attendance", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   adminDeptStudentsAttendanceReport: (
     start: string,
     end: string,
@@ -945,10 +1558,11 @@ export const api = {
       }>;
     }>(`/api/admin-dept/students/attendance/report?${qs}`);
   },
-  adminDeptAbsentToday: (params?: { date?: string; circle_id?: number }) => {
+  adminDeptAbsentToday: (params?: { date?: string; circle_id?: number; track_id?: number }) => {
     const q = new URLSearchParams();
     if (params?.date) q.set("date", params.date);
     if (params?.circle_id != null) q.set("circle_id", String(params.circle_id));
+    if (params?.track_id != null) q.set("track_id", String(params.track_id));
     const qs = q.toString();
     return request<{
       date: string;
@@ -956,8 +1570,22 @@ export const api = {
       template: string;
     }>(`/api/admin-dept/students/absent-today${qs ? `?${qs}` : ""}`);
   },
+  adminDeptSaveAbsentWhatsappTemplate: (template: string) =>
+    request<{ ok: boolean; template: string }>(
+      "/api/admin-dept/students/absent-today/template",
+      {
+        method: "PUT",
+        body: JSON.stringify({ template }),
+      },
+    ),
+  adminDeptGetAbsentWhatsappTemplate: () =>
+    request<{ template: string; migration_required?: boolean }>(
+      "/api/admin-dept/students/absent-today/template",
+    ),
   adminDeptCreateMagicLink: (body: {
-    circle_id: number;
+    circle_id?: number;
+    track_id?: number;
+    group_type?: "circle" | "track";
     attendance_date?: string;
     feature_name?: string;
   }) =>
@@ -985,8 +1613,12 @@ export const api = {
       items: Array<{
         id: number;
         token: string;
+        group_type?: "circle" | "track";
+        group_id?: number | null;
         circle_id: number | null;
         circle_name: string | null;
+        track_id?: number | null;
+        track_name?: string | null;
         evergreen?: boolean;
         is_active: number;
         created_at: string;
@@ -994,9 +1626,12 @@ export const api = {
       }>;
     }>("/api/admin-dept/magic-links"),
   adminDeptMagicLinksDelete: (id: number) =>
-    request<{ ok: boolean; id: number }>(`/api/admin-dept/magic-links/${id}`, {
-      method: "DELETE",
-    }),
+    request<{ ok: boolean; success: boolean; id: number }>(
+      `/api/admin-dept/magic-links/${id}`,
+      {
+        method: "DELETE",
+      },
+    ),
   adminDeptStudentsSearch: (q: string, limit = 20) => {
     const params = new URLSearchParams();
     if (q.trim()) params.set("q", q.trim());
@@ -1009,10 +1644,19 @@ export const api = {
         phone: string | null;
         guardian_phone: string | null;
         circle_name: string | null;
+        track_name: string | null;
       }>;
       count: number;
     }>(`/api/admin-dept/students/search?${params.toString()}`);
   },
+  adminDeptSemesterExport: () =>
+    request<SemesterExportPayload>("/api/admin-dept/reports/semester-export"),
+  adminDeptSemesterExportAll: () =>
+    requestFileDownload("/api/admin-dept/reports/semester-export-all"),
+  adminDeptSemesterExportAllJson: () =>
+    request<SemesterExportAllPayload>(
+      "/api/admin-dept/reports/semester-export-all?format=json",
+    ),
   /** @deprecated استخدم studentsCreate — دُمج القبول في بيانات الطلاب */
   adminDeptAdmission: (body: {
     full_name_ar: string;
@@ -1070,14 +1714,19 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  adminDeptPledgesList: () =>
-    request<{
+  adminDeptPledgesList: (params?: { q?: string }) => {
+    const search = new URLSearchParams();
+    if (params?.q?.trim()) search.set("q", params.q.trim());
+    const qs = search.toString();
+    return request<{
       items: Array<{
         student_id: number;
         full_name_ar: string;
         guardian_phone: string | null;
         pledge_count: number;
         latest_reason: string | null;
+        latest_pledge_id: number | null;
+        latest_pledge_date: string | null;
       }>;
     }>("/api/admin-dept/pledges"),
   adminDeptPatchPledge: (
@@ -1162,6 +1811,9 @@ export const api = {
       start: params.start,
       end: params.end,
     });
+    if (params.type === "student") {
+      q.set("student_id", String(params.person_id));
+    }
     return request<{
       type: "staff" | "student";
       start_date: string;
@@ -1265,45 +1917,26 @@ export const api = {
   eduDeptSettingsGet: () =>
     request<{
       settings: {
-        weight_listening: number;
-        weight_revision: number;
-        weight_repeat: number;
-        rabt_weight: number;
-        penalty_per_error: number;
-        himma_defaults?: {
-          hizb_points: number;
-          alert_penalty: number;
-          error_penalty: number;
-          alerts_per_error: number;
-          fail_threshold_errors: number;
-        };
-        competition_defaults?: {
-          mistake_penalty: number;
-          alert_penalty: number;
-          lahn_penalty: number;
-          default_task_weight: number;
-        };
+        evaluation_criteria: Array<{
+          id: string;
+          name: string;
+          type: "points" | "penalty";
+          max_weight: number;
+          input?: "boolean" | "number";
+          requires_all?: string[];
+        }>;
+        updated_at?: string | null;
       };
     }>("/api/edu-dept/settings"),
   eduDeptSettingsPatch: (body: {
-    weight_listening: number;
-    weight_revision: number;
-    weight_repeat: number;
-    rabt_weight: number;
-    penalty_per_error: number;
-    himma_defaults?: {
-      hizb_points: number;
-      alert_penalty: number;
-      error_penalty: number;
-      alerts_per_error: number;
-      fail_threshold_errors: number;
-    };
-    competition_defaults?: {
-      mistake_penalty: number;
-      alert_penalty: number;
-      lahn_penalty: number;
-      default_task_weight: number;
-    };
+    evaluation_criteria: Array<{
+      id: string;
+      name: string;
+      type: "points" | "penalty";
+      max_weight: number;
+      input?: "boolean" | "number";
+      requires_all?: string[];
+    }>;
   }) =>
     request<{ ok: boolean }>("/api/edu-dept/settings", {
       method: "PATCH",
@@ -1313,10 +1946,60 @@ export const api = {
     request<{ items: Array<{ id: number; name_ar: string }> }>(
       "/api/edu-dept/teacher/circles",
     ),
-  eduDeptMyStudents: (params?: { date?: string; circle_id?: number }) => {
+  eduDeptTeacherBootstrap: (params?: { date?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.date) q.set("date", params.date);
+    const qs = q.toString();
+    return request<{
+      generated_at: string;
+      date: string;
+      teacher_circle: { id: number; name_ar: string };
+      circle_id: number;
+      circle_name: string;
+      circles: Array<{ id: number; name_ar: string }>;
+      needs_circle_selection: false;
+      evaluation_criteria: Array<{
+        id: string;
+        name: string;
+        type: "points" | "penalty";
+        max_weight: number;
+        input?: "boolean" | "number";
+        requires_all?: string[];
+      }>;
+      items: Array<{
+        student_id: number;
+        full_name_ar: string;
+        track_name?: string | null;
+        admin_present?: boolean;
+        task_scores?: Record<string, boolean | number>;
+        listened?: boolean;
+        repeated?: boolean;
+        revised?: boolean;
+        error_count?: number;
+        tune_errors?: number;
+        face_count?: number;
+        notes: string;
+      }>;
+      notifications: {
+        items: Array<{
+          id: number;
+          title_ar: string;
+          body_ar: string;
+          is_read: number;
+          created_at: string;
+        }>;
+      };
+    }>(`/api/edu-dept/teacher-bootstrap${qs ? `?${qs}` : ""}`);
+  },
+  eduDeptMyStudents: (params?: {
+    date?: string;
+    circle_id?: number;
+    track_id?: number;
+  }) => {
     const q = new URLSearchParams();
     if (params?.date) q.set("date", params.date);
     if (params?.circle_id != null) q.set("circle_id", String(params.circle_id));
+    if (params?.track_id != null) q.set("track_id", String(params.track_id));
     const qs = q.toString();
     return request<{
       date: string;
@@ -1324,15 +2007,26 @@ export const api = {
       circle_name: string | null;
       needs_circle_selection: boolean;
       circles: Array<{ id: number; name_ar: string }>;
+      evaluation_criteria: Array<{
+        id: string;
+        name: string;
+        type: "points" | "penalty";
+        max_weight: number;
+        input?: "boolean" | "number";
+        requires_all?: string[];
+      }>;
       items: Array<{
         student_id: number;
         full_name_ar: string;
-        listened: boolean;
-        repeated: boolean;
-        revised: boolean;
-        error_count: number;
-        tune_errors: number;
-        face_count: number;
+        track_name?: string | null;
+        circle_name?: string | null;
+        task_scores?: Record<string, boolean | number>;
+        listened?: boolean;
+        repeated?: boolean;
+        revised?: boolean;
+        error_count?: number;
+        tune_errors?: number;
+        face_count?: number;
         notes: string;
       }>;
     }>(`/api/edu-dept/my-students${qs ? `?${qs}` : ""}`);
@@ -1360,6 +2054,7 @@ export const api = {
     recitation_date: string;
     rows: Array<{
       student_id: number;
+      task_scores?: Record<string, boolean | number>;
       listened?: boolean;
       repeated?: boolean;
       revised?: boolean;
@@ -1408,7 +2103,12 @@ export const api = {
     }),
   eduDeptResolveTeacherRequest: (
     id: number,
-    body: { status: "approved" | "rejected"; target_circle_id?: number },
+    body: {
+      status: "approved" | "rejected";
+      target_circle_id?: number;
+      target_track_id?: number;
+      placement_type?: "circle" | "track";
+    },
   ) =>
     request<{ ok: boolean; status: string }>(
       `/api/edu-dept/teacher-requests/${id}`,
@@ -1416,14 +2116,98 @@ export const api = {
     ),
   eduDeptManualTransfer: (body: {
     student_id: number;
-    circle_id: number;
+    circle_id?: number;
     track_id?: number | null;
-    note?: string;
+    placement_type?: "circle" | "track";
+    note: string;
   }) =>
     request<{ ok: boolean }>("/api/edu-dept/transfers/manual", {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  eduDeptPlacementOptions: (q?: string, trackId?: number) => {
+    const params = new URLSearchParams();
+    if (q?.trim()) params.set("q", q.trim());
+    if (trackId != null && trackId > 0) params.set("track_id", String(trackId));
+    const qs = params.toString();
+    return request<{
+      items: Array<{
+        id: number;
+        entity_type: "circle" | "track";
+        name_ar: string;
+        track_id: number | null;
+        track_name: string | null;
+        teacher_name: string | null;
+      }>;
+    }>(`/api/edu-dept/placement-options${qs ? `?${qs}` : ""}`);
+  },
+  eduDeptFilterScopes: () =>
+    request<{
+      circles: Array<{ id: number; name_ar: string; track_id: number | null }>;
+      tracks: Array<{ id: number; name_ar: string }>;
+      assigned_track_ids?: number[];
+    }>("/api/edu-dept/filter-scopes"),
+  eduDeptTransferHistory: (q?: string) =>
+    request<{
+      items: Array<{
+        id: number;
+        student_name: string | null;
+        status: "success" | "failed";
+        source: string;
+        old_circle_name: string | null;
+        old_track_name: string | null;
+        new_circle_name: string | null;
+        new_track_name: string | null;
+        reason: string | null;
+        error_message: string | null;
+        created_at: string;
+      }>;
+    }>(
+      `/api/edu-dept/transfers/history${q?.trim() ? `?q=${encodeURIComponent(q.trim())}` : ""}`,
+    ),
+  eduDeptNotifications: () =>
+    request<{
+      items: Array<{
+        id: number;
+        title_ar: string;
+        body_ar: string;
+        is_read: number;
+        created_at: string;
+      }>;
+    }>("/api/edu-dept/notifications"),
+  eduDeptNotificationDismiss: (id: number) =>
+    request<{ ok: boolean }>(`/api/edu-dept/notifications/${id}/read`, {
+      method: "PATCH",
+    }),
+  eduDeptEducationalProfile: (params: { person_id: number }) =>
+    request<{
+      type: "educational";
+      complex_name: string | null;
+      person: {
+        id: number;
+        full_name_ar: string;
+        current_placement: string | null;
+      };
+      criteria: Array<{ id: string; name: string; type: string }>;
+      summary: {
+        total_records: number;
+        avg_quality_pct: number | null;
+        total_faces: number;
+        first_record_date: string | null;
+        last_record_date: string | null;
+      };
+      items: Array<{
+        date: string;
+        circle_name: string | null;
+        track_name: string | null;
+        quality_pct: number;
+        face_count: number;
+        notes: string | null;
+        tasks: Array<{ id: string; name: string; value: boolean | number }>;
+      }>;
+    }>(
+      `/api/edu-dept/reports/educational-profile?person_id=${params.person_id}`,
+    ),
   eduDeptTeacherCompetitionsList: () =>
     request<{
       items: Array<{
@@ -1434,6 +2218,8 @@ export const api = {
         created_at: string;
       }>;
       default_task_weight?: number;
+      circle_id?: number | null;
+      circle_name?: string | null;
     }>("/api/edu-dept/teacher-competitions"),
   eduDeptTeacherCompetitionCreate: (body: {
     name_ar: string;
@@ -1447,9 +2233,18 @@ export const api = {
   eduDeptTeacherCompetitionDetail: (id: number) =>
     request<{
       competition: { id: number; name_ar: string; start_date: string | null; end_date: string | null };
-      tasks: Array<{ id: number; title_ar: string; weight_points: number; sort_order: number }>;
+      tasks: Array<{
+        id: number;
+        title_ar: string;
+        weight_points: number;
+        sort_order: number;
+        type?: string;
+        input_type?: string;
+      }>;
       students: Array<{ id: number; full_name_ar: string }>;
       scores: Array<{ task_id: number; student_id: number; points: number }>;
+      circle_id?: number | null;
+      circle_name?: string | null;
     }>(`/api/edu-dept/teacher-competitions/${id}`),
   eduDeptTeacherCompetitionUpdate: (
     id: number,
@@ -1465,7 +2260,12 @@ export const api = {
     }),
   eduDeptTeacherCompetitionAddTask: (
     compId: number,
-    body: { title_ar: string; weight_points?: number },
+    body: {
+      title_ar: string;
+      weight_points?: number;
+      type?: string;
+      input_type?: string;
+    },
   ) =>
     request<{ ok: boolean; id: number }>(
       `/api/edu-dept/teacher-competitions/${compId}/tasks`,
@@ -1709,27 +2509,32 @@ export const api = {
     date_from?: string;
     date_to?: string;
     circle_id?: number;
+    track_id?: number;
   }) => {
     const q = new URLSearchParams();
     if (params?.date) q.set("date", params.date);
     if (params?.date_from) q.set("date_from", params.date_from);
     if (params?.date_to) q.set("date_to", params.date_to);
     if (params?.circle_id != null) q.set("circle_id", String(params.circle_id));
+    if (params?.track_id != null) q.set("track_id", String(params.track_id));
     const qs = q.toString();
     return request<{
       date: string;
       date_from: string;
       date_to: string;
-      semester_start: string;
+      scope_type?: "circle" | "track";
+      scope_id?: number | null;
       summary: {
         avg_quality: number;
         top_circle: { circle_id: number; circle_name: string; avg_quality: number } | null;
         active_students: number;
         total_records: number;
-        total_faces_semester: number;
-        faces_today: number;
+        total_faces_in_range?: number;
+        total_faces_semester?: number;
+        faces_today?: number;
       };
       circles: Array<{ id: number; name_ar: string }>;
+      tracks?: Array<{ id: number; name_ar: string }>;
       items: Array<{
         student_id: number;
         full_name_ar: string;
@@ -1747,12 +2552,15 @@ export const api = {
   publicAttendanceGet: (token: string) =>
     request<{
       token: string;
+      entity_type: "circle" | "track";
       attendance_date: string;
-      circle: { id: number; name_ar: string; stage: string };
+      circle: { id: number; name_ar: string; stage?: string } | null;
+      track: { id: number; name_ar: string } | null;
       items: Array<{
         student_id: number;
         full_name_ar: string;
         status: string;
+        has_record?: boolean;
       }>;
       default_status: string;
     }>(`/api/public/attendance/${encodeURIComponent(token)}`),
@@ -1762,129 +2570,6 @@ export const api = {
   ) =>
     request<{ ok: boolean; saved: number }>(
       `/api/public/attendance/${encodeURIComponent(token)}`,
-      { method: "POST", body: JSON.stringify(body) },
-    ),
-  gsScope: () =>
-    request<{
-      scope: { type: string; stageIds?: number[] };
-      supervisor_scope: string;
-      stage_labels: Record<number, string>;
-    }>("/api/admin-dept/scope"),
-  gsStaffAttendanceToday: (date?: string) => {
-    const qs = date ? `?date=${encodeURIComponent(date)}` : "";
-    return request<{
-      date: string;
-      items: Array<{
-        user_id: number;
-        full_name_ar: string;
-        role: string;
-        status: string;
-      }>;
-      default_status: string;
-    }>(`/api/admin-dept/staff-attendance/today${qs}`);
-  },
-  gsStaffAttendanceInitToday: () =>
-    request<{ ok: boolean; date: string; count: number }>(
-      "/api/admin-dept/staff-attendance/init-today",
-      { method: "POST", body: "{}" },
-    ),
-  gsStaffAttendanceUpsert: (body: {
-    user_id: number;
-    status: string;
-    attendance_date?: string;
-  }) =>
-    request<{ ok: boolean }>(
-      "/api/admin-dept/staff-attendance/upsert",
-      { method: "POST", body: JSON.stringify(body) },
-    ),
-  gsApplications: (status = "pending") =>
-    request<{ items: unknown[] }>(
-      `/api/admin-dept/applications?status=${encodeURIComponent(status)}`,
-    ),
-  gsApplicationCreate: (body: Record<string, unknown>) =>
-    request<{ ok: boolean; id: number }>(
-      "/api/admin-dept/applications",
-      { method: "POST", body: JSON.stringify(body) },
-    ),
-  gsApplicationAccept: (id: number) =>
-    request<{ ok: boolean; student_id: number }>(
-      `/api/admin-dept/applications/${id}/accept`,
-      { method: "POST", body: "{}" },
-    ),
-  gsApplicationReject: (id: number) =>
-    request<{ ok: boolean }>(
-      `/api/admin-dept/applications/${id}/reject`,
-      { method: "POST", body: "{}" },
-    ),
-  gsDisciplinary: () =>
-    request<{ items: unknown[] }>("/api/admin-dept/disciplinary"),
-  gsDisciplinaryViolation: (studentId: number, description?: string) =>
-    request<{ ok: boolean }>(
-      `/api/admin-dept/disciplinary/${studentId}/violation`,
-      {
-        method: "POST",
-        body: JSON.stringify({ description }),
-      },
-    ),
-  gsDisciplinaryAction: (
-    studentId: number,
-    action: "archive_pledge" | "suspend" | "dismiss" | "transfer",
-    note?: string,
-  ) =>
-    request<{ ok: boolean }>(
-      `/api/admin-dept/disciplinary/${studentId}/action`,
-      { method: "POST", body: JSON.stringify({ action, note }) },
-    ),
-  gsDashboard: () =>
-    request<{
-      today: string;
-      kpis: {
-        active_students: number;
-        present_today: number;
-        attendance_rate_today: number;
-        graduates_count: number;
-        huffadh_count: number;
-        pending_applications: number;
-        pending_placement: number;
-      };
-    }>("/api/admin-dept/dashboard"),
-  gsTvLaunch: () =>
-    request<{
-      session: {
-        id: number;
-        tv_launch_key: string;
-        name_ar: string;
-      } | null;
-      fallback_url: string;
-    }>("/api/admin-dept/tv-launch"),
-  gsStudentAttendanceToday: (date?: string) => {
-    const qs = date ? `?date=${encodeURIComponent(date)}` : "";
-    return request<{
-      date: string;
-      items: Array<{
-        student_id: number;
-        full_name_ar: string;
-        stage_id: number | null;
-        circle_name: string | null;
-        status: string;
-      }>;
-      scope: { type: string; stageIds?: number[] };
-      default_status: string;
-    }>(`/api/admin-dept/student-attendance/today${qs}`);
-  },
-  gsStudentAttendanceInitToday: () =>
-    request<{ ok: boolean; date: string; count: number }>(
-      "/api/admin-dept/student-attendance/init-today",
-      { method: "POST", body: "{}" },
-    ),
-  gsStudentAttendanceUpsert: (body: {
-    student_id: number;
-    status: string;
-    attendance_date?: string;
-    notes?: string;
-  }) =>
-    request<{ ok: boolean }>(
-      "/api/admin-dept/student-attendance/upsert",
       { method: "POST", body: JSON.stringify(body) },
     ),
   eduStudentAttendanceToday: (date?: string) => {

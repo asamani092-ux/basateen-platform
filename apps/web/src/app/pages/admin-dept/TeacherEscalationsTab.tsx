@@ -13,6 +13,7 @@ import {
 } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
+import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
 import {
   Table,
   TableBody,
@@ -168,19 +169,22 @@ export function TeacherEscalationsTab({ onChanged }: { onChanged?: () => void })
           <TableBody>
             {items.map((r) => (
               <TableRow key={r.id}>
-                <TableCell className={ds.table.cell} style={tajawal}>
+                <TableTruncatedCell className={ds.table.colName} style={tajawal}>
                   {r.student_name}
-                </TableCell>
-                <TableCell className={ds.table.cell} style={tajawal}>
+                </TableTruncatedCell>
+                <TableTruncatedCell style={tajawal}>
                   {r.teacher_name}
-                </TableCell>
-                <TableCell
-                  className={`${ds.table.cell} text-muted-foreground text-sm`}
+                </TableTruncatedCell>
+                <TableTruncatedCell
+                  className="text-muted-foreground max-w-[280px]"
                   style={tajawal}
                 >
                   {r.notes ?? "—"}
-                </TableCell>
-                <TableCell className={ds.table.cell} style={tajawal}>
+                </TableTruncatedCell>
+                <TableCell
+                  className={`${ds.table.cell} whitespace-nowrap`}
+                  style={tajawal}
+                >
                   {r.created_at.slice(0, 10)}
                 </TableCell>
                 <TableActionsCell wide>

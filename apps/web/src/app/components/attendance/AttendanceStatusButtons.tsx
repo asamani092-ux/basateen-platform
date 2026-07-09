@@ -1,6 +1,6 @@
 import { Button } from "../ui/button";
 import { cn } from "../ui/utils";
-import { tajawal } from "../../lib/design-system";
+import { ds, tajawal } from "../../lib/design-system";
 
 type Status = "present" | "absent" | "excused";
 
@@ -9,34 +9,24 @@ const OPTIONS: Array<{
   label: string;
   activeClass: string;
   idleClass: string;
-  activeVariant: "default" | "destructive";
-  idleVariant: "outline";
 }> = [
   {
     value: "present",
     label: "حاضر",
-    activeVariant: "default",
-    idleVariant: "outline",
-    activeClass: "",
-    idleClass: "border-primary/40 text-primary hover:bg-primary/10",
-  },
-  {
-    value: "excused",
-    label: "مستأذن",
-    activeVariant: "default",
-    idleVariant: "outline",
-    activeClass:
-      "bg-amber-500 text-white hover:bg-amber-500/90 border-amber-500 ring-2 ring-amber-500",
-    idleClass:
-      "border-amber-500/40 text-foreground hover:bg-amber-500/15",
+    activeClass: ds.attendance.presentActive,
+    idleClass: ds.attendance.presentIdle,
   },
   {
     value: "absent",
     label: "غائب",
-    activeVariant: "destructive",
-    idleVariant: "outline",
-    activeClass: "",
-    idleClass: "border-destructive/40 text-destructive hover:bg-destructive/10",
+    activeClass: ds.attendance.absentActive,
+    idleClass: ds.attendance.absentIdle,
+  },
+  {
+    value: "excused",
+    label: "مستأذن",
+    activeClass: ds.attendance.excusedActive,
+    idleClass: ds.attendance.excusedIdle,
   },
 ];
 
@@ -44,22 +34,29 @@ type Props = {
   value: string;
   onChange: (status: Status) => void;
   disabled?: boolean;
+  /** عند false لا يُظهر زر «حاضر» نشطاً قبل الاعتماد */
+  highlightSaved?: boolean;
 };
 
-export function AttendanceStatusButtons({ value, onChange, disabled }: Props) {
+export function AttendanceStatusButtons({
+  value,
+  onChange,
+  disabled,
+  highlightSaved = true,
+}: Props) {
   return (
-    <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:justify-end sm:gap-1.5 w-full">
+    <div className={cn(ds.attendance.segmentedWrap, "shrink-0")} style={tajawal}>
       {OPTIONS.map((opt) => {
-        const isActive = value === opt.value;
+        const isActive = highlightSaved && value === opt.value;
         return (
           <Button
             key={opt.value}
             type="button"
-            size="sm"
-            variant={isActive ? opt.activeVariant : opt.idleVariant}
+            variant="ghost"
             disabled={disabled}
             className={cn(
-              "w-full sm:w-auto min-w-0 sm:min-w-[4rem] rounded-full text-xs font-medium",
+              ds.attendance.segmentBase,
+              "h-auto shadow-none hover:bg-transparent",
               isActive ? opt.activeClass : opt.idleClass,
             )}
             style={tajawal}

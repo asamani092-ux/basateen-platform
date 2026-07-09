@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { todayRiyadhIso } from "../../lib/today-riyadh-iso";
 import { Printer } from "lucide-react";
 import { Button } from "../ui/button";
 import { Label } from "../ui/label";
@@ -26,6 +27,7 @@ import {
 } from "../ui/table";
 import { api, type CircleOption } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
+import { TableTruncatedCell } from "../shared/TableTruncatedCell";
 import { ds, tajawal } from "../../lib/design-system";
 
 export type StudentReportRow = {
@@ -44,9 +46,6 @@ type Props = {
   loadingCircles?: boolean;
 };
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 export function StudentAttendanceReportModal({
   open,
@@ -55,7 +54,7 @@ export function StudentAttendanceReportModal({
   circles,
   loadingCircles = false,
 }: Props) {
-  const today = todayIso();
+  const today = todayRiyadhIso();
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
   const [circleId, setCircleId] = useState("");
@@ -120,8 +119,10 @@ export function StudentAttendanceReportModal({
     setTimeout(cleanup, 1000);
   }
 
+  const headClass =
+    "text-right px-4 py-3 print:px-2 print:py-1 print:text-xs print:font-semibold border border-black/20 print:border-black";
   const cellClass =
-    "text-right px-4 py-3 print:px-2 print:py-1.5 print:text-xs";
+    "text-right px-4 py-3 print:px-2 print:py-1 print:text-xs border border-black/10 print:border-black";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -201,7 +202,7 @@ export function StudentAttendanceReportModal({
         >
           <div className="hidden print:flex print:justify-between print:items-start print:border-b print:border-black print:pb-2 print:mb-3 print:pt-0">
             <p className="text-sm font-semibold" style={tajawal}>
-              {complexName ?? "مجمع حلقات البساتين"}
+              {complexName ?? "مجمع حلقات بساتين"}
               {circleName ? ` — ${circleName}` : ""}
             </p>
             <p className="text-sm" style={tajawal} dir="ltr">
@@ -225,19 +226,20 @@ export function StudentAttendanceReportModal({
           </p>
 
           {rows.length > 0 ? (
-            <Table className="w-full border-collapse text-sm print:text-xs">
+            <div className="overflow-x-auto print:overflow-visible">
+            <Table className="w-full border-collapse print:table-fixed print:w-full">
               <TableHeader>
                 <TableRow className="print:break-inside-avoid">
-                  <TableHead className={cellClass} style={tajawal}>
+                  <TableHead className={`${headClass} print:w-[40%]`} style={tajawal}>
                     اسم الطالب
                   </TableHead>
-                  <TableHead className={cellClass} style={tajawal}>
+                  <TableHead className={`${headClass} print:w-[20%]`} style={tajawal}>
                     أيام الحضور
                   </TableHead>
-                  <TableHead className={cellClass} style={tajawal}>
+                  <TableHead className={`${headClass} print:w-[20%]`} style={tajawal}>
                     أيام الاستئذان
                   </TableHead>
-                  <TableHead className={cellClass} style={tajawal}>
+                  <TableHead className={`${headClass} print:w-[20%]`} style={tajawal}>
                     أيام الغياب
                   </TableHead>
                 </TableRow>
@@ -248,22 +250,23 @@ export function StudentAttendanceReportModal({
                     key={r.student_id}
                     className="print:break-inside-avoid"
                   >
-                    <TableCell className={cellClass} style={tajawal}>
+                    <TableTruncatedCell className={`${cellClass} print:w-[40%]`} style={tajawal}>
                       {r.full_name_ar}
-                    </TableCell>
-                    <TableCell className={cellClass} style={tajawal}>
+                    </TableTruncatedCell>
+                    <TableCell className={`${cellClass} print:w-[20%] print:text-center`} style={tajawal}>
                       {r.present_days}
                     </TableCell>
-                    <TableCell className={cellClass} style={tajawal}>
+                    <TableCell className={`${cellClass} print:w-[20%] print:text-center`} style={tajawal}>
                       {r.excused_days}
                     </TableCell>
-                    <TableCell className={cellClass} style={tajawal}>
+                    <TableCell className={`${cellClass} print:w-[20%] print:text-center`} style={tajawal}>
                       {r.absent_days}
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
+            </div>
           ) : (
             !loading &&
             loadedRange && (

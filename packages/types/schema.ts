@@ -165,6 +165,7 @@ export interface StudentAttendance {
   status: AttendanceStatus;
   source: AttendanceSource;
   circle_id: number | null;
+  track_id: number | null;
   shared_token_id: number | null;
   recorded_by_user_id: number | null;
   recorded_at: string;

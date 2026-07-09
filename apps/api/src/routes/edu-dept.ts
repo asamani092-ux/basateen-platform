@@ -6,11 +6,15 @@ import {
   requireRoles,
 } from "../middleware/auth";
 import { assignStudentCircle } from "../lib/placement";
+import { tableHasColumn } from "../lib/db-schema";
 import {
+  buildStudentsInScopeWhere,
   loadUserScope,
   studentsInScopeBinds,
   studentsInScopeWhere,
 } from "../lib/dept-scope";
+import { upsertStudentAttendance } from "../lib/student-attendance-db";
+import { todayRiyadhIso } from "../lib/today-riyadh-iso";
 import { handleEduDeptExtendedRoutes } from "./edu-dept-extended";
 
 const ACCEPT_ASSIGN_PATHS = new Set([
@@ -22,9 +26,6 @@ function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
 }
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 export async function handleEduDeptRouter(
   request: Request,
@@ -36,7 +37,7 @@ export async function handleEduDeptRouter(
 
   const auth = await getAuth(request, env);
   if (!requireAuth(auth)) return authUnauthorizedResponse(request);
-  if (!requireRoles(auth, ["edu_supervisor"])) {
+  if (!requireRoles(auth, ["edu_supervisor", "super_admin"])) {
     return json({ error: "forbidden" }, 403);
   }
 
@@ -129,7 +130,7 @@ export async function handleEduDeptRouter(
     request.method === "GET" &&
     path === "/api/edu-dept/student-attendance/today"
   ) {
-    const date = url.searchParams.get("date")?.trim() || todayIso();
+    const date = url.searchParams.get("date")?.trim() || todayRiyadhIso();
     const scopeWhere = studentsInScopeWhere(scope);
     const binds = [date, auth.complexId, ...studentsInScopeBinds(auth.complexId, scope)];
 
@@ -169,26 +170,35 @@ export async function handleEduDeptRouter(
     request.method === "POST" &&
     path === "/api/edu-dept/student-attendance/init-today"
   ) {
-    const date = todayIso();
+    const date = todayRiyadhIso();
     const scopeWhere = studentsInScopeWhere(scope);
-    const students = await env.DB.prepare(
-      `SELECT s.id FROM students s WHERE ${scopeWhere}`,
-    )
-      .bind(...studentsInScopeBinds(auth.complexId, scope))
-      .all<{ id: number }>();
+    const scopeBinds = studentsInScopeBinds(auth.complexId, scope);
+    const insertBinds: Array<string | number> = [
+      auth.complexId,
+      date,
+      auth.userId,
+      ...scopeBinds,
+    ];
 
-    for (const row of students.results ?? []) {
-      await env.DB.prepare(
+    const batchResult = await env.DB.batch([
+      env.DB.prepare(
         `INSERT INTO student_attendance
          (complex_id, student_id, attendance_date, status, source, recorded_by_user_id)
-         VALUES (?, ?, ?, 'present', 'edu_supervisor', ?)
+         SELECT ?, s.id, ?, 'present', 'edu_supervisor', ?
+         FROM students s
+         WHERE ${scopeWhere}
          ON CONFLICT(student_id, attendance_date) DO NOTHING`,
-      )
-        .bind(auth.complexId, row.id, date, auth.userId)
-        .run();
-    }
+      ).bind(...insertBinds),
+      env.DB.prepare(
+        `SELECT COUNT(*) AS c FROM students s WHERE ${scopeWhere}`,
+      ).bind(...scopeBinds),
+    ]);
+    const countRow = batchResult[1];
+    const count = Number(
+      (countRow.results?.[0] as { c: number } | undefined)?.c ?? 0,
+    );
 
-    return json({ ok: true, date, count: students.results?.length ?? 0 });
+    return json({ ok: true, date, count });
   }
 
   if (
@@ -209,11 +219,12 @@ export async function handleEduDeptRouter(
 
     const studentId = Number(body.student_id);
     if (!Number.isFinite(studentId)) return json({ error: "student_id_required" }, 400);
-    const status = body.status ?? "present";
-    if (!["present", "absent", "excused"].includes(status)) {
+    const statusRaw = body.status ?? "present";
+    if (!["present", "absent", "excused"].includes(statusRaw)) {
       return json({ error: "invalid_status" }, 400);
     }
-    const date = body.attendance_date?.trim() || todayIso();
+    const status = statusRaw as "present" | "absent" | "excused";
+    const date = body.attendance_date?.trim() || todayRiyadhIso();
     const scopeWhere = studentsInScopeWhere(scope);
 
     const allowed = await env.DB.prepare(
@@ -225,43 +236,62 @@ export async function handleEduDeptRouter(
     if (!allowed) return json({ error: "student_out_of_scope" }, 403);
 
     const circleRow = await env.DB.prepare(
-      `SELECT current_circle_id FROM students WHERE id = ?`,
+      `SELECT current_circle_id, current_track_id FROM students WHERE id = ?`,
     )
       .bind(studentId)
-      .first<{ current_circle_id: number | null }>();
+      .first<{ current_circle_id: number | null; current_track_id: number | null }>();
 
-    await env.DB.prepare(
-      `INSERT INTO student_attendance
-       (complex_id, student_id, attendance_date, status, source, circle_id, recorded_by_user_id, notes)
-       VALUES (?, ?, ?, ?, 'edu_supervisor', ?, ?, ?)
-       ON CONFLICT(student_id, attendance_date) DO UPDATE SET
-         status = excluded.status,
-         source = 'edu_supervisor',
-         circle_id = COALESCE(excluded.circle_id, student_attendance.circle_id),
-         recorded_by_user_id = excluded.recorded_by_user_id,
-         notes = excluded.notes,
-         recorded_at = datetime('now')`,
-    )
-      .bind(
-        auth.complexId,
-        studentId,
-        date,
-        status,
-        circleRow?.current_circle_id ?? null,
-        auth.userId,
-        body.notes?.trim() ?? null,
-      )
-      .run();
+    await upsertStudentAttendance(env, {
+      complexId: auth.complexId,
+      studentId,
+      attendanceDate: date,
+      status,
+      source: "edu_supervisor",
+      circleId: circleRow?.current_circle_id ?? null,
+      trackId: circleRow?.current_track_id ?? null,
+      recordedByUserId: auth.userId,
+      notes: body.notes?.trim() ?? null,
+    });
 
     return json({ ok: true, student_id: studentId, status, attendance_date: date });
   }
 
   if (request.method === "GET" && path === "/api/edu-dept/master-grid") {
-    const pendingOnly = url.searchParams.get("pending_acceptance") === "1";
-    const q = (url.searchParams.get("q") ?? "").trim();
-    const scopeWhere = studentsInScopeWhere(scope);
-    let sql = `
-      SELECT * FROM (
+    try {
+      const pendingOnly = url.searchParams.get("pending_acceptance") === "1";
+      const q = (url.searchParams.get("q") ?? "").trim();
+      const scopeWhere = await buildStudentsInScopeWhere(env, scope);
+      const hasCurrentCircle = await tableHasColumn(
+        env,
+        "students",
+        "current_circle_id",
+      );
+      const hasCurrentTrack = await tableHasColumn(
+        env,
+        "students",
+        "current_track_id",
+      );
+
+      let innerSql: string;
+      if (hasCurrentCircle) {
+        innerSql = `
+        SELECT
+          s.id,
+          s.full_name_ar,
+          s.is_active,
+          s.stage_id,
+          s.school_grade,
+          s.admission_status,
+          s.current_circle_id,
+          c.name_ar AS current_circle_name,
+          ${hasCurrentTrack ? "s.current_track_id" : "NULL AS current_track_id"},
+          ${hasCurrentTrack ? "t.name_ar AS current_track_name" : "NULL AS current_track_name"}
+        FROM students s
+        LEFT JOIN circles c ON c.id = s.current_circle_id
+        ${hasCurrentTrack ? "LEFT JOIN tracks t ON t.id = s.current_track_id" : ""}
+        WHERE ${scopeWhere}`;
+      } else {
+        innerSql = `
         SELECT
           s.id,
           s.full_name_ar,
@@ -278,47 +308,57 @@ export async function handleEduDeptRouter(
           ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL
         LEFT JOIN circles c ON c.id = h.circle_id
         LEFT JOIN tracks t ON t.id = h.track_id
-        WHERE ${scopeWhere}
-      ) master_sheet
-      WHERE 1 = 1
-    `;
-    const binds: Array<string | number> = [
-      ...studentsInScopeBinds(auth.complexId, scope),
-    ];
-    if (pendingOnly) {
-      sql += ` AND current_circle_id IS NULL AND current_track_id IS NULL`;
+        WHERE ${scopeWhere}`;
+      }
+
+      let sql = `SELECT * FROM (${innerSql}) master_sheet WHERE 1 = 1`;
+      const binds: Array<string | number> = [
+        ...studentsInScopeBinds(auth.complexId, scope),
+      ];
+      if (pendingOnly) {
+        sql += ` AND current_circle_id IS NULL AND current_track_id IS NULL`;
+      }
+      if (q.length > 0) {
+        sql += ` AND full_name_ar LIKE ?`;
+        binds.push(`%${q}%`);
+      }
+      sql += ` ORDER BY full_name_ar LIMIT 500`;
+      const rows = await env.DB.prepare(sql).bind(...binds).all();
+
+      const circles = await env.DB.prepare(
+        `SELECT id, name_ar
+         FROM circles
+         WHERE complex_id = ? AND is_active = 1
+         ORDER BY name_ar`,
+      )
+        .bind(auth.complexId)
+        .all();
+
+      const tracks = await env.DB.prepare(
+        `SELECT id, name_ar
+         FROM tracks
+         WHERE complex_id = ?
+         ORDER BY name_ar`,
+      )
+        .bind(auth.complexId)
+        .all();
+
+      return json({
+        items: rows.results ?? [],
+        circles: circles.results ?? [],
+        tracks: tracks.results ?? [],
+        pending_filter_applied: pendingOnly,
+      });
+    } catch (err) {
+      console.error("master_grid_failed", err);
+      return json(
+        {
+          error: "master_grid_failed",
+          message: err instanceof Error ? err.message : String(err),
+        },
+        500,
+      );
     }
-    if (q.length > 0) {
-      sql += ` AND full_name_ar LIKE ?`;
-      binds.push(`%${q}%`);
-    }
-    sql += ` ORDER BY full_name_ar LIMIT 500`;
-    const rows = await env.DB.prepare(sql).bind(...binds).all();
-
-    const circles = await env.DB.prepare(
-      `SELECT id, name_ar, track_id
-       FROM circles
-       WHERE complex_id = ? AND is_active = 1
-       ORDER BY name_ar`,
-    )
-      .bind(auth.complexId)
-      .all();
-
-    const tracks = await env.DB.prepare(
-      `SELECT id, name_ar
-       FROM tracks
-       WHERE complex_id = ?
-       ORDER BY name_ar`,
-    )
-      .bind(auth.complexId)
-      .all();
-
-    return json({
-      items: rows.results ?? [],
-      circles: circles.results ?? [],
-      tracks: tracks.results ?? [],
-      pending_filter_applied: pendingOnly,
-    });
   }
 
   return json({ error: "Not Found", path }, 404);

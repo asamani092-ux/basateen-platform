@@ -1,116 +1,130 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router";
-import { Copy, Link2, Plus } from "lucide-react";
+import { todayRiyadhIso } from "../../lib/today-riyadh-iso";
+import { Link, useNavigate } from "react-router";
+import { Calendar, Loader2, Pencil, Plus, Trash2, Trophy } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "../../components/ui/button";
-import { Input } from "../../components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import {
-  TargetPicker,
-  type TargetSelection,
-} from "../../components/edu/TargetPicker";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../../components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
+import { CompetitionCreateForm } from "../../components/edu/CompetitionCreateForm";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
+import { categoryLabel } from "../../lib/competition-engine";
 import { ds, tajawal } from "../../lib/design-system";
 
 type CompetitionRow = {
   id: number;
   name_ar: string;
+  description?: string;
   start_date: string;
   end_date: string;
   status: string;
-  telemetry_type: string;
-  live_log_token: string | null;
+  category?: string;
 };
 
-const emptyTargets = (): TargetSelection => ({
-  student_ids: [],
-  circle_ids: [],
-  track_ids: [],
-});
+function statusLabel(status: string): string {
+  if (status === "active") return "جارية";
+  if (status === "closed") return "منتهية";
+  return "مسودة";
+}
+
+function statusClass(status: string): string {
+  if (status === "active") {
+    return "bg-success-surface text-success-foreground";
+  }
+  if (status === "closed") return "bg-muted text-muted-foreground";
+  return "bg-warning-surface text-warning-foreground";
+}
 
 export function CompetitionsPage() {
+  const navigate = useNavigate();
   const [items, setItems] = useState<CompetitionRow[]>([]);
-  const [nameAr, setNameAr] = useState("");
-  const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [telemetryType, setTelemetryType] = useState<
-    "extended_recitation" | "intensive_routine"
-  >("intensive_routine");
-  const [targets, setTargets] = useState<TargetSelection>(emptyTargets());
-  const [defaultJuz, setDefaultJuz] = useState(1);
-  const [dailyJuz, setDailyJuz] = useState(0.5);
+  const [createOpen, setCreateOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [liveLink, setLiveLink] = useState<string | null>(null);
+  const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     if (!canUseApi()) return;
+    setLoading(true);
+    setError(null);
     try {
       const res = await api.competitionsList();
       setItems(res.items as CompetitionRow[]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل التحميل");
+    } finally {
+      setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
-  async function createCompetition() {
+  async function confirmDelete() {
+    if (!deleteId) return;
+    const removedId = deleteId;
+    const removedRow = items.find((c) => c.id === removedId);
+    setDeleting(true);
     setError(null);
-    const scope = {
-      student_ids: targets.student_ids,
-      circle_ids: targets.circle_ids,
-      track_ids: targets.track_ids,
-    };
-    const plans =
-      telemetryType === "extended_recitation"
-        ? targets.student_ids.map((sid) => ({
-            student_id: sid,
-            total_target_juz: defaultJuz,
-            daily_volume_juz: dailyJuz,
-          }))
-        : undefined;
+    setItems((prev) => prev.filter((c) => c.id !== removedId));
+    setDeleteId(null);
     try {
-      const res = await api.competitionsCreate({
-        name_ar: nameAr,
-        start_date: startDate,
-        end_date: endDate,
-        telemetry_type: telemetryType,
-        scope,
-        plans,
-      });
-      setNameAr("");
-      setTargets(emptyTargets());
-      await load();
-      if (res.id) {
-        window.location.href = `/edu-supervisor/competitions/${res.id}`;
-      }
+      await api.competitionsDelete(removedId);
+      toast.success("تم حذف المنافسة بنجاح");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل الإنشاء");
+      if (removedRow) {
+        setItems((prev) =>
+          prev.some((c) => c.id === removedId) ? prev : [...prev, removedRow],
+        );
+      }
+      const msg = e instanceof Error ? e.message : "فشل الحذف";
+      setError(msg);
+      toast.error(msg);
+    } finally {
+      setDeleting(false);
     }
   }
 
-  async function enableLiveLog(id: number) {
-    try {
-      const res = await api.competitionsLiveLogToken(id);
-      const url = `${window.location.origin}/live-log/${res.live_log_token}`;
-      setLiveLink(url);
-      await navigator.clipboard.writeText(url);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل توليد الرابط");
-    }
-  }
+  const today = todayRiyadhIso();
 
   return (
     <div className="space-y-6 max-w-[1600px]">
-      <div>
-        <h2 className={ds.page.title} style={tajawal}>
-          المنافسات والبرامج الاستثنائية
-        </h2>
-        <p className={ds.page.description} style={tajawal}>
-          معزولة عن الرصد اليومي للمعلم — تُحفظ في ملف الطالب
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className={`${ds.page.title} flex items-center gap-2`} style={tajawal}>
+            <Trophy className="w-7 h-7 text-primary" />
+            المنافسات
+          </h2>
+          <p className={ds.page.description} style={tajawal}>
+            محرك منافسات ديناميكي — أنشئ منافسة واستهدف الطلاب في نموذج موحّد.
+          </p>
+        </div>
+        <Button
+          type="button"
+          className={ds.btnRound}
+          onClick={() => setCreateOpen(true)}
+          style={tajawal}
+        >
+          <Plus className="w-4 h-4" />
+          إنشاء منافسة جديدة
+        </Button>
       </div>
 
       {error && (
@@ -119,137 +133,127 @@ export function CompetitionsPage() {
         </p>
       )}
 
-      {liveLink && (
-        <div className={ds.alert.info}>
-          <code className="text-xs break-all block mb-2" dir="ltr">
-            {liveLink}
-          </code>
-          <p className="text-sm font-semibold mb-2" style={tajawal}>
-            رمز الدخول (PIN): <span dir="ltr">{accessPin}</span>
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className={ds.btnRound}
-            onClick={() =>
-              navigator.clipboard.writeText(
-                `رابط الرصد: ${liveLink}\nرمز الدخول: ${accessPin}`,
-              )
-            }
-            style={tajawal}
-          >
-            <Copy className="w-4 h-4" />
-            نسخ الرابط + PIN
-          </Button>
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <p style={tajawal}>جاري جلب المنافسات…</p>
+        </div>
+      ) : items.length === 0 ? (
+        <div className={`${ds.card} p-12 text-center text-muted-foreground`} style={tajawal}>
+          لا توجد منافسات بعد. أنشئ أول منافسة للبدء.
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {items.map((c) => {
+            const isCurrent = c.start_date <= today && c.end_date >= today;
+            return (
+              <div
+                key={c.id}
+                className={`${ds.card} p-5 flex flex-col hover:border-primary/40 transition-colors`}
+              >
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <Link
+                    to={`/edu-dept/competitions/${c.id}`}
+                    className="font-semibold text-lg hover:text-primary flex-1 min-w-0"
+                    style={tajawal}
+                  >
+                    {c.name_ar}
+                  </Link>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full ${statusClass(c.status)}`}
+                      style={tajawal}
+                    >
+                      {isCurrent && c.status === "active" ? "حالية" : statusLabel(c.status)}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      title="تعديل"
+                      onClick={() => navigate(`/edu-dept/competitions/${c.id}`)}
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-destructive hover:text-destructive"
+                      title="حذف"
+                      onClick={() => setDeleteId(c.id)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+                <Link to={`/edu-dept/competitions/${c.id}`} className="flex-1 block">
+                  <p className="text-xs text-primary/80 mb-2" style={tajawal}>
+                    {categoryLabel(c.category)}
+                  </p>
+                  {c.description ? (
+                    <p className="text-sm text-muted-foreground line-clamp-2 mb-3" style={tajawal}>
+                      {c.description}
+                    </p>
+                  ) : null}
+                  <p
+                    className="text-xs text-muted-foreground flex items-center gap-1"
+                    style={tajawal}
+                  >
+                    <Calendar className="w-3.5 h-3.5" />
+                    {c.start_date} → {c.end_date}
+                  </p>
+                </Link>
+              </div>
+            );
+          })}
         </div>
       )}
 
-      <Card className={ds.card}>
-        <CardHeader>
-          <CardTitle style={tajawal}>إنشاء منافسة جديدة</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="sm:col-span-2">
-              <label className="text-sm font-semibold" style={tajawal}>
-                الاسم
-              </label>
-              <Input value={nameAr} onChange={(e) => setNameAr(e.target.value)} className={ds.btnRound} />
-            </div>
-            <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-            <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-            <div className="sm:col-span-2">
-              <select
-                value={telemetryType}
-                onChange={(e) =>
-                  setTelemetryType(
-                    e.target.value as "extended_recitation" | "intensive_routine",
-                  )
-                }
-                className="w-full rounded-xl border border-border px-3 py-2"
-                style={tajawal}
-              >
-                <option value="extended_recitation">السرد الممتد</option>
-                <option value="intensive_routine">البرنامج المكثف</option>
-              </select>
-            </div>
-          </div>
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className={`${ds.card} max-w-2xl rounded-2xl`} dir="rtl">
+          <DialogHeader>
+            <DialogTitle style={tajawal}>إنشاء منافسة جديدة</DialogTitle>
+          </DialogHeader>
+          <CompetitionCreateForm
+            onCancel={() => setCreateOpen(false)}
+            onCreated={async (id) => {
+              setCreateOpen(false);
+              await load();
+              navigate(`/edu-dept/competitions/${id}`);
+            }}
+          />
+        </DialogContent>
+      </Dialog>
 
-          <TargetPicker value={targets} onChange={setTargets} />
-
-          {telemetryType === "extended_recitation" && (
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
-                <label className="text-sm" style={tajawal}>
-                  أجزاء مستهدفة (لكل طالب مختار)
-                </label>
-                <Input
-                  type="number"
-                  value={defaultJuz}
-                  onChange={(e) => setDefaultJuz(Number(e.target.value))}
-                  className={ds.btnRound}
-                />
-              </div>
-              <div>
-                <label className="text-sm" style={tajawal}>
-                  جزء يومي
-                </label>
-                <Input
-                  type="number"
-                  step="0.1"
-                  value={dailyJuz}
-                  onChange={(e) => setDailyJuz(Number(e.target.value))}
-                  className={ds.btnRound}
-                />
-              </div>
-            </div>
-          )}
-
-          <Button
-            type="button"
-            className={ds.btnRound}
-            onClick={createCompetition}
-            disabled={!nameAr.trim()}
-            style={tajawal}
-          >
-            <Plus className="w-4 h-4" />
-            إنشاء وفتح التفاصيل
-          </Button>
-        </CardContent>
-      </Card>
-
-      <div className="space-y-3">
-        <h3 className={ds.page.section} style={tajawal}>
-          المنافسات
-        </h3>
-        {items.map((c) => (
-          <div key={c.id} className={`${ds.card} p-4 flex flex-wrap gap-3 justify-between`}>
-            <div>
-              <Link
-                to={`/edu-supervisor/competitions/${c.id}`}
-                className="font-semibold text-primary hover:underline"
-                style={tajawal}
-              >
-                {c.name_ar}
-              </Link>
-              <p className="text-xs text-muted-foreground mt-1" style={tajawal}>
-                {c.start_date} → {c.end_date}
-              </p>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              className={ds.btnRound}
-              onClick={() => enableLiveLog(c.id)}
+      <AlertDialog open={deleteId != null} onOpenChange={(open) => !open && setDeleteId(null)}>
+        <AlertDialogContent dir="rtl">
+          <AlertDialogHeader>
+            <AlertDialogTitle style={tajawal}>حذف المنافسة؟</AlertDialogTitle>
+            <AlertDialogDescription style={tajawal}>
+              سيتم حذف المنافسة وجميع المستهدفين والمهام وسجلات الرصد المرتبطة بها. لا
+              يمكن التراجع عن هذا الإجراء.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-2">
+            <AlertDialogCancel disabled={deleting} style={tajawal}>
+              إلغاء
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmDelete();
+              }}
               style={tajawal}
             >
-              <Link2 className="w-4 h-4" />
-              رابط ميداني
-            </Button>
-          </div>
-        ))}
-      </div>
+              {deleting ? "جاري الحذف…" : "حذف نهائي"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

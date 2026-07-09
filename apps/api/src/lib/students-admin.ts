@@ -1,6 +1,8 @@
 import type { Env } from "../types";
 import { parsePositiveIntField } from "./students-schema";
+import { resolveMemorizationFields } from "./quran-memorization";
 import { syncStudentPlacementColumns } from "./admin-dept-schema";
+import { mapD1ErrorToResponse } from "./map-d1-error";
 import { circleExistsInComplex, resolveCircleTrackId } from "./circle-track";
 import { canManageCircle } from "./dept-scope";
 import { hasTable, tableHasColumn } from "./db-schema";
@@ -123,9 +125,6 @@ export async function applyStudentPlacement(
     sets.push("current_track_id = ?");
     binds.push(placement.id);
   }
-  if (await tableHasColumn(env, "students", "current_circle_id")) {
-    sets.push("current_circle_id = NULL");
-  }
   if (sets.length === 0) return;
   binds.push(studentId);
   await env.DB.prepare(`UPDATE students SET ${sets.join(", ")} WHERE id = ?`)
@@ -133,44 +132,63 @@ export async function applyStudentPlacement(
     .run();
 }
 
-const STUDENT_CHILD_TABLES = [
-  "quran_daily_ledger",
-  "student_attendance",
-  "student_semester_plans",
-  "student_circle_history",
-  "quiz_attempts",
-  "student_pledges",
-  "student_disciplinary_summary",
-  "competition_logs",
-  "competition_student_plans",
-  "competition_targets",
-  "yom_himma_audit",
-  "yom_himma_targets",
-  "teacher_daily_marks",
-  "student_edu_plans",
-  "quranic_day_records",
-  "quranic_day_students",
-  "reciter_daily_marks",
-  "reciter_session_students",
-] as const;
+/** جداول فرعية تُحذف قبل students — Time O(t) batch; Space O(t). */
+const STUDENT_CHILD_TABLES: Array<[string, string]> = [
+  ["competition_logs", "student_id"],
+  ["competition_targets", "student_id"],
+  ["competition_student_plans", "student_id"],
+  ["competition_attendance", "student_id"],
+  ["student_comp_scores", "student_id"],
+  ["edu_daily_recitation", "student_id"],
+  ["student_attendance", "student_id"],
+  ["student_daily_attendance", "student_id"],
+  ["student_attendance_log", "student_id"],
+  ["student_circle_history", "student_id"],
+  ["student_semester_plans", "student_id"],
+  ["student_edu_plans", "student_id"],
+  ["student_pledges", "student_id"],
+  ["student_disciplinary_summary", "student_id"],
+  ["student_disciplinary_state", "student_id"],
+  ["quiz_attempts", "student_id"],
+  ["quran_daily_ledger", "student_id"],
+  ["teacher_daily_marks", "student_id"],
+  ["quranic_day_students", "student_id"],
+  ["quranic_day_records", "student_id"],
+  ["transfer_notifications", "student_id"],
+  ["edu_transfer_events", "student_id"],
+  ["task_assignments", "student_id"],
+  ["yom_himma_targets", "student_id"],
+  ["himma_logs", "student_id"],
+  ["sird_period_records", "student_id"],
+  ["student_memorization_faces", "student_id"],
+  ["student_applications", "student_id"],
+  ["violations", "student_id"],
+];
 
-/** O(k) — k عدد الجداول الفرعية الموجودة */
+/** O(t) — حذف نهائي للطالب وجداوله الفرعية */
 export async function safeDeleteStudent(env: Env, studentId: number): Promise<void> {
-  const stmts: D1PreparedStatement[] = [];
-
-  for (const table of STUDENT_CHILD_TABLES) {
+  const batch: D1PreparedStatement[] = [];
+  for (const [table, column] of STUDENT_CHILD_TABLES) {
     if (!(await hasTable(env, table))) continue;
-    if (!(await tableHasColumn(env, table, "student_id"))) continue;
-    stmts.push(
-      env.DB.prepare(`DELETE FROM ${table} WHERE student_id = ?`).bind(studentId),
+    if (!(await tableHasColumn(env, table, column))) continue;
+    batch.push(
+      env.DB.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).bind(studentId),
     );
   }
+  batch.push(env.DB.prepare(`DELETE FROM students WHERE id = ?`).bind(studentId));
+  await env.DB.batch(batch);
+}
 
-  if (stmts.length > 0) {
-    await env.DB.batch(stmts);
+/** O(1) — استعادة طالب مؤرشف (is_active=0) */
+export async function restoreStudent(env: Env, studentId: number): Promise<void> {
+  const sets = ["is_active = 1"];
+  if (await tableHasColumn(env, "students", "account_status")) {
+    sets.push("account_status = 'active'");
   }
 
-  await env.DB.prepare(`DELETE FROM students WHERE id = ?`).bind(studentId).run();
+  await env.DB.prepare(`UPDATE students SET ${sets.join(", ")} WHERE id = ?`)
+    .bind(studentId)
+    .run();
 }
 
 export type CreateStudentInput = {
@@ -183,6 +201,7 @@ export type CreateStudentInput = {
   school_grade?: string | null;
   health_notes?: string | null;
   memorization_amount?: string | null;
+  memorization_faces?: number | null;
   guardian_national_id?: string | null;
   guardian_work?: string | null;
   stage_id?: number | null;
@@ -239,6 +258,7 @@ export async function createStudentWithPlacement(
     ["school_grade", opt(input.school_grade)],
     ["health_notes", opt(input.health_notes)],
     ["memorization_amount", opt(input.memorization_amount)],
+    ["memorization_faces", input.memorization_faces ?? null],
     ["guardian_national_id", opt(input.guardian_national_id)],
     ["guardian_work", opt(input.guardian_work)],
     ["account_status", "active"],
@@ -268,12 +288,16 @@ export async function createStudentWithPlacement(
       .bind(...insertVals)
       .run();
   } catch (e: unknown) {
+    const mapped = mapD1ErrorToResponse(e);
+    if (mapped) {
+      throw new Error(mapped.error);
+    }
     const msg = e instanceof Error ? e.message : String(e);
     console.error("students_insert_failed", msg, insertCols, insertVals);
     if (msg.includes("UNIQUE") && msg.includes("national_id")) {
       throw new Error("national_id_exists");
     }
-    throw new Error(msg || "save_failed");
+    throw new Error("save_failed");
   }
 
   const studentId = Number(ins.meta.last_row_id ?? 0);
@@ -472,6 +496,8 @@ export async function processAdminStudentsBulk(
     }
 
     try {
+      const memText = sanitizeExcelCell(row.memorization_amount, 120);
+      const mem = resolveMemorizationFields({ memorization_amount: memText });
       await createStudentWithPlacement(env, complexId, {
         full_name_ar,
         national_id,
@@ -480,7 +506,8 @@ export async function processAdminStudentsBulk(
         guardian_phone,
         school_name: sanitizeExcelCell(row.school_name, 120),
         school_grade: sanitizeExcelCell(row.school_grade, 80),
-        memorization_amount: sanitizeExcelCell(row.memorization_amount, 120),
+        memorization_amount: mem.text,
+        memorization_faces: mem.faces,
         guardian_national_id: sanitizeExcelCell(row.guardian_national_id, 32),
         health_notes: sanitizeExcelCell(row.health_notes, 500),
         circle_id: placement.kind === "circle" ? placement.id : null,

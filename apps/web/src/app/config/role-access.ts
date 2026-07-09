@@ -2,12 +2,11 @@ import type { UserRole } from "../lib/auth-store";
 
 export const ROLE_HOME: Record<UserRole, string> = {
   super_admin: "/admin-dept/reports",
-  edu_supervisor: "/edu-dept/dashboard",
+  edu_supervisor: "/edu-dept/reports",
   admin_supervisor: "/admin-dept/staff-attendance",
-  prog_supervisor: "/prog-dept/quizzes",
   programs_supervisor: "/prog-dept/quizzes",
-  track_supervisor: "/edu-dept/daily-recitation",
-  teacher: "/edu-dept/daily-recitation",
+  track_supervisor: "/track-supervisor",
+  teacher: "/teacher",
 };
 
 /** مسار البداية الصحيح — يُصحّح الجلسات القديمة (general-supervisor وغيرها) */
@@ -16,6 +15,19 @@ export function roleHomePath(role: UserRole): string {
 }
 
 export function normalizeStoredHomePath(role: UserRole, homePath: string): string {
+  /** المعلم يبدأ دائماً من البوابة — الجلسات القديمة كانت تحفظ daily-recitation */
+  if (role === "teacher") {
+    if (homePath === "/teacher" || homePath.startsWith("/teacher/")) return homePath;
+    return ROLE_HOME.teacher;
+  }
+
+  if (role === "track_supervisor") {
+    if (homePath === "/track-supervisor" || homePath.startsWith("/track-supervisor/")) {
+      return homePath;
+    }
+    return ROLE_HOME.track_supervisor;
+  }
+
   if (
     homePath.includes("general-supervisor") ||
     homePath === "/dashboard" ||
@@ -42,6 +54,7 @@ const PATH_RULES: Array<{ prefix: string; roles: UserRole[] }> = [
   { prefix: "/prog-dept", roles: ["programs_supervisor", "super_admin"] },
   { prefix: "/display-dept", roles: ["super_admin"] },
   { prefix: "/teacher", roles: ["teacher"] },
+  { prefix: "/track-supervisor", roles: ["track_supervisor"] },
   { prefix: "/tv-live", roles: STAFF_ROLES },
   { prefix: "/live-log", roles: STAFF_ROLES },
   {
@@ -56,16 +69,21 @@ export const LEGACY_REDIRECTS: Record<string, string | "home"> = {
   "/admin/circles-setup": "/super-admin/circles-setup",
   "/admin/statistics": "/admin-dept/reports",
   "/super-admin/statistics": "/admin-dept/reports",
-  "/edu-supervisor": "/edu-dept/dashboard",
-  "/edu-supervisor/dashboard": "/edu-dept/dashboard",
-  "/edu-supervisor/master-grid": "/edu-dept/master-grid",
-  "/edu-supervisor/placement": "/edu-dept/master-grid",
-  "/edu-supervisor/students": "/edu-dept/students",
+  "/edu-supervisor": "/edu-dept/reports",
+  "/edu-supervisor/dashboard": "/edu-dept/reports",
+  "/edu-supervisor/master-grid": "/edu-dept/transfers",
+  "/edu-supervisor/placement": "/edu-dept/transfers",
+  "/edu-supervisor/students": "/admin-dept/students",
   "/edu-supervisor/transfers": "/edu-dept/transfers",
-  "/edu-supervisor/circles": "/edu-dept/circles",
-  "/edu-supervisor/events-engine": "/edu-dept/events-engine",
-  "/edu-supervisor/yom-himma": "/edu-dept/events-engine",
-  "/edu-supervisor/competitions": "/edu-dept/events-engine",
+  "/edu-supervisor/circles": "/super-admin/circles-setup",
+  "/edu-dept/dashboard": "/edu-dept/reports",
+  "/edu-dept/master-grid": "/edu-dept/transfers",
+  "/edu-dept/transfer-requests": "/edu-dept/transfers",
+  "/edu-dept/students": "/admin-dept/students",
+  "/edu-dept/circles": "/super-admin/circles-setup",
+  "/edu-supervisor/events-engine": "/edu-dept/competitions",
+  "/edu-supervisor/yom-himma": "/edu-dept/competitions",
+  "/edu-supervisor/competitions": "/edu-dept/competitions",
   "/general-supervisor": "/admin-dept/staff-attendance",
   "/general-supervisor/student-attendance": "/admin-dept/student-attendance",
   "/general-supervisor/staff": "/admin-dept/staff-attendance",
@@ -78,20 +96,16 @@ export const LEGACY_REDIRECTS: Record<string, string | "home"> = {
   "/admin-dept/violations": "/admin-dept/pledges",
   "/prog-supervisor": "/prog-dept/quizzes",
   "/dashboard": "home",
-  "/teacher": "/edu-dept/daily-recitation",
-  "/teacher/daily-log": "/edu-dept/daily-recitation",
+  "/teacher/daily-log": "/teacher",
 };
 
 const TEACHER_ONLY_EDU_PATHS = ["/edu-dept/teacher-competitions"];
 
+/** محرك المنافسات — مشرف تعليمي ومدير عام فقط */
+const SUPERVISOR_ONLY_EDU_PATHS = ["/edu-dept/competitions"];
+
 const RECITATION_EDU_PATH = "/edu-dept/daily-recitation";
-const RECITATION_ROLES: UserRole[] = [
-  "teacher",
-  "track_supervisor",
-  "edu_supervisor",
-  "super_admin",
-  "programs_supervisor",
-];
+const RECITATION_ROLES: UserRole[] = ["teacher", "track_supervisor"];
 
 export function pathAllowedForRole(role: UserRole, pathname: string): boolean {
   if (pathname === "/login" || pathname === "/tv-live") return true;
@@ -102,6 +116,12 @@ export function pathAllowedForRole(role: UserRole, pathname: string): boolean {
   for (const prefix of TEACHER_ONLY_EDU_PATHS) {
     if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
       return role === "teacher" || role === "track_supervisor";
+    }
+  }
+
+  for (const prefix of SUPERVISOR_ONLY_EDU_PATHS) {
+    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
+      return role === "edu_supervisor" || role === "super_admin";
     }
   }
 
@@ -124,6 +144,36 @@ export function resolveLegacyRedirect(
   pathname: string,
   role: UserRole,
 ): string | null {
+  if (role === "teacher") {
+    if (
+      pathname === "/edu-dept/daily-recitation" ||
+      pathname.startsWith("/edu-dept/daily-recitation/")
+    ) {
+      return "/teacher";
+    }
+    if (
+      pathname === "/edu-dept/teacher-competitions" ||
+      pathname.startsWith("/edu-dept/teacher-competitions/")
+    ) {
+      return "/teacher?tab=competitions";
+    }
+  }
+
+  if (role === "track_supervisor") {
+    if (
+      pathname === "/edu-dept/daily-recitation" ||
+      pathname.startsWith("/edu-dept/daily-recitation/")
+    ) {
+      return "/track-supervisor";
+    }
+    if (
+      pathname === "/edu-dept/teacher-competitions" ||
+      pathname.startsWith("/edu-dept/teacher-competitions/")
+    ) {
+      return "/track-supervisor?tab=competitions";
+    }
+  }
+
   const exact = LEGACY_REDIRECTS[pathname];
   if (exact) return exact === "home" ? ROLE_HOME[role] : exact;
   if (pathname.startsWith("/edu-supervisor/")) {

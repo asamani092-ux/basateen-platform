@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { todayRiyadhIso } from "../../lib/today-riyadh-iso";
 import { ClipboardCheck } from "lucide-react";
 import { Button } from "../ui/button";
 import {
@@ -16,6 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from "../ui/table";
+import { TableTruncatedCell } from "../shared/TableTruncatedCell";
 import { ds, tajawal } from "../../lib/design-system";
 import { api } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
@@ -27,7 +29,7 @@ export function StaffAttendancePanel({
 }: {
   staff: StaffOption[];
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayRiyadhIso();
   const [date, setDate] = useState(today);
   const [items, setItems] = useState<
     Array<{
@@ -145,20 +147,33 @@ export function StaffAttendancePanel({
             جاري التحميل…
           </p>
         ) : (
-          <Table>
+          <Table className={ds.tableMin}>
             <TableHeader>
               <TableRow>
-                <TableHead style={tajawal}>الاسم</TableHead>
-                <TableHead style={tajawal}>الدور</TableHead>
-                <TableHead style={tajawal}>الحالة</TableHead>
+                <TableHead className={`${ds.table.head} ${ds.table.colName}`} style={tajawal}>
+                  الاسم
+                </TableHead>
+                <TableHead className={`${ds.table.head} w-[18%]`} style={tajawal}>
+                  الدور
+                </TableHead>
+                <TableHead className={`${ds.table.head} ${ds.table.colStatusBtns}`} style={tajawal}>
+                  الحالة
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {items.map((r) => (
                 <TableRow key={r.id}>
-                  <TableCell style={tajawal}>{r.full_name_ar}</TableCell>
-                  <TableCell style={tajawal}>{r.role}</TableCell>
-                  <TableCell style={tajawal}>{r.status}</TableCell>
+                  <TableTruncatedCell className={ds.table.colName} style={tajawal}>
+                    {r.full_name_ar}
+                  </TableTruncatedCell>
+                  <TableTruncatedCell style={tajawal}>{r.role}</TableTruncatedCell>
+                  <TableCell
+                    className={`${ds.table.cell} ${ds.table.colStatusBtns} whitespace-nowrap`}
+                    style={tajawal}
+                  >
+                    {r.status}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

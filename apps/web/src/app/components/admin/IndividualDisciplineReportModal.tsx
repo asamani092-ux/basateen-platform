@@ -163,7 +163,7 @@ export function IndividualDisciplineReportModal({
         >
           <div className="hidden print:flex print:justify-between print:items-start print:border-b print:border-black print:pb-2 print:mb-3">
             <p className="text-sm font-semibold" style={tajawal}>
-              {report.complex_name ?? "مجمع حلقات البساتين"}
+              {report.complex_name ?? "مجمع حلقات بساتين"}
             </p>
             <p className="text-sm" style={tajawal}>
               {printDateAr()}

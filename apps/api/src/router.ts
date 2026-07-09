@@ -19,6 +19,7 @@ import {
   handleStudentDelete,
   handleStudentDetail,
   handleStudentPatch,
+  handleStudentRestore,
   handleStudentTransfer,
 } from "./routes/transfers";
 import {
@@ -45,6 +46,8 @@ import {
   handleAdminStaffAttendanceUpsert,
   handleAdminComplexSettingsGet,
   handleAdminComplexSettingsPatch,
+  handleSemesterStart,
+  handleSemesterEnd,
 } from "./routes/admin-gm-stats";
 import { handleAdminDeptRouter } from "./routes/admin-dept";
 import { handlePublicLinksRouter } from "./routes/public-links";
@@ -94,6 +97,7 @@ const sharedRoutes: Array<{ method: string; pattern: RegExp; handler: RouteHandl
   { method: "GET", pattern: /^\/api\/students\/\d+$/, handler: handleStudentDetail },
   { method: "PATCH", pattern: /^\/api\/students\/\d+$/, handler: handleStudentPatch },
   { method: "DELETE", pattern: /^\/api\/students\/\d+$/, handler: handleStudentDelete },
+  { method: "POST", pattern: /^\/api\/students\/\d+\/restore$/, handler: handleStudentRestore },
   { method: "POST", pattern: /^\/api\/students\/\d+\/transfer$/, handler: handleStudentTransfer },
   { method: "GET", pattern: /^\/api\/yom-himma$/, handler: handleYomHimmaList },
   { method: "POST", pattern: /^\/api\/yom-himma$/, handler: handleYomHimmaCreate },
@@ -139,6 +143,26 @@ const superAdminStats: Array<{ method: string; path: string; handler: RouteHandl
     handler: handleAdminComplexSettingsPatch,
   },
   { method: "PATCH", path: "/api/admin/complex-settings", handler: handleAdminComplexSettingsPatch },
+  {
+    method: "POST",
+    path: "/api/admin/complex-settings/semester/start",
+    handler: handleSemesterStart,
+  },
+  {
+    method: "POST",
+    path: "/api/super-admin/complex-settings/semester/start",
+    handler: handleSemesterStart,
+  },
+  {
+    method: "POST",
+    path: "/api/admin/complex-settings/semester/end",
+    handler: handleSemesterEnd,
+  },
+  {
+    method: "POST",
+    path: "/api/super-admin/complex-settings/semester/end",
+    handler: handleSemesterEnd,
+  },
 ];
 
 async function dispatchDepartmentRouters(
@@ -178,6 +202,12 @@ async function dispatchDepartmentRouters(
   const eduQuranicMain = await handleEduQuranicDaysRouter(request, env, url);
   if (eduQuranicMain) return eduQuranicMain;
 
+  const compUrl = withPathPrefix(url, "/api/edu-supervisor/", "/api/edu-dept/");
+  const eduCompLegacy = await handleEduCompetitionsRouter(request, env, compUrl);
+  if (eduCompLegacy) return eduCompLegacy;
+  const eduComp = await handleEduCompetitionsRouter(request, env, url);
+  if (eduComp) return eduComp;
+
   const edu = await handleEduDeptRouter(request, env, eduUrl);
   if (edu) return edu;
   const eduDept = await handleEduDeptRouter(request, env, url);
@@ -188,12 +218,6 @@ async function dispatchDepartmentRouters(
 
   const himmaLiveToken = await handleYomHimmaLiveLogToken(request, env, url);
   if (himmaLiveToken) return himmaLiveToken;
-
-  const compUrl = withPathPrefix(url, "/api/edu-supervisor/", "/api/edu-dept/");
-  const eduCompLegacy = await handleEduCompetitionsRouter(request, env, compUrl);
-  if (eduCompLegacy) return eduCompLegacy;
-  const eduComp = await handleEduCompetitionsRouter(request, env, url);
-  if (eduComp) return eduComp;
 
   const progUrl = withPathPrefix(url, "/api/prog-dept/", "/api/prog-supervisor/");
   const prog = await handleProgSupervisorRouter(request, env, progUrl);

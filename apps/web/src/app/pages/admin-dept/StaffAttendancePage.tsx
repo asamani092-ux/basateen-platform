@@ -1,39 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Printer } from "lucide-react";
+import { AttendanceDailyTable } from "../../components/attendance/AttendanceDailyTable";
+import { AttendanceHistoryModal } from "../../components/attendance/AttendanceHistoryModal";
+import { RetroactiveAttendanceAccordion } from "../../components/attendance/RetroactiveAttendanceAccordion";
 import { StaffAttendanceReportModal } from "../../components/attendance/StaffAttendanceReportModal";
 import { AttendanceFilterBar } from "../../components/attendance/AttendanceFilterBar";
+import {
+  TablePagination,
+  type PageInfo,
+} from "../../components/shared/TablePagination";
 import { Button } from "../../components/ui/button";
 import { Label } from "../../components/ui/label";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../../components/ui/table";
+import { useAdminDataSyncContext } from "../../context/AdminDataSyncContext";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
 import { normalizeAttendanceStatus } from "../../lib/attendance-status";
 import { matchesArabicName } from "../../lib/attendance-search";
-import { AttendanceStatusButtons } from "../../components/attendance/AttendanceStatusButtons";
+import { todayRiyadhIso } from "../../lib/attendance-ledger";
+import { toastAttendanceBulkSaved } from "../../lib/attendance-mutations";
 import { ds, tajawal } from "../../lib/design-system";
-
-function formatRole(role: string | null | undefined): string {
-  return (
-    (
-      {
-        super_admin: "مشرف عام",
-        admin_supervisor: "مشرف إداري",
-        edu_supervisor: "مشرف تعليمي",
-        programs_supervisor: "مشرف برامج",
-        prog_supervisor: "مشرف برامج",
-        track_supervisor: "مشرف مسار",
-        teacher: "معلم",
-      } as Record<string, string>
-    )[role ?? ""] || "غير محدد"
-  );
-}
+import { staffRoleLabel } from "../../lib/staff-role-label";
 
 type Row = {
   user_id: number;
@@ -42,20 +28,26 @@ type Row = {
   status: string;
 };
 
-/**
- * تحضير المنسوبين — يستخدم design-system (system_D) + مكونات ui المعتمدة.
- */
 export function StaffAttendancePage() {
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [attendanceData, setAttendanceData] = useState<Row[]>([]);
-  const [baseline, setBaseline] = useState<Record<number, string>>({});
+  const [date, setDate] = useState(todayRiyadhIso);
+  const [retroStart, setRetroStart] = useState(todayRiyadhIso);
+  const [retroEnd, setRetroEnd] = useState(todayRiyadhIso);
+  const [rows, setRows] = useState<Row[]>([]);
+  const [statusMap, setStatusMap] = useState<Record<number, string>>({});
+  const [page, setPage] = useState(1);
+  const [pageInfo, setPageInfo] = useState<PageInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nameQuery, setNameQuery] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const { invalidate } = useAdminDataSyncContext();
 
-  const cellClass = "text-right px-4 py-3";
+  const dirtyCount = useMemo(
+    () => Object.keys(statusMap).length,
+    [statusMap],
+  );
 
   const load = useCallback(async () => {
     if (!canUseApi()) {
@@ -66,86 +58,130 @@ export function StaffAttendancePage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.adminDeptStaff(date);
+      const res = await api.adminDeptStaff(date, page);
       const items: Row[] = res.items.map((r) => ({
         user_id: r.user_id,
         full_name_ar: r.full_name_ar,
         role: r.role ?? null,
         status: normalizeAttendanceStatus(r.status ?? "present"),
       }));
-      setAttendanceData(items);
-      const base: Record<number, string> = {};
-      for (const r of items) base[r.user_id] = r.status;
-      setBaseline(base);
+      setRows(items);
+      setPageInfo(res.page ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "فشل التحميل");
-      setAttendanceData([]);
+      setRows([]);
+      setPageInfo(null);
     } finally {
       setLoading(false);
     }
+  }, [date, page]);
+
+  useEffect(() => {
+    setPage(1);
+    setStatusMap({});
   }, [date]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
-  function setStatus(userId: number, status: string) {
-    setAttendanceData((prev) =>
-      prev.map((r) => (r.user_id === userId ? { ...r, status } : r)),
-    );
+  function bumpDashboard() {
+    invalidate("dashboard");
   }
 
-  const filteredRows = useMemo(
-    () =>
-      attendanceData.filter((r) => {
-        if (!matchesArabicName(nameQuery, r.full_name_ar)) return false;
-        return true;
-      }),
-    [attendanceData, nameQuery],
-  );
+  function pickStatus(userId: number, status: string) {
+    setStatusMap((prev) => ({ ...prev, [userId]: status }));
+  }
 
-  const dirtyCount = useMemo(
-    () =>
-      attendanceData.filter(
-        (r) => (baseline[r.user_id] ?? "present") !== r.status,
-      ).length,
-    [attendanceData, baseline],
-  );
-
-  async function commit() {
-    if (attendanceData.length === 0) return;
-
+  async function commitAttendance() {
+    if (!pageInfo && rows.length === 0) return;
     setCommitting(true);
     setError(null);
     try {
-      await api.adminDeptSaveStaffAttendance({
+      const records: Array<{ user_id: number; status: string }> = [];
+      let p = 1;
+      let hasNext = true;
+      while (hasNext) {
+        const res = await api.adminDeptStaff(date, p);
+        for (const r of res.items) {
+          records.push({
+            user_id: r.user_id,
+            status: normalizeAttendanceStatus(
+              statusMap[r.user_id] ?? r.status ?? "present",
+            ),
+          });
+        }
+        hasNext = res.page?.has_next ?? false;
+        p += 1;
+      }
+      const saveRes = await api.adminDeptSaveStaffAttendance({
         attendance_date: date,
-        records: attendanceData.map((r) => ({
-          user_id: r.user_id,
-          status: r.status,
-        })),
+        records,
       });
-      const base: Record<number, string> = {};
-      for (const r of attendanceData) base[r.user_id] = r.status;
-      setBaseline(base);
+      setStatusMap({});
+      toastAttendanceBulkSaved(saveRes.saved);
+      bumpDashboard();
+      await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "فشل حفظ التحضير");
+      setError(e instanceof Error ? e.message : "فشل اعتماد التحضير");
     } finally {
       setCommitting(false);
     }
   }
 
+  const displayRows = useMemo(
+    () =>
+      rows.map((r) => ({
+        ...r,
+        status: normalizeAttendanceStatus(statusMap[r.user_id] ?? r.status),
+      })),
+    [rows, statusMap],
+  );
+
+  const filteredRows = useMemo(
+    () => displayRows.filter((r) => matchesArabicName(nameQuery, r.full_name_ar)),
+    [displayRows, nameQuery],
+  );
+
+  const dailyTableRows = useMemo(
+    () =>
+      filteredRows.map((r) => ({
+        id: r.user_id,
+        full_name_ar: r.full_name_ar,
+        subtitle: staffRoleLabel(r.role),
+        status: r.status,
+      })),
+    [filteredRows],
+  );
+
   return (
-    <div className="space-y-4 max-w-[1600px]">
+    <div className="space-y-4 max-w-[1600px] pb-24">
       <div>
         <h2 className={ds.page.title} style={tajawal}>
           تحضير المنسوبين
         </h2>
         <p className={ds.page.description} style={tajawal}>
-          الحالة الافتراضية «حاضر» في الواجهة فقط — لا يُحفظ شيء في قاعدة البيانات حتى
-          تضغط «اعتماد حفظ التحضير».
+          سجّل تحضير اليوم للمنسوبين — التعديلات التاريخية عبر السجل المنزلق
+          أعلاه.
         </p>
       </div>
+
+      <RetroactiveAttendanceAccordion
+        startDate={retroStart}
+        endDate={retroEnd}
+        onStartDateChange={setRetroStart}
+        onEndDateChange={setRetroEnd}
+        onViewLedger={() => setHistoryOpen(true)}
+      />
+
+      <AttendanceHistoryModal
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        beneficiaryType="staff"
+        startDate={retroStart}
+        endDate={retroEnd}
+        onSaved={bumpDashboard}
+      />
 
       {error && (
         <p className={ds.alert.error} style={tajawal}>
@@ -153,9 +189,37 @@ export function StaffAttendancePage() {
         </p>
       )}
 
-      <p className={ds.alert.info} style={tajawal}>
-        ابحث بالاسم. التغييرات تُرسل دفعة واحدة عند الحفظ.
-      </p>
+      <div className={`${ds.card} p-4 space-y-4`}>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <Label className="text-xs text-muted-foreground" style={tajawal}>
+              تاريخ التحضير
+            </Label>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className={`block w-full mt-1 border border-border px-3 py-2 ${ds.btnRound}`}
+            />
+          </div>
+          <div className="flex items-end justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              className={`${ds.btnRound} min-h-11`}
+              onClick={() => setReportOpen(true)}
+              style={tajawal}
+            >
+              <Printer className="w-4 h-4" />
+              طباعة تقرير التحضير 🖨️
+            </Button>
+          </div>
+        </div>
+        <StaffAttendanceReportModal
+          open={reportOpen}
+          onOpenChange={setReportOpen}
+        />
+      </div>
 
       <AttendanceFilterBar
         nameQuery={nameQuery}
@@ -166,53 +230,11 @@ export function StaffAttendancePage() {
         groupOptions={[]}
         hideGroupFilter
         shownCount={filteredRows.length}
-        totalCount={attendanceData.length}
+        totalCount={pageInfo?.total ?? rows.length}
         hiddenDirty={0}
       />
 
-      <div className={`${ds.card} p-4 space-y-4`}>
-        <div className="flex flex-col sm:flex-row sm:items-end gap-3">
-          <div className="flex-1">
-            <Label className="text-xs text-muted-foreground" style={tajawal}>
-              تاريخ التحضير
-            </Label>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className={`block w-full max-w-xs mt-1 border border-border px-3 py-2 ${ds.btnRound}`}
-            />
-          </div>
-          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-            <Button
-              type="button"
-              variant="outline"
-              className={`${ds.btnRound} w-full sm:w-auto min-h-11`}
-              onClick={() => setReportOpen(true)}
-              style={tajawal}
-            >
-              <Printer className="w-4 h-4" />
-              طباعة تقرير التحضير 🖨️
-            </Button>
-            <Button
-              type="button"
-              className={`${ds.btnRound} w-full sm:w-auto min-h-11`}
-              disabled={committing || loading}
-              onClick={commit}
-              style={tajawal}
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              {committing ? "جاري الاعتماد…" : "اعتماد حفظ التحضير 💾"}
-              {dirtyCount > 0 ? ` (${dirtyCount})` : ""}
-            </Button>
-          </div>
-        </div>
-
-        <StaffAttendanceReportModal
-          open={reportOpen}
-          onOpenChange={setReportOpen}
-        />
-
+      <div className={`${ds.card} p-4`}>
         {loading ? (
           <p className="text-muted-foreground text-sm" style={tajawal}>
             جاري التحميل…
@@ -222,39 +244,41 @@ export function StaffAttendancePage() {
             لا يوجد منسوبون يطابقون البحث.
           </p>
         ) : (
-          <Table className="border-collapse w-full">
-            <TableHeader>
-              <TableRow>
-                <TableHead className={cellClass} style={tajawal}>
-                  الاسم
-                </TableHead>
-                <TableHead className={cellClass} style={tajawal}>
-                  الحالة
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredRows.map((r) => (
-                <TableRow key={r.user_id}>
-                  <TableCell className={cellClass} style={tajawal}>
-                    <p className="font-medium">{r.full_name_ar}</p>
-                    <span className="text-sm text-gray-500 block mt-1">
-                      {formatRole(r.role)}
-                    </span>
-                  </TableCell>
-                  <TableCell className={cellClass}>
-                    <AttendanceStatusButtons
-                      value={r.status}
-                      disabled={committing}
-                      onChange={(st) => setStatus(r.user_id, st)}
-                    />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <>
+            <AttendanceDailyTable
+              rows={dailyTableRows}
+              disabled={committing}
+              onStatusChange={pickStatus}
+            />
+            {pageInfo && (
+              <TablePagination
+                page={pageInfo}
+                onPageChange={setPage}
+                className="print:hidden"
+              />
+            )}
+          </>
         )}
       </div>
+
+      {!loading && filteredRows.length > 0 && (
+        <div className="fixed bottom-0 inset-x-0 z-20 border-t border-border bg-background/95 backdrop-blur px-4 py-3">
+          <div className="max-w-[1600px] mx-auto flex justify-end">
+            <Button
+              type="button"
+              size="lg"
+              className={`${ds.btnRound} w-full sm:w-auto min-h-12 px-8`}
+              disabled={committing}
+              onClick={() => void commitAttendance()}
+              style={tajawal}
+            >
+              <CheckCircle2 className="w-5 h-5" />
+              {committing ? "جاري الاعتماد…" : "اعتماد التحضير"}
+              {dirtyCount > 0 ? ` (${dirtyCount})` : ""}
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

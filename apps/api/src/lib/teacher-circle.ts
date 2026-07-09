@@ -1,5 +1,10 @@
 import type { Env } from "../types";
 import { hasTable, tableHasColumn } from "./db-schema";
+import {
+  queryStudentsInCircle,
+  queryStudentsInTracks,
+  resolveTrackSupervisorTrackIds,
+} from "./student-placement";
 
 /** Competitions / general teacher UX */
 export const TEACHER_NO_CIRCLE_ACCOUNT_MSG = "لا توجد حلقة مرتبطة بهذا الحساب";
@@ -43,37 +48,49 @@ export async function resolveTeacherPrimaryCircle(
   return null;
 }
 
-/** Students in the teacher's derived circle (`current_circle_id` or history). */
+/**
+ * SQL predicate — circle id expression is within teacher scope (assignments OR circles.teacher_id).
+ * Time O(1) compile; Space O(1). Binds: one user_id per placeholder (caller duplicates if needed).
+ */
+export async function buildTeacherCircleAccessSql(
+  env: Env,
+  circleIdExpr: string,
+  teacherUserIdPlaceholder = "?",
+): Promise<string> {
+  const parts: string[] = [];
+  if (await hasTable(env, "teacher_assignments")) {
+    parts.push(
+      `${circleIdExpr} IN (SELECT circle_id FROM teacher_assignments WHERE user_id = ${teacherUserIdPlaceholder})`,
+    );
+  }
+  if (await tableHasColumn(env, "circles", "teacher_id")) {
+    parts.push(
+      `EXISTS (SELECT 1 FROM circles tc WHERE tc.id = ${circleIdExpr} AND tc.teacher_id = ${teacherUserIdPlaceholder})`,
+    );
+  }
+  return parts.length ? `(${parts.join(" OR ")})` : "0=1";
+}
+
+/** Students for teacher (circle) or track supervisor (track via current_track_id). */
 export async function studentsInTeacherCircle(
   env: Env,
   complexId: number,
   teacherUserId: number,
+  role = "teacher",
 ): Promise<Array<{ id: number; full_name_ar: string }> | null> {
+  if (role === "track_supervisor") {
+    const trackIds = await resolveTrackSupervisorTrackIds(
+      env,
+      teacherUserId,
+      complexId,
+    );
+    if (trackIds.length > 0) {
+      return queryStudentsInTracks(env, complexId, trackIds);
+    }
+  }
+
   const circle = await resolveTeacherPrimaryCircle(env, teacherUserId, complexId);
   if (!circle) return null;
 
-  const hasFlat = await tableHasColumn(env, "students", "current_circle_id");
-  if (hasFlat) {
-    const rows = await env.DB.prepare(
-      `SELECT id, full_name_ar FROM students
-       WHERE complex_id = ? AND is_active = 1 AND current_circle_id = ?
-       ORDER BY full_name_ar`,
-    )
-      .bind(complexId, circle.id)
-      .all<{ id: number; full_name_ar: string }>();
-    return rows.results ?? [];
-  }
-
-  const rows = await env.DB.prepare(
-    `SELECT DISTINCT s.id, s.full_name_ar
-     FROM students s
-     INNER JOIN student_circle_history h
-       ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL
-       AND h.circle_id = ?
-     WHERE s.complex_id = ? AND s.is_active = 1
-     ORDER BY s.full_name_ar`,
-  )
-    .bind(circle.id, complexId)
-    .all<{ id: number; full_name_ar: string }>();
-  return rows.results ?? [];
+  return queryStudentsInCircle(env, complexId, circle.id);
 }

@@ -3,19 +3,19 @@ export const ATTENDANCE_STATUS_BUTTONS = [
   {
     value: "present" as const,
     label: "حاضر",
-    active: "bg-primary text-primary-foreground ring-2 ring-primary",
-    idle: "bg-primary/15 text-primary border border-primary/30",
+    active: "bg-attendance-present text-white ring-2 ring-attendance-present",
+    idle: "bg-attendance-present-surface text-success-foreground border border-attendance-present/30",
   },
   {
     value: "excused" as const,
     label: "مستأذن",
-    active: "bg-amber-500 text-white ring-2 ring-amber-500",
-    idle: "bg-amber-500/15 text-foreground border border-amber-500/30",
+    active: "bg-attendance-excused text-white ring-2 ring-attendance-excused",
+    idle: "bg-attendance-excused-surface text-warning-foreground border border-attendance-excused/30",
   },
   {
     value: "absent" as const,
     label: "غائب",
-    active: "bg-destructive text-destructive-foreground ring-2 ring-destructive",
-    idle: "bg-destructive/10 text-destructive border border-destructive/30",
+    active: "bg-attendance-absent text-white ring-2 ring-attendance-absent",
+    idle: "bg-attendance-absent-surface text-destructive border border-attendance-absent/30",
   },
 ] as const;

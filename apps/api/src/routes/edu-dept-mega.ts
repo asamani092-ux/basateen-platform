@@ -1,4 +1,5 @@
 import type { Env } from "../types";
+import { todayRiyadhIso, addDaysIso } from "../lib/today-riyadh-iso";
 import {
   authUnauthorizedResponse,
   getAuth,
@@ -7,21 +8,27 @@ import {
 } from "../middleware/auth";
 import { hasTable, tableHasColumn } from "../lib/db-schema";
 import {
+  hasTaskInputType,
+  parseTaskInputType,
+  type TaskType,
+} from "../lib/competition-engine";
+import {
   resolveTeacherPrimaryCircle,
   studentsInTeacherCircle,
   TEACHER_NO_CIRCLE_ACCOUNT_MSG,
 } from "../lib/teacher-circle";
 import { loadEventDefaults } from "../lib/edu-settings-defaults";
+import { saveCompetitionGradingBulk } from "../lib/competition-grading-save";
+import {
+  assertTeacherOwnsUnifiedCompetition,
+  createTeacherCircleCompetition,
+  isTeacherCircleCompetition,
+  loadTeacherCompetitionScores,
+  teacherCompetitionLeaderboard,
+  useUnifiedTeacherCompetitions,
+} from "../lib/teacher-competition-unified";
 
 const TEACHER_ONLY = ["teacher", "track_supervisor"] as const;
-
-const DEFAULT_COMPETITION_TASKS = [
-  { title_ar: "حفظ إضافي", weight_points: 2 },
-  { title_ar: "مراجعة", weight_points: 2 },
-  { title_ar: "حضور مبكر", weight_points: 1 },
-  { title_ar: "أدب وسلوك", weight_points: 1 },
-  { title_ar: "مهمة إضافية", weight_points: 1 },
-] as const;
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
@@ -42,12 +49,33 @@ function serverError(scope: string, err: unknown): Response {
   );
 }
 
+/** Teacher sandbox tasks — renamed in migration 048 to avoid platform competition_tasks. */
+async function teacherTasksTable(env: Env): Promise<string | null> {
+  if (await hasTable(env, "teacher_competition_tasks")) {
+    return "teacher_competition_tasks";
+  }
+  if (await hasTable(env, "competition_tasks")) {
+    const hasTitle = await tableHasColumn(env, "competition_tasks", "title_ar");
+    if (hasTitle) return "competition_tasks";
+  }
+  return null;
+}
+
 async function assertTeacherOwnsCompetition(
   env: Env,
   competitionId: number,
   teacherUserId: number,
   complexId: number,
+  unifiedEngine: boolean,
 ): Promise<boolean> {
+  if (unifiedEngine) {
+    return assertTeacherOwnsUnifiedCompetition(
+      env,
+      competitionId,
+      teacherUserId,
+      complexId,
+    );
+  }
   const row = await env.DB.prepare(
     `SELECT id FROM teacher_competitions
      WHERE id = ? AND teacher_user_id = ? AND complex_id = ?`,
@@ -57,40 +85,18 @@ async function assertTeacherOwnsCompetition(
   return Boolean(row);
 }
 
-async function seedDefaultTasks(env: Env, compId: number): Promise<void> {
-  if (!(await hasTable(env, "competition_tasks"))) return;
-  const hasSort = await tableHasColumn(env, "competition_tasks", "sort_order");
-  for (let i = 0; i < DEFAULT_COMPETITION_TASKS.length; i++) {
-    const t = DEFAULT_COMPETITION_TASKS[i];
-    try {
-      if (hasSort) {
-        await env.DB.prepare(
-          `INSERT INTO competition_tasks (competition_id, title_ar, weight_points, sort_order)
-           VALUES (?, ?, ?, ?)`,
-        )
-          .bind(compId, t.title_ar, t.weight_points, i + 1)
-          .run();
-      } else {
-        await env.DB.prepare(
-          `INSERT INTO competition_tasks (competition_id, title_ar, weight_points)
-           VALUES (?, ?, ?)`,
-        )
-          .bind(compId, t.title_ar, t.weight_points)
-          .run();
-      }
-    } catch (e) {
-      console.error("[edu-dept-mega] seedDefaultTasks row:", e);
-    }
-  }
-}
-
-type TeacherAuth = { userId: number; complexId: number };
+type TeacherAuth = { userId: number; complexId: number; role: string };
 
 async function loadTeacherStudents(
   env: Env,
   auth: TeacherAuth,
 ): Promise<{ students: Array<{ id: number; full_name_ar: string }> } | Response> {
-  const students = await studentsInTeacherCircle(env, auth.complexId, auth.userId);
+  const students = await studentsInTeacherCircle(
+    env,
+    auth.complexId,
+    auth.userId,
+    auth.role,
+  );
   if (students === null) {
     return json({ error: TEACHER_NO_CIRCLE_ACCOUNT_MSG }, 400);
   }
@@ -109,20 +115,67 @@ export async function handleEduDeptMegaRouter(
   const auth = await getAuth(request, env);
   if (!requireAuth(auth)) return authUnauthorizedResponse(request);
   if (!requireRoles(auth, [...TEACHER_ONLY])) return json({ error: "forbidden" }, 403);
-  if (!(await hasTable(env, "teacher_competitions"))) return migrationRequired();
+  const unifiedEngine = await useUnifiedTeacherCompetitions(env);
+  if (!unifiedEngine && !(await hasTable(env, "teacher_competitions"))) {
+    return migrationRequired();
+  }
 
-  const teacherAuth: TeacherAuth = { userId: auth.userId, complexId: auth.complexId };
+  const teacherAuth: TeacherAuth = {
+    userId: auth.userId,
+    complexId: auth.complexId,
+    role: auth.role,
+  };
 
   try {
     if (path === "/api/edu-dept/teacher-competitions" && request.method === "GET") {
-      const rows = await env.DB.prepare(
-        `SELECT id, name_ar, start_date, end_date, created_at
-         FROM teacher_competitions
-         WHERE teacher_user_id = ? AND complex_id = ?
-         ORDER BY created_at DESC`,
-      )
-        .bind(auth.userId, auth.complexId)
-        .all();
+      const hasCreatedBy = unifiedEngine
+        ? await tableHasColumn(env, "competitions", "created_by_user_id")
+        : false;
+      const rows = unifiedEngine
+        ? hasCreatedBy
+          ? await env.DB.prepare(
+              `SELECT id, name_ar, start_date, end_date, created_at, rules_json
+               FROM competitions
+               WHERE complex_id = ? AND created_by_user_id = ?
+               ORDER BY created_at DESC`,
+            )
+              .bind(auth.complexId, auth.userId)
+              .all<{
+                id: number;
+                name_ar: string;
+                start_date: string;
+                end_date: string;
+                created_at: string;
+                rules_json: string;
+              }>()
+          : await env.DB.prepare(
+              `SELECT id, name_ar, start_date, end_date, created_at, rules_json
+               FROM competitions
+               WHERE complex_id = ?
+               ORDER BY created_at DESC`,
+            )
+              .bind(auth.complexId)
+              .all<{
+                id: number;
+                name_ar: string;
+                start_date: string;
+                end_date: string;
+                created_at: string;
+                rules_json: string;
+              }>()
+        : await env.DB.prepare(
+            `SELECT id, name_ar, start_date, end_date, created_at
+             FROM teacher_competitions
+             WHERE teacher_user_id = ? AND complex_id = ?
+             ORDER BY created_at DESC`,
+          )
+            .bind(auth.userId, auth.complexId)
+            .all();
+      const items = unifiedEngine
+        ? (rows.results ?? []).filter((r) =>
+            isTeacherCircleCompetition(String(r.rules_json ?? "")),
+          )
+        : (rows.results ?? []);
       const circle = await resolveTeacherPrimaryCircle(
         env,
         auth.userId,
@@ -130,7 +183,7 @@ export async function handleEduDeptMegaRouter(
       );
       const eventDefaults = await loadEventDefaults(env, auth.complexId);
       return json({
-        items: rows.results ?? [],
+        items,
         circle_id: circle?.id ?? null,
         circle_name: circle?.name_ar ?? null,
         default_task_weight: eventDefaults.competition.default_task_weight,
@@ -156,27 +209,46 @@ export async function handleEduDeptMegaRouter(
         return json({ error: TEACHER_NO_CIRCLE_ACCOUNT_MSG }, 400);
       }
 
+      const today = todayRiyadhIso();
+      const startDate = body.start_date?.trim() || today;
+      const endDate = body.end_date?.trim() || addDaysIso(today, 30);
+
+      if (unifiedEngine) {
+        const compId = await createTeacherCircleCompetition(
+          env,
+          auth.complexId,
+          auth.userId,
+          auth.role,
+          name,
+          startDate,
+          endDate,
+          circle.id,
+        );
+        return json({ ok: true, id: compId, circle_id: circle.id });
+      }
+
       const ins = await env.DB.prepare(
         `INSERT INTO teacher_competitions (complex_id, teacher_user_id, name_ar, start_date, end_date)
          VALUES (?, ?, ?, ?, ?)`,
       )
-        .bind(
-          auth.complexId,
-          auth.userId,
-          name,
-          body.start_date?.trim() || null,
-          body.end_date?.trim() || null,
-        )
+        .bind(auth.complexId, auth.userId, name, startDate, endDate)
         .run();
       const compId = Number(ins.meta.last_row_id);
-      await seedDefaultTasks(env, compId);
       return json({ ok: true, id: compId, circle_id: circle.id });
     }
 
     const detailMatch = path.match(/^\/api\/edu-dept\/teacher-competitions\/(\d+)$/);
     if (detailMatch) {
       const compId = Number(detailMatch[1]);
-      if (!(await assertTeacherOwnsCompetition(env, compId, auth.userId, auth.complexId))) {
+      if (
+        !(await assertTeacherOwnsCompetition(
+          env,
+          compId,
+          auth.userId,
+          auth.complexId,
+          unifiedEngine,
+        ))
+      ) {
         return json({ error: "not_found" }, 404);
       }
 
@@ -201,19 +273,20 @@ export async function handleEduDeptMegaRouter(
             : body.end_date == null || body.end_date === ""
               ? null
               : String(body.end_date).trim();
+        const table = unifiedEngine ? "competitions" : "teacher_competitions";
         if (name !== null) {
-          await env.DB.prepare(`UPDATE teacher_competitions SET name_ar = ? WHERE id = ?`)
+          await env.DB.prepare(`UPDATE ${table} SET name_ar = ? WHERE id = ?`)
             .bind(name, compId)
             .run();
         }
         if (start !== undefined || end !== undefined) {
           const row = await env.DB.prepare(
-            `SELECT start_date, end_date FROM teacher_competitions WHERE id = ?`,
+            `SELECT start_date, end_date FROM ${table} WHERE id = ?`,
           )
             .bind(compId)
             .first<{ start_date: string | null; end_date: string | null }>();
           await env.DB.prepare(
-            `UPDATE teacher_competitions SET start_date = ?, end_date = ? WHERE id = ?`,
+            `UPDATE ${table} SET start_date = ?, end_date = ? WHERE id = ?`,
           )
             .bind(
               start !== undefined ? start : (row?.start_date ?? null),
@@ -226,9 +299,26 @@ export async function handleEduDeptMegaRouter(
       }
 
       if (request.method === "DELETE") {
-        await env.DB.prepare(`DELETE FROM teacher_competitions WHERE id = ?`)
-          .bind(compId)
-          .run();
+        if (unifiedEngine) {
+          const hasCreatedBy = await tableHasColumn(env, "competitions", "created_by_user_id");
+          if (hasCreatedBy) {
+            await env.DB.prepare(
+              `DELETE FROM competitions WHERE id = ? AND complex_id = ? AND created_by_user_id = ?`,
+            )
+              .bind(compId, auth.complexId, auth.userId)
+              .run();
+          } else {
+            await env.DB.prepare(
+              `DELETE FROM competitions WHERE id = ? AND complex_id = ?`,
+            )
+              .bind(compId, auth.complexId)
+              .run();
+          }
+        } else {
+          await env.DB.prepare(`DELETE FROM teacher_competitions WHERE id = ?`)
+            .bind(compId)
+            .run();
+        }
         return json({ ok: true });
       }
 
@@ -240,37 +330,89 @@ export async function handleEduDeptMegaRouter(
       if (loaded instanceof Response) return loaded;
       const { students } = loaded;
 
+      const compTable = unifiedEngine ? "competitions" : "teacher_competitions";
       const comp = await env.DB.prepare(
-        `SELECT id, name_ar, start_date, end_date FROM teacher_competitions WHERE id = ?`,
+        `SELECT id, name_ar, start_date, end_date FROM ${compTable} WHERE id = ?`,
       )
         .bind(compId)
         .first();
 
-      let tasks: { results?: Array<{ id: number; title_ar: string; weight_points: number; sort_order?: number }> } =
-        { results: [] };
-      if (await hasTable(env, "competition_tasks")) {
-        const hasSort = await tableHasColumn(env, "competition_tasks", "sort_order");
-        const orderCol = hasSort ? "sort_order, id" : "id";
-        tasks = await env.DB.prepare(
-          `SELECT id, title_ar, weight_points${hasSort ? ", sort_order" : ""}
-           FROM competition_tasks WHERE competition_id = ? ORDER BY ${orderCol}`,
+      let taskRows: Array<{
+        id: number;
+        title_ar: string;
+        weight_points: number;
+        sort_order?: number;
+        type?: string;
+        input_type?: string;
+      }> = [];
+
+      if (unifiedEngine) {
+        const hasInputType = await hasTaskInputType(env);
+        const platformTasks = await env.DB.prepare(
+          hasInputType
+            ? `SELECT id, name_ar AS title_ar, weight AS weight_points, sort_order, type, input_type
+               FROM competition_tasks WHERE competition_id = ?
+               ORDER BY sort_order, id`
+            : `SELECT id, name_ar AS title_ar, weight AS weight_points, sort_order, type
+               FROM competition_tasks WHERE competition_id = ?
+               ORDER BY sort_order, id`,
         )
           .bind(compId)
-          .all();
+          .all<{
+            id: number;
+            title_ar: string;
+            weight_points: number;
+            sort_order: number;
+            type?: string;
+            input_type?: string;
+          }>();
+        taskRows = platformTasks.results ?? [];
+      } else {
+        const tasksTable = await teacherTasksTable(env);
+        if (tasksTable) {
+          const hasSort = await tableHasColumn(env, tasksTable, "sort_order");
+          const hasType = await tableHasColumn(env, tasksTable, "type");
+          const hasInputType = await tableHasColumn(env, tasksTable, "input_type");
+          const orderCol = hasSort ? "sort_order, id" : "id";
+          const typeCols =
+            hasType && hasInputType
+              ? ", type, input_type"
+              : hasType
+                ? ", type"
+                : "";
+          const tasks = await env.DB.prepare(
+            `SELECT id, title_ar, weight_points${hasSort ? ", sort_order" : ""}${typeCols}
+             FROM ${tasksTable} WHERE competition_id = ? ORDER BY ${orderCol}`,
+          )
+            .bind(compId)
+            .all<{
+              id: number;
+              title_ar: string;
+              weight_points: number;
+              sort_order?: number;
+              type?: string;
+              input_type?: string;
+            }>();
+          taskRows = tasks.results ?? [];
+        }
       }
 
-      const taskRows = tasks.results ?? [];
-      const taskIds = taskRows.map((t) => t.id);
       let scores: Array<{ task_id: number; student_id: number; points: number }> = [];
-      if (taskIds.length > 0 && (await hasTable(env, "student_comp_scores"))) {
-        const ph = taskIds.map(() => "?").join(",");
-        const scoreRows = await env.DB.prepare(
-          `SELECT task_id, student_id, points FROM student_comp_scores
-           WHERE task_id IN (${ph})`,
-        )
-          .bind(...taskIds)
-          .all<{ task_id: number; student_id: number; points: number }>();
-        scores = scoreRows.results ?? [];
+      if (unifiedEngine && comp) {
+        const anchor = String(comp.start_date ?? todayRiyadhIso());
+        scores = await loadTeacherCompetitionScores(env, compId, anchor);
+      } else {
+        const taskIds = taskRows.map((t) => t.id);
+        if (taskIds.length > 0 && (await hasTable(env, "student_comp_scores"))) {
+          const ph = taskIds.map(() => "?").join(",");
+          const scoreRows = await env.DB.prepare(
+            `SELECT task_id, student_id, points FROM student_comp_scores
+             WHERE task_id IN (${ph})`,
+          )
+            .bind(...taskIds)
+            .all<{ task_id: number; student_id: number; points: number }>();
+          scores = scoreRows.results ?? [];
+        }
       }
 
       const circle = await resolveTeacherPrimaryCircle(
@@ -285,6 +427,7 @@ export async function handleEduDeptMegaRouter(
         students,
         scores,
         circle_id: circle?.id ?? null,
+        circle_name: circle?.name_ar ?? null,
       });
     }
 
@@ -293,7 +436,15 @@ export async function handleEduDeptMegaRouter(
     );
     if (leaderboardMatch && request.method === "GET") {
       const compId = Number(leaderboardMatch[1]);
-      if (!(await assertTeacherOwnsCompetition(env, compId, auth.userId, auth.complexId))) {
+      if (
+        !(await assertTeacherOwnsCompetition(
+          env,
+          compId,
+          auth.userId,
+          auth.complexId,
+          unifiedEngine,
+        ))
+      ) {
         return json({ error: "not_found" }, 404);
       }
 
@@ -301,15 +452,35 @@ export async function handleEduDeptMegaRouter(
       if (loaded instanceof Response) return loaded;
       const { students } = loaded;
 
+      if (unifiedEngine) {
+        const compRow = await env.DB.prepare(
+          `SELECT start_date, end_date FROM competitions WHERE id = ?`,
+        )
+          .bind(compId)
+          .first<{ start_date: string; end_date: string }>();
+        const items = await teacherCompetitionLeaderboard(
+          env,
+          compId,
+          students,
+          String(compRow?.start_date ?? todayRiyadhIso()),
+          String(compRow?.end_date ?? todayRiyadhIso()),
+        );
+        return json({ items });
+      }
+
       const scoreMap = new Map<number, number>();
-      if (
-        (await hasTable(env, "competition_tasks")) &&
-        (await hasTable(env, "student_comp_scores"))
-      ) {
+      const tasksTableLb = await teacherTasksTable(env);
+      if (tasksTableLb && (await hasTable(env, "student_comp_scores"))) {
         const rows = await env.DB.prepare(
-          `SELECT scs.student_id, SUM(scs.points) AS total_points
+          `SELECT scs.student_id,
+                  SUM(
+                    CASE WHEN COALESCE(ct.type, 'addition') = 'deduction'
+                      THEN -ABS(scs.points) * COALESCE(ct.weight_points, 1)
+                      ELSE ABS(scs.points) * COALESCE(ct.weight_points, 1)
+                    END
+                  ) AS total_points
            FROM student_comp_scores scs
-           INNER JOIN competition_tasks ct ON ct.id = scs.task_id
+           INNER JOIN ${tasksTableLb} ct ON ct.id = scs.task_id
            WHERE ct.competition_id = ?
            GROUP BY scs.student_id`,
         )
@@ -339,11 +510,75 @@ export async function handleEduDeptMegaRouter(
 
     const taskMatch = path.match(/^\/api\/edu-dept\/teacher-competitions\/(\d+)\/tasks$/);
     if (taskMatch && request.method === "POST") {
-      if (!(await hasTable(env, "competition_tasks"))) return migrationRequired();
       const compId = Number(taskMatch[1]);
-      if (!(await assertTeacherOwnsCompetition(env, compId, auth.userId, auth.complexId))) {
+      if (
+        !(await assertTeacherOwnsCompetition(
+          env,
+          compId,
+          auth.userId,
+          auth.complexId,
+          unifiedEngine,
+        ))
+      ) {
         return json({ error: "not_found" }, 404);
       }
+
+      if (unifiedEngine) {
+        let body: {
+          title_ar?: string;
+          weight_points?: number;
+          type?: string;
+          input_type?: string;
+        };
+        try {
+          body = await request.json();
+        } catch {
+          return json({ error: "invalid_json" }, 400);
+        }
+        const title = String(body.title_ar ?? "").trim();
+        if (!title) return json({ error: "title_required" }, 400);
+        const w = Number(body.weight_points ?? 1);
+        const taskType: TaskType = body.type === "deduction" ? "deduction" : "addition";
+        const inputType = parseTaskInputType(body.input_type, taskType);
+        const hasInputType = await hasTaskInputType(env);
+        const maxRow = await env.DB.prepare(
+          `SELECT COALESCE(MAX(sort_order), 0) AS m FROM competition_tasks WHERE competition_id = ?`,
+        )
+          .bind(compId)
+          .first<{ m: number }>();
+        const ins = hasInputType
+          ? await env.DB.prepare(
+              `INSERT INTO competition_tasks
+               (competition_id, name_ar, weight, type, input_type, sort_order)
+               VALUES (?, ?, ?, ?, ?, ?)`,
+            )
+              .bind(
+                compId,
+                title,
+                Number.isFinite(w) ? w : 1,
+                taskType,
+                inputType,
+                (maxRow?.m ?? 0) + 1,
+              )
+              .run()
+          : await env.DB.prepare(
+              `INSERT INTO competition_tasks
+               (competition_id, name_ar, weight, type, sort_order)
+               VALUES (?, ?, ?, ?, ?)`,
+            )
+              .bind(
+                compId,
+                title,
+                Number.isFinite(w) ? w : 1,
+                taskType,
+                (maxRow?.m ?? 0) + 1,
+              )
+              .run();
+        return json({ ok: true, id: ins.meta.last_row_id });
+      }
+
+      const tasksTable = await teacherTasksTable(env);
+      if (!tasksTable) return migrationRequired();
 
       const circle = await resolveTeacherPrimaryCircle(
         env,
@@ -354,7 +589,12 @@ export async function handleEduDeptMegaRouter(
         return json({ error: TEACHER_NO_CIRCLE_ACCOUNT_MSG }, 400);
       }
 
-      let body: { title_ar?: string; weight_points?: number };
+      let body: {
+        title_ar?: string;
+        weight_points?: number;
+        type?: string;
+        input_type?: string;
+      };
       try {
         body = await request.json();
       } catch {
@@ -363,29 +603,75 @@ export async function handleEduDeptMegaRouter(
       const title = String(body.title_ar ?? "").trim();
       if (!title) return json({ error: "title_required" }, 400);
       const w = Number(body.weight_points ?? 1);
-      const hasSort = await tableHasColumn(env, "competition_tasks", "sort_order");
+      const taskType: TaskType = body.type === "deduction" ? "deduction" : "addition";
+      const inputType = parseTaskInputType(body.input_type, taskType);
+      const hasSort = await tableHasColumn(env, tasksTable, "sort_order");
+      const hasType = await tableHasColumn(env, tasksTable, "type");
+      const hasInputType = await tableHasColumn(env, tasksTable, "input_type");
       let sortOrder = 1;
       if (hasSort) {
         const maxRow = await env.DB.prepare(
-          `SELECT COALESCE(MAX(sort_order), 0) AS m FROM competition_tasks WHERE competition_id = ?`,
+          `SELECT COALESCE(MAX(sort_order), 0) AS m FROM ${tasksTable} WHERE competition_id = ?`,
         )
           .bind(compId)
           .first<{ m: number }>();
         sortOrder = (maxRow?.m ?? 0) + 1;
       }
-      const ins = hasSort
-        ? await env.DB.prepare(
-            `INSERT INTO competition_tasks (competition_id, title_ar, weight_points, sort_order)
-             VALUES (?, ?, ?, ?)`,
-          )
-            .bind(compId, title, Number.isFinite(w) ? w : 1, sortOrder)
-            .run()
-        : await env.DB.prepare(
-            `INSERT INTO competition_tasks (competition_id, title_ar, weight_points)
-             VALUES (?, ?, ?)`,
-          )
-            .bind(compId, title, Number.isFinite(w) ? w : 1)
-            .run();
+      let ins;
+      if (hasType && hasInputType) {
+        ins = hasSort
+          ? await env.DB.prepare(
+              `INSERT INTO ${tasksTable}
+               (competition_id, title_ar, weight_points, sort_order, type, input_type)
+               VALUES (?, ?, ?, ?, ?, ?)`,
+            )
+              .bind(
+                compId,
+                title,
+                Number.isFinite(w) ? w : 1,
+                sortOrder,
+                taskType,
+                inputType,
+              )
+              .run()
+          : await env.DB.prepare(
+              `INSERT INTO ${tasksTable}
+               (competition_id, title_ar, weight_points, type, input_type)
+               VALUES (?, ?, ?, ?, ?)`,
+            )
+              .bind(compId, title, Number.isFinite(w) ? w : 1, taskType, inputType)
+              .run();
+      } else if (hasType) {
+        ins = hasSort
+          ? await env.DB.prepare(
+              `INSERT INTO ${tasksTable}
+               (competition_id, title_ar, weight_points, sort_order, type)
+               VALUES (?, ?, ?, ?, ?)`,
+            )
+              .bind(compId, title, Number.isFinite(w) ? w : 1, sortOrder, taskType)
+              .run()
+          : await env.DB.prepare(
+              `INSERT INTO ${tasksTable}
+               (competition_id, title_ar, weight_points, type)
+               VALUES (?, ?, ?, ?)`,
+            )
+              .bind(compId, title, Number.isFinite(w) ? w : 1, taskType)
+              .run();
+      } else {
+        ins = hasSort
+          ? await env.DB.prepare(
+              `INSERT INTO ${tasksTable} (competition_id, title_ar, weight_points, sort_order)
+               VALUES (?, ?, ?, ?)`,
+            )
+              .bind(compId, title, Number.isFinite(w) ? w : 1, sortOrder)
+              .run()
+          : await env.DB.prepare(
+              `INSERT INTO ${tasksTable} (competition_id, title_ar, weight_points)
+               VALUES (?, ?, ?)`,
+            )
+              .bind(compId, title, Number.isFinite(w) ? w : 1)
+              .run();
+      }
       return json({ ok: true, id: ins.meta.last_row_id });
     }
 
@@ -393,14 +679,39 @@ export async function handleEduDeptMegaRouter(
       /^\/api\/edu-dept\/teacher-competitions\/(\d+)\/tasks\/(\d+)$/,
     );
     if (taskDelMatch && request.method === "DELETE") {
-      if (!(await hasTable(env, "competition_tasks"))) return migrationRequired();
+      const tasksTable = await teacherTasksTable(env);
+      if (!tasksTable) return migrationRequired();
       const compId = Number(taskDelMatch[1]);
       const taskId = Number(taskDelMatch[2]);
-      if (!(await assertTeacherOwnsCompetition(env, compId, auth.userId, auth.complexId))) {
+      if (
+        !(await assertTeacherOwnsCompetition(
+          env,
+          compId,
+          auth.userId,
+          auth.complexId,
+          unifiedEngine,
+        ))
+      ) {
         return json({ error: "not_found" }, 404);
       }
+
+      if (unifiedEngine) {
+        const owned = await env.DB.prepare(
+          `SELECT id FROM competition_tasks WHERE id = ? AND competition_id = ?`,
+        )
+          .bind(taskId, compId)
+          .first();
+        if (!owned) return json({ error: "not_found" }, 404);
+        await env.DB.prepare(
+          `DELETE FROM competition_tasks WHERE id = ? AND competition_id = ?`,
+        )
+          .bind(taskId, compId)
+          .run();
+        return json({ ok: true });
+      }
+
       const owned = await env.DB.prepare(
-        `SELECT id FROM competition_tasks WHERE id = ? AND competition_id = ?`,
+        `SELECT id FROM ${tasksTable} WHERE id = ? AND competition_id = ?`,
       )
         .bind(taskId, compId)
         .first();
@@ -410,7 +721,7 @@ export async function handleEduDeptMegaRouter(
           .bind(taskId)
           .run();
       }
-      await env.DB.prepare(`DELETE FROM competition_tasks WHERE id = ?`).bind(taskId).run();
+      await env.DB.prepare(`DELETE FROM ${tasksTable} WHERE id = ?`).bind(taskId).run();
       return json({ ok: true });
     }
 
@@ -418,9 +729,16 @@ export async function handleEduDeptMegaRouter(
       /^\/api\/edu-dept\/teacher-competitions\/(\d+)\/scores$/,
     );
     if (scoresMatch && request.method === "POST") {
-      if (!(await hasTable(env, "student_comp_scores"))) return migrationRequired();
       const compId = Number(scoresMatch[1]);
-      if (!(await assertTeacherOwnsCompetition(env, compId, auth.userId, auth.complexId))) {
+      if (
+        !(await assertTeacherOwnsCompetition(
+          env,
+          compId,
+          auth.userId,
+          auth.complexId,
+          unifiedEngine,
+        ))
+      ) {
         return json({ error: "not_found" }, 404);
       }
 
@@ -442,8 +760,61 @@ export async function handleEduDeptMegaRouter(
       }
       const list = Array.isArray(rawList) ? rawList : [];
 
+      if (unifiedEngine) {
+        const compRow = await env.DB.prepare(
+          `SELECT start_date FROM competitions WHERE id = ?`,
+        )
+          .bind(compId)
+          .first<{ start_date: string }>();
+        const logDate = String(
+          compRow?.start_date ?? todayRiyadhIso(),
+        );
+        const taskRows = await env.DB.prepare(
+          `SELECT id FROM competition_tasks WHERE competition_id = ?`,
+        )
+          .bind(compId)
+          .all<{ id: number }>();
+        const validTaskIds = new Set((taskRows.results ?? []).map((t) => t.id));
+        const validStudentIds = new Set(students.map((s) => s.id));
+
+        const byStudent = new Map<
+          number,
+          { student_id: number; records: Array<{ task_id: number; points: number }> }
+        >();
+        for (const s of list) {
+          if (
+            !validTaskIds.has(Number(s.task_id)) ||
+            !validStudentIds.has(Number(s.student_id))
+          ) {
+            continue;
+          }
+          const sid = Number(s.student_id);
+          const cur = byStudent.get(sid) ?? { student_id: sid, records: [] };
+          cur.records.push({
+            task_id: Number(s.task_id),
+            points: Number(s.points),
+          });
+          byStudent.set(sid, cur);
+        }
+
+        const saved = await saveCompetitionGradingBulk(
+          env,
+          compId,
+          [...byStudent.values()],
+          {
+            logDate,
+            recordedByUserId: auth.userId,
+            source: "edu_supervisor",
+          },
+        );
+        return json({ ok: true, saved });
+      }
+
+      if (!(await hasTable(env, "student_comp_scores"))) return migrationRequired();
+      const scoresTasksTable = await teacherTasksTable(env);
+      if (!scoresTasksTable) return migrationRequired();
       const taskRows = await env.DB.prepare(
-        `SELECT id FROM competition_tasks WHERE competition_id = ?`,
+        `SELECT id FROM ${scoresTasksTable} WHERE competition_id = ?`,
       )
         .bind(compId)
         .all<{ id: number }>();

@@ -30,8 +30,8 @@ export async function handleSeedUsers(
   }
 
   const key = url.searchParams.get("key");
-  const setupKey = env.SETUP_KEY ?? "basateen-setup-once";
-  if (key !== setupKey) {
+  const setupKey = env.SETUP_KEY;
+  if (!setupKey || key !== setupKey) {
     return Response.json({ error: "invalid_setup_key" }, { status: 401 });
   }
 
@@ -46,7 +46,7 @@ export async function handleSeedUsers(
   await runIgnore(env.DB.prepare("DELETE FROM users"));
 
   await env.DB.prepare(
-    `INSERT OR IGNORE INTO complexes (id, name_ar) VALUES (1, 'مجمع حلقات البساتين')`,
+    `INSERT OR IGNORE INTO complexes (id, name_ar) VALUES (1, 'مجمع حلقات بساتين')`,
   ).run();
 
   if (roleSchema) {

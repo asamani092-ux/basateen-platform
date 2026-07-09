@@ -31,7 +31,7 @@ export function CircleCapacityBadge({ circle, showFraction = true }: Props) {
     return (
       <Badge
         variant="outline"
-        className={`rounded-lg border-amber-500/40 bg-amber-500/10 text-foreground ${ds.btnRound}`}
+        className={`rounded-lg border-warning/40 bg-warning-surface text-foreground ${ds.btnRound}`}
         style={tajawal}
       >
         بقي {remaining} مقاعد · {showFraction ? `${sc}/${dc}` : ""}

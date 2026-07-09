@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { GuardedForm } from "../../components/ui/guarded-form";
 import { useParams } from "react-router";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -198,7 +199,7 @@ export function PublicQuizPage() {
             {title || "اختبار"}
           </h1>
           <p className={ds.page.description} style={tajawal}>
-            مجمع حلقات البساتين
+            مجمع حلقات بساتين
           </p>
         </div>
 
@@ -209,7 +210,7 @@ export function PublicQuizPage() {
         )}
 
         {phase === "gate" && (
-          <form onSubmit={submitGate} className="space-y-4">
+          <GuardedForm onSubmit={submitGate} className="space-y-4">
             {requireStudentName && (
               <div className="space-y-2">
                 <Label htmlFor="quiz-student-name" style={tajawal}>
@@ -248,7 +249,7 @@ export function PublicQuizPage() {
             >
               {loading ? "جاري التحقق…" : "دخول الاختبار"}
             </Button>
-          </form>
+          </GuardedForm>
         )}
 
         {phase === "take" && current && (

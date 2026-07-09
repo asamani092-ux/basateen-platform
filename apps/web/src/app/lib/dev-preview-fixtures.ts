@@ -247,7 +247,7 @@ export function buildCompetitionPlans() {
     d.setDate(d.getDate() + i);
     dist[d.toISOString().slice(0, 10)] = 0.5;
   }
-  return [1, 4, 5].map((sid, idx) => ({
+  return [1, 4, 5].map((sid) => ({
     student_id: sid,
     full_name_ar:
       cloneStudents().find((s) => s.id === sid)?.full_name_ar ?? `طالب ${sid}`,

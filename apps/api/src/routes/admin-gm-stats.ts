@@ -1,28 +1,21 @@
 import type { Env } from "../types";
+import { todayRiyadhIso, addDaysIso } from "../lib/today-riyadh-iso";
 import { fetchHimmaAuditFromLedger } from "../lib/himma-ledger-view";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
+import { tableHasColumn } from "../lib/db-schema";
+import { fetchSemesterPeriod, semesterQueryRange } from "../lib/semester-period";
+import { persistSemesterHistoricalSnapshot } from "../lib/semester-snapshot";
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
 }
 
 function periodStart(period: string): string {
-  const now = new Date();
-  const iso = (d: Date) => d.toISOString().slice(0, 10);
-  if (period === "today") return iso(now);
-  if (period === "week") {
-    const d = new Date(now);
-    d.setDate(d.getDate() - 6);
-    return iso(d);
-  }
-  if (period === "month") {
-    const d = new Date(now);
-    d.setDate(d.getDate() - 29);
-    return iso(d);
-  }
-  const d = new Date(now);
-  d.setDate(d.getDate() - 119);
-  return iso(d);
+  const today = todayRiyadhIso();
+  if (period === "today") return today;
+  if (period === "week") return addDaysIso(today, -6);
+  if (period === "month") return addDaysIso(today, -29);
+  return addDaysIso(today, -119);
 }
 
 export async function handleAdminStats(
@@ -35,8 +28,14 @@ export async function handleAdminStats(
   if (!requireRoles(auth, ["super_admin"])) return json({ error: "forbidden" }, 403);
 
   const period = url.searchParams.get("period") ?? "semester";
-  const fromDate = periodStart(period);
-  const today = new Date().toISOString().slice(0, 10);
+  let fromDate = periodStart(period);
+  let today = todayRiyadhIso();
+  if (period === "semester") {
+    const sp = await fetchSemesterPeriod(env, auth.complexId);
+    const range = semesterQueryRange(sp);
+    fromDate = range.start;
+    today = range.end;
+  }
 
   const activeStudents = await env.DB.prepare(
     `SELECT COUNT(DISTINCT student_id) AS c
@@ -189,7 +188,7 @@ export async function handleAdminStaffAttendanceList(
   if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
   if (!requireRoles(auth, ["super_admin"])) return json({ error: "forbidden" }, 403);
 
-  const from = url.searchParams.get("from") ?? new Date().toISOString().slice(0, 10);
+  const from = url.searchParams.get("from") ?? todayRiyadhIso();
   const to = url.searchParams.get("to") ?? from;
 
   const rows = await env.DB.prepare(
@@ -229,7 +228,7 @@ export async function handleAdminStaffAttendanceUpsert(
   const userId = Number(body.user_id);
   if (!Number.isFinite(userId)) return json({ error: "user_id_required" }, 400);
 
-  const date = body.attendance_date?.trim() || new Date().toISOString().slice(0, 10);
+  const date = body.attendance_date?.trim() || todayRiyadhIso();
   const status = body.status ?? "present";
   if (!["present", "absent", "late", "leave", "excused"].includes(status)) {
     return json({ error: "invalid_status" }, 400);
@@ -277,11 +276,108 @@ export async function handleAdminComplexSettingsGet(
     /* default */
   }
 
+  const hasSemesterCols = await tableHasColumn(env, "complex_settings", "semester_active");
+  const semester = hasSemesterCols
+    ? await fetchSemesterPeriod(env, auth!.complexId)
+    : { active: false, start_date: null, end_date: null };
+
   return json({
     semester_weeks: row?.semester_weeks ?? 16,
     school_days: schoolDays,
     graduates_count: row?.graduates_count ?? 0,
     huffadh_count: row?.huffadh_count ?? 0,
+    semester_active: semester.active,
+    semester_start_date: semester.start_date,
+    semester_end_date: semester.end_date,
+  });
+}
+
+const SEMESTER_END_CONFIRM = "إنهاء الفصل";
+
+export async function handleSemesterStart(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
+  if (!requireRoles(auth, ["super_admin"])) return json({ error: "forbidden" }, 403);
+  if (!(await tableHasColumn(env, "complex_settings", "semester_active"))) {
+    return json({ error: "migration_required", migration: "044_semester_period" }, 503);
+  }
+
+  const period = await fetchSemesterPeriod(env, auth.complexId);
+  if (period.active) {
+    return json({ error: "semester_already_active" }, 409);
+  }
+
+  const today = todayRiyadhIso();
+  await env.DB.prepare(
+    `UPDATE complex_settings
+     SET semester_active = 1, semester_start_date = ?, semester_end_date = NULL, updated_at = datetime('now')
+     WHERE complex_id = ?`,
+  )
+    .bind(today, auth.complexId)
+    .run();
+
+  return json({ ok: true, semester_start_date: today, semester_active: true });
+}
+
+export async function handleSemesterEnd(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const auth = await getAuth(request, env);
+  if (!requireAuth(auth)) return json({ error: "unauthorized" }, 401);
+  if (!requireRoles(auth, ["super_admin"])) return json({ error: "forbidden" }, 403);
+  if (!(await tableHasColumn(env, "complex_settings", "semester_active"))) {
+    return json({ error: "migration_required", migration: "044_semester_period" }, 503);
+  }
+
+  let body: { confirm_text?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "invalid_json" }, 400);
+  }
+  if (body.confirm_text?.trim() !== SEMESTER_END_CONFIRM) {
+    return json(
+      {
+        error: "confirm_required",
+        message: `اكتب «${SEMESTER_END_CONFIRM}» للتأكيد`,
+      },
+      400,
+    );
+  }
+
+  const period = await fetchSemesterPeriod(env, auth.complexId);
+  if (!period.active) {
+    return json({ error: "no_active_semester" }, 409);
+  }
+
+  const startDate = period.start_date ?? todayRiyadhIso();
+  const today = todayRiyadhIso();
+
+  const snapshotId = await persistSemesterHistoricalSnapshot(
+    env,
+    auth.complexId,
+    auth.userId,
+    startDate,
+    today,
+  );
+
+  await env.DB.prepare(
+    `UPDATE complex_settings
+     SET semester_active = 0, semester_end_date = ?, updated_at = datetime('now')
+     WHERE complex_id = ?`,
+  )
+    .bind(today, auth.complexId)
+    .run();
+
+  return json({
+    ok: true,
+    semester_end_date: today,
+    semester_active: false,
+    snapshot_id: snapshotId,
   });
 }
 

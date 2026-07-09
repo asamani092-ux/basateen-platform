@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { GuardedForm } from "../../components/ui/guarded-form";
+import { useNavigate, useSearchParams } from "react-router";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Card, CardContent, CardHeader } from "../../components/ui/card";
@@ -9,7 +10,6 @@ import {
   loginWithMobile,
   normalizeClientRole,
   normalizeMobile,
-  type UserRole,
 } from "../../lib/auth-store";
 import { setApiToken } from "../../lib/api-token";
 import { api } from "../../lib/api-client";
@@ -22,9 +22,6 @@ export function LoginPage() {
   const navigate = useNavigate();
   const { login, logout } = useAuth();
   const [mobile, setMobile] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [useEmail, setUseEmail] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -38,11 +35,12 @@ export function LoginPage() {
 
   const normalized = useMemo(() => normalizeMobile(mobile), [mobile]);
   const canSubmitMobile = Boolean(normalized) && !loading;
-  const canSubmitEmail =
-    Boolean(email.trim() && password) && !loading && !isUiDevPreview();
 
   function finishLogin(
-    res: { token: string; user: { id: number; full_name_ar: string; role: string; sections: string[] } },
+    res: {
+      token: string;
+      user: { id: number; full_name_ar: string; role: string; sections: string[] };
+    },
     rawMobile: string,
   ) {
     setApiToken(res.token);
@@ -54,7 +52,7 @@ export function LoginPage() {
         role,
         sections: res.user.sections,
       },
-      rawMobile || res.user.id.toString(),
+      rawMobile,
       roleHomePath(role),
     );
     if (!authUser) {
@@ -76,7 +74,6 @@ export function LoginPage() {
     try {
       const res = await api.loginMobile(mobile);
       finishLogin(res, mobile);
-      return;
     } catch {
       if (isUiDevPreview()) {
         const mockUser = loginWithMobile(mobile) ?? login(mobile);
@@ -86,22 +83,8 @@ export function LoginPage() {
         }
       }
       setError(
-        "رقم الجوال غير مسجّل أو غير متطابق مع D1 — جرّب 0500000000 أو 966500000000، أو الدخول بالإيميل",
+        "رقم الجوال غير مسجّل — تحقق من الرقم (مثال: 0500000000 أو 966500000000)",
       );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function onSubmitEmail(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-    try {
-      const res = await api.login(email.trim().toLowerCase(), password);
-      finishLogin(res, mobile || "0500000000");
-    } catch {
-      setError("بيانات الدخول غير صحيحة — تحقق من الإيميل وكلمة المرور");
     } finally {
       setLoading(false);
     }
@@ -127,120 +110,55 @@ export function LoginPage() {
             alt="منصة بساتين"
             className="h-32 sm:h-36 w-auto object-contain mx-auto mb-6 hidden dark:block"
           />
-          <h1
-            className="text-2xl sm:text-3xl font-bold text-foreground"
-            style={tajawal}
-          >
+          <h1 className={ds.page.title} style={tajawal}>
             منصة بساتين
           </h1>
-          <p className="text-sm text-muted-foreground mt-2" style={tajawal}>
-            {useEmail ? "دخول المشرف العام بالإيميل" : "أدخل رقم الجوال المسجّل في D1"}
+          <p className={ds.page.description} style={tajawal}>
+            أدخل رقم الجوال المسجّل في النظام
           </p>
         </CardHeader>
         <CardContent>
-          {!useEmail ? (
-            <form onSubmit={onSubmitMobile} className="space-y-4">
-              <div>
-                <label
-                  className="block text-sm font-semibold mb-2 text-foreground"
-                  style={tajawal}
-                >
-                  رقم الجوال
-                </label>
-                <Input
-                  type="tel"
-                  inputMode="numeric"
-                  autoComplete="tel"
-                  placeholder="05xxxxxxxx أو 9665xxxxxxxx"
-                  value={mobile}
-                  onChange={(e) => setMobile(e.target.value)}
-                  className={`${ds.btnRound} text-foreground`}
-                  style={tajawal}
-                  dir="ltr"
-                  required
-                />
-              </div>
-              {error && (
-                <p className={`text-sm ${ds.alert.error}`} style={tajawal}>
-                  {error}
-                </p>
-              )}
-              <Button
-                type="submit"
-                disabled={!canSubmitMobile}
-                className={`w-full ${ds.btnRound} disabled:opacity-50`}
+          <GuardedForm onSubmit={onSubmitMobile} className="space-y-4">
+            <div>
+              <label
+                className="block text-sm font-semibold mb-2 text-foreground"
                 style={tajawal}
               >
-                {loading ? "جاري الدخول..." : "دخول"}
-              </Button>
-            </form>
-          ) : (
-            <form onSubmit={onSubmitEmail} className="space-y-4">
-              <div>
-                <label className="block text-sm font-semibold mb-2" style={tajawal}>
-                  الإيميل
-                </label>
-                <Input
-                  type="email"
-                  autoComplete="email"
-                  placeholder="admin@basateen.win"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className={ds.btnRound}
-                  dir="ltr"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold mb-2" style={tajawal}>
-                  كلمة المرور
-                </label>
-                <Input
-                  type="password"
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className={ds.btnRound}
-                  dir="ltr"
-                  required
-                />
-              </div>
-              {error && (
-                <p className={`text-sm ${ds.alert.error}`} style={tajawal}>
-                  {error}
-                </p>
-              )}
-              <Button
-                type="submit"
-                disabled={!canSubmitEmail}
-                className={`w-full ${ds.btnRound}`}
+                رقم الجوال
+              </label>
+              <Input
+                type="tel"
+                inputMode="numeric"
+                autoComplete="tel"
+                placeholder="05xxxxxxxx أو 9665xxxxxxxx"
+                value={mobile}
+                onChange={(e) => setMobile(e.target.value)}
+                className={`${ds.field} text-foreground`}
                 style={tajawal}
-              >
-                {loading ? "جاري الدخول..." : "دخول بالإيميل"}
-              </Button>
-            </form>
-          )}
-
-          <Button
-            type="button"
-            variant="ghost"
-            className="w-full mt-3 text-sm"
-            style={tajawal}
-            onClick={() => {
-              setUseEmail((v) => !v);
-              setError(null);
-            }}
-          >
-            {useEmail ? "العودة لدخول الجوال" : "دخول بالإيميل (المشرف العام)"}
-          </Button>
+                dir="ltr"
+                required
+              />
+            </div>
+            {error && (
+              <p className={`text-sm ${ds.alert.error}`} style={tajawal}>
+                {error}
+              </p>
+            )}
+            <Button
+              type="submit"
+              disabled={!canSubmitMobile}
+              className={`w-full ${ds.primaryActionBtn}`}
+              style={tajawal}
+            >
+              {loading ? "جاري الدخول..." : "دخول"}
+            </Button>
+          </GuardedForm>
 
           {isUiDevPreview() && (
             <p className={`text-xs text-center mt-3 ${ds.alert.info}`} style={tajawal}>
               وضع معاينة UI — الجوال التجريبي: 0500000001 … 0500000005
             </p>
           )}
-
-
         </CardContent>
       </Card>
     </div>

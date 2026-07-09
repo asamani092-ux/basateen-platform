@@ -14,6 +14,7 @@ import { canManageCircle } from "../lib/dept-scope";
 import { hasTable, tableHasColumn } from "../lib/db-schema";
 import { buildStudentPlacementSql } from "../lib/student-list-sql";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
+import { resolveMemorizationFields } from "../lib/quran-memorization";
 
 export type StudentImportRow = {
   full_name_ar: string;
@@ -209,7 +210,7 @@ async function findStudentId(
 async function dynamicStudentUpdate(
   env: Env,
   studentId: number,
-  fields: Record<string, string | null>,
+  fields: Record<string, string | number | null>,
 ): Promise<void> {
   const sets: string[] = [];
   const binds: (string | number | null)[] = [];
@@ -424,6 +425,9 @@ export async function handleStudentsBulkImport(
       guardian_phone,
     );
 
+    const memRaw = trim(r.memorization_amount, 120);
+    const mem = resolveMemorizationFields({ memorization_amount: memRaw });
+
     const fields = {
       full_name_ar,
       national_id,
@@ -431,7 +435,8 @@ export async function handleStudentsBulkImport(
       phone: phone ?? guardian_phone,
       school_name: trim(r.school_name, 120),
       school_grade: trim(r.school_grade, 80),
-      memorization_amount: trim(r.memorization_amount, 120),
+      memorization_amount: mem.text,
+      memorization_faces: mem.faces,
       guardian_phone,
       guardian_national_id: trim(r.guardian_national_id, 32),
       health_notes: trim(r.health_notes, 500),
@@ -447,6 +452,7 @@ export async function handleStudentsBulkImport(
           school_name: fields.school_name,
           school_grade: fields.school_grade,
           memorization_amount: fields.memorization_amount,
+          memorization_faces: fields.memorization_faces,
           guardian_phone: fields.guardian_phone,
           guardian_national_id: fields.guardian_national_id,
           health_notes: fields.health_notes,
@@ -485,13 +491,14 @@ export async function handleStudentsBulkImport(
           auth.complexId,
           fields.full_name_ar,
         ];
-        const optionalCols: Array<[string, string | null]> = [
+        const optionalCols: Array<[string, string | number | null]> = [
           ["national_id", fields.national_id],
           ["nationality", fields.nationality],
           ["phone", fields.phone],
           ["school_name", fields.school_name],
           ["school_grade", fields.school_grade],
           ["memorization_amount", fields.memorization_amount],
+          ["memorization_faces", fields.memorization_faces],
           ["guardian_phone", fields.guardian_phone],
           ["guardian_national_id", fields.guardian_national_id],
           ["health_notes", fields.health_notes],

@@ -9,7 +9,7 @@ const REFRESH_MS = 30_000;
 
 export function TvLivePage() {
   const [searchParams] = useSearchParams();
-  const { key: launchKey } = parseTvQuery(searchParams.toString());
+  const { key: launchKey, accessToken } = parseTvQuery(searchParams.toString());
   const [summary, setSummary] = useState<TvSummary | null>(null);
   const [himma, setHimma] = useState<{
     name_ar: string;
@@ -37,12 +37,16 @@ export function TvLivePage() {
             });
             setError(null);
           }
-        } else {
-          const data = await api.tvSummary();
+        } else if (accessToken) {
+          const data = await api.tvSummary(accessToken);
           if (!cancelled) {
             setSummary(data);
             setHimma(null);
             setError(null);
+          }
+        } else {
+          if (!cancelled) {
+            setError("مطلوب رمز الوصول (?token=...) أو مفتاح يوم الهمة (?key=...)");
           }
         }
       } catch (e) {
@@ -58,7 +62,7 @@ export function TvLivePage() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [launchKey]);
+  }, [launchKey, accessToken]);
 
   const timeStr = clock.toLocaleTimeString("ar-SA", {
     hour: "2-digit",
@@ -82,7 +86,7 @@ export function TvLivePage() {
           <div className="flex items-center gap-6">
             <img
               src="/logo-dark.png"
-              alt="مجمع حلقات البساتين"
+              alt="مجمع حلقات بساتين"
               className="h-16 sm:h-24 lg:h-32 w-auto object-contain"
             />
             <div>
@@ -90,7 +94,7 @@ export function TvLivePage() {
                 className="text-2xl sm:text-4xl lg:text-5xl font-bold text-white"
                 style={tajawal}
               >
-                مجمع حلقات البساتين
+                مجمع حلقات بساتين
               </h1>
               <p
                 className="text-lg sm:text-2xl text-blue-200 mt-1"
@@ -134,7 +138,7 @@ export function TvLivePage() {
                 icon={<Users className="w-10 h-10 sm:w-14 sm:h-14" />}
                 label="حاضرون"
                 value={himma.stats.present ?? "—"}
-                accent="from-emerald-600/40 to-emerald-900/20"
+                accent="from-success/40 to-success/20"
               />
               <TvStat
                 icon={<CircleDot className="w-10 h-10 sm:w-14 sm:h-14" />}
@@ -155,7 +159,7 @@ export function TvLivePage() {
                 icon={<Users className="w-10 h-10 sm:w-14 sm:h-14" />}
                 label="الحضور"
                 value={summary?.present ?? "—"}
-                accent="from-emerald-600/40 to-emerald-900/20"
+                accent="from-success/40 to-success/20"
               />
               <TvStat
                 icon={<Users className="w-10 h-10 sm:w-14 sm:h-14 text-rose-300" />}
@@ -181,7 +185,7 @@ export function TvLivePage() {
 
         <footer className="mt-auto pt-8 flex flex-wrap justify-between gap-4 text-blue-200/80 text-sm sm:text-lg">
           <span style={tajawal}>
-            {summary?.complex ?? "مجمع حلقات البساتين"}
+            {summary?.complex ?? "مجمع حلقات بساتين"}
           </span>
           <span style={tajawal}>
             تحديث تلقائي كل {REFRESH_MS / 1000} ثانية

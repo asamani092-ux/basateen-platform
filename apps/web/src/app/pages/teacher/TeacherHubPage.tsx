@@ -1,34 +1,52 @@
-import { useSearchParams } from "react-router";
-import { HubTabs } from "../../components/hub/HubTabs";
-import { DailyScorecardGrid } from "./DailyScorecardGrid";
+import { BookOpen, ClipboardList, Trophy } from "lucide-react";
+import {
+  RecitationHubShell,
+  type RecitationHubTab,
+} from "../../components/edu/RecitationHubShell";
+import { DailyRecitationPage } from "../edu-dept/DailyRecitationPage";
+import { TeacherCompetitionsPage } from "../edu-dept/TeacherCompetitionsPage";
 import { TeacherPlansPage } from "./TeacherPlansPage";
-import { ds, tajawal } from "../../lib/design-system";
 
-const TABS = [
-  { id: "daily", label: "شبكة الرصد السريع" },
-  { id: "plans", label: "خطتي وإحصائياتي" },
+type HubTab = "daily" | "plans" | "competitions";
+
+const TABS: RecitationHubTab<HubTab>[] = [
+  {
+    id: "daily",
+    label: "الرصد اليومي",
+    shortLabel: "الرصد",
+    icon: ClipboardList,
+    panel: <DailyRecitationPage embedded />,
+  },
+  {
+    id: "plans",
+    label: "خطة الفصل",
+    shortLabel: "الخطة",
+    icon: BookOpen,
+    panel: <TeacherPlansPage />,
+  },
+  {
+    id: "competitions",
+    label: "منافسات الحلقة",
+    shortLabel: "المنافسات",
+    icon: Trophy,
+    panel: <TeacherCompetitionsPage embedded />,
+  },
 ];
 
-export function TeacherHubPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const tab = searchParams.get("tab") === "plans" ? "plans" : "daily";
+function parseTab(raw: string | null): HubTab {
+  if (raw === "plans" || raw === "competitions") return raw;
+  return "daily";
+}
 
+export function TeacherHubPage() {
   return (
-    <div className="space-y-4">
-      <div>
-        <h2 className={ds.page.title} style={tajawal}>
-          واجهة المعلم
-        </h2>
-        <p className={ds.page.description} style={tajawal}>
-          أي رصد لطالب = حضور تلقائي لذلك اليوم
-        </p>
-      </div>
-      <HubTabs
-        tabs={TABS}
-        active={tab}
-        onChange={(id) => setSearchParams(id === "daily" ? {} : { tab: id })}
-      />
-      {tab === "daily" ? <DailyScorecardGrid /> : <TeacherPlansPage />}
-    </div>
+    <RecitationHubShell
+      title="بوابة المعلم"
+      description="الرصد اليومي، خطط الفصل، ومنافسات حلقتك — من مكان واحد."
+      navAriaLabel="تنقل بوابة المعلم"
+      tabs={TABS}
+      defaultTab="daily"
+      parseTab={parseTab}
+    />
   );
 }

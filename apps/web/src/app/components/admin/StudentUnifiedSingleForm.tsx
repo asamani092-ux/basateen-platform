@@ -1,10 +1,27 @@
 import { useMemo, useState } from "react";
+import { GuardedForm } from "../ui/guarded-form";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { STAGE_OPTIONS } from "../../lib/stages";
 import type { EducationalGroupRow } from "../../lib/api-client";
 import { ds, tajawal } from "../../lib/design-system";
+import {
+  formatFacesToText,
+  convertToFaces,
+  clampUnitValue,
+  getUnitMax,
+  QURAN_MAX_FACES,
+  QURAN_MAX_HIZB,
+  QURAN_MAX_JUZ,
+  type QuranUnit,
+} from "../../lib/quran-memorization";
+
+const UNIT_MAX_HINT: Record<QuranUnit, string> = {
+  face: `الحد الأقصى ${QURAN_MAX_FACES} وجه`,
+  hizb: `الحد الأقصى ${QURAN_MAX_HIZB} حزب`,
+  juz: `الحد الأقصى ${QURAN_MAX_JUZ} جزء (الجزء 30 = 23 وجه)`,
+};
 
 export type StudentUnifiedFormValues = {
   full_name_ar: string;
@@ -15,6 +32,8 @@ export type StudentUnifiedFormValues = {
   school_name: string;
   school_grade: string;
   memorization_amount: string;
+  memorization_value: string;
+  memorization_unit: QuranUnit;
   guardian_national_id: string;
   guardian_work: string;
   health_notes: string;
@@ -32,6 +51,8 @@ const EMPTY: StudentUnifiedFormValues = {
   school_name: "",
   school_grade: "",
   memorization_amount: "",
+  memorization_value: "",
+  memorization_unit: "face",
   guardian_national_id: "",
   guardian_work: "",
   health_notes: "",
@@ -44,27 +65,36 @@ type Props = {
   groups: EducationalGroupRow[];
   onSubmit: (values: StudentUnifiedFormValues) => Promise<void>;
   submitting?: boolean;
+  /** وضع التعديل — يملأ الحقول من الطالب الحالي */
+  initialValues?: Partial<StudentUnifiedFormValues>;
+  submitLabel?: string;
+  /** إلزامية الإسناد (افتراضي: نعم للإضافة) */
+  requirePlacement?: boolean;
+  resetOnSubmit?: boolean;
 };
 
-export function StudentUnifiedSingleForm({ groups, onSubmit, submitting }: Props) {
-  const [values, setValues] = useState<StudentUnifiedFormValues>(EMPTY);
-  const [stageFilter, setStageFilter] = useState("");
+export function StudentUnifiedSingleForm({
+  groups,
+  onSubmit,
+  submitting,
+  initialValues,
+  submitLabel,
+  requirePlacement = true,
+  resetOnSubmit = true,
+}: Props) {
+  const [values, setValues] = useState<StudentUnifiedFormValues>({
+    ...EMPTY,
+    ...initialValues,
+  });
 
-  const groupOptions = useMemo(() => {
-    let list = groups;
-    if (stageFilter) {
-      const sid = Number(stageFilter);
-      list = list.filter(
-        (g) =>
-          g.stage_id === sid ||
-          (g.stage_ids?.includes(sid) ?? false),
-      );
-    }
-    return list.map((g) => ({
-      value: `${g.entity_type}:${g.id}`,
-      label: `${g.name_ar} (${g.entity_type === "circle" ? "حلقة" : "مسار"})`,
-    }));
-  }, [groups, stageFilter]);
+  const groupOptions = useMemo(
+    () =>
+      groups.map((g) => ({
+        value: `${g.entity_type}:${g.id}`,
+        label: `${g.name_ar} (${g.entity_type === "circle" ? "حلقة" : "مسار"})`,
+      })),
+    [groups],
+  );
 
   const missingRequired = useMemo(() => {
     const req: (keyof StudentUnifiedFormValues)[] = [
@@ -73,10 +103,12 @@ export function StudentUnifiedSingleForm({ groups, onSubmit, submitting }: Props
       "nationality",
       "phone",
       "guardian_phone",
-      "placement",
     ];
+    if (requirePlacement) {
+      req.push("placement");
+    }
     return req.filter((k) => !String(values[k]).trim());
-  }, [values]);
+  }, [values, requirePlacement]);
 
   const canSubmit = missingRequired.length === 0 && !submitting;
 
@@ -84,16 +116,35 @@ export function StudentUnifiedSingleForm({ groups, onSubmit, submitting }: Props
     setValues((prev) => ({ ...prev, [key]: v }));
   }
 
+  function setMemorization(rawValue: string, unit: QuranUnit) {
+    const clamped = clampUnitValue(Number(rawValue) || 0, unit);
+    const displayValue =
+      rawValue === "" || rawValue === "0"
+        ? rawValue
+        : String(clamped);
+    const faces = convertToFaces(clamped, unit);
+    const text = formatFacesToText(faces);
+    setValues((prev) => ({
+      ...prev,
+      memorization_value: displayValue,
+      memorization_unit: unit,
+      memorization_amount: text,
+    }));
+  }
+
+  const memorizationMax = getUnitMax(values.memorization_unit);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!canSubmit) return;
     await onSubmit(values);
-    setValues(EMPTY);
-    setStageFilter("");
+    if (resetOnSubmit) {
+      setValues(EMPTY);
+    }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <GuardedForm onSubmit={handleSubmit} className="space-y-4">
       {missingRequired.length > 0 && (
         <p className={ds.alert.error} style={tajawal}>
           أكمل الحقول الإلزامية المحددة بالنجمة (*)
@@ -141,13 +192,11 @@ export function StudentUnifiedSingleForm({ groups, onSubmit, submitting }: Props
             className={ds.btnRound}
           />
         </Field>
-        <Field label="المرحلة (اختياري — لفلترة الحلقات)">
+        <Field label={requirePlacement ? "المرحلة *" : "المرحلة (اختياري)"} required={false}>
           <select
             value={values.stage_id}
             onChange={(e) => {
               set("stage_id", e.target.value);
-              setStageFilter(e.target.value);
-              set("placement", "");
             }}
             className={ds.select}
             style={tajawal}
@@ -160,15 +209,21 @@ export function StudentUnifiedSingleForm({ groups, onSubmit, submitting }: Props
             ))}
           </select>
         </Field>
-        <Field label="الحلقة / المسار *" required className="sm:col-span-2">
+        <Field
+          label={requirePlacement ? "الحلقة / المسار *" : "الحلقة / المسار (للإسناد)"}
+          required={requirePlacement}
+          className="sm:col-span-2"
+        >
           <select
             value={values.placement}
             onChange={(e) => set("placement", e.target.value)}
             className={ds.select}
             style={tajawal}
-            required
+            required={requirePlacement}
           >
-            <option value="">— اختر الحلقة أو المسار —</option>
+            <option value="">
+              {requirePlacement ? "— اختر الحلقة أو المسار —" : "— بدون تغيير —"}
+            </option>
             {groupOptions.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
@@ -192,22 +247,51 @@ export function StudentUnifiedSingleForm({ groups, onSubmit, submitting }: Props
             style={tajawal}
           />
         </Field>
-        <Field label="مقدار الحفظ">
-          <Input
-            value={values.memorization_amount}
-            onChange={(e) => set("memorization_amount", e.target.value)}
-            className={ds.btnRound}
-            style={tajawal}
-          />
+        <Field label="مقدار الحفظ" className="sm:col-span-2">
+          <div className="grid grid-cols-2 gap-3" dir="rtl">
+            <select
+              value={values.memorization_unit}
+              onChange={(e) =>
+                setMemorization(
+                  values.memorization_value,
+                  e.target.value as QuranUnit,
+                )
+              }
+              className={`${ds.select} h-14 text-lg font-semibold`}
+              style={tajawal}
+            >
+              <option value="face">وجه</option>
+              <option value="hizb">حزب</option>
+              <option value="juz">جزء</option>
+            </select>
+            <Input
+              type="number"
+              min={0}
+              max={memorizationMax}
+              step={1}
+              value={values.memorization_value}
+              onChange={(e) =>
+                setMemorization(e.target.value, values.memorization_unit)
+              }
+              className={`${ds.btnRound} h-14 text-2xl font-bold tabular-nums`}
+              style={tajawal}
+              dir="ltr"
+              placeholder="0"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground mt-1" style={tajawal}>
+            {UNIT_MAX_HINT[values.memorization_unit]}
+          </p>
         </Field>
         <Field label="العمر (اختياري)">
           <Input
-            type="number"
-            min={4}
-            max={25}
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
             value={values.age}
-            onChange={(e) => set("age", e.target.value)}
+            onChange={(e) => set("age", e.target.value.replace(/[^\d]/g, ""))}
             className={ds.btnRound}
+            placeholder="—"
           />
         </Field>
         <Field label="هوية ولي الأمر (اختياري)">
@@ -242,9 +326,9 @@ export function StudentUnifiedSingleForm({ groups, onSubmit, submitting }: Props
         className={ds.btnRound}
         style={tajawal}
       >
-        {submitting ? "جاري الحفظ…" : "حفظ الطالب ➕"}
+        {submitting ? "جاري الحفظ…" : (submitLabel ?? "حفظ الطالب ➕")}
       </Button>
-    </form>
+    </GuardedForm>
   );
 }
 

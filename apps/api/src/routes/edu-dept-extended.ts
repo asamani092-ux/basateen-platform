@@ -1,6 +1,8 @@
 import type { Env } from "../types";
-import type { ScopeMode } from "../lib/dept-scope";
+import { hasTable, tableHasColumn, historyCircleColumn, activePlacementSql } from "../lib/db-schema";
+import { resolveMemorizationFields } from "../lib/quran-memorization";
 import {
+  buildStudentsInScopeWhere,
   loadUserScope,
   parseStageScope,
   stageFilterBinds,
@@ -9,14 +11,13 @@ import {
   studentsInScopeWhere,
   STAGE_LABELS,
 } from "../lib/dept-scope";
+import type { ScopeMode } from "../lib/dept-scope";
+import { todayRiyadhIso } from "../lib/today-riyadh-iso";
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
 }
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 async function assertStudentInScope(
   env: Env,
@@ -44,7 +45,7 @@ export async function handleEduDeptExtendedRoutes(
   const method = request.method;
 
   if (method === "GET" && path === "/api/edu-dept/dashboard") {
-    const today = todayIso();
+    const today = todayRiyadhIso();
     const stageWhere = stageFilterWhere(scope, "s.stage_id");
     const binds = [auth.complexId, ...stageFilterBinds(scope)];
 
@@ -63,12 +64,19 @@ export async function handleEduDeptExtendedRoutes(
       .bind(...studentsInScopeBinds(auth.complexId, scope))
       .first<{ c: number }>();
 
+    const hasCompStageId = await tableHasColumn(env, "competitions", "stage_id");
+    const compStageWhere = hasCompStageId
+      ? scope.type === "global"
+        ? "1=1"
+        : `(${stageFilterWhere(scope, "c.stage_id")} OR c.stage_id IS NULL)`
+      : "1=1";
+    const compStageBinds = hasCompStageId && scope.type !== "global" ? stageFilterBinds(scope) : [];
     const competitions = await env.DB.prepare(
       `SELECT COUNT(*) AS c FROM competitions c
        WHERE c.complex_id = ? AND c.status = 'active'
-         AND (${stageFilterWhere(scope, "c.stage_id")} OR c.stage_id IS NULL)`,
+         AND ${compStageWhere}`,
     )
-      .bind(auth.complexId, ...stageFilterBinds(scope))
+      .bind(auth.complexId, ...compStageBinds)
       .first<{ c: number }>();
 
     const himma = await env.DB.prepare(
@@ -111,15 +119,27 @@ export async function handleEduDeptExtendedRoutes(
       return json({ error: "student_out_of_scope" }, 403);
     }
 
+    const hasMemFaces = await tableHasColumn(env, "students", "memorization_faces");
+    const memFacesCol = hasMemFaces ? "s.memorization_faces" : "NULL AS memorization_faces";
+    const memAmountCol = (await tableHasColumn(env, "students", "memorization_amount"))
+      ? "s.memorization_amount"
+      : "NULL AS memorization_amount";
+
     const student = await env.DB.prepare(
       `SELECT s.id, s.full_name_ar, s.phone, s.stage_id, s.school_grade,
-              s.admission_status, s.memorization_amount, s.guardian_phone
+              s.admission_status, s.guardian_phone,
+              ${memAmountCol}, ${memFacesCol}
        FROM students s WHERE s.id = ? AND s.complex_id = ?`,
     )
       .bind(studentId, auth.complexId)
       .first<Record<string, unknown>>();
 
     if (!student) return json({ error: "not_found" }, 404);
+
+    const memorization = resolveMemorizationFields({
+      memorization_faces: student.memorization_faces,
+      memorization_amount: student.memorization_amount,
+    });
 
     const current = await env.DB.prepare(
       `SELECT h.circle_id, c.name_ar AS circle_name, t.name_ar AS track_name
@@ -156,8 +176,12 @@ export async function handleEduDeptExtendedRoutes(
       .bind(studentId)
       .all();
 
+    const hasTelemetry = await tableHasColumn(env, "competitions", "telemetry_type");
+    const telemetryCol = hasTelemetry
+      ? "c.telemetry_type"
+      : "'intensive_routine' AS telemetry_type";
     const compSummary = await env.DB.prepare(
-      `SELECT c.id, c.name_ar, c.telemetry_type, c.start_date, c.end_date
+      `SELECT c.id, c.name_ar, ${telemetryCol}, c.start_date, c.end_date
        FROM competition_logs cl
        JOIN competitions c ON c.id = cl.competition_id
        WHERE cl.student_id = ?
@@ -168,7 +192,12 @@ export async function handleEduDeptExtendedRoutes(
       .all();
 
     return json({
-      student,
+      student: {
+        ...student,
+        memorization_faces: memorization.faces,
+        memorization_amount: memorization.text,
+        memorization_display: memorization.text,
+      },
       current: current ?? null,
       edu_plan: eduPlan
         ? {
@@ -286,36 +315,74 @@ export async function handleEduDeptExtendedRoutes(
   }
 
   if (method === "GET" && path === "/api/edu-dept/target-options") {
-    const students = await env.DB.prepare(
-      `SELECT s.id, s.full_name_ar, s.stage_id, c.name_ar AS circle_name
-       FROM students s
-       LEFT JOIN student_circle_history h
-         ON h.student_id = s.id AND h.to_at IS NULL AND h.frozen_at IS NULL
-       LEFT JOIN circles c ON c.id = h.circle_id
-       WHERE ${studentsInScopeWhere(scope)}
-       ORDER BY s.full_name_ar LIMIT 200`,
-    )
-      .bind(...studentsInScopeBinds(auth.complexId, scope))
-      .all();
+    let circles: Array<Record<string, unknown>> = [];
+    let tracks: Array<Record<string, unknown>> = [];
+    let students: Array<Record<string, unknown>> = [];
 
-    const circles = await env.DB.prepare(
-      `SELECT c.id, c.name_ar, c.stage_id FROM circles c
-       WHERE c.complex_id = ? AND c.is_active = 1
-       ORDER BY c.name_ar`,
-    )
-      .bind(auth.complexId)
-      .all();
+    if (await hasTable(env, "circles")) {
+      const hasActive = await tableHasColumn(env, "circles", "is_active");
+      const activeClause = hasActive
+        ? " AND COALESCE(CAST(c.is_active AS INTEGER), 1) = 1"
+        : "";
+      try {
+        const circleRes = await env.DB.prepare(
+          `SELECT c.id, c.name_ar, c.stage_id FROM circles c
+           WHERE c.complex_id = ?${activeClause}
+           ORDER BY c.name_ar`,
+        )
+          .bind(auth.complexId)
+          .all();
+        circles = circleRes.results ?? [];
+      } catch (err) {
+        console.error("target-options circles failed:", err);
+      }
+    }
 
-    const tracks = await env.DB.prepare(
-      `SELECT t.id, t.name_ar FROM tracks t WHERE t.complex_id = ? ORDER BY t.name_ar`,
-    )
-      .bind(auth.complexId)
-      .all();
+    if (await hasTable(env, "tracks")) {
+      try {
+        const trackRes = await env.DB.prepare(
+          `SELECT t.id, t.name_ar FROM tracks t WHERE t.complex_id = ? ORDER BY t.name_ar`,
+        )
+          .bind(auth.complexId)
+          .all();
+        tracks = trackRes.results ?? [];
+      } catch (err) {
+        console.error("target-options tracks failed:", err);
+      }
+    }
+
+    try {
+      const scopeWhere = await buildStudentsInScopeWhere(env, scope);
+      const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
+      let circleJoin = "LEFT JOIN circles c ON c.id = s.current_circle_id";
+      if (!hasCurrentCircle) {
+        const histCol = await historyCircleColumn(env, "h");
+        if (histCol) {
+          const active = await activePlacementSql(env, "h");
+          circleJoin = `LEFT JOIN student_circle_history h ON h.student_id = s.id AND ${active}
+                          LEFT JOIN circles c ON c.id = ${histCol}`;
+        } else {
+          circleJoin = "LEFT JOIN circles c ON 1=0";
+        }
+      }
+      const studentRes = await env.DB.prepare(
+        `SELECT s.id, s.full_name_ar, s.stage_id, c.name_ar AS circle_name
+         FROM students s
+         ${circleJoin}
+         WHERE ${scopeWhere}
+         ORDER BY s.full_name_ar LIMIT 200`,
+      )
+        .bind(...studentsInScopeBinds(auth.complexId, scope))
+        .all();
+      students = studentRes.results ?? [];
+    } catch (err) {
+      console.error("target-options students failed:", err);
+    }
 
     return json({
-      students: students.results ?? [],
-      circles: circles.results ?? [],
-      tracks: tracks.results ?? [],
+      students,
+      circles,
+      tracks,
       scope,
     });
   }

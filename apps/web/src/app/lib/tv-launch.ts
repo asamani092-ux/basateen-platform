@@ -8,12 +8,15 @@ export function buildTvLaunchUrl(launchKey: string, sessionId?: number): string 
 export function parseTvQuery(search: string): {
   key: string | null;
   sessionId: number | null;
+  accessToken: string | null;
 } {
   const params = new URLSearchParams(search);
   const key = params.get("key");
   const session = params.get("session");
+  const accessToken = params.get("token");
   return {
     key,
     sessionId: session ? Number(session) : null,
+    accessToken,
   };
 }

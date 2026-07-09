@@ -7,6 +7,7 @@ import {
 } from "../middleware/auth";
 import { hasTable, tableHasColumn } from "../lib/db-schema";
 import { randomMagicToken } from "../lib/magic-link";
+import { todayRiyadhIso } from "../lib/today-riyadh-iso";
 
 const EDU_SUPERVISOR_ROLES = ["edu_supervisor", "super_admin"] as const;
 const EXCLUDED_STAGE_TALQEEN = 1;
@@ -16,9 +17,6 @@ function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
 }
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function migrationRequired(): Response {
   return json({ error: "migration_required", migration: "028_quranic_day_refactor" }, 503);
@@ -448,7 +446,7 @@ export async function handleEduQuranicDaysRouter(
       return json({ error: "invalid_json" }, 400);
     }
     const name = String(body.name_ar ?? "").trim();
-    const eventDate = String(body.event_date ?? todayIso()).slice(0, 10);
+    const eventDate = String(body.event_date ?? todayRiyadhIso()).slice(0, 10);
     if (!name) return json({ error: "name_required" }, 400);
 
     const rules = stringifyDeductionRules({
@@ -747,27 +745,47 @@ export async function handleEduQuranicDaysRouter(
       return json({ error: "not_found" }, 404);
     }
 
-    const dayRow = await env.DB.prepare(
-      `SELECT fail_threshold FROM quranic_days WHERE id = ?`,
-    )
-      .bind(dayId)
-      .first<{ fail_threshold: number }>();
+    const reportBatch = await env.DB.batch([
+      env.DB.prepare(
+        `SELECT fail_threshold FROM quranic_days WHERE id = ?`,
+      ).bind(dayId),
+      env.DB.prepare(
+        `SELECT COUNT(*) AS total FROM quranic_day_records WHERE quranic_day_id = ?`,
+      ).bind(dayId),
+      env.DB.prepare(
+        `SELECT qds.student_id, qds.target_hizbs, s.full_name_ar,
+                COALESCE(agg.hizbs_read, 0) AS hizbs_read,
+                COALESCE(agg.max_mistakes, 0) AS max_mistakes
+         FROM quranic_day_students qds
+         INNER JOIN students s ON s.id = qds.student_id
+         LEFT JOIN (
+           SELECT student_id,
+                  COUNT(*) AS hizbs_read,
+                  COALESCE(MAX(mistakes), 0) AS max_mistakes
+           FROM quranic_day_records
+           WHERE quranic_day_id = ?
+           GROUP BY student_id
+         ) agg ON agg.student_id = qds.student_id
+         WHERE qds.quranic_day_id = ?`,
+      ).bind(dayId, dayId),
+    ]);
+
+    const dayRow = reportBatch[0].results?.[0] as
+      | { fail_threshold: number }
+      | undefined;
     const failThreshold = Number(dayRow?.fail_threshold ?? 3);
 
-    const totalRow = await env.DB.prepare(
-      `SELECT COUNT(*) AS total FROM quranic_day_records WHERE quranic_day_id = ?`,
-    )
-      .bind(dayId)
-      .first<{ total: number }>();
+    const totalRow = reportBatch[1].results?.[0] as { total: number } | undefined;
 
-    const enrolled = await env.DB.prepare(
-      `SELECT qds.student_id, qds.target_hizbs, s.full_name_ar
-       FROM quranic_day_students qds
-       INNER JOIN students s ON s.id = qds.student_id
-       WHERE qds.quranic_day_id = ?`,
-    )
-      .bind(dayId)
-      .all<{ student_id: number; target_hizbs: string; full_name_ar: string }>();
+    const enrolledRows = {
+      results: (reportBatch[2].results ?? []) as Array<{
+        student_id: number;
+        target_hizbs: string;
+        full_name_ar: string;
+        hizbs_read: number;
+        max_mistakes: number;
+      }>,
+    };
 
     let studentsCompleted = 0;
     let studentsOverThreshold = 0;
@@ -780,18 +798,10 @@ export async function handleEduQuranicDaysRouter(
       status: "completed" | "over_threshold" | "in_progress" | "none";
     }> = [];
 
-    for (const en of enrolled.results ?? []) {
-      const agg = await env.DB.prepare(
-        `SELECT COUNT(*) AS hizbs_read, COALESCE(MAX(mistakes), 0) AS max_mistakes
-         FROM quranic_day_records
-         WHERE quranic_day_id = ? AND student_id = ?`,
-      )
-        .bind(dayId, en.student_id)
-        .first<{ hizbs_read: number; max_mistakes: number }>();
-
+    for (const en of enrolledRows.results ?? []) {
       const targetHizbs = parseTargetHizbs(en.target_hizbs);
-      const hizbsRead = Number(agg?.hizbs_read ?? 0);
-      const maxMistakes = Number(agg?.max_mistakes ?? 0);
+      const hizbsRead = Number(en.hizbs_read ?? 0);
+      const maxMistakes = Number(en.max_mistakes ?? 0);
       const completed =
         targetHizbs.length > 0 && hizbsRead >= targetHizbs.length;
       const over = maxMistakes >= failThreshold;
@@ -818,7 +828,7 @@ export async function handleEduQuranicDaysRouter(
       total_hizbs_read: Number(totalRow?.total ?? 0),
       students_completed: studentsCompleted,
       students_over_threshold: studentsOverThreshold,
-      enrolled_count: (enrolled.results ?? []).length,
+      enrolled_count: (enrolledRows.results ?? []).length,
       fail_threshold: failThreshold,
       students: studentStats,
     });

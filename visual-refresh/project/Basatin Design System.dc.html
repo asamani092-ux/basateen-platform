@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Tajawal',sans-serif;-webkit-font-smoothing:antialiased}
+  code,.mono{font-family:'IBM Plex Mono',monospace}
+</style>
+</helmet>
+<div dir="rtl" style="background:#eef1f6;padding:56px 40px 120px;min-height:100vh;color:#0f172a">
+<div style="max-width:1500px;margin:0 auto;display:flex;flex-direction:column;gap:40px">
+
+  <!-- ===== HEADER ===== -->
+  <header style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap">
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:center;gap:14px">
+        <div style="width:52px;height:52px;border-radius:15px;background:#1e3a8a;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(30,58,138,.3)">
+          <div style="width:22px;height:22px;border-radius:7px;border:3px solid #ffffff;transform:rotate(45deg)"></div>
+        </div>
+        <div>
+          <div style="font-size:34px;font-weight:800;letter-spacing:-.5px;line-height:1">بساتين</div>
+          <div style="font-size:14px;color:#526077;font-weight:500;margin-top:4px">نظام التصميم · منصة إدارة مجمّع الحلقات القرآنية</div>
+        </div>
+      </div>
+      <div style="font-size:14px;color:#526077;max-width:640px;line-height:1.6">تطوير لنظام الرموز الكحلي القائم — تعميق وتنظيم دون تغيير الهوية. اللون الكحلي <code style="background:#dbe7fb;color:#1e3a8a;padding:2px 7px;border-radius:6px;font-size:12px">#1e3a8a</code> يبقى المرساة الأساسية.</div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <div style="background:#ffffff;border:1px solid #dde4ee;border-radius:12px;padding:12px 18px;text-align:center;box-shadow:0 1px 2px rgba(15,23,42,.05)">
+        <div style="font-size:22px;font-weight:800;color:#1e3a8a">١.٠</div>
+        <div style="font-size:11px;color:#526077;font-weight:500">الإصدار</div>
+      </div>
+      <div style="background:#ffffff;border:1px solid #dde4ee;border-radius:12px;padding:12px 18px;text-align:center;box-shadow:0 1px 2px rgba(15,23,42,.05)">
+        <div style="font-size:22px;font-weight:800;color:#15803d">AA</div>
+        <div style="font-size:11px;color:#526077;font-weight:500">WCAG</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===== SECTION 1: CORE PALETTE ===== -->
+  <section style="background:#ffffff;border:1px solid #e4e9f2;border-radius:22px;padding:32px;box-shadow:0 2px 12px rgba(15,23,42,.05)">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+      <span style="width:30px;height:30px;border-radius:9px;background:#1e3a8a;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px">١</span>
+      <h2 style="margin:0;font-size:22px;font-weight:800">الألوان الأساسية</h2>
+    </div>
+    <p style="margin:0 0 22px 42px;font-size:14px;color:#526077;line-height:1.6">كل دور مُعاد ضبطه للوضعين الفاتح والداكن. الكحلي الداكن عُمّق إلى <code style="font-size:12px">#2563eb</code> ليضمن تباين AA مع النص الأبيض على الأزرار.</p>
+    <div style="display:grid;grid-template-columns:200px 1fr 210px 210px;gap:16px;padding:0 16px 10px;font-size:12px;font-weight:700;color:#8a97ab">
+      <div>الرمز</div><div>الاستخدام</div><div>فاتح</div><div>داكن</div>
+    </div>
+    <sc-for list="{{ core }}" as="r" hint-placeholder-count="8">
+      <div style="display:grid;grid-template-columns:200px 1fr 210px 210px;gap:16px;align-items:center;padding:9px 16px;border-top:1px solid #eef1f6">
+        <code style="font-size:12.5px;color:#1e3a8a;font-weight:500">{{ r.t }}</code>
+        <span style="font-size:13px;color:#526077">{{ r.u }}</span>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="width:34px;height:34px;border-radius:9px;background:{{ r.l }};border:1px solid rgba(15,23,42,.1);flex:none"></span>
+          <code style="font-size:12.5px;color:#0f172a">{{ r.l }}</code>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="width:34px;height:34px;border-radius:9px;background:{{ r.d }};border:1px solid rgba(255,255,255,.14);flex:none"></span>
+          <code style="font-size:12.5px;color:#0f172a">{{ r.d }}</code>
+        </div>
+      </div>
+    </sc-for>
+  </section>
+
+  <!-- ===== SECTION 2: SEMANTIC STATUS ===== -->
+  <section style="background:#ffffff;border:1px solid #e4e9f2;border-radius:22px;padding:32px;box-shadow:0 2px 12px rgba(15,23,42,.05)">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+      <span style="width:30px;height:30px;border-radius:9px;background:#1e3a8a;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px">٢</span>
+      <h2 style="margin:0;font-size:22px;font-weight:800">الرموز الدلالية للحالة</h2>
+    </div>
+    <p style="margin:0 0 22px 42px;font-size:14px;color:#526077;line-height:1.6">تحل محل الاستخدام العشوائي للأخضر/السماوي/الكهرماني. لكل حالة: لون رئيسي + سطح + لون نص فوق السطح.</p>
+    <div style="display:grid;grid-template-columns:200px 1fr 210px 210px;gap:16px;padding:0 16px 10px;font-size:12px;font-weight:700;color:#8a97ab">
+      <div>الرمز</div><div>الاستخدام</div><div>فاتح</div><div>داكن</div>
+    </div>
+    <sc-for list="{{ semantic }}" as="r" hint-placeholder-count="9">
+      <div style="display:grid;grid-template-columns:200px 1fr 210px 210px;gap:16px;align-items:center;padding:9px 16px;border-top:1px solid #eef1f6">
+        <code style="font-size:12.5px;color:#1e3a8a;font-weight:500">{{ r.t }}</code>
+        <span style="font-size:13px;color:#526077">{{ r.u }}</span>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="width:34px;height:34px;border-radius:9px;background:{{ r.l }};border:1px solid rgba(15,23,42,.1);flex:none"></span>
+          <code style="font-size:12.5px;color:#0f172a">{{ r.l }}</code>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="width:34px;height:34px;border-radius:9px;background:{{ r.d }};border:1px solid rgba(255,255,255,.14);flex:none"></span>
+          <code style="font-size:12.5px;color:#0f172a">{{ r.d }}</code>
+        </div>
+      </div>
+    </sc-for>
+  </section>
+
+  <!-- ===== SECTION 3: ATTENDANCE SEMANTICS ===== -->
+  <section style="background:#ffffff;border:1px solid #e4e9f2;border-radius:22px;padding:32px;box-shadow:0 2px 12px rgba(15,23,42,.05)">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+      <span style="width:30px;height:30px;border-radius:9px;background:#1e3a8a;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px">٣</span>
+      <h2 style="margin:0;font-size:22px;font-weight:800">دلالات التحضير</h2>
+    </div>
+    <p style="margin:0 0 22px 42px;font-size:14px;color:#526077;line-height:1.6">ثلاث حالات ثابتة عبر النظام كله: حاضر · غائب · مستأذن. مبنية على مجموعة الحالة الدلالية أعلاه.</p>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
+      <sc-for list="{{ attendance }}" as="a" hint-placeholder-count="3">
+        <div style="border:1px solid #eef1f6;border-radius:16px;overflow:hidden">
+          <div style="padding:16px 18px;display:flex;align-items:center;gap:12px">
+            <span style="width:14px;height:14px;border-radius:50%;background:{{ a.l }};flex:none"></span>
+            <span style="font-size:16px;font-weight:700">{{ a.u }}</span>
+            <code style="margin-inline-start:auto;font-size:12px;color:#8a97ab">{{ a.t }}</code>
+          </div>
+          <div style="display:flex">
+            <div style="flex:1;padding:12px;text-align:center;background:{{ a.s_l }}">
+              <div style="font-size:11px;color:#526077;margin-bottom:6px">شارة فاتحة</div>
+              <span style="display:inline-block;padding:5px 14px;border-radius:999px;font-size:13px;font-weight:700;background:{{ a.l }};color:#fff">{{ a.u }}</span>
+            </div>
+            <div style="flex:1;padding:12px;text-align:center;background:{{ a.s_d }}">
+              <div style="font-size:11px;color:#93a4bd;margin-bottom:6px">شارة داكنة</div>
+              <span style="display:inline-block;padding:5px 14px;border-radius:999px;font-size:13px;font-weight:700;background:{{ a.d }};color:#0a1628">{{ a.u }}</span>
+            </div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <!-- ===== SECTION 4: TYPE SCALE ===== -->
+  <section style="background:#ffffff;border:1px solid #e4e9f2;border-radius:22px;padding:32px;box-shadow:0 2px 12px rgba(15,23,42,.05)">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:22px">
+      <span style="width:30px;height:30px;border-radius:9px;background:#1e3a8a;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px">٤</span>
+      <h2 style="margin:0;font-size:22px;font-weight:800">مقياس الخطوط — Tajawal</h2>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:2px">
+      <div style="display:grid;grid-template-columns:1fr 260px;gap:20px;align-items:baseline;padding:16px;border-radius:12px;background:#f7f9fc">
+        <div style="font-size:30px;font-weight:700;line-height:1.25">تحضير الطلاب</div>
+        <div style="font-size:12.5px;color:#526077"><code style="color:#1e3a8a">title</code> · 30px / 700 / سطر 1.25</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 260px;gap:20px;align-items:baseline;padding:16px;border-radius:12px">
+        <div style="font-size:20px;font-weight:700;line-height:1.35">قائمة الطلاب</div>
+        <div style="font-size:12.5px;color:#526077"><code style="color:#1e3a8a">section</code> · 20px / 700 / سطر 1.35</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 260px;gap:20px;align-items:baseline;padding:16px;border-radius:12px;background:#f7f9fc">
+        <div style="font-size:16px;font-weight:400;line-height:1.6">اسم الطالب وبياناته الأساسية تظهر بهذا الحجم للنصوص الطويلة القابلة للقراءة</div>
+        <div style="font-size:12.5px;color:#526077"><code style="color:#1e3a8a">body</code> · 16px / 400 / سطر 1.6</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 260px;gap:20px;align-items:baseline;padding:16px;border-radius:12px">
+        <div style="font-size:15px;font-weight:500;line-height:1.5">٥ أجزاء و ٣ أوجه · حلقة الفجر</div>
+        <div style="font-size:12.5px;color:#526077"><code style="color:#1e3a8a">data</code> · 15px / 500 / سطر 1.5 — خلايا الجداول</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 260px;gap:20px;align-items:baseline;padding:16px;border-radius:12px;background:#f7f9fc">
+        <div style="font-size:13px;font-weight:500;line-height:1.4;color:#526077">آخر تحديث قبل ٥ دقائق</div>
+        <div style="font-size:12.5px;color:#526077"><code style="color:#1e3a8a">caption</code> · 13px / 500 / سطر 1.4</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SECTION 5: SPACING + RADIUS + ELEVATION ===== -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px">
+    <section style="background:#ffffff;border:1px solid #e4e9f2;border-radius:22px;padding:32px;box-shadow:0 2px 12px rgba(15,23,42,.05)">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+        <span style="width:30px;height:30px;border-radius:9px;background:#1e3a8a;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px">٥</span>
+        <h2 style="margin:0;font-size:20px;font-weight:800">التباعد والكثافة</h2>
+      </div>
+      <p style="margin:0 0 18px 42px;font-size:13px;color:#526077;line-height:1.6">سلّم بخطوة 4px للجداول العربية كثيفة البيانات.</p>
+      <div style="display:flex;flex-direction:column;gap:9px">
+        <div style="display:flex;align-items:center;gap:14px"><span style="height:16px;width:4px;background:#1e3a8a;border-radius:2px"></span><code style="font-size:12px;color:#1e3a8a;width:70px">space-1</code><span style="font-size:12.5px;color:#526077">4px · فجوة الأيقونة/النص</span></div>
+        <div style="display:flex;align-items:center;gap:14px"><span style="height:16px;width:8px;background:#1e3a8a;border-radius:2px"></span><code style="font-size:12px;color:#1e3a8a;width:70px">space-2</code><span style="font-size:12.5px;color:#526077">8px · حشو الخلية الرأسي</span></div>
+        <div style="display:flex;align-items:center;gap:14px"><span style="height:16px;width:12px;background:#1e3a8a;border-radius:2px"></span><code style="font-size:12px;color:#1e3a8a;width:70px">space-3</code><span style="font-size:12.5px;color:#526077">12px · حشو الخلية الأفقي</span></div>
+        <div style="display:flex;align-items:center;gap:14px"><span style="height:16px;width:16px;background:#1e3a8a;border-radius:2px"></span><code style="font-size:12px;color:#1e3a8a;width:70px">space-4</code><span style="font-size:12.5px;color:#526077">16px · فجوة الحقول</span></div>
+        <div style="display:flex;align-items:center;gap:14px"><span style="height:16px;width:24px;background:#1e3a8a;border-radius:2px"></span><code style="font-size:12px;color:#1e3a8a;width:70px">space-6</code><span style="font-size:12.5px;color:#526077">24px · حشو البطاقة</span></div>
+        <div style="display:flex;align-items:center;gap:14px"><span style="height:16px;width:32px;background:#1e3a8a;border-radius:2px"></span><code style="font-size:12px;color:#1e3a8a;width:70px">space-8</code><span style="font-size:12.5px;color:#526077">32px · فواصل الأقسام</span></div>
+      </div>
+      <div style="margin-top:20px;border-top:1px solid #eef1f6;padding-top:18px;display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div style="border:1px solid #eef1f6;border-radius:12px;padding:14px">
+          <div style="font-size:13px;font-weight:700;margin-bottom:4px">صف مضغوط</div>
+          <div style="font-size:12px;color:#526077">ارتفاع 44px · حشو 8×12</div>
+        </div>
+        <div style="border:1px solid #eef1f6;border-radius:12px;padding:14px">
+          <div style="font-size:13px;font-weight:700;margin-bottom:4px">صف مريح</div>
+          <div style="font-size:12px;color:#526077">ارتفاع 52px · حشو 12×16</div>
+        </div>
+      </div>
+    </section>
+
+    <section style="background:#ffffff;border:1px solid #e4e9f2;border-radius:22px;padding:32px;box-shadow:0 2px 12px rgba(15,23,42,.05)">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+        <span style="width:30px;height:30px;border-radius:9px;background:#1e3a8a;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px">٦</span>
+        <h2 style="margin:0;font-size:20px;font-weight:800">الاستدارة والظلال</h2>
+      </div>
+      <p style="margin:0 0 18px 42px;font-size:13px;color:#526077;line-height:1.6">الأساس 0.75rem — البطاقات rounded-3xl، الحقول والأزرار rounded-xl.</p>
+      <div style="display:flex;gap:12px;margin-bottom:22px">
+        <div style="flex:1;text-align:center"><div style="height:46px;background:#dbe7fb;border:1px solid #c2cfe0;border-radius:8px;margin-bottom:6px"></div><code style="font-size:11px;color:#1e3a8a">sm 8</code></div>
+        <div style="flex:1;text-align:center"><div style="height:46px;background:#dbe7fb;border:1px solid #c2cfe0;border-radius:12px;margin-bottom:6px"></div><code style="font-size:11px;color:#1e3a8a">md 12</code></div>
+        <div style="flex:1;text-align:center"><div style="height:46px;background:#dbe7fb;border:1px solid #c2cfe0;border-radius:16px;margin-bottom:6px"></div><code style="font-size:11px;color:#1e3a8a">lg 16</code></div>
+        <div style="flex:1;text-align:center"><div style="height:46px;background:#dbe7fb;border:1px solid #c2cfe0;border-radius:24px;margin-bottom:6px"></div><code style="font-size:11px;color:#1e3a8a">3xl 24</code></div>
+        <div style="flex:1;text-align:center"><div style="height:46px;background:#dbe7fb;border:1px solid #c2cfe0;border-radius:999px;margin-bottom:6px"></div><code style="font-size:11px;color:#1e3a8a">full</code></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
+        <div style="background:#f7f9fc;border-radius:16px;padding:18px">
+          <div style="font-size:12px;font-weight:700;color:#526077;margin-bottom:14px">فاتح</div>
+          <div style="display:flex;flex-direction:column;gap:14px">
+            <div style="height:34px;background:#fff;border-radius:10px;box-shadow:0 1px 2px rgba(15,23,42,.06)"></div>
+            <div style="height:34px;background:#fff;border-radius:10px;box-shadow:0 2px 8px rgba(15,23,42,.08)"></div>
+            <div style="height:34px;background:#fff;border-radius:10px;box-shadow:0 8px 24px rgba(15,23,42,.10)"></div>
+            <div style="height:34px;background:#fff;border-radius:10px;box-shadow:0 16px 40px rgba(15,23,42,.14)"></div>
+          </div>
+        </div>
+        <div style="background:#0a1628;border-radius:16px;padding:18px">
+          <div style="font-size:12px;font-weight:700;color:#93a4bd;margin-bottom:14px">داكن</div>
+          <div style="display:flex;flex-direction:column;gap:14px">
+            <div style="height:34px;background:#132337;border-radius:10px;box-shadow:0 1px 2px rgba(0,0,0,.4)"></div>
+            <div style="height:34px;background:#132337;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.45)"></div>
+            <div style="height:34px;background:#132337;border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.5)"></div>
+            <div style="height:34px;background:#132337;border-radius:10px;box-shadow:0 20px 48px rgba(0,0,0,.6)"></div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:12px;display:flex;justify-content:space-between;padding:0 4px"><code style="font-size:10.5px;color:#8a97ab">e1</code><code style="font-size:10.5px;color:#8a97ab">e2</code><code style="font-size:10.5px;color:#8a97ab">e3</code><code style="font-size:10.5px;color:#8a97ab">e4</code></div>
+    </section>
+  </div>
+
+  <!-- ===== SECTION 7: COMPONENT STATES ===== -->
+  <section style="background:#ffffff;border:1px solid #e4e9f2;border-radius:22px;padding:32px;box-shadow:0 2px 12px rgba(15,23,42,.05)">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+      <span style="width:30px;height:30px;border-radius:9px;background:#1e3a8a;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px">٧</span>
+      <h2 style="margin:0;font-size:22px;font-weight:800">حالات المكوّنات</h2>
+    </div>
+    <p style="margin:0 0 24px 42px;font-size:14px;color:#526077;line-height:1.6">كل مكوّن معروض في الوضعين. الأزرار والحقول والصفوف بارتفاع لمس ≥ 44px.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+
+      <!-- LIGHT PANEL -->
+      <div style="background:#e7edf5;border-radius:18px;padding:24px;display:flex;flex-direction:column;gap:22px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="width:22px;height:22px;border-radius:7px;background:#fff;border:1px solid #c2cfe0"></span><span style="font-size:13px;font-weight:700;color:#526077">الوضع الفاتح</span></div>
+
+        <!-- buttons -->
+        <div>
+          <div style="font-size:12px;font-weight:700;color:#8a97ab;margin-bottom:10px">زر · Button</div>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+            <button style="height:44px;padding:0 20px;border:none;border-radius:12px;background:#1e3a8a;color:#fff;font-family:inherit;font-size:14px;font-weight:700">افتراضي</button>
+            <button style="height:44px;padding:0 20px;border:none;border-radius:12px;background:#172e6d;color:#fff;font-family:inherit;font-size:14px;font-weight:700">تحويم</button>
+            <button style="height:44px;padding:0 20px;border:none;border-radius:12px;background:#1e3a8a;color:#fff;font-family:inherit;font-size:14px;font-weight:700;box-shadow:0 0 0 3px rgba(30,58,138,.35)">تركيز</button>
+            <button style="height:44px;padding:0 20px;border:none;border-radius:12px;background:#1e3a8a;color:#fff;font-family:inherit;font-size:14px;font-weight:700;opacity:.4">معطّل</button>
+            <button style="height:44px;padding:0 20px;border:1px solid #b9c8dc;border-radius:12px;background:#dbe7fb;color:#1e3a8a;font-family:inherit;font-size:14px;font-weight:700">ثانوي</button>
+          </div>
+        </div>
+
+        <!-- inputs -->
+        <div>
+          <div style="font-size:12px;font-weight:700;color:#8a97ab;margin-bottom:10px">حقل · إدخال / قائمة</div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <input value="اسم الطالب" dir="rtl" style="height:44px;padding:0 14px;border:1px solid #b9c8dc;border-radius:12px;background:#f5f8fc;color:#0f172a;font-family:inherit;font-size:14px" readonly>
+            <input value="تركيز — نشِط" dir="rtl" style="height:44px;padding:0 14px;border:1.5px solid #1e3a8a;border-radius:12px;background:#fff;color:#0f172a;font-family:inherit;font-size:14px;box-shadow:0 0 0 3px rgba(30,58,138,.18)" readonly>
+            <input value="معطّل" dir="rtl" style="height:44px;padding:0 14px;border:1px solid #c2cfe0;border-radius:12px;background:#eef2f8;color:#8a97ab;font-family:inherit;font-size:14px" readonly>
+          </div>
+        </div>
+
+        <!-- tabs + nav -->
+        <div>
+          <div style="font-size:12px;font-weight:700;color:#8a97ab;margin-bottom:10px">تبويب + عنصر تنقّل</div>
+          <div style="display:flex;gap:4px;background:#dde4ee;padding:4px;border-radius:12px;margin-bottom:12px">
+            <span style="flex:1;text-align:center;padding:9px;border-radius:9px;background:#fff;color:#1e3a8a;font-size:13px;font-weight:700;box-shadow:0 1px 2px rgba(15,23,42,.08)">نشِط</span>
+            <span style="flex:1;text-align:center;padding:9px;border-radius:9px;color:#526077;font-size:13px;font-weight:600">خامل</span>
+            <span style="flex:1;text-align:center;padding:9px;border-radius:9px;color:#526077;font-size:13px;font-weight:600">خامل</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:12px;background:#1e3a8a;color:#fff;font-size:14px;font-weight:700"><span style="width:8px;height:8px;border-radius:2px;background:#fff"></span>عنصر نشِط</div>
+            <div style="display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:12px;color:#526077;font-size:14px;font-weight:600"><span style="width:8px;height:8px;border-radius:2px;background:#b9c8dc"></span>عنصر عادي</div>
+          </div>
+        </div>
+
+        <!-- alerts -->
+        <div>
+          <div style="font-size:12px;font-weight:700;color:#8a97ab;margin-bottom:10px">تنبيهات</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="padding:11px 14px;border-radius:12px;background:#e0f2fe;border-inline-start:3px solid #0369a1;color:#075985;font-size:13px;font-weight:600">معلومة — رابط التحضير الخارجي فعّال.</div>
+            <div style="padding:11px 14px;border-radius:12px;background:#dcfce7;border-inline-start:3px solid #15803d;color:#166534;font-size:13px;font-weight:600">نجاح — تم حفظ التحضير.</div>
+            <div style="padding:11px 14px;border-radius:12px;background:#fef3c7;border-inline-start:3px solid #b45309;color:#92400e;font-size:13px;font-weight:600">تنبيه — ٣ طلاب دون تحضير.</div>
+            <div style="padding:11px 14px;border-radius:12px;background:#ffe4e6;border-inline-start:3px solid #f43f5e;color:#be123c;font-size:13px;font-weight:600">خطأ — تعذّر الحفظ، حاول مجددًا.</div>
+          </div>
+        </div>
+
+        <!-- toast + KPI -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <div style="font-size:12px;font-weight:700;color:#8a97ab;margin-bottom:10px">إشعار</div>
+            <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:12px;background:#fff;box-shadow:0 8px 24px rgba(15,23,42,.12)"><span style="width:28px;height:28px;border-radius:8px;background:#dcfce7;color:#15803d;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px">✓</span><span style="font-size:12.5px;font-weight:600">تم تسجيل الحضور</span></div>
+          </div>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:#8a97ab;margin-bottom:10px">مؤشّر KPI</div>
+            <div style="padding:14px;border-radius:14px;background:#fff;border:1px solid #e4e9f2"><div style="font-size:12px;color:#526077;font-weight:600">الحضور اليوم</div><div style="font-size:26px;font-weight:800;color:#1e3a8a;line-height:1.2">٤٢<span style="font-size:13px;color:#15803d;font-weight:700;margin-inline-start:6px">٩١٪</span></div></div>
+          </div>
+        </div>
+
+        <!-- badges + table rows -->
+        <div>
+          <div style="font-size:12px;font-weight:700;color:#8a97ab;margin-bottom:10px">شارات الحالة + صفوف الجدول</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+            <span style="padding:5px 12px;border-radius:999px;font-size:12px;font-weight:700;background:#dcfce7;color:#166534">حاضر</span>
+            <span style="padding:5px 12px;border-radius:999px;font-size:12px;font-weight:700;background:#fee2e2;color:#be123c">غائب</span>
+            <span style="padding:5px 12px;border-radius:999px;font-size:12px;font-weight:700;background:#fef3c7;color:#92400e">مستأذن</span>
+            <span style="padding:5px 12px;border-radius:999px;font-size:12px;font-weight:700;background:#e0f2fe;color:#075985">معلومة</span>
+          </div>
+          <div style="border:1px solid #e4e9f2;border-radius:12px;overflow:hidden;background:#fff">
+            <div style="padding:11px 14px;font-size:13px;border-bottom:1px solid #eef1f6">صف عادي</div>
+            <div style="padding:11px 14px;font-size:13px;background:#f5f8fc;border-bottom:1px solid #eef1f6">صف تحويم</div>
+            <div style="padding:11px 14px;font-size:13px;background:#dbe7fb;font-weight:600;border-inline-start:3px solid #1e3a8a">صف مُحدّد</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- DARK PANEL -->
+      <div style="background:#0a1628;border-radius:18px;padding:24px;display:flex;flex-direction:column;gap:22px">
+        <div style="display:flex;align-items:center;gap:8px"><span style="width:22px;height:22px;border-radius:7px;background:#132337;border:1px solid #21395a"></span><span style="font-size:13px;font-weight:700;color:#93a4bd">الوضع الداكن</span></div>
+
+        <div>
+          <div style="font-size:12px;font-weight:700;color:#6b7f9c;margin-bottom:10px">زر · Button</div>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+            <button style="height:44px;padding:0 20px;border:none;border-radius:12px;background:#2563eb;color:#fff;font-family:inherit;font-size:14px;font-weight:700">افتراضي</button>
+            <button style="height:44px;padding:0 20px;border:none;border-radius:12px;background:#3b82f6;color:#fff;font-family:inherit;font-size:14px;font-weight:700">تحويم</button>
+            <button style="height:44px;padding:0 20px;border:none;border-radius:12px;background:#2563eb;color:#fff;font-family:inherit;font-size:14px;font-weight:700;box-shadow:0 0 0 3px rgba(59,130,246,.45)">تركيز</button>
+            <button style="height:44px;padding:0 20px;border:none;border-radius:12px;background:#2563eb;color:#fff;font-family:inherit;font-size:14px;font-weight:700;opacity:.4">معطّل</button>
+            <button style="height:44px;padding:0 20px;border:1px solid #24405f;border-radius:12px;background:#1c3a5e;color:#bfd4f2;font-family:inherit;font-size:14px;font-weight:700">ثانوي</button>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size:12px;font-weight:700;color:#6b7f9c;margin-bottom:10px">حقل · إدخال / قائمة</div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <input value="اسم الطالب" dir="rtl" style="height:44px;padding:0 14px;border:1px solid #24405f;border-radius:12px;background:#0f2033;color:#eef3fb;font-family:inherit;font-size:14px" readonly>
+            <input value="تركيز — نشِط" dir="rtl" style="height:44px;padding:0 14px;border:1.5px solid #3b82f6;border-radius:12px;background:#0f2033;color:#eef3fb;font-family:inherit;font-size:14px;box-shadow:0 0 0 3px rgba(59,130,246,.28)" readonly>
+            <input value="معطّل" dir="rtl" style="height:44px;padding:0 14px;border:1px solid #21395a;border-radius:12px;background:#132337;color:#5c6f8a;font-family:inherit;font-size:14px" readonly>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size:12px;font-weight:700;color:#6b7f9c;margin-bottom:10px">تبويب + عنصر تنقّل</div>
+          <div style="display:flex;gap:4px;background:#0f2033;padding:4px;border-radius:12px;margin-bottom:12px">
+            <span style="flex:1;text-align:center;padding:9px;border-radius:9px;background:#1c3a5e;color:#bfd4f2;font-size:13px;font-weight:700">نشِط</span>
+            <span style="flex:1;text-align:center;padding:9px;border-radius:9px;color:#93a4bd;font-size:13px;font-weight:600">خامل</span>
+            <span style="flex:1;text-align:center;padding:9px;border-radius:9px;color:#93a4bd;font-size:13px;font-weight:600">خامل</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:12px;background:#2563eb;color:#fff;font-size:14px;font-weight:700"><span style="width:8px;height:8px;border-radius:2px;background:#fff"></span>عنصر نشِط</div>
+            <div style="display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:12px;color:#93a4bd;font-size:14px;font-weight:600"><span style="width:8px;height:8px;border-radius:2px;background:#24405f"></span>عنصر عادي</div>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size:12px;font-weight:700;color:#6b7f9c;margin-bottom:10px">تنبيهات</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="padding:11px 14px;border-radius:12px;background:#082f42;border-inline-start:3px solid #38bdf8;color:#7dd3fc;font-size:13px;font-weight:600">معلومة — رابط التحضير الخارجي فعّال.</div>
+            <div style="padding:11px 14px;border-radius:12px;background:#0f2e1c;border-inline-start:3px solid #4ade80;color:#86efac;font-size:13px;font-weight:600">نجاح — تم حفظ التحضير.</div>
+            <div style="padding:11px 14px;border-radius:12px;background:#3a2a0a;border-inline-start:3px solid #fbbf24;color:#fcd34d;font-size:13px;font-weight:600">تنبيه — ٣ طلاب دون تحضير.</div>
+            <div style="padding:11px 14px;border-radius:12px;background:#3a0d17;border-inline-start:3px solid #fb7185;color:#fda4af;font-size:13px;font-weight:600">خطأ — تعذّر الحفظ، حاول مجددًا.</div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <div style="font-size:12px;font-weight:700;color:#6b7f9c;margin-bottom:10px">إشعار</div>
+            <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:12px;background:#132337;box-shadow:0 10px 28px rgba(0,0,0,.5)"><span style="width:28px;height:28px;border-radius:8px;background:#0f2e1c;color:#4ade80;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px">✓</span><span style="font-size:12.5px;font-weight:600;color:#eef3fb">تم تسجيل الحضور</span></div>
+          </div>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:#6b7f9c;margin-bottom:10px">مؤشّر KPI</div>
+            <div style="padding:14px;border-radius:14px;background:#132337;border:1px solid #21395a"><div style="font-size:12px;color:#93a4bd;font-weight:600">الحضور اليوم</div><div style="font-size:26px;font-weight:800;color:#eef3fb;line-height:1.2">٤٢<span style="font-size:13px;color:#4ade80;font-weight:700;margin-inline-start:6px">٩١٪</span></div></div>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size:12px;font-weight:700;color:#6b7f9c;margin-bottom:10px">شارات الحالة + صفوف الجدول</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+            <span style="padding:5px 12px;border-radius:999px;font-size:12px;font-weight:700;background:#0f2e1c;color:#86efac">حاضر</span>
+            <span style="padding:5px 12px;border-radius:999px;font-size:12px;font-weight:700;background:#3a1212;color:#fda4af">غائب</span>
+            <span style="padding:5px 12px;border-radius:999px;font-size:12px;font-weight:700;background:#3a2a0a;color:#fcd34d">مستأذن</span>
+            <span style="padding:5px 12px;border-radius:999px;font-size:12px;font-weight:700;background:#082f42;color:#7dd3fc">معلومة</span>
+          </div>
+          <div style="border:1px solid #21395a;border-radius:12px;overflow:hidden;background:#132337">
+            <div style="padding:11px 14px;font-size:13px;color:#eef3fb;border-bottom:1px solid #21395a">صف عادي</div>
+            <div style="padding:11px 14px;font-size:13px;color:#eef3fb;background:#182b42;border-bottom:1px solid #21395a">صف تحويم</div>
+            <div style="padding:11px 14px;font-size:13px;color:#eef3fb;background:#1c3a5e;font-weight:600;border-inline-start:3px solid #3b82f6">صف مُحدّد</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ===== SECTION 8: MOCKUPS ===== -->
+  <section style="background:#ffffff;border:1px solid #e4e9f2;border-radius:22px;padding:32px;box-shadow:0 2px 12px rgba(15,23,42,.05)">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+      <span style="width:30px;height:30px;border-radius:9px;background:#1e3a8a;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px">٨</span>
+      <h2 style="margin:0;font-size:22px;font-weight:800">نماذج الشاشات — RTL · فاتح وداكن</h2>
+    </div>
+    <p style="margin:0 0 28px 42px;font-size:14px;color:#526077;line-height:1.6">الشاشات الأساسية مطبّقة بالرموز أعلاه. كل شاشة موضّحة بلمسات تشير إلى الرموز المستخدمة.</p>
+    <div style="display:flex;flex-direction:column;gap:44px">
+      <!-- SCREEN 1: ATTENDANCE LEDGER -->
+      <div>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+          <span style="width:26px;height:26px;border-radius:8px;background:#0f172a;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">١</span>
+          <h3 style="margin:0;font-size:17px;font-weight:800">تحضير الطلاب — سجل التحضير الكثيف</h3>
+          <span style="font-size:12px;color:#8a97ab">جدول · تحكّم حاضر/غائب/مستأذن · حالة «حضر اليوم»</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+          <!-- LIGHT -->
+          <div style="background:#e7edf5;border:1px solid #d3dcea;border-radius:16px;padding:14px">
+            <div style="background:#fff;border:1px solid #e4e9f2;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(15,23,42,.06)">
+              <div style="padding:16px 18px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #eef1f6">
+                <div><div style="font-size:19px;font-weight:800">تحضير الطلاب</div><div style="font-size:12.5px;color:#526077">حلقة الفجر · الخميس ٢ رجب</div></div>
+                <div style="display:flex;align-items:center;gap:10px">
+                  <span style="padding:6px 12px;border-radius:999px;background:#dcfce7;color:#166534;font-size:12px;font-weight:700">حضر ٤ / ٦</span>
+                  <button style="height:38px;padding:0 16px;border:none;border-radius:12px;background:#1e3a8a;color:#fff;font-family:inherit;font-size:13px;font-weight:700">حفظ التحضير</button>
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:1.3fr 82px 176px;gap:10px;padding:9px 18px;background:#f1f5fa;font-size:11.5px;font-weight:700;color:#8a97ab">
+                <div>الطالب</div><div>محفوظ اليوم</div><div>الحالة</div>
+              </div>
+              <div style="display:grid;grid-template-columns:1.3fr 82px 176px;gap:10px;padding:8px 18px;align-items:center;border-top:1px solid #eef1f6;background:#f6fbf7;min-height:44px">
+                <div style="display:flex;align-items:center;gap:9px"><span style="width:30px;height:30px;border-radius:9px;background:#dbe7fb;color:#1e3a8a;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">أح</span><div><div style="font-size:13.5px;font-weight:600">أحمد المطيري</div><span style="font-size:10.5px;color:#15803d;font-weight:700">✓ حضر اليوم</span></div></div>
+                <div style="font-size:13px;font-weight:600">٣ أوجه</div>
+                <div style="display:flex;gap:3px;background:#eef2f8;padding:3px;border-radius:10px"><span style="flex:1;text-align:center;padding:6px 4px;border-radius:8px;background:#15803d;color:#fff;font-size:11px;font-weight:700">حاضر</span><span style="flex:1;text-align:center;padding:6px 4px;font-size:11px;font-weight:600;color:#526077">غائب</span><span style="flex:1;text-align:center;padding:6px 4px;font-size:11px;font-weight:600;color:#526077">مستأذن</span></div>
+              </div>
+              <div style="display:grid;grid-template-columns:1.3fr 82px 176px;gap:10px;padding:8px 18px;align-items:center;border-top:1px solid #eef1f6;min-height:44px">
+                <div style="display:flex;align-items:center;gap:9px"><span style="width:30px;height:30px;border-radius:9px;background:#dbe7fb;color:#1e3a8a;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">سا</span><div style="font-size:13.5px;font-weight:600">سالم القحطاني</div></div>
+                <div style="font-size:13px;font-weight:600">حزب و ٢ أوجه</div>
+                <div style="display:flex;gap:3px;background:#eef2f8;padding:3px;border-radius:10px"><span style="flex:1;text-align:center;padding:6px 4px;border-radius:8px;background:#15803d;color:#fff;font-size:11px;font-weight:700">حاضر</span><span style="flex:1;text-align:center;padding:6px 4px;font-size:11px;font-weight:600;color:#526077">غائب</span><span style="flex:1;text-align:center;padding:6px 4px;font-size:11px;font-weight:600;color:#526077">مستأذن</span></div>
+              </div>
+              <div style="display:grid;grid-template-columns:1.3fr 82px 176px;gap:10px;padding:8px 18px;align-items:center;border-top:1px solid #eef1f6;min-height:44px">
+                <div style="display:flex;align-items:center;gap:9px"><span style="width:30px;height:30px;border-radius:9px;background:#dbe7fb;color:#1e3a8a;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">عب</span><div style="font-size:13.5px;font-weight:600">عبدالله الشمري</div></div>
+                <div style="font-size:13px;color:#8a97ab">—</div>
+                <div style="display:flex;gap:3px;background:#eef2f8;padding:3px;border-radius:10px"><span style="flex:1;text-align:center;padding:6px 4px;font-size:11px;font-weight:600;color:#526077">حاضر</span><span style="flex:1;text-align:center;padding:6px 4px;border-radius:8px;background:#dc2626;color:#fff;font-size:11px;font-weight:700">غائب</span><span style="flex:1;text-align:center;padding:6px 4px;font-size:11px;font-weight:600;color:#526077">مستأذن</span></div>
+              </div>
+              <div style="display:grid;grid-template-columns:1.3fr 82px 176px;gap:10px;padding:8px 18px;align-items:center;border-top:1px solid #eef1f6;min-height:44px">
+                <div style="display:flex;align-items:center;gap:9px"><span style="width:30px;height:30px;border-radius:9px;background:#dbe7fb;color:#1e3a8a;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">ما</span><div style="font-size:13.5px;font-weight:600">ماجد العتيبي</div></div>
+                <div style="font-size:13px;color:#8a97ab">—</div>
+                <div style="display:flex;gap:3px;background:#eef2f8;padding:3px;border-radius:10px"><span style="flex:1;text-align:center;padding:6px 4px;font-size:11px;font-weight:600;color:#526077">حاضر</span><span style="flex:1;text-align:center;padding:6px 4px;font-size:11px;font-weight:600;color:#526077">غائب</span><span style="flex:1;text-align:center;padding:6px 4px;border-radius:8px;background:#b45309;color:#fff;font-size:11px;font-weight:700">مستأذن</span></div>
+              </div>
+              <div style="display:grid;grid-template-columns:1.3fr 82px 176px;gap:10px;padding:8px 18px;align-items:center;border-top:1px solid #eef1f6;background:#f6fbf7;min-height:44px">
+                <div style="display:flex;align-items:center;gap:9px"><span style="width:30px;height:30px;border-radius:9px;background:#dbe7fb;color:#1e3a8a;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">في</span><div><div style="font-size:13.5px;font-weight:600">فيصل الدوسري</div><span style="font-size:10.5px;color:#15803d;font-weight:700">✓ حضر اليوم</span></div></div>
+                <div style="font-size:13px;font-weight:600">٥ أوجه</div>
+                <div style="display:flex;gap:3px;background:#eef2f8;padding:3px;border-radius:10px"><span style="flex:1;text-align:center;padding:6px 4px;border-radius:8px;background:#15803d;color:#fff;font-size:11px;font-weight:700">حاضر</span><span style="flex:1;text-align:center;padding:6px 4px;font-size:11px;font-weight:600;color:#526077">غائب</span><span style="flex:1;text-align:center;padding:6px 4px;font-size:11px;font-weight:600;color:#526077">مستأذن</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- DARK -->
+          <div style="background:#0a1628;border:1px solid #1c2c46;border-radius:16px;padding:14px">
+            <div style="background:#132337;border:1px solid #21395a;border-radius:12px;overflow:hidden;box-shadow:0 10px 28px rgba(0,0,0,.45)">
+              <div style="padding:16px 18px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #21395a">
+                <div><div style="font-size:19px;font-weight:800;color:#eef3fb">تحضير الطلاب</div><div style="font-size:12.5px;color:#93a4bd">حلقة الفجر · الخميس ٢ رجب</div></div>
+                <div style="display:flex;align-items:center;gap:10px">
+                  <span style="padding:6px 12px;border-radius:999px;background:#0f2e1c;color:#86efac;font-size:12px;font-weight:700">حضر ٤ / ٦</span>
+                  <button style="height:38px;padding:0 16px;border:none;border-radius:12px;background:#2563eb;color:#fff;font-family:inherit;font-size:13px;font-weight:700">حفظ التحضير</button>
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:1.3fr 82px 176px;gap:10px;padding:9px 18px;background:#0f2033;font-size:11.5px;font-weight:700;color:#6b7f9c">
+                <div>الطالب</div><div>محفوظ اليوم</div><div>الحالة</div>
+              </div>
+              <div style="display:grid;grid-template-columns:1.3fr 82px 176px;gap:10px;padding:8px 18px;align-items:center;border-top:1px solid #21395a;background:#12241c;min-height:44px">
+                <div style="display:flex;align-items:center;gap:9px"><span style="width:30px;height:30px;border-radius:9px;background:#1c3a5e;color:#bfd4f2;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">أح</span><div><div style="font-size:13.5px;font-weight:600;color:#eef3fb">أحمد المطيري</div><span style="font-size:10.5px;color:#4ade80;font-weight:700">✓ حضر اليوم</span></div></div>
+                <div style="font-size:13px;font-weight:600;color:#eef3fb">٣ أوجه</div>
+                <div style="display:flex;gap:3px;background:#0f2033;padding:3px;border-radius:10px"><span style="flex:1;text-align:center;padding:6px 4px;border-radius:8px;background:#4ade80;color:#0a1628;font-size:11px;font-weight:700">حاضر</span><span style="flex:1;text-align:center;padding:6px 4px;font-size:11px;font-weight:600;color:#93a4bd">غائب</span><span style="flex:1;text-align:center;padding:6px 4px;font-size:11px;font-weight:600;color:#93a4bd">مستأذن</span></div>
+              </div>
+              <div style="display:grid;grid-template-columns:1.3fr 82px 176px;gap:10px;padding:8px 18px;align-items:center;border-top:1px solid #21395a;min-height:44px">
+                <div style="display:flex;align-items:center;gap:9px"><span style="width:30px;height:30px;border-radius:9px;background:#1c3a5e;color:#bfd4f2;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">سا</span><div style="font-size:13.5px;font-weight:600;color:#eef3fb">سالم القحطاني</div></div>
+                <div style="font-size:13px;font-weight:600;color:#eef3fb">حزب و ٢ أوجه</div>
+                <div style="display:flex;gap:3px;background:#0f2033;padding:3px;border-radius:10px"><span style="flex:1;text-align:center;padding:6px 4px;border-radius:8px;background:#4ade80;color:#0a1628;font-size:11px;font-weight:700">حاضر</span><span style="flex:1;text-align:center;padding:6px 4px;font-size:11px;font-weight:600;color:#93a4bd">غائب</span><span style="flex:1;text-align:center;padding:6px 4px;font-size:11px;font-weight:600;color:#93a4bd">مستأذن</span></div>
+              </div>
+              <div style="display:grid;grid-template-columns:1.3fr 82px 176px;gap:10px;padding:8px 18px;align-items:center;border-top:1px solid #21395a;min-height:44px">
+                <div style="display:flex;align-items:center;gap:9px"><span style="width:30px;height:30px;border-radius:9px;background:#1c3a5e;color:#bfd4f2;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">عب</span><div style="font-size:13.5px;font-weight:600;color:#eef3fb">عبدالله الشمري</div></div>
+                <div style="font-size:13px;color:#5c6f8a">—</div>
+                <div style="display:flex;gap:3px;background:#0f2033;padding:3px;border-radius:10px"><span style="flex:1;text-align:center;padding:6px 4px;font-size:11px;font-weight:600;color:#93a4bd">حاضر</span><span style="flex:1;text-align:center;padding:6px 4px;border-radius:8px;background:#f87171;color:#0a1628;font-size:11px;font-weight:700">غائب</span><span style="flex:1;text-align:center;padding:6px 4px;font-size:11px;font-weight:600;color:#93a4bd">مستأذن</span></div>
+              </div>
+              <div style="display:grid;grid-template-columns:1.3fr 82px 176px;gap:10px;padding:8px 18px;align-items:center;border-top:1px solid #21395a;min-height:44px">
+                <div style="display:flex;align-items:center;gap:9px"><span style="width:30px;height:30px;border-radius:9px;background:#1c3a5e;color:#bfd4f2;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">ما</span><div style="font-size:13.5px;font-weight:600;color:#eef3fb">ماجد العتيبي</div></div>
+                <div style="font-size:13px;color:#5c6f8a">—</div>
+                <div style="display:flex;gap:3px;background:#0f2033;padding:3px;border-radius:10px"><span style="flex:1;text-align:center;padding:6px 4px;font-size:11px;font-weight:600;color:#93a4bd">حاضر</span><span style="flex:1;text-align:center;padding:6px 4px;font-size:11px;font-weight:600;color:#93a4bd">غائب</span><span style="flex:1;text-align:center;padding:6px 4px;border-radius:8px;background:#fbbf24;color:#0a1628;font-size:11px;font-weight:700">مستأذن</span></div>
+              </div>
+              <div style="display:grid;grid-template-columns:1.3fr 82px 176px;gap:10px;padding:8px 18px;align-items:center;border-top:1px solid #21395a;background:#12241c;min-height:44px">
+                <div style="display:flex;align-items:center;gap:9px"><span style="width:30px;height:30px;border-radius:9px;background:#1c3a5e;color:#bfd4f2;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">في</span><div><div style="font-size:13.5px;font-weight:600;color:#eef3fb">فيصل الدوسري</div><span style="font-size:10.5px;color:#4ade80;font-weight:700">✓ حضر اليوم</span></div></div>
+                <div style="font-size:13px;font-weight:600;color:#eef3fb">٥ أوجه</div>
+                <div style="display:flex;gap:3px;background:#0f2033;padding:3px;border-radius:10px"><span style="flex:1;text-align:center;padding:6px 4px;border-radius:8px;background:#4ade80;color:#0a1628;font-size:11px;font-weight:700">حاضر</span><span style="flex:1;text-align:center;padding:6px 4px;font-size:11px;font-weight:600;color:#93a4bd">غائب</span><span style="flex:1;text-align:center;padding:6px 4px;font-size:11px;font-weight:600;color:#93a4bd">مستأذن</span></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px">
+          <span style="font-size:11.5px;color:#526077;background:#f1f5fa;border:1px solid #e4e9f2;border-radius:8px;padding:5px 10px"><b style="color:#15803d">حاضر</b> = attendance/present · سطح الصف <code style="font-size:11px">success-surface</code></span>
+          <span style="font-size:11.5px;color:#526077;background:#f1f5fa;border:1px solid #e4e9f2;border-radius:8px;padding:5px 10px"><b style="color:#dc2626">غائب</b> = attendance/absent</span>
+          <span style="font-size:11.5px;color:#526077;background:#f1f5fa;border:1px solid #e4e9f2;border-radius:8px;padding:5px 10px"><b style="color:#b45309">مستأذن</b> = attendance/excused</span>
+          <span style="font-size:11.5px;color:#526077;background:#f1f5fa;border:1px solid #e4e9f2;border-radius:8px;padding:5px 10px">التحكّم = segmented بارتفاع ≥ 44px</span>
+          <span style="font-size:11.5px;color:#526077;background:#f1f5fa;border:1px solid #e4e9f2;border-radius:8px;padding:5px 10px">«حضر اليوم» شارة success على سطح أخضر خفيف</span>
+        </div>
+      </div>
+
+      <!-- SCREEN 2: EXTERNAL LINK (MOBILE) -->
+      <div>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+          <span style="width:26px;height:26px;border-radius:8px;background:#0f172a;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">٢</span>
+          <h3 style="margin:0;font-size:17px;font-weight:800">رابط التحضير الخارجي — عام · للجوّال</h3>
+          <span style="font-size:12px;color:#8a97ab">يمين: شاشة الإدخال (فاتح) · يسار: حالة التأكيد (داكن)</span>
+        </div>
+        <div style="display:flex;gap:36px;justify-content:center;flex-wrap:wrap">
+
+          <div style="width:300px;background:#0f172a;border-radius:36px;padding:10px;box-shadow:0 20px 48px rgba(15,23,42,.22)">
+            <div style="background:#e7edf5;border-radius:28px;overflow:hidden;height:600px;display:flex;flex-direction:column">
+              <div style="height:30px;display:flex;align-items:center;justify-content:center"><span style="width:80px;height:5px;border-radius:3px;background:#0f172a;opacity:.35"></span></div>
+              <div style="padding:8px 22px 22px;display:flex;flex-direction:column;gap:16px;flex:1;overflow:auto">
+                <div style="display:flex;flex-direction:column;align-items:center;gap:8px;margin-top:8px">
+                  <div style="width:46px;height:46px;border-radius:14px;background:#1e3a8a;display:flex;align-items:center;justify-content:center"><div style="width:19px;height:19px;border-radius:6px;border:3px solid #fff;transform:rotate(45deg)"></div></div>
+                  <div style="font-size:15px;font-weight:800">بساتين · تسجيل الحضور</div>
+                  <div style="font-size:12px;color:#526077">رابط عام — لا يتطلب تسجيل دخول</div>
+                </div>
+                <div style="background:#fff;border:1px solid #e4e9f2;border-radius:18px;padding:18px;box-shadow:0 2px 8px rgba(15,23,42,.06)">
+                  <div style="font-size:12px;color:#526077">حلقة الفجر · الأربعاء ٢ رجب</div>
+                  <div style="font-size:19px;font-weight:800;margin-top:4px">مرحبًا، فيصل الدوسري</div>
+                  <div style="font-size:13px;color:#526077;margin-top:12px;margin-bottom:10px">سجّل حالتك لهذا اليوم:</div>
+                  <button style="width:100%;height:52px;border:2px solid #15803d;border-radius:14px;background:#dcfce7;color:#166534;font-family:inherit;font-size:15px;font-weight:800;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:8px"><span style="width:20px;height:20px;border-radius:50%;background:#15803d;color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px">✓</span>حاضر</button>
+                  <button style="width:100%;height:52px;border:1px solid #c2cfe0;border-radius:14px;background:#fff;color:#526077;font-family:inherit;font-size:15px;font-weight:700;margin-bottom:10px">مستأذن — بعذر</button>
+                </div>
+                <button style="width:100%;height:52px;border:none;border-radius:14px;background:#1e3a8a;color:#fff;font-family:inherit;font-size:16px;font-weight:800;box-shadow:0 8px 20px rgba(30,58,138,.28)">تأكيد الحضور</button>
+              </div>
+            </div>
+          </div>
+
+          <div style="width:300px;background:#000;border-radius:36px;padding:10px;box-shadow:0 20px 48px rgba(0,0,0,.4)">
+            <div style="background:#0a1628;border-radius:28px;overflow:hidden;height:600px;display:flex;flex-direction:column">
+              <div style="height:30px;display:flex;align-items:center;justify-content:center"><span style="width:80px;height:5px;border-radius:3px;background:#fff;opacity:.3"></span></div>
+              <div style="padding:8px 22px 22px;display:flex;flex-direction:column;gap:16px;flex:1">
+                <div style="display:flex;flex-direction:column;align-items:center;gap:8px;margin-top:8px">
+                  <div style="width:46px;height:46px;border-radius:14px;background:#2563eb;display:flex;align-items:center;justify-content:center"><div style="width:19px;height:19px;border-radius:6px;border:3px solid #fff;transform:rotate(45deg)"></div></div>
+                  <div style="font-size:15px;font-weight:800;color:#eef3fb">بساتين · تسجيل الحضور</div>
+                </div>
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;text-align:center">
+                  <div style="width:96px;height:96px;border-radius:50%;background:#0f2e1c;display:flex;align-items:center;justify-content:center"><div style="width:60px;height:60px;border-radius:50%;background:#4ade80;color:#0a1628;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:800">✓</div></div>
+                  <div><div style="font-size:22px;font-weight:800;color:#eef3fb">تم تسجيل حضورك</div><div style="font-size:14px;color:#93a4bd;margin-top:6px">فيصل الدوسري · حلقة الفجر</div></div>
+                  <div style="padding:10px 18px;border-radius:999px;background:#0f2e1c;color:#86efac;font-size:13px;font-weight:700">حاضر — ٦:١٢ صباحًا</div>
+                </div>
+                <div style="padding:12px 14px;border-radius:14px;background:#082f42;border-inline-start:3px solid #38bdf8;color:#7dd3fc;font-size:12.5px;font-weight:600">يمكنك إغلاق الصفحة الآن.</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;justify-content:center">
+          <span style="font-size:11.5px;color:#526077;background:#f1f5fa;border:1px solid #e4e9f2;border-radius:8px;padding:5px 10px">جميع الأهداف اللمسية ≥ 52px</span>
+          <span style="font-size:11.5px;color:#526077;background:#f1f5fa;border:1px solid #e4e9f2;border-radius:8px;padding:5px 10px">زر التأكيد = <code style="font-size:11px">primary</code> + ظل e3</span>
+          <span style="font-size:11.5px;color:#526077;background:#f1f5fa;border:1px solid #e4e9f2;border-radius:8px;padding:5px 10px">حالة النجاح = <code style="font-size:11px">success / success-surface</code></span>
+        </div>
+      </div>
+
+      <!-- SCREEN 3: STUDENT FORM + MEMORIZATION -->
+      <div>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+          <span style="width:26px;height:26px;border-radius:8px;background:#0f172a;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">٣</span>
+          <h3 style="margin:0;font-size:17px;font-weight:800">نموذج الطالب — عرض المحفوظ بوحدات مفهومة</h3>
+          <span style="font-size:12px;color:#8a97ab">أجزاء / أحزاب / أوجه — لا عدّاد أوجه خام</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+          <!-- LIGHT -->
+          <div style="background:#e7edf5;border:1px solid #d3dcea;border-radius:16px;padding:14px">
+            <div style="background:#fff;border:1px solid #e4e9f2;border-radius:14px;padding:20px;box-shadow:0 2px 8px rgba(15,23,42,.06)">
+              <div style="font-size:18px;font-weight:800;margin-bottom:2px">نموذج الطالب</div>
+              <div style="font-size:12.5px;color:#526077;margin-bottom:18px">بيانات فيصل الدوسري</div>
+              <div style="background:#eef3fb;border:1px solid #d7e3f6;border-radius:16px;padding:16px;margin-bottom:18px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><span style="font-size:12.5px;font-weight:700;color:#1e3a8a">إجمالي المحفوظ</span><span style="font-size:11.5px;color:#526077">≈ ٥.٦٥ جزء من ٣٠</span></div>
+                <div style="display:flex;gap:10px;margin-bottom:12px">
+                  <div style="flex:1;background:#fff;border:1px solid #d7e3f6;border-radius:12px;padding:12px;text-align:center"><div style="font-size:28px;font-weight:800;color:#1e3a8a;line-height:1">٥</div><div style="font-size:11.5px;color:#526077;font-weight:600;margin-top:3px">أجزاء</div></div>
+                  <div style="flex:1;background:#fff;border:1px solid #d7e3f6;border-radius:12px;padding:12px;text-align:center"><div style="font-size:28px;font-weight:800;color:#1e3a8a;line-height:1">١</div><div style="font-size:11.5px;color:#526077;font-weight:600;margin-top:3px">حزب</div></div>
+                  <div style="flex:1;background:#fff;border:1px solid #d7e3f6;border-radius:12px;padding:12px;text-align:center"><div style="font-size:28px;font-weight:800;color:#1e3a8a;line-height:1">٣</div><div style="font-size:11.5px;color:#526077;font-weight:600;margin-top:3px">أوجه</div></div>
+                </div>
+                <div style="height:8px;border-radius:999px;background:#d7e3f6;overflow:hidden"><div style="width:19%;height:100%;background:#1e3a8a;border-radius:999px"></div></div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:12px">
+                <div><label style="font-size:12.5px;font-weight:700;color:#526077;display:block;margin-bottom:6px">الاسم الكامل</label><input value="فيصل الدوسري" dir="rtl" style="width:100%;height:44px;padding:0 14px;border:1px solid #b9c8dc;border-radius:12px;background:#f5f8fc;color:#0f172a;font-family:inherit;font-size:14px" readonly></div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                  <div><label style="font-size:12.5px;font-weight:700;color:#526077;display:block;margin-bottom:6px">الحلقة</label><input value="حلقة الفجر" dir="rtl" style="width:100%;height:44px;padding:0 14px;border:1px solid #b9c8dc;border-radius:12px;background:#f5f8fc;color:#0f172a;font-family:inherit;font-size:14px" readonly></div>
+                  <div><label style="font-size:12.5px;font-weight:700;color:#526077;display:block;margin-bottom:6px">المعلّم</label><input value="أ. خالد الحربي" dir="rtl" style="width:100%;height:44px;padding:0 14px;border:1px solid #b9c8dc;border-radius:12px;background:#f5f8fc;color:#0f172a;font-family:inherit;font-size:14px" readonly></div>
+                </div>
+                <div style="display:flex;gap:12px;margin-top:6px"><button style="flex:1;height:44px;border:none;border-radius:12px;background:#1e3a8a;color:#fff;font-family:inherit;font-size:14px;font-weight:700">حفظ التعديلات</button><button style="height:44px;padding:0 18px;border:1px solid #b9c8dc;border-radius:12px;background:#fff;color:#526077;font-family:inherit;font-size:14px;font-weight:700">إلغاء</button></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- DARK -->
+          <div style="background:#0a1628;border:1px solid #1c2c46;border-radius:16px;padding:14px">
+            <div style="background:#132337;border:1px solid #21395a;border-radius:14px;padding:20px;box-shadow:0 10px 28px rgba(0,0,0,.45)">
+              <div style="font-size:18px;font-weight:800;color:#eef3fb;margin-bottom:2px">نموذج الطالب</div>
+              <div style="font-size:12.5px;color:#93a4bd;margin-bottom:18px">بيانات فيصل الدوسري</div>
+              <div style="background:#0f2033;border:1px solid #24405f;border-radius:16px;padding:16px;margin-bottom:18px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px"><span style="font-size:12.5px;font-weight:700;color:#bfd4f2">إجمالي المحفوظ</span><span style="font-size:11.5px;color:#93a4bd">≈ ٥.٦٥ جزء من ٣٠</span></div>
+                <div style="display:flex;gap:10px;margin-bottom:12px">
+                  <div style="flex:1;background:#132337;border:1px solid #24405f;border-radius:12px;padding:12px;text-align:center"><div style="font-size:28px;font-weight:800;color:#bfd4f2;line-height:1">٥</div><div style="font-size:11.5px;color:#93a4bd;font-weight:600;margin-top:3px">أجزاء</div></div>
+                  <div style="flex:1;background:#132337;border:1px solid #24405f;border-radius:12px;padding:12px;text-align:center"><div style="font-size:28px;font-weight:800;color:#bfd4f2;line-height:1">١</div><div style="font-size:11.5px;color:#93a4bd;font-weight:600;margin-top:3px">حزب</div></div>
+                  <div style="flex:1;background:#132337;border:1px solid #24405f;border-radius:12px;padding:12px;text-align:center"><div style="font-size:28px;font-weight:800;color:#bfd4f2;line-height:1">٣</div><div style="font-size:11.5px;color:#93a4bd;font-weight:600;margin-top:3px">أوجه</div></div>
+                </div>
+                <div style="height:8px;border-radius:999px;background:#24405f;overflow:hidden"><div style="width:19%;height:100%;background:#3b82f6;border-radius:999px"></div></div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:12px">
+                <div><label style="font-size:12.5px;font-weight:700;color:#93a4bd;display:block;margin-bottom:6px">الاسم الكامل</label><input value="فيصل الدوسري" dir="rtl" style="width:100%;height:44px;padding:0 14px;border:1px solid #24405f;border-radius:12px;background:#0f2033;color:#eef3fb;font-family:inherit;font-size:14px" readonly></div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                  <div><label style="font-size:12.5px;font-weight:700;color:#93a4bd;display:block;margin-bottom:6px">الحلقة</label><input value="حلقة الفجر" dir="rtl" style="width:100%;height:44px;padding:0 14px;border:1px solid #24405f;border-radius:12px;background:#0f2033;color:#eef3fb;font-family:inherit;font-size:14px" readonly></div>
+                  <div><label style="font-size:12.5px;font-weight:700;color:#93a4bd;display:block;margin-bottom:6px">المعلّم</label><input value="أ. خالد الحربي" dir="rtl" style="width:100%;height:44px;padding:0 14px;border:1px solid #24405f;border-radius:12px;background:#0f2033;color:#eef3fb;font-family:inherit;font-size:14px" readonly></div>
+                </div>
+                <div style="display:flex;gap:12px;margin-top:6px"><button style="flex:1;height:44px;border:none;border-radius:12px;background:#2563eb;color:#fff;font-family:inherit;font-size:14px;font-weight:700">حفظ التعديلات</button><button style="height:44px;padding:0 18px;border:1px solid #24405f;border-radius:12px;background:#1c3a5e;color:#bfd4f2;font-family:inherit;font-size:14px;font-weight:700">إلغاء</button></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px">
+          <span style="font-size:11.5px;color:#526077;background:#f1f5fa;border:1px solid #e4e9f2;border-radius:8px;padding:5px 10px">تحويل: ١ جزء = ٢٠ حزبًا؟ لا — ١ جزء = ٤ أحزاب = ٨ أوجه. القيمة الخام (أوجه) تُحسب داخليًا فقط</span>
+          <span style="font-size:11.5px;color:#526077;background:#f1f5fa;border:1px solid #e4e9f2;border-radius:8px;padding:5px 10px">شريط التقدّم = <code style="font-size:11px">primary</code> على <code style="font-size:11px">secondary</code></span>
+        </div>
+      </div>
+
+      <!-- SCREEN 4: STUDENTS TABLE -->
+      <div>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+          <span style="width:26px;height:26px;border-radius:8px;background:#0f172a;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">٤</span>
+          <h3 style="margin:0;font-size:17px;font-weight:800">قائمة الطلاب — فلاتر وترقيم صفحات</h3>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+          <!-- LIGHT -->
+          <div style="background:#e7edf5;border:1px solid #d3dcea;border-radius:16px;padding:14px">
+            <div style="background:#fff;border:1px solid #e4e9f2;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(15,23,42,.06)">
+              <div style="padding:16px 18px;border-bottom:1px solid #eef1f6">
+                <div style="font-size:19px;font-weight:800;margin-bottom:12px">قائمة الطلاب</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <input placeholder="بحث بالاسم..." dir="rtl" style="flex:1;min-width:140px;height:40px;padding:0 14px;border:1px solid #b9c8dc;border-radius:11px;background:#f5f8fc;color:#0f172a;font-family:inherit;font-size:13px" readonly>
+                  <span style="height:40px;padding:0 14px;display:flex;align-items:center;gap:6px;border:1px solid #b9c8dc;border-radius:11px;background:#f5f8fc;font-size:13px;font-weight:600;color:#526077">الحلقة: الكل ▾</span>
+                  <span style="height:40px;padding:0 14px;display:flex;align-items:center;gap:6px;border:1px solid #b9c8dc;border-radius:11px;background:#f5f8fc;font-size:13px;font-weight:600;color:#526077">الحالة: الكل ▾</span>
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:1.4fr 1fr 100px 100px;gap:10px;padding:9px 18px;background:#f1f5fa;font-size:11.5px;font-weight:700;color:#8a97ab">
+                <div>الطالب</div><div>الحلقة</div><div>المحفوظ</div><div>الحالة</div>
+              </div>
+              <div style="display:grid;grid-template-columns:1.4fr 1fr 100px 100px;gap:10px;padding:10px 18px;align-items:center;border-top:1px solid #eef1f6;min-height:48px"><div style="font-size:13.5px;font-weight:600">أحمد المطيري</div><div style="font-size:13px;color:#526077">الفجر</div><div style="font-size:13px;font-weight:600">٥ أجزاء</div><span style="justify-self:start;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;background:#dcfce7;color:#166534">نشِط</span></div>
+              <div style="display:grid;grid-template-columns:1.4fr 1fr 100px 100px;gap:10px;padding:10px 18px;align-items:center;border-top:1px solid #eef1f6;background:#f5f8fc;min-height:48px"><div style="font-size:13.5px;font-weight:600">سالم القحطاني</div><div style="font-size:13px;color:#526077">العصر</div><div style="font-size:13px;font-weight:600">حزب و٢ أوجه</div><span style="justify-self:start;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;background:#dcfce7;color:#166534">نشِط</span></div>
+              <div style="display:grid;grid-template-columns:1.4fr 1fr 100px 100px;gap:10px;padding:10px 18px;align-items:center;border-top:1px solid #eef1f6;min-height:48px"><div style="font-size:13.5px;font-weight:600">عبدالله الشمري</div><div style="font-size:13px;color:#526077">المغرب</div><div style="font-size:13px;font-weight:600">٩ أجزاء</div><span style="justify-self:start;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;background:#eef2f8;color:#526077">موقوف</span></div>
+              <div style="padding:12px 18px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid #eef1f6">
+                <span style="font-size:12px;color:#526077">١–٣ من ٤٨</span>
+                <div style="display:flex;gap:6px"><span style="width:32px;height:32px;border-radius:9px;background:#f1f5fa;display:flex;align-items:center;justify-content:center;font-size:12px;color:#8a97ab">‹</span><span style="width:32px;height:32px;border-radius:9px;background:#1e3a8a;color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">١</span><span style="width:32px;height:32px;border-radius:9px;background:#f1f5fa;display:flex;align-items:center;justify-content:center;font-size:12px;color:#526077">٢</span><span style="width:32px;height:32px;border-radius:9px;background:#f1f5fa;display:flex;align-items:center;justify-content:center;font-size:12px;color:#526077">›</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- DARK -->
+          <div style="background:#0a1628;border:1px solid #1c2c46;border-radius:16px;padding:14px">
+            <div style="background:#132337;border:1px solid #21395a;border-radius:12px;overflow:hidden;box-shadow:0 10px 28px rgba(0,0,0,.45)">
+              <div style="padding:16px 18px;border-bottom:1px solid #21395a">
+                <div style="font-size:19px;font-weight:800;color:#eef3fb;margin-bottom:12px">قائمة الطلاب</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                  <input placeholder="بحث بالاسم..." dir="rtl" style="flex:1;min-width:140px;height:40px;padding:0 14px;border:1px solid #24405f;border-radius:11px;background:#0f2033;color:#eef3fb;font-family:inherit;font-size:13px" readonly>
+                  <span style="height:40px;padding:0 14px;display:flex;align-items:center;gap:6px;border:1px solid #24405f;border-radius:11px;background:#0f2033;font-size:13px;font-weight:600;color:#93a4bd">الحلقة: الكل ▾</span>
+                  <span style="height:40px;padding:0 14px;display:flex;align-items:center;gap:6px;border:1px solid #24405f;border-radius:11px;background:#0f2033;font-size:13px;font-weight:600;color:#93a4bd">الحالة: الكل ▾</span>
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:1.4fr 1fr 100px 100px;gap:10px;padding:9px 18px;background:#0f2033;font-size:11.5px;font-weight:700;color:#6b7f9c">
+                <div>الطالب</div><div>الحلقة</div><div>المحفوظ</div><div>الحالة</div>
+              </div>
+              <div style="display:grid;grid-template-columns:1.4fr 1fr 100px 100px;gap:10px;padding:10px 18px;align-items:center;border-top:1px solid #21395a;min-height:48px"><div style="font-size:13.5px;font-weight:600;color:#eef3fb">أحمد المطيري</div><div style="font-size:13px;color:#93a4bd">الفجر</div><div style="font-size:13px;font-weight:600;color:#eef3fb">٥ أجزاء</div><span style="justify-self:start;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;background:#0f2e1c;color:#86efac">نشِط</span></div>
+              <div style="display:grid;grid-template-columns:1.4fr 1fr 100px 100px;gap:10px;padding:10px 18px;align-items:center;border-top:1px solid #21395a;background:#0f2033;min-height:48px"><div style="font-size:13.5px;font-weight:600;color:#eef3fb">سالم القحطاني</div><div style="font-size:13px;color:#93a4bd">العصر</div><div style="font-size:13px;font-weight:600;color:#eef3fb">حزب و٢ أوجه</div><span style="justify-self:start;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;background:#0f2e1c;color:#86efac">نشِط</span></div>
+              <div style="display:grid;grid-template-columns:1.4fr 1fr 100px 100px;gap:10px;padding:10px 18px;align-items:center;border-top:1px solid #21395a;min-height:48px"><div style="font-size:13.5px;font-weight:600;color:#eef3fb">عبدالله الشمري</div><div style="font-size:13px;color:#93a4bd">المغرب</div><div style="font-size:13px;font-weight:600;color:#eef3fb">٩ أجزاء</div><span style="justify-self:start;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;background:#0f2033;color:#93a4bd">موقوف</span></div>
+              <div style="padding:12px 18px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid #21395a">
+                <span style="font-size:12px;color:#93a4bd">١–٣ من ٤٨</span>
+                <div style="display:flex;gap:6px"><span style="width:32px;height:32px;border-radius:9px;background:#0f2033;display:flex;align-items:center;justify-content:center;font-size:12px;color:#6b7f9c">‹</span><span style="width:32px;height:32px;border-radius:9px;background:#2563eb;color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">١</span><span style="width:32px;height:32px;border-radius:9px;background:#0f2033;display:flex;align-items:center;justify-content:center;font-size:12px;color:#93a4bd">٢</span><span style="width:32px;height:32px;border-radius:9px;background:#0f2033;display:flex;align-items:center;justify-content:center;font-size:12px;color:#93a4bd">›</span></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- SCREEN 5: KPI STRIP -->
+      <div>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+          <span style="width:26px;height:26px;border-radius:8px;background:#0f172a;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">٥</span>
+          <h3 style="margin:0;font-size:17px;font-weight:800">شريط مؤشرات KPI — عمودان جوّال · ٤ أعمدة سطح مكتب</h3>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+          <!-- LIGHT -->
+          <div style="background:#e7edf5;border:1px solid #d3dcea;border-radius:16px;padding:20px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div style="background:#fff;border:1px solid #e4e9f2;border-radius:16px;padding:16px;box-shadow:0 2px 8px rgba(15,23,42,.06)"><div style="font-size:12.5px;color:#526077;font-weight:600;margin-bottom:8px">إجمالي الطلاب</div><div style="font-size:28px;font-weight:800;color:#1e3a8a">٢٤٨</div></div>
+              <div style="background:#fff;border:1px solid #e4e9f2;border-radius:16px;padding:16px;box-shadow:0 2px 8px rgba(15,23,42,.06)"><div style="font-size:12.5px;color:#526077;font-weight:600;margin-bottom:8px">الحضور اليوم</div><div style="font-size:28px;font-weight:800;color:#1e3a8a">٩١٪<span style="font-size:12px;color:#15803d;font-weight:700;margin-inline-start:6px">↑ ٣٪</span></div></div>
+              <div style="background:#fff;border:1px solid #e4e9f2;border-radius:16px;padding:16px;box-shadow:0 2px 8px rgba(15,23,42,.06)"><div style="font-size:12.5px;color:#526077;font-weight:600;margin-bottom:8px">حلقات نشِطة</div><div style="font-size:28px;font-weight:800;color:#1e3a8a">١٢</div></div>
+              <div style="background:#fff;border:1px solid #e4e9f2;border-radius:16px;padding:16px;box-shadow:0 2px 8px rgba(15,23,42,.06)"><div style="font-size:12.5px;color:#526077;font-weight:600;margin-bottom:8px">غياب متكرر</div><div style="font-size:28px;font-weight:800;color:#dc2626">٧<span style="font-size:12px;color:#b45309;font-weight:700;margin-inline-start:6px">يتطلب متابعة</span></div></div>
+            </div>
+            <div style="font-size:11px;color:#8a97ab;text-align:center;margin-top:10px">جوّال — عمودان</div>
+          </div>
+
+          <!-- DARK, desktop 4-col -->
+          <div style="background:#0a1628;border:1px solid #1c2c46;border-radius:16px;padding:20px">
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+              <div style="background:#132337;border:1px solid #21395a;border-radius:16px;padding:16px;box-shadow:0 10px 28px rgba(0,0,0,.4)"><div style="font-size:12.5px;color:#93a4bd;font-weight:600;margin-bottom:8px">إجمالي الطلاب</div><div style="font-size:26px;font-weight:800;color:#eef3fb">٢٤٨</div></div>
+              <div style="background:#132337;border:1px solid #21395a;border-radius:16px;padding:16px;box-shadow:0 10px 28px rgba(0,0,0,.4)"><div style="font-size:12.5px;color:#93a4bd;font-weight:600;margin-bottom:8px">الحضور اليوم</div><div style="font-size:26px;font-weight:800;color:#eef3fb">٩١٪<span style="font-size:12px;color:#4ade80;font-weight:700;margin-inline-start:6px">↑ ٣٪</span></div></div>
+              <div style="background:#132337;border:1px solid #21395a;border-radius:16px;padding:16px;box-shadow:0 10px 28px rgba(0,0,0,.4)"><div style="font-size:12.5px;color:#93a4bd;font-weight:600;margin-bottom:8px">حلقات نشِطة</div><div style="font-size:26px;font-weight:800;color:#eef3fb">١٢</div></div>
+              <div style="background:#132337;border:1px solid #21395a;border-radius:16px;padding:16px;box-shadow:0 10px 28px rgba(0,0,0,.4)"><div style="font-size:12.5px;color:#93a4bd;font-weight:600;margin-bottom:8px">غياب متكرر</div><div style="font-size:26px;font-weight:800;color:#f87171">٧<span style="font-size:12px;color:#fbbf24;font-weight:700;margin-inline-start:6px">يتطلب متابعة</span></div></div>
+            </div>
+            <div style="font-size:11px;color:#5c6f8a;text-align:center;margin-top:10px">سطح المكتب — ٤ أعمدة</div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- SCREEN 6: TEACHER/SUPERVISOR HUB -->
+      <div>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+          <span style="width:26px;height:26px;border-radius:8px;background:#0f172a;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">٦</span>
+          <h3 style="margin:0;font-size:17px;font-weight:800">مركز المعلّم / مشرف المسار — تبويبات</h3>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+          <!-- LIGHT -->
+          <div style="background:#e7edf5;border:1px solid #d3dcea;border-radius:16px;padding:14px">
+            <div style="background:#fff;border:1px solid #e4e9f2;border-radius:14px;overflow:hidden;box-shadow:0 2px 8px rgba(15,23,42,.06)">
+              <div style="padding:18px 18px 0">
+                <div style="font-size:19px;font-weight:800">أ. خالد الحربي</div>
+                <div style="font-size:12.5px;color:#526077;margin-bottom:14px">مشرف مسار — حلقات الفجر والعصر</div>
+                <div style="display:flex;gap:20px;border-bottom:1px solid #eef1f6">
+                  <span style="padding:10px 2px;font-size:14px;font-weight:700;color:#1e3a8a;border-bottom:2.5px solid #1e3a8a">نظرة عامة</span>
+                  <span style="padding:10px 2px;font-size:14px;font-weight:600;color:#526077">الحلقات</span>
+                  <span style="padding:10px 2px;font-size:14px;font-weight:600;color:#526077">التقارير</span>
+                </div>
+              </div>
+              <div style="padding:18px;display:flex;flex-direction:column;gap:10px">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                  <div style="background:#eef3fb;border-radius:12px;padding:14px"><div style="font-size:11.5px;color:#526077;font-weight:600">الحلقات</div><div style="font-size:22px;font-weight:800;color:#1e3a8a">٤</div></div>
+                  <div style="background:#eef3fb;border-radius:12px;padding:14px"><div style="font-size:11.5px;color:#526077;font-weight:600">إجمالي الطلاب</div><div style="font-size:22px;font-weight:800;color:#1e3a8a">٦٤</div></div>
+                </div>
+                <div style="border:1px solid #eef1f6;border-radius:12px;overflow:hidden">
+                  <div style="padding:11px 14px;display:flex;justify-content:space-between;align-items:center"><span style="font-size:13.5px;font-weight:600">حلقة الفجر</span><span style="padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;background:#dcfce7;color:#166534">حضور ٩٤٪</span></div>
+                  <div style="padding:11px 14px;display:flex;justify-content:space-between;align-items:center;border-top:1px solid #eef1f6;background:#f6f0e6"><span style="font-size:13.5px;font-weight:600">حلقة العصر</span><span style="padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;background:#fef3c7;color:#92400e">حضور ٧٢٪</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- DARK -->
+          <div style="background:#0a1628;border:1px solid #1c2c46;border-radius:16px;padding:14px">
+            <div style="background:#132337;border:1px solid #21395a;border-radius:14px;overflow:hidden;box-shadow:0 10px 28px rgba(0,0,0,.45)">
+              <div style="padding:18px 18px 0">
+                <div style="font-size:19px;font-weight:800;color:#eef3fb">أ. خالد الحربي</div>
+                <div style="font-size:12.5px;color:#93a4bd;margin-bottom:14px">مشرف مسار — حلقات الفجر والعصر</div>
+                <div style="display:flex;gap:20px;border-bottom:1px solid #21395a">
+                  <span style="padding:10px 2px;font-size:14px;font-weight:700;color:#bfd4f2;border-bottom:2.5px solid #3b82f6">نظرة عامة</span>
+                  <span style="padding:10px 2px;font-size:14px;font-weight:600;color:#93a4bd">الحلقات</span>
+                  <span style="padding:10px 2px;font-size:14px;font-weight:600;color:#93a4bd">التقارير</span>
+                </div>
+              </div>
+              <div style="padding:18px;display:flex;flex-direction:column;gap:10px">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                  <div style="background:#0f2033;border-radius:12px;padding:14px"><div style="font-size:11.5px;color:#93a4bd;font-weight:600">الحلقات</div><div style="font-size:22px;font-weight:800;color:#eef3fb">٤</div></div>
+                  <div style="background:#0f2033;border-radius:12px;padding:14px"><div style="font-size:11.5px;color:#93a4bd;font-weight:600">إجمالي الطلاب</div><div style="font-size:22px;font-weight:800;color:#eef3fb">٦٤</div></div>
+                </div>
+                <div style="border:1px solid #21395a;border-radius:12px;overflow:hidden">
+                  <div style="padding:11px 14px;display:flex;justify-content:space-between;align-items:center"><span style="font-size:13.5px;font-weight:600;color:#eef3fb">حلقة الفجر</span><span style="padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;background:#0f2e1c;color:#86efac">حضور ٩٤٪</span></div>
+                  <div style="padding:11px 14px;display:flex;justify-content:space-between;align-items:center;border-top:1px solid #21395a;background:#241b0a"><span style="font-size:13.5px;font-weight:600;color:#eef3fb">حلقة العصر</span><span style="padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;background:#3a2a0a;color:#fcd34d">حضور ٧٢٪</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- MOCKUPS-END -->
+    </div>
+  </section>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      core: [
+        {t:'primary', l:'#1e3a8a', d:'#2563eb', u:'الأساسي — الأزرار والروابط الرئيسية'},
+        {t:'primary-hover', l:'#172e6d', d:'#3b82f6', u:'حالة تحويم الأساسي'},
+        {t:'primary-foreground', l:'#ffffff', d:'#ffffff', u:'نص فوق الأساسي'},
+        {t:'background', l:'#e7edf5', d:'#0a1628', u:'خلفية الصفحة'},
+        {t:'foreground', l:'#0f172a', d:'#eef3fb', u:'النص الأساسي'},
+        {t:'card', l:'#ffffff', d:'#132337', u:'خلفية البطاقات'},
+        {t:'card-foreground', l:'#0f172a', d:'#eef3fb', u:'نص داخل البطاقات'},
+        {t:'secondary', l:'#dbe7fb', d:'#1c3a5e', u:'ثانوي — خلفيات هادئة'},
+        {t:'secondary-foreground', l:'#1e3a8a', d:'#bfd4f2', u:'نص فوق الثانوي'},
+        {t:'muted', l:'#eef2f8', d:'#172c44', u:'خلفية مكتومة'},
+        {t:'muted-foreground', l:'#526077', d:'#93a4bd', u:'نص ثانوي/تلميحات'},
+        {t:'accent', l:'#e6eefb', d:'#1c3a5e', u:'تمييز خفيف'},
+        {t:'accent-foreground', l:'#1e3a8a', d:'#bfd4f2', u:'نص فوق التمييز'},
+        {t:'border', l:'#c2cfe0', d:'#21395a', u:'حدود العناصر'},
+        {t:'input', l:'#b9c8dc', d:'#24405f', u:'حدود الحقول'},
+        {t:'input-background', l:'#f5f8fc', d:'#0f2033', u:'خلفية الحقول'},
+        {t:'ring', l:'#1e3a8a', d:'#3b82f6', u:'حلقة التركيز'},
+        {t:'destructive', l:'#f43f5e', d:'#fb7185', u:'حذف / خطر'}
+      ],
+      semantic: [
+        {t:'success', l:'#15803d', d:'#4ade80', u:'نجاح — تم الحفظ / اكتمل'},
+        {t:'success-surface', l:'#dcfce7', d:'#0f2e1c', u:'سطح النجاح'},
+        {t:'success-foreground', l:'#166534', d:'#86efac', u:'نص فوق سطح النجاح'},
+        {t:'warning', l:'#b45309', d:'#fbbf24', u:'تنبيه — انتباه مطلوب'},
+        {t:'warning-surface', l:'#fef3c7', d:'#3a2a0a', u:'سطح التنبيه'},
+        {t:'warning-foreground', l:'#92400e', d:'#fcd34d', u:'نص فوق سطح التنبيه'},
+        {t:'info', l:'#0369a1', d:'#38bdf8', u:'معلومة — إشعار محايد'},
+        {t:'info-surface', l:'#e0f2fe', d:'#082f42', u:'سطح المعلومة'},
+        {t:'info-foreground', l:'#075985', d:'#7dd3fc', u:'نص فوق سطح المعلومة'}
+      ],
+      attendance: [
+        {t:'present', l:'#15803d', d:'#4ade80', u:'حاضر', s_l:'#dcfce7', s_d:'#0f2e1c'},
+        {t:'absent', l:'#dc2626', d:'#f87171', u:'غائب', s_l:'#fee2e2', s_d:'#3a1212'},
+        {t:'excused', l:'#b45309', d:'#fbbf24', u:'مستأذن', s_l:'#fef3c7', s_d:'#3a2a0a'}
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

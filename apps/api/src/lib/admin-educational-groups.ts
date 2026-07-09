@@ -14,7 +14,7 @@ import {
   circleTeacherJoinSql,
   circleTrackSelectSql,
 } from "./admin-gm-schema";
-import { hasTable, tableHasColumn } from "./db-schema";
+import { hasTable, studentIsActiveSql, tableHasColumn } from "./db-schema";
 import { runHardDeleteBatch } from "./db-batch";
 
 export type EducationalEntityType = "circle" | "track";
@@ -100,6 +100,7 @@ export async function fetchEducationalGroups(
   );
 
   if (hasSupervisorCol) {
+    const hasTrackStages = await hasTable(env, "track_stages");
     const tracks = await env.DB.prepare(
       `SELECT t.id, t.name_ar, t.supervisor_id,
               COALESCE(t.default_capacity, 20) AS default_capacity,
@@ -124,14 +125,24 @@ export async function fetchEducationalGroups(
     for (const t of tracks.results ?? []) {
       let studentCountN = 0;
       if (hasStudentsCurrentTrack) {
+        const isActiveExpr = await studentIsActiveSql(env, "s");
         const sc = await env.DB.prepare(
-          `SELECT COUNT(*) AS c FROM students
-           WHERE current_track_id = ? AND complex_id = ?
-             AND COALESCE(is_active, 1) = 1`,
+          `SELECT COUNT(*) AS c FROM students s
+           WHERE s.current_track_id = ? AND s.complex_id = ?
+             AND ${isActiveExpr}`,
         )
           .bind(t.id, complexId)
           .first<{ c: number }>();
         studentCountN = sc?.c ?? 0;
+      }
+      let stageIds: number[] = [];
+      if (hasTrackStages) {
+        const stages = await env.DB.prepare(
+          `SELECT stage_id FROM track_stages WHERE track_id = ? ORDER BY stage_id`,
+        )
+          .bind(t.id)
+          .all<{ stage_id: number }>();
+        stageIds = (stages.results ?? []).map((s) => s.stage_id);
       }
       items.push({
         id: t.id,
@@ -142,7 +153,7 @@ export async function fetchEducationalGroups(
         student_count: studentCountN,
         default_capacity: t.default_capacity,
         is_active: t.is_active,
-        stage_ids: [],
+        stage_ids: stageIds,
       });
     }
   }

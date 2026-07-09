@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { todayRiyadhIso } from "../../lib/today-riyadh-iso";
 import { Printer } from "lucide-react";
 import { Button } from "../ui/button";
 import { Label } from "../ui/label";
@@ -49,12 +50,9 @@ type Props = {
   onOpenChange: (open: boolean) => void;
 };
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 export function StaffAttendanceReportModal({ open, onOpenChange }: Props) {
-  const today = todayIso();
+  const today = todayRiyadhIso();
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
   const [loading, setLoading] = useState(false);
@@ -100,6 +98,8 @@ export function StaffAttendanceReportModal({ open, onOpenChange }: Props) {
     setTimeout(cleanup, 1000);
   }
 
+  const headClass =
+    "text-right px-2 py-1 print:text-xs print:font-semibold whitespace-normal align-top border border-black/20 print:border-black";
   const cellClass =
     "text-right px-2 py-1 print:text-sm whitespace-normal align-top";
 
@@ -160,7 +160,7 @@ export function StaffAttendanceReportModal({ open, onOpenChange }: Props) {
         >
           <div className="hidden print:flex print:justify-between print:items-start print:border-b print:border-black print:pb-2 print:mb-3 print:pt-0">
             <p className="text-sm font-semibold" style={tajawal}>
-              {complexName ?? "مجمع حلقات البساتين"}
+              {complexName ?? "مجمع حلقات بساتين"}
             </p>
             <p className="text-sm" style={tajawal} dir="ltr">
               {loadedRange
@@ -187,16 +187,28 @@ export function StaffAttendanceReportModal({ open, onOpenChange }: Props) {
             <Table className="border-collapse w-full print:table-fixed">
               <TableHeader>
                 <TableRow className="print:break-inside-avoid">
-                  <TableHead className={cellClass} style={tajawal}>
+                  <TableHead
+                    className={`${headClass} print:w-[40%]`}
+                    style={tajawal}
+                  >
                     المنسوب
                   </TableHead>
-                  <TableHead className={cellClass} style={tajawal}>
+                  <TableHead
+                    className={`${headClass} print:w-[20%]`}
+                    style={tajawal}
+                  >
                     أيام الحضور
                   </TableHead>
-                  <TableHead className={cellClass} style={tajawal}>
+                  <TableHead
+                    className={`${headClass} print:w-[20%]`}
+                    style={tajawal}
+                  >
                     أيام الغياب
                   </TableHead>
-                  <TableHead className={cellClass} style={tajawal}>
+                  <TableHead
+                    className={`${headClass} print:w-[20%]`}
+                    style={tajawal}
+                  >
                     أيام الاستئذان
                   </TableHead>
                 </TableRow>
@@ -204,19 +216,21 @@ export function StaffAttendanceReportModal({ open, onOpenChange }: Props) {
               <TableBody>
                 {rows.map((r) => (
                   <TableRow key={r.user_id} className="print:break-inside-avoid">
-                    <TableCell className={cellClass} style={tajawal}>
-                      <p className="font-medium">{r.full_name_ar}</p>
-                      <span className="text-sm text-gray-500 block mt-1">
+                    <TableCell className={`${cellClass} print:w-[40%]`} style={tajawal}>
+                      <p className="font-medium print:text-xs truncate" title={r.full_name_ar}>
+                        {r.full_name_ar}
+                      </p>
+                      <span className="text-sm text-gray-500 block mt-1 print:text-xs">
                         {formatRole(r.role)}
                       </span>
                     </TableCell>
-                    <TableCell className={cellClass} style={tajawal}>
+                    <TableCell className={`${cellClass} print:w-[20%] print:text-center`} style={tajawal}>
                       {r.present_days}
                     </TableCell>
-                    <TableCell className={cellClass} style={tajawal}>
+                    <TableCell className={`${cellClass} print:w-[20%] print:text-center`} style={tajawal}>
                       {r.absent_days}
                     </TableCell>
-                    <TableCell className={cellClass} style={tajawal}>
+                    <TableCell className={`${cellClass} print:w-[20%] print:text-center`} style={tajawal}>
                       {r.excused_days}
                     </TableCell>
                   </TableRow>

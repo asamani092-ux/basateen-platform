@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { GuardedForm } from "../../components/ui/guarded-form";
 import { Plus, Trash2, ClipboardList } from "lucide-react";
 import {
   TableIconAction,
@@ -333,7 +334,7 @@ export function QuizBuilderPage() {
                   </p>
                   {Number(q.pending_review_count ?? 0) > 0 && (
                     <span
-                      className="mt-2 inline-flex rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-700"
+                      className="mt-2 inline-flex rounded-full bg-warning-surface px-2 py-0.5 text-xs font-semibold text-warning-foreground"
                       style={tajawal}
                     >
                       {q.pending_review_count} بانتظار المراجعة اليدوية
@@ -402,7 +403,7 @@ export function QuizBuilderPage() {
               {editId ? "تعديل الاختبار" : "اختبار جديد"}
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={saveQuiz} className="space-y-4">
+          <GuardedForm onSubmit={saveQuiz} className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2 sm:col-span-2">
                 <Label style={tajawal}>اسم الاختبار</Label>
@@ -627,7 +628,7 @@ export function QuizBuilderPage() {
                 إلغاء
               </Button>
             </DialogFooter>
-          </form>
+          </GuardedForm>
         </DialogContent>
       </Dialog>
 

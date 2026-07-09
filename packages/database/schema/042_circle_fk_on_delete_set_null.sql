@@ -1,0 +1,11 @@
+-- 042: Asymmetric circle FK repair — enable DELETE FROM circles without API pre-cleanup.
+--
+-- Schema diff (circles vs tracks):
+--   track_circles, teacher_assignments  → circle_id in PK (CASCADE, not SET NULL)
+--   supervisor_scopes                   → circle_id in PK (CASCADE)
+--   student_attendance                  → circle_id nullable + ON DELETE SET NULL
+--   student_circle_history              → circle columns + ON DELETE SET NULL
+--   edu_daily_recitation                → circle_id nullable + ON DELETE SET NULL
+--   task_assignments                    → circle_id nullable + ON DELETE SET NULL
+--
+-- Applied conditionally via apps/api/scripts/migrate-042-remote.mjs

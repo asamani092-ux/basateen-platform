@@ -2,9 +2,16 @@ import type { Env } from "../types";
 import { ADMIN_DATA_ROLES } from "../lib/roles";
 import { createStudentWithPlacement } from "../lib/students-admin";
 import { studentCreateBodySchema } from "../lib/students-schema";
-import { hasTable, tableHasColumn } from "../lib/db-schema";
+import {
+  hasTable,
+  studentIsActiveSql,
+  studentIsArchivedSql,
+  tableHasColumn,
+} from "../lib/db-schema";
 import { buildStudentPlacementSql } from "../lib/student-list-sql";
+import { buildTeacherCircleAccessSql } from "../lib/teacher-circle";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
+import { PAGE_SIZE_MAX, pageMeta, parsePageParams } from "../lib/pagination";
 
 type StudentListRow = {
   id: number;
@@ -15,6 +22,7 @@ type StudentListRow = {
   school_name: string | null;
   school_grade: string | null;
   memorization_amount: string | null;
+  memorization_faces?: number | null;
   guardian_phone: string | null;
   health_notes: string | null;
   circle_name: string | null;
@@ -72,13 +80,14 @@ export async function handleStudentsList(
     const hasCurrentCircle = await tableHasColumn(env, "students", "current_circle_id");
     const hasAdmissionStatus = await tableHasColumn(env, "students", "admission_status");
     const hasSupervisorScopes = await hasTable(env, "supervisor_scopes");
-    const hasTeacherAssignments = await hasTable(env, "teacher_assignments");
     const placement = await buildStudentPlacementSql(env);
-    const { historyJoin, circleJoin, trackJoin, circleRef, historyCircleRef } =
+    const { historyJoin, circleJoin, trackJoin, circleRef, trackRef, historyCircleRef } =
       placement;
-    const isActiveExpr = (await tableHasColumn(env, "students", "is_active"))
-      ? "COALESCE(s.is_active, 1) = 1"
-      : "1=1";
+    const rosterExpr = archivedOnly
+      ? await studentIsArchivedSql(env, "s")
+      : await studentIsActiveSql(env, "s");
+
+    const nameSelect = await studentNameSelect(env);
 
     const nameSelect = await studentNameSelect(env);
 
@@ -92,6 +101,7 @@ export async function handleStudentsList(
       ${await studentColumn(env, "school_name")},
       ${await studentColumn(env, "school_grade")},
       ${await studentColumn(env, "memorization_amount")},
+      ${await studentColumn(env, "memorization_faces")},
       ${await studentColumn(env, "guardian_phone")},
       ${await studentColumn(env, "health_notes")},
       ${await studentColumn(env, "stage_id")},
@@ -104,19 +114,18 @@ export async function handleStudentsList(
     ${historyJoin}
     ${circleJoin}
     ${trackJoin}
-    WHERE s.complex_id = ? AND ${isActiveExpr}
+    WHERE s.complex_id = ? AND ${rosterExpr}
   `;
 
     const binds: (string | number)[] = [auth.complexId];
 
-    if (
-      (auth.role === "teacher" || auth.role === "track_supervisor") &&
-      hasTeacherAssignments
-    ) {
-      sql += ` AND ${circleRef} IN (
-      SELECT circle_id FROM teacher_assignments WHERE user_id = ?
-    )`;
-      binds.push(auth.userId);
+    if (auth.role === "teacher" || auth.role === "track_supervisor") {
+      const teacherScope = await buildTeacherCircleAccessSql(env, circleRef);
+      const scopeParts = teacherScope.split("?").length - 1;
+      sql += ` AND ${teacherScope}`;
+      for (let i = 0; i < scopeParts; i += 1) {
+        binds.push(auth.userId);
+      }
     }
 
     if (auth.role === "edu_supervisor") {
@@ -236,6 +245,7 @@ export async function handleStudentsList(
       items: result.results ?? [],
       count: result.results?.length ?? 0,
       q: q || null,
+      page: pageMeta(total, pageParams),
     });
   } catch (err) {
     console.error("students_list_failed", err);
@@ -295,6 +305,7 @@ export async function handleStudentCreate(
           school_grade: data.school_grade,
           health_notes: data.health_notes,
           memorization_amount: data.memorization_amount,
+          memorization_faces: data.memorization_faces,
           guardian_national_id: data.guardian_national_id,
           guardian_work: data.guardian_work,
           stage_id: data.stage_id,

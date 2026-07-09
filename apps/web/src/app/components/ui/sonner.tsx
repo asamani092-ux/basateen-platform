@@ -2,6 +2,7 @@
 
 import { useTheme } from "next-themes";
 import { Toaster as Sonner, ToasterProps } from "sonner";
+import { ds } from "../../lib/design-system";
 
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme = "system" } = useTheme();
@@ -11,24 +12,17 @@ const Toaster = ({ ...props }: ToasterProps) => {
       theme={theme as ToasterProps["theme"]}
       className="toaster group"
       position="top-center"
-      richColors
       toastOptions={{
         classNames: {
-          toast:
-            "rounded-2xl border border-border bg-card text-card-foreground shadow-lg",
-          title: "text-sm font-semibold text-right",
-          description: "text-sm text-muted-foreground text-right",
+          toast: ds.toast.base,
+          title: ds.toast.title,
+          description: ds.toast.description,
           actionButton: "rounded-xl bg-primary text-primary-foreground",
           cancelButton: "rounded-xl bg-muted text-foreground",
+          success: `${ds.toast.base} ${ds.toast.success}`,
+          error: `${ds.toast.base} ${ds.toast.error}`,
         },
       }}
-      style={
-        {
-          "--normal-bg": "var(--popover)",
-          "--normal-text": "var(--popover-foreground)",
-          "--normal-border": "var(--border)",
-        } as React.CSSProperties
-      }
       {...props}
     />
   );

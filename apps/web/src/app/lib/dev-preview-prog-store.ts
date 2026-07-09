@@ -11,7 +11,6 @@ export type PreviewQuestion = {
 };
 
 let quizSeq = 1;
-let questionSeq = 10;
 
 const quizzes: Array<Record<string, unknown>> = [
   {

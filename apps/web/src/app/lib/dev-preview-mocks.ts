@@ -189,6 +189,62 @@ export function resolveDevPreviewMock<T>(
       slides: [],
       semester_weeks: 16,
       school_days: [0, 1, 2, 3, 4],
+      semester_active: true,
+      semester_start_date: "2026-01-01",
+      semester_end_date: null,
+    } as T;
+  }
+
+  if (
+    p === "/api/admin-dept/reports/semester-export-all" ||
+    p === "/api/admin-dept/reports/semester-export"
+  ) {
+    const students = previewStore
+      .filterStudents({})
+      .slice(0, 8)
+      .map((s) => ({
+        id: s.id,
+        full_name_ar: s.full_name_ar,
+        national_id: s.national_id ?? null,
+        phone: s.phone ?? null,
+        school_grade: s.school_grade ?? null,
+        circle_name: s.circle_name ?? null,
+        track_name: s.track_name ?? null,
+        ...(p.endsWith("-all")
+          ? { is_archived: false, deleted_at: null as string | null }
+          : {}),
+      }));
+    const attendance_summary = students.map((s) => ({
+      student_id: s.id,
+      full_name_ar: s.full_name_ar,
+      present_days: 12,
+      absent_days: 1,
+      excused_days: 0,
+    }));
+    return {
+      semester: {
+        start_date: "2026-01-01",
+        end_date: null,
+        active: true,
+        semester_weeks: 16,
+        graduates_count: 42,
+        huffadh_count: 8,
+        export_range: { start: "2026-01-01", end: PREVIEW_TODAY() },
+      },
+      students,
+      attendance_summary,
+      ...(p.endsWith("-all")
+        ? {
+            attendance_daily: students.slice(0, 3).map((s, i) => ({
+              student_id: s.id,
+              full_name_ar: s.full_name_ar,
+              attendance_date: PREVIEW_TODAY(),
+              status: i === 0 ? "present" : "absent",
+            })),
+            export_type: "comprehensive" as const,
+          }
+        : { export_type: "standard" as const }),
+      exported_at: new Date().toISOString(),
     } as T;
   }
 
@@ -216,12 +272,19 @@ export function resolveDevPreviewMock<T>(
   }
 
   if (p === "/api/admin-dept/staff" && m === "GET") {
-    const items = MOCK_STAFF.map((r) => ({
-      user_id: r.user_id,
-      full_name_ar: r.full_name_ar,
-      role: r.role,
-      status: previewStore.getStaffStatus(r.user_id, date, r.status),
-    }));
+    const items = MOCK_STAFF.map((r) => {
+      const meta = previewStore.getStaffAttendanceMeta(r.user_id, date);
+      return {
+        user_id: r.user_id,
+        full_name_ar: r.full_name_ar,
+        role: r.role,
+        attendance_id: meta.attendance_id,
+        has_record: meta.has_record,
+        status: meta.has_record
+          ? previewStore.getStaffStatus(r.user_id, date, r.status)
+          : "present",
+      };
+    });
     return { date, items, default_status: "present" } as T;
   }
 
@@ -237,7 +300,7 @@ export function resolveDevPreviewMock<T>(
     return {
       start_date: start,
       end_date: end,
-      complex_name: "مجمع حلقات البساتين (معاينة)",
+      complex_name: "مجمع حلقات بساتين (معاينة)",
       items: MOCK_STAFF.map((r) => ({
         user_id: r.user_id,
         full_name_ar: r.full_name_ar,
@@ -259,16 +322,48 @@ export function resolveDevPreviewMock<T>(
     return { ok: true, attendance_date: d, saved: body.records?.length ?? 0 } as T;
   }
 
+  const trackAtt = p.match(/^\/api\/admin-dept\/students\/attendance\/track\/(\d+)$/);
+  if (trackAtt && m === "GET") {
+    const trackId = Number(trackAtt[1]);
+    const items = previewStore.getStudents().map((s) => {
+      const meta = previewStore.getStudentAttendanceMeta(s.id, date);
+      return {
+        student_id: s.id,
+        full_name_ar: s.full_name_ar,
+        attendance_id: meta.attendance_id,
+        has_record: meta.has_record,
+        status: meta.has_record
+          ? previewStore.getStudentStatus(s.id, date, "present")
+          : "present",
+      };
+    });
+    return {
+      attendance_date: date,
+      entity_type: "track",
+      track: { id: trackId, name_ar: `مسار ${trackId}` },
+      items,
+      default_status: "present",
+    } as T;
+  }
+
   const circleAtt = p.match(/^\/api\/admin-dept\/students\/attendance\/(\d+)$/);
   if (circleAtt && m === "GET") {
     const circleId = Number(circleAtt[1]);
-    const items = previewStore.getStudents().map((s) => ({
-      student_id: s.id,
-      full_name_ar: s.full_name_ar,
-      status: previewStore.getStudentStatus(s.id, date, "present"),
-    }));
+    const items = previewStore.getStudents().map((s) => {
+      const meta = previewStore.getStudentAttendanceMeta(s.id, date);
+      return {
+        student_id: s.id,
+        full_name_ar: s.full_name_ar,
+        attendance_id: meta.attendance_id,
+        has_record: meta.has_record,
+        status: meta.has_record
+          ? previewStore.getStudentStatus(s.id, date, "present")
+          : "present",
+      };
+    });
     return {
       attendance_date: date,
+      entity_type: "circle",
       circle: { id: circleId, name_ar: `حلقة ${circleId}`, stage: "primary" },
       items,
       default_status: "present",
@@ -340,7 +435,7 @@ export function resolveDevPreviewMock<T>(
       national_id: s.national_id,
       phone: s.phone,
       guardian_phone: s.guardian_phone,
-      circle_name: s.current_circle_name,
+      circle_name: s.circle_name,
     }));
     if (q) {
       items = items.filter((s) => s.full_name_ar.includes(q));
@@ -380,7 +475,22 @@ export function resolveDevPreviewMock<T>(
         circle_name: s.circle_name,
         whatsapp_url: `https://wa.me/966500000001?text=${encodeURIComponent("غياب تجريبي")}`,
       }));
-    return { date, items, template: "غياب {{student_name}}" } as T;
+    return {
+      date,
+      items,
+      template:
+        "السلام عليكم، نود إبلاغكم بغياب الطالب {{اسم_الطالب}} عن {{الحلقة_أو_المسار}} يوم {{التاريخ}}.",
+    } as T;
+  }
+
+  if (p === "/api/admin-dept/students/absent-today/template" && m === "PUT") {
+    const body = bodyText
+      ? (JSON.parse(bodyText) as { template?: string })
+      : {};
+    return {
+      ok: true,
+      template: body.template?.trim() ?? "",
+    } as T;
   }
 
   if (
@@ -391,7 +501,7 @@ export function resolveDevPreviewMock<T>(
   }
 
   if (p === "/api/admin/students/bulk" && m === "POST") {
-    const body = init?.body ? (JSON.parse(String(init.body)) as { rows?: unknown[] }) : {};
+    const body = bodyText ? (JSON.parse(bodyText) as { rows?: unknown[] }) : {};
     const total = Array.isArray(body.rows) ? body.rows.length : 0;
     return {
       ok: true,
@@ -418,16 +528,61 @@ export function resolveDevPreviewMock<T>(
   }
 
   if (p === "/api/admin-dept/pledges" && m === "GET") {
+    const q = new URL(url).searchParams.get("q")?.trim() ?? "";
+    const items = [
+      {
+        student_id: 1,
+        full_name_ar: "طالب تجريبي",
+        guardian_phone: "0500000000",
+        pledge_count: 4,
+        latest_reason: "تأخر متكرر",
+        latest_pledge_id: 1,
+        latest_pledge_date: "2026-01-10",
+      },
+    ];
+    const filtered = q
+      ? items.filter((r) => r.full_name_ar.includes(q) || String(r.student_id) === q)
+      : items;
     return {
-      items: [
-        {
-          student_id: 1,
-          full_name_ar: "طالب تجريبي",
-          guardian_phone: "0500000000",
-          pledge_count: 2,
-          latest_reason: "تأخر متكرر",
-        },
-      ],
+      items: filtered,
+      mode: q ? "search" : "smart",
+      limit: q ? null : 20,
+    } as T;
+  }
+
+  const pledgeStudentDel = p.match(/^\/api\/admin-dept\/pledges\/student\/(\d+)$/);
+  if (pledgeStudentDel && m === "DELETE") {
+    return {
+      ok: true,
+      student_id: Number(pledgeStudentDel[1]),
+      deleted: 2,
+      pledge_count: 0,
+    } as T;
+  }
+
+  if (p === "/api/admin-dept/dashboard-stats" && m === "GET") {
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    return {
+      complex_name: "معاينة المجمع",
+      generated_at: new Date().toISOString(),
+      students: {
+        total: 0,
+        circle_only: 0,
+        track_only: 0,
+        circle_and_track: 0,
+        unassigned: 0,
+      },
+      groups: { circles_active: 0, tracks_active: 0 },
+      staff: { total: 0, by_role: {} },
+      pledges: { total: 0, this_month: 0, students_with_pledges: 0 },
+      attendance: {
+        date,
+        students_marked_today: 0,
+        students_present_today: 0,
+        staff_marked_today: 0,
+        staff_present_today: 0,
+      },
     } as T;
   }
 
@@ -538,24 +693,23 @@ export function resolveDevPreviewMock<T>(
   if (p === "/api/edu-dept/settings" && m === "GET") {
     return {
       settings: {
-        weight_listening: 1,
-        weight_revision: 1,
-        weight_repeat: 1,
-        rabt_weight: 1,
-        penalty_per_error: 0.5,
-        himma_defaults: {
-          hizb_points: 1,
-          alert_penalty: 1,
-          error_penalty: 2,
-          alerts_per_error: 5,
-          fail_threshold_errors: 3,
-        },
-        competition_defaults: {
-          mistake_penalty: 1,
-          alert_penalty: 0.5,
-          lahn_penalty: 0.5,
-          default_task_weight: 1,
-        },
+        evaluation_criteria: [
+          { id: "listening", name: "السماع", type: "points", max_weight: 1, input: "boolean" },
+          { id: "repeat", name: "التكرار", type: "points", max_weight: 1, input: "boolean" },
+          { id: "revision", name: "المراجعة", type: "points", max_weight: 1, input: "boolean" },
+          {
+            id: "rabt",
+            name: "الربط",
+            type: "points",
+            max_weight: 1,
+            input: "boolean",
+            requires_all: ["listening", "repeat", "revision"],
+          },
+          { id: "faces", name: "الأوجه", type: "points", max_weight: 1, input: "number" },
+          { id: "error", name: "الخطأ", type: "penalty", max_weight: 0.5, input: "number" },
+          { id: "tune", name: "اللحن", type: "penalty", max_weight: 0.5, input: "number" },
+        ],
+        updated_at: null,
       },
     } as T;
   }
@@ -592,23 +746,96 @@ export function resolveDevPreviewMock<T>(
   }
   if (p === "/api/edu-dept/my-students" && m === "GET") {
     const students = previewStore.getStudents().slice(0, 6);
+    const evaluation_criteria = [
+      { id: "listening", name: "السماع", type: "points", max_weight: 1, input: "boolean" },
+      { id: "repeat", name: "التكرار", type: "points", max_weight: 1, input: "boolean" },
+      { id: "revision", name: "المراجعة", type: "points", max_weight: 1, input: "boolean" },
+      {
+        id: "rabt",
+        name: "الربط",
+        type: "points",
+        max_weight: 1,
+        input: "boolean",
+        requires_all: ["listening", "repeat", "revision"],
+      },
+      { id: "error", name: "الخطأ", type: "penalty", max_weight: 0.5, input: "number" },
+      { id: "tune", name: "اللحن", type: "penalty", max_weight: 0.5, input: "number" },
+    ];
     return {
       date,
       circle_id: 1,
       circle_name: "حلقة تجريبية",
       needs_circle_selection: false,
       circles: PREVIEW_CIRCLES.slice(0, 3).map((c) => ({ id: c.id, name_ar: c.name_ar })),
+      evaluation_criteria,
       items: students.map((s, i) => ({
         student_id: s.id,
         full_name_ar: s.full_name_ar,
-        listened: i % 2 === 0,
-        repeated: true,
-        revised: false,
-        error_count: i,
-        tune_errors: 0,
-        face_count: 2,
+        track_name: i === 0 ? "مسار الحفظ المتقدم" : i === 2 ? "مسار المراجعة" : null,
+        task_scores: {
+          listening: i % 2 === 0,
+          repeat: true,
+          revision: false,
+          rabt: false,
+          error: i,
+          tune: 0,
+        },
         notes: "",
       })),
+    } as T;
+  }
+  if (p === "/api/edu-dept/teacher-bootstrap" && m === "GET") {
+    const students = previewStore.getStudents().slice(0, 6);
+    const evaluation_criteria = [
+      { id: "listening", name: "السماع", type: "points", max_weight: 1, input: "boolean" },
+      { id: "repeat", name: "التكرار", type: "points", max_weight: 1, input: "boolean" },
+      { id: "revision", name: "المراجعة", type: "points", max_weight: 1, input: "boolean" },
+      {
+        id: "rabt",
+        name: "الربط",
+        type: "points",
+        max_weight: 1,
+        input: "boolean",
+        requires_all: ["listening", "repeat", "revision"],
+      },
+      { id: "error", name: "الخطأ", type: "penalty", max_weight: 0.5, input: "number" },
+      { id: "tune", name: "اللحن", type: "penalty", max_weight: 0.5, input: "number" },
+    ];
+    const circle = { id: 1, name_ar: "حلقة تجريبية" };
+    return {
+      generated_at: new Date().toISOString(),
+      date,
+      teacher_circle: circle,
+      circle_id: circle.id,
+      circle_name: circle.name_ar,
+      needs_circle_selection: false,
+      circles: PREVIEW_CIRCLES.slice(0, 3).map((c) => ({ id: c.id, name_ar: c.name_ar })),
+      evaluation_criteria,
+      items: students.map((s, i) => ({
+        student_id: s.id,
+        full_name_ar: s.full_name_ar,
+        track_name: i === 0 ? "مسار الحفظ المتقدم" : i === 2 ? "مسار المراجعة" : null,
+        task_scores: {
+          listening: i % 2 === 0,
+          repeat: true,
+          revision: false,
+          rabt: false,
+          error: i,
+          tune: 0,
+        },
+        notes: "",
+      })),
+      notifications: {
+        items: [
+          {
+            id: 1,
+            title_ar: "تنبيه تجريبي",
+            body_ar: "مرحباً بك في معاينة بوابة المعلم.",
+            is_read: 0,
+            created_at: new Date().toISOString(),
+          },
+        ],
+      },
     } as T;
   }
   if (p === "/api/edu-dept/daily-recitation" && m === "POST") {
@@ -647,6 +874,8 @@ export function resolveDevPreviewMock<T>(
   if (p === "/api/edu-dept/teacher-competitions" && m === "GET") {
     return {
       items: [{ id: 1, name_ar: "منافسة رمضان", start_date: date, end_date: null, created_at: date }],
+      circle_id: 1,
+      circle_name: "حلقة الصديق",
     } as T;
   }
   if (p === "/api/edu-dept/teacher-competitions" && m === "POST") {
@@ -674,13 +903,13 @@ export function resolveDevPreviewMock<T>(
     return {
       competition: { id: 1, name_ar: "منافسة تجريبية", start_date: date, end_date: null },
       tasks: [
-        { id: 1, title_ar: "حفظ إضافي", weight_points: 2, sort_order: 1 },
-        { id: 2, title_ar: "مراجعة", weight_points: 2, sort_order: 2 },
-        { id: 3, title_ar: "حضور مبكر", weight_points: 1, sort_order: 3 },
-        { id: 4, title_ar: "أدب وسلوك", weight_points: 1, sort_order: 4 },
+        { id: 1, title_ar: "حضور مبكر", weight_points: 1, sort_order: 1, type: "addition", input_type: "boolean" },
+        { id: 2, title_ar: "تأخر", weight_points: 1, sort_order: 2, type: "deduction", input_type: "counter" },
       ],
       students: students.map((s) => ({ id: s.id, full_name_ar: s.full_name_ar })),
       scores: [],
+      circle_id: 1,
+      circle_name: "حلقة الصديق",
     } as T;
   }
   const tcTask = p.match(/^\/api\/edu-dept\/teacher-competitions\/(\d+)\/tasks$/);
@@ -856,26 +1085,87 @@ export function resolveDevPreviewMock<T>(
     return { ok: true, fail_threshold_exceeded: false, completed_hizbs: [1, 2, 3] } as T;
   }
 
+  if (
+    (p === "/api/edu-dept/reports/educational-profile" ||
+      p === "/api/edu-dept/reports/individual") &&
+    m === "GET"
+  ) {
+    const personId = Number(url.searchParams.get("person_id") ?? 1);
+    const st = previewStore.findStudent(personId) ?? previewStore.getStudents()[0];
+    return {
+      type: "educational",
+      complex_name: "مجمع تجريبي",
+      person: {
+        id: st?.id ?? personId,
+        full_name_ar: st?.full_name_ar ?? "طالب تجريبي",
+        current_placement: "حلقة تجريبية · مسار حفظ",
+      },
+      criteria: [
+        { id: "listening", name: "السماع", type: "points" },
+        { id: "repeat", name: "التكرار", type: "points" },
+        { id: "revision", name: "المراجعة", type: "points" },
+        { id: "rabt", name: "الربط", type: "points" },
+      ],
+      summary: {
+        total_records: 3,
+        avg_quality_pct: 82.5,
+        total_faces: 9,
+        first_record_date: "2025-09-01",
+        last_record_date: date,
+      },
+      items: [
+        {
+          date: "2025-09-01",
+          circle_name: "حلقة سابقة",
+          track_name: "مسار حفظ",
+          quality_pct: 75,
+          face_count: 2,
+          notes: null,
+          tasks: [
+            { id: "listening", name: "السماع", value: true },
+            { id: "repeat", name: "التكرار", value: true },
+            { id: "revision", name: "المراجعة", value: false },
+            { id: "rabt", name: "الربط", value: false },
+          ],
+        },
+        {
+          date,
+          circle_name: "حلقة تجريبية",
+          track_name: "مسار حفظ",
+          quality_pct: 90,
+          face_count: 4,
+          notes: null,
+          tasks: [
+            { id: "listening", name: "السماع", value: true },
+            { id: "repeat", name: "التكرار", value: true },
+            { id: "revision", name: "المراجعة", value: true },
+            { id: "rabt", name: "الربط", value: true },
+          ],
+        },
+      ],
+    } as T;
+  }
+
   if (p === "/api/edu-dept/reports/progress" && m === "GET") {
     const students = previewStore.getStudents().slice(0, 5);
-    const semesterStart =
-      new Date().getMonth() + 1 >= 9
-        ? `${new Date().getFullYear()}-09-01`
-        : `${new Date().getFullYear() - 1}-09-01`;
+    const dateFrom = url.searchParams.get("date_from") ?? date;
+    const dateTo = url.searchParams.get("date_to") ?? dateFrom;
     return {
-      date,
-      date_from: date,
-      date_to: date,
-      semester_start: semesterStart,
+      date: dateTo,
+      date_from: dateFrom,
+      date_to: dateTo,
+      scope_type: url.searchParams.get("circle_id") ? "circle" : "track",
       summary: {
         avg_quality: 78.5,
         top_circle: { circle_id: 1, circle_name: "حلقة تجريبية", avg_quality: 82 },
         active_students: 4,
         total_records: students.length,
-        total_faces_semester: 120,
-        faces_today: 8,
+        total_faces_in_range: 24,
+        total_faces_semester: 24,
+        faces_today: 24,
       },
       circles: PREVIEW_CIRCLES.slice(0, 3).map((c) => ({ id: c.id, name_ar: c.name_ar })),
+      tracks: [{ id: 1, name_ar: "مسار حفظ" }],
       items: students.map((s, i) => ({
         student_id: s.id,
         full_name_ar: s.full_name_ar,
@@ -1096,7 +1386,7 @@ export function resolveDevPreviewMock<T>(
 
   if (p.startsWith("/api/edu-supervisor/master-grid") && m === "GET") {
     const pendingOnly = url.searchParams.get("pending_acceptance") === "1";
-    const rows = previewStore.listStudents().map((s) => ({
+    const rows = previewStore.getStudents().map((s) => ({
       id: s.id,
       full_name_ar: s.full_name_ar,
       is_active: 1,
@@ -1194,7 +1484,7 @@ export function resolveDevPreviewMock<T>(
     return { ok: true, targets } as T;
   }
 
-  const compDetail = p.match(/^\/api\/edu-supervisor\/competitions\/(\d+)$/);
+  const compDetail = p.match(/^\/api\/edu-(?:supervisor|dept)\/competitions\/(\d+)$/);
   if (compDetail && m === "GET") {
     const id = Number(compDetail[1]);
     const c = previewStore.getCompetition(id) ?? previewStore.getCompetitions()[0];
@@ -1207,11 +1497,32 @@ export function resolveDevPreviewMock<T>(
     } as T;
   }
 
-  if (p === "/api/edu-supervisor/competitions" && m === "GET") {
+  if (
+    p === "/api/edu-dept/competitions/filter-options" &&
+    m === "GET"
+  ) {
+    return {
+      circles: [
+        { id: 1, name_ar: "حلقة النور", stage_id: 2 },
+        { id: 2, name_ar: "حلقة الإتقان", stage_id: 3 },
+      ],
+      tracks: [{ id: 1, name_ar: "مسار الحفظ" }],
+    } as T;
+  }
+
+  if (
+    (p === "/api/edu-supervisor/competitions" ||
+      p === "/api/edu-dept/competitions" ||
+      p === "/api/competitions") &&
+    m === "GET"
+  ) {
     return { items: previewStore.getCompetitions() } as T;
   }
 
-  if (p === "/api/edu-supervisor/competitions" && m === "POST") {
+  if (
+    (p === "/api/edu-supervisor/competitions" || p === "/api/edu-dept/competitions") &&
+    m === "POST"
+  ) {
     const body = bodyText ? JSON.parse(bodyText) : {};
     const row = {
       id: previewStore.getCompetitions().length + 1,
@@ -1228,8 +1539,13 @@ export function resolveDevPreviewMock<T>(
     return { ok: true, id: row.id, tv_launch_key: row.tv_launch_key } as T;
   }
 
-  if (p.match(/^\/api\/edu-supervisor\/competitions\/\d+\/live-log-token$/) && m === "POST") {
-    const id = Number(p.match(/^\/api\/edu-supervisor\/competitions\/(\d+)\/live-log-token$/)![1]);
+  if (
+    p.match(/^\/api\/edu-(?:supervisor|dept)\/competitions\/\d+\/live-log-token$/) &&
+    m === "POST"
+  ) {
+    const id = Number(
+      p.match(/^\/api\/edu-(?:supervisor|dept)\/competitions\/(\d+)\/live-log-token$/)![1],
+    );
     const token = `preview-comp-${Date.now()}`;
     previewStore.setCompetitionLiveToken(id, token);
     return { ok: true, live_log_token: token, access_pin: "1234", path: `/live-log/${token}` } as T;
@@ -1283,7 +1599,7 @@ export function resolveDevPreviewMock<T>(
   if (p.startsWith("/api/v1/education/supervisor/master-grid") && m === "GET") {
     return {
       date: new Date().toISOString().slice(0, 10),
-      rows: previewStore.listStudents().map((s) => ({
+      rows: previewStore.getStudents().map((s) => ({
         student_id: s.id,
         full_name_ar: s.full_name_ar,
         school_grade: s.school_grade,
@@ -1448,7 +1764,7 @@ export function resolveDevPreviewMock<T>(
 
   if (p === "/api/public/live-display/metrics" && m === "GET") {
     return {
-      complex_name: "مجمع حلقات البساتين",
+      complex_name: "مجمع حلقات بساتين",
       date: PREVIEW_TODAY(),
       updated_at: new Date().toISOString(),
       metrics: {
@@ -1592,7 +1908,7 @@ export function resolveDevPreviewMock<T>(
       } as T;
     }
     return {
-      quiz: { id: qid, title_ar: res.quiz.title_ar },
+      quiz: { id: qid, title_ar: res.quiz?.title_ar ?? "" },
       student: res.student,
       questions: res.questions,
     } as T;
@@ -1630,6 +1946,29 @@ export function resolveDevPreviewMock<T>(
     } as T;
   }
 
+  const teacherPlanById = p.match(/^\/api\/teacher\/plans\/by-id\/(\d+)$/);
+  if (teacherPlanById) {
+    const planId = Number(teacherPlanById[1]);
+    if (m === "DELETE") {
+      const res = teacherPreviewStore.deletePlan(planId);
+      if (!res) return { error: "not_found" } as T;
+      return res as T;
+    }
+    if (m === "PATCH") {
+      const body = bodyText ? JSON.parse(bodyText) : {};
+      const existing = teacherPreviewStore
+        .listPlans()
+        .find((x) => x.id === planId);
+      if (!existing) return { error: "not_found" } as T;
+      const res = teacherPreviewStore.savePlan(existing.student_id, {
+        ...body,
+        plan_id: planId,
+      });
+      if (!res) return { error: "not_found" } as T;
+      return res as T;
+    }
+  }
+
   const teacherPlanMatch = p.match(/^\/api\/teacher\/plans\/(\d+)$/);
   if (teacherPlanMatch) {
     const sid = Number(teacherPlanMatch[1]);
@@ -1658,6 +1997,149 @@ export function resolveDevPreviewMock<T>(
       metrics,
       score,
     ) as T;
+  }
+
+  if (p === "/api/admin/tracks" && m === "GET") {
+    return { items: PREVIEW_TRACKS } as T;
+  }
+
+  if (p === "/api/admin/attendance" && m === "POST") {
+    const body = bodyText ? JSON.parse(bodyText) : {};
+    const d = body.attendance_date ?? date;
+    const personId = Number(body.person_id);
+    const status = String(body.status ?? "present");
+    const beneficiaryType = body.beneficiary_type === "staff" ? "staff" : "student";
+    if (beneficiaryType === "staff") {
+      previewStore.setStaffStatus(personId, d, status);
+      const meta = previewStore.getStaffAttendanceMeta(personId, d);
+      return { ok: true, attendance_id: meta.attendance_id, attendance_date: d } as T;
+    }
+    previewStore.setStudentStatus(personId, d, status);
+    const meta = previewStore.getStudentAttendanceMeta(personId, d);
+    return { ok: true, attendance_id: meta.attendance_id, attendance_date: d } as T;
+  }
+
+  if (p === "/api/admin/attendance/ledger" && m === "GET") {
+    const start = url.searchParams.get("start_date") ?? url.searchParams.get("date") ?? date;
+    const end = url.searchParams.get("end_date") ?? start;
+    const beneficiaryType =
+      url.searchParams.get("beneficiary_type") === "staff" ? "staff" : "student";
+    const items =
+      beneficiaryType === "staff"
+        ? previewStore.listStaffLedger(start, end)
+        : previewStore.listStudentLedger(start, end);
+    return {
+      start_date: start,
+      end_date: end,
+      beneficiary_type: beneficiaryType,
+      count: items.length,
+      items,
+    } as T;
+  }
+
+  if (p === "/api/admin/attendance/bulk" && m === "PATCH") {
+    const body = bodyText ? JSON.parse(bodyText) : {};
+    const beneficiaryType = body.beneficiary_type === "staff" ? "staff" : "student";
+    let saved = 0;
+    for (const rec of body.records ?? []) {
+      const status = String(rec.status ?? "present");
+      const attId = Number(rec.attendance_id);
+      if (Number.isFinite(attId) && attId > 0) {
+        if (beneficiaryType === "staff") {
+          const ref = previewStore.findStaffAttendanceById(attId);
+          if (ref) previewStore.setStaffStatus(ref.userId, ref.date, status);
+        } else {
+          const ref = previewStore.findStudentAttendanceById(attId);
+          if (ref) previewStore.setStudentStatus(ref.studentId, ref.date, status);
+        }
+        saved += 1;
+        continue;
+      }
+      const personId = Number(rec.person_id);
+      const d = rec.attendance_date ?? date;
+      if (beneficiaryType === "staff") {
+        previewStore.setStaffStatus(personId, d, status);
+      } else {
+        previewStore.setStudentStatus(personId, d, status);
+      }
+      saved += 1;
+    }
+    return { ok: true, saved } as T;
+  }
+
+  if (p === "/api/admin/attendance/bulk" && m === "DELETE") {
+    const body = bodyText ? JSON.parse(bodyText) : {};
+    const start = body.start_date ?? body.attendance_date ?? date;
+    const end = body.end_date ?? start;
+    const beneficiaryType = body.beneficiary_type === "staff" ? "staff" : "student";
+    const ids = (body.attendance_ids ?? [])
+      .map((id: unknown) => Number(id))
+      .filter((id: number) => Number.isFinite(id));
+    let deleted = 0;
+    if (ids.length > 0) {
+      deleted =
+        beneficiaryType === "staff"
+          ? previewStore.deleteStaffAttendanceByIds(ids)
+          : previewStore.deleteStudentAttendanceByIds(ids);
+    } else if (start !== end) {
+      for (let d = start; d <= end; ) {
+        deleted +=
+          beneficiaryType === "staff"
+            ? previewStore.clearStaffAttendanceDay(d)
+            : previewStore.clearStudentAttendanceDay(d);
+        const next = new Date(`${d}T12:00:00`);
+        next.setDate(next.getDate() + 1);
+        d = next.toISOString().slice(0, 10);
+        if (d < start) break;
+      }
+    } else {
+      deleted =
+        beneficiaryType === "staff"
+          ? previewStore.clearStaffAttendanceDay(start)
+          : previewStore.clearStudentAttendanceDay(start);
+    }
+    return {
+      ok: true,
+      deleted,
+      attendance_date: start === end ? start : undefined,
+      start_date: start,
+      end_date: end,
+    } as T;
+  }
+
+  const attById = p.match(/^\/api\/admin\/attendance\/(\d+)$/);
+  if (attById) {
+    const attId = Number(attById[1]);
+    if (m === "PATCH") {
+      const body = bodyText ? JSON.parse(bodyText) : {};
+      const status = String(body.status ?? "present");
+      const beneficiaryType = body.beneficiary_type === "staff" ? "staff" : "student";
+      if (beneficiaryType === "staff") {
+        const ref = previewStore.findStaffAttendanceById(attId);
+        if (ref) previewStore.setStaffStatus(ref.userId, ref.date, status);
+      } else {
+        const ref = previewStore.findStudentAttendanceById(attId);
+        if (ref) previewStore.setStudentStatus(ref.studentId, ref.date, status);
+      }
+      return { ok: true, id: attId, status } as T;
+    }
+    if (m === "DELETE") {
+      const beneficiaryType =
+        url.searchParams.get("beneficiary_type") === "staff" ? "staff" : "student";
+      let deleted = 0;
+      if (beneficiaryType === "staff") {
+        const ref = previewStore.findStaffAttendanceById(attId);
+        if (ref && previewStore.deleteStaffAttendance(ref.userId, ref.date)) {
+          deleted = 1;
+        }
+      } else {
+        const ref = previewStore.findStudentAttendanceById(attId);
+        if (ref && previewStore.deleteStudentAttendance(ref.studentId, ref.date)) {
+          deleted = 1;
+        }
+      }
+      return { ok: true, deleted } as T;
+    }
   }
 
   if (p.startsWith("/api/admin/")) {

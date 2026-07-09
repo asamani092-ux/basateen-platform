@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { GuardedForm } from "../../components/ui/guarded-form";
 import { useParams, useSearchParams } from "react-router";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -155,7 +156,7 @@ export function QuizPublicPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <form onSubmit={submitGate} className="space-y-4">
+              <GuardedForm onSubmit={submitGate} className="space-y-4">
                 <div>
                   <label className="text-sm font-semibold" style={tajawal}>
                     اسم الطالب أو رقم الجوال
@@ -189,7 +190,7 @@ export function QuizPublicPage() {
                 >
                   {loading ? "جاري التحقق…" : "بدء الاختبار"}
                 </Button>
-              </form>
+              </GuardedForm>
             </CardContent>
           </Card>
         )}

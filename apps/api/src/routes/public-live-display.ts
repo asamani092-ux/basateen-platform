@@ -1,13 +1,11 @@
 import type { Env } from "../types";
 import { hasTable, tableHasColumn } from "../lib/db-schema";
+import { todayRiyadhIso } from "../lib/today-riyadh-iso";
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
 }
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 async function loadSlideSeconds(env: Env, complexId: number): Promise<number> {
   if (!(await hasTable(env, "complex_settings"))) return 12;
@@ -152,13 +150,13 @@ export async function handlePublicLiveDisplayRouter(
   if (!path.startsWith("/api/public/live-display")) return null;
 
   const complexId = 1;
-  const date = todayIso();
+  const date = todayRiyadhIso();
   const slideSeconds = await loadSlideSeconds(env, complexId);
   const metrics = await loadMetrics(env, complexId, date);
 
   if (request.method === "GET" && path === "/api/public/live-display/metrics") {
     return json({
-      complex_name: "مجمع حلقات البساتين",
+      complex_name: "مجمع حلقات بساتين",
       date,
       updated_at: new Date().toISOString(),
       slide_seconds: slideSeconds,
@@ -207,7 +205,7 @@ export async function handlePublicLiveDisplayRouter(
     }
 
     return json({
-      complex_name: "مجمع حلقات البساتين",
+      complex_name: "مجمع حلقات بساتين",
       slide_seconds: slideSeconds,
       slides,
     });

@@ -1,0 +1,3 @@
+-- 058: Staff assignee FK repair — circles.teacher_id / tracks.supervisor_id ON DELETE SET NULL.
+-- Applied conditionally via apps/api/scripts/migrate-058-remote.mjs (table rebuild).
+-- Student delete uses hard DELETE (no deleted_at dependency).

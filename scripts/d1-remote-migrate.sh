@@ -110,6 +110,31 @@ apply_pending() {
 
   local failed=0
   for f in "${pending[@]}"; do
+    # ترحيلات محروسة (فحص أعمدة/فهارس) — لا تُنفَّذ كملف SQL خام فقط
+    if [[ "$f" == "066_semester_plans_columns.sql" ]]; then
+      if node "$API_DIR/scripts/migrate-066-remote.mjs"; then
+        continue
+      else
+        failed=1
+        break
+      fi
+    fi
+    if [[ "$f" == "067_teacher_competition_task_types.sql" ]]; then
+      if node "$API_DIR/scripts/migrate-067-remote.mjs"; then
+        continue
+      else
+        failed=1
+        break
+      fi
+    fi
+    if [[ "$f" == "068_student_semester_plans_multi.sql" ]]; then
+      if node "$API_DIR/scripts/migrate-068-remote.mjs"; then
+        continue
+      else
+        failed=1
+        break
+      fi
+    fi
     if run_sql "$f"; then
       record_migration "$f"
     else
@@ -236,8 +261,11 @@ case "$MODE" in
   067)
     node "$API_DIR/scripts/migrate-067-remote.mjs"
     ;;
+  068)
+    node "$API_DIR/scripts/migrate-068-remote.mjs"
+    ;;
   *)
-    echo "Usage: $0 upgrade|all|demo|apply-pending|bootstrap-tracking|048|061|062|063|064|065|066|067|..." >&2
+    echo "Usage: $0 upgrade|all|demo|apply-pending|bootstrap-tracking|048|061|062|063|064|065|066|067|068|..." >&2
     exit 1
     ;;
 esac

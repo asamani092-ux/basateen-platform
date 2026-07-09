@@ -939,6 +939,7 @@ export const api = {
   teacherPlanGet: (studentId: number) =>
     request<{
       plan: Record<string, unknown> | null;
+      plans?: Array<Record<string, unknown>>;
       calendar: {
         semester_weeks: number;
         school_days: number[];
@@ -947,9 +948,35 @@ export const api = {
       estimate: Record<string, unknown> | null;
     }>(`/api/teacher/plans/${studentId}`),
   teacherPlanSave: (studentId: number, body: Record<string, unknown>) =>
-    request<{ ok: boolean; id: number; estimate: Record<string, unknown> }>(
-      `/api/teacher/plans/${studentId}`,
-      { method: "PUT", body: JSON.stringify(body) },
+    request<{
+      ok: boolean;
+      id: number;
+      estimate: Record<string, unknown>;
+      starts_at?: string;
+      ends_at?: string;
+      duration_weeks?: number;
+      days_remaining?: number | null;
+    }>(`/api/teacher/plans/${studentId}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  teacherPlanPatch: (planId: number, body: Record<string, unknown>) =>
+    request<{
+      ok: boolean;
+      id: number;
+      estimate: Record<string, unknown>;
+      starts_at?: string;
+      ends_at?: string;
+      duration_weeks?: number;
+      days_remaining?: number | null;
+    }>(`/api/teacher/plans/by-id/${planId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  teacherPlanDelete: (planId: number) =>
+    request<{ ok: boolean; id: number }>(
+      `/api/teacher/plans/by-id/${planId}`,
+      { method: "DELETE" },
     ),
   teacherPlanEstimate: (body: Record<string, unknown>) =>
     request<{

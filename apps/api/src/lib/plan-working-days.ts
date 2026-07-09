@@ -88,6 +88,24 @@ export function countWorkingDaysInRange(
 }
 
 /**
+ * O(D) — أيام العمل المتبقية من today حتى ends_at (0 في يوم الانتهاء، سالب بعده).
+ */
+export function countWorkingDaysRemaining(
+  endsAt: string,
+  today: string,
+  restDays: RestDaysSetting,
+): number | null {
+  const end = endsAt.trim().slice(0, 10);
+  const t = today.trim().slice(0, 10);
+  if (!end || !t) return null;
+  if (t > end) {
+    return -countWorkingDaysInRange(end, t, restDays);
+  }
+  if (t === end) return 0;
+  return countWorkingDaysInRange(t, end, restDays);
+}
+
+/**
  * O(D) — قائمة تواريخ أيام العمل ضمن المدى
  */
 export function listWorkingDayDates(

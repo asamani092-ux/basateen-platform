@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "../../components/ui/accordion";
 import { api } from "../../lib/api-client";
+import { todayRiyadhIso } from "../../lib/today-riyadh-iso";
 import { ds, tajawal } from "../../lib/design-system";
+import { cn } from "../../components/ui/utils";
 
 type DayRow = { day_date: string; completed: number };
-
-type CalendarCell = {
-  day_date: string;
-  isRest: boolean;
-  dayLabel: string;
-};
 
 type Props = {
   planId: number;
@@ -18,38 +20,83 @@ type Props = {
   onSaved: () => void;
 };
 
-function restWeekdays(restDays: string): Set<number> {
-  if (restDays === "friday") return new Set([5]);
-  if (restDays === "saturday") return new Set([6]);
-  return new Set([5, 6]);
+type RestDaysSetting = "friday" | "saturday" | "friday_saturday";
+
+type WeekGroup = {
+  weekIndex: number;
+  dates: string[];
+};
+
+function parseRestDays(raw: unknown): RestDaysSetting {
+  const v = String(raw ?? "").trim();
+  if (v === "friday" || v === "saturday" || v === "friday_saturday") return v;
+  return "friday_saturday";
 }
 
-function buildCalendarCells(
+function isRestDay(iso: string, restDays: RestDaysSetting): boolean {
+  const wd = new Date(`${iso}T12:00:00Z`).getUTCDay();
+  if (restDays === "friday") return wd === 5;
+  if (restDays === "saturday") return wd === 6;
+  return wd === 5 || wd === 6;
+}
+
+function addDaysIso(iso: string, days: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+
+function diffCalendarDays(from: string, to: string): number {
+  const [fy, fm, fd] = from.split("-").map(Number);
+  const [ty, tm, td] = to.split("-").map(Number);
+  return Math.round(
+    (Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86_400_000,
+  );
+}
+
+function weekIndexFromStart(startsAt: string, dayDate: string): number {
+  return Math.floor(diffCalendarDays(startsAt, dayDate) / 7) + 1;
+}
+
+/** O(D) — D=أيام العمل؛ متابعة أسبوعية داخل حوار */
+function listWorkingDayDates(
   startsAt: string,
   endsAt: string,
-  restDays: string,
-): CalendarCell[] {
-  const rest = restWeekdays(restDays);
-  const out: CalendarCell[] = [];
+  restDays: RestDaysSetting,
+): string[] {
+  const out: string[] = [];
   let cursor = startsAt;
   while (cursor <= endsAt) {
-    const wd = new Date(`${cursor}T12:00:00Z`).getUTCDay();
-    const [, , d] = cursor.split("-");
-    out.push({
-      day_date: cursor,
-      isRest: rest.has(wd),
-      dayLabel: d,
-    });
+    if (!isRestDay(cursor, restDays)) out.push(cursor);
     if (cursor === endsAt) break;
-    const [y, m, day] = cursor.split("-").map(Number);
-    const dt = new Date(Date.UTC(y, m - 1, day));
-    dt.setUTCDate(dt.getUTCDate() + 1);
-    cursor = dt.toISOString().slice(0, 10);
+    cursor = addDaysIso(cursor, 1);
   }
   return out;
 }
 
-/** O(D) — D=أيام المدى؛ شبكة يومية مضمّنة */
+function groupByWeek(startsAt: string, dates: string[]): WeekGroup[] {
+  const map = new Map<number, string[]>();
+  for (const d of dates) {
+    const w = weekIndexFromStart(startsAt, d);
+    const list = map.get(w) ?? [];
+    list.push(d);
+    map.set(w, list);
+  }
+  return [...map.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([weekIndex, weekDates]) => ({ weekIndex, dates: weekDates }));
+}
+
+function formatArNumber(n: number): string {
+  return new Intl.NumberFormat("ar-SA").format(n);
+}
+
+function dayLabel(iso: string): string {
+  return iso.slice(8, 10);
+}
+
+/** O(D) — شبكة متابعة يومية مجمّعة بالأسبوع (أيام العمل فقط) */
 export function PlanDayGrid({
   planId,
   startsAt,
@@ -61,10 +108,12 @@ export function PlanDayGrid({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [openWeeks, setOpenWeeks] = useState<string[]>([]);
 
   const start = String(startsAt ?? "").slice(0, 10);
   const end = String(endsAt ?? "").slice(0, 10);
-  const rest = String(restDays ?? "friday_saturday");
+  const rest = parseRestDays(restDays);
+  const today = todayRiyadhIso();
 
   const completedMap = useMemo(() => {
     const m = new Map<string, boolean>();
@@ -72,18 +121,22 @@ export function PlanDayGrid({
     return m;
   }, [days]);
 
-  const cells = useMemo(() => {
+  const weekGroups = useMemo(() => {
     if (!start || !end) return [];
-    return buildCalendarCells(start, end, rest);
+    const working = listWorkingDayDates(start, end, rest);
+    return groupByWeek(start, working);
   }, [start, end, rest]);
 
-  const workingCells = useMemo(() => cells.filter((c) => !c.isRest), [cells]);
-  const doneCount = useMemo(
-    () => workingCells.filter((c) => completedMap.get(c.day_date) === true).length,
-    [workingCells, completedMap],
-  );
-  const totalWorking = workingCells.length;
-  const pct = totalWorking > 0 ? Math.round((doneCount / totalWorking) * 100) : 0;
+  const currentWeekIndex = useMemo(() => {
+    if (!start || !today || today < start) return 1;
+    if (today > end) return weekGroups[weekGroups.length - 1]?.weekIndex ?? 1;
+    return weekIndexFromStart(start, today);
+  }, [start, today, end, weekGroups]);
+
+  useEffect(() => {
+    if (weekGroups.length === 0) return;
+    setOpenWeeks([String(currentWeekIndex)]);
+  }, [currentWeekIndex, weekGroups.length, planId]);
 
   const load = useCallback(async () => {
     if (!start || !end) return;
@@ -132,68 +185,89 @@ export function PlanDayGrid({
   if (!start || !end) return null;
 
   return (
-    <div className="space-y-3 border-t border-border/60 pt-3">
-      <div className="space-y-1.5">
-        <div className="flex justify-between text-xs text-muted-foreground" style={tajawal}>
-          <span>
-            {doneCount} من {totalWorking} يوماً
-          </span>
-          <span>{pct}%</span>
-        </div>
-        <div className="h-2 rounded-full bg-muted overflow-hidden">
-          <div
-            className="h-full bg-primary transition-all"
-            style={{ width: `${Math.min(100, pct)}%` }}
-          />
-        </div>
-      </div>
-
+    <div className="space-y-3 overflow-x-hidden">
       {loading ? (
         <p className="text-xs text-muted-foreground" style={tajawal}>
           جاري تحميل الأيام…
         </p>
       ) : (
-        <div
-          className="grid grid-cols-7 gap-1.5"
-          role="group"
-          aria-label="متابعة يومية"
+        <Accordion
+          type="multiple"
+          value={openWeeks}
+          onValueChange={setOpenWeeks}
+          className="space-y-2"
         >
-          {cells.map((cell) => {
-            if (cell.isRest) {
-              return (
-                <div
-                  key={cell.day_date}
-                  title={`${cell.day_date} — عطلة`}
-                  className={`${ds.btnRound} flex min-h-11 min-w-0 items-center justify-center border border-dashed border-border/70 bg-muted/50 text-xs text-muted-foreground`}
+          {weekGroups.map((group) => {
+            const doneInWeek = group.dates.filter(
+              (d) => completedMap.get(d) === true,
+            ).length;
+            const totalInWeek = group.dates.length;
+            const isCurrent = group.weekIndex === currentWeekIndex;
+            return (
+              <AccordionItem
+                key={group.weekIndex}
+                value={String(group.weekIndex)}
+                className={cn(
+                  ds.card,
+                  "overflow-hidden border",
+                  isCurrent ? "border-primary/30" : "border-border/70",
+                )}
+              >
+                <AccordionTrigger
+                  className="px-3 py-2.5 hover:no-underline text-right [&>svg]:mr-auto [&>svg]:ml-0 min-h-11"
                   style={tajawal}
                 >
-                  {cell.dayLabel}
-                </div>
-              );
-            }
-            const done = completedMap.get(cell.day_date) === true;
-            return (
-              <button
-                key={cell.day_date}
-                type="button"
-                title={`${cell.day_date} — ${done ? "منجَز" : "غير منجَز"}`}
-                disabled={saving}
-                onClick={() => void toggleDay(cell.day_date)}
-                className={`${ds.btnRound} flex min-h-11 min-w-0 touch-manipulation items-center justify-center border text-xs font-semibold transition-colors ${
-                  done
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border bg-card text-muted-foreground hover:border-primary/40"
-                }`}
-                style={tajawal}
-              >
-                {cell.dayLabel}
-              </button>
+                  <span className="flex-1 text-sm font-semibold">
+                    {isCurrent ? (
+                      <>
+                        الأسبوع {formatArNumber(group.weekIndex)} (الحالي) —{" "}
+                        {formatArNumber(doneInWeek)} من {formatArNumber(totalInWeek)}
+                      </>
+                    ) : (
+                      <>
+                        الأسبوع {formatArNumber(group.weekIndex)} —{" "}
+                        {formatArNumber(doneInWeek)} من {formatArNumber(totalInWeek)}
+                      </>
+                    )}
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent className="px-3 pb-3 pt-0 overflow-x-hidden">
+                  <div
+                    className="grid grid-cols-5 gap-2 max-w-full"
+                    role="group"
+                    aria-label={`أسبوع ${group.weekIndex}`}
+                  >
+                    {group.dates.map((dayDate) => {
+                      const done = completedMap.get(dayDate) === true;
+                      return (
+                        <button
+                          key={dayDate}
+                          type="button"
+                          title={`${dayDate} — ${done ? "منجَز" : "غير منجَز"}`}
+                          disabled={saving}
+                          onClick={() => void toggleDay(dayDate)}
+                          className={cn(
+                            ds.btnRound,
+                            "flex min-h-11 w-full min-w-0 touch-manipulation flex-col items-center justify-center border text-xs font-semibold transition-colors",
+                            done
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-border bg-card text-muted-foreground hover:border-primary/40",
+                          )}
+                          style={tajawal}
+                        >
+                          <span>{dayLabel(dayDate)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
             );
           })}
-        </div>
+        </Accordion>
       )}
 
-      <p className="text-[11px] text-muted-foreground" style={tajawal}>
+      <p className="text-xs text-muted-foreground" style={tajawal}>
         اضغط يوماً لتحويله بين منجَز وغير منجَز. اليوم بلا سجل = غير منجَز.
       </p>
 

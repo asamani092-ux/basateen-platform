@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BookOpen,
+  CalendarCheck,
   Lock,
   Pencil,
   Plus,
@@ -101,9 +102,16 @@ function countdownLabel(p: PlanRow): string {
   }
   if (p.days_remaining == null) return "بدون تاريخ انتهاء";
   if (p.days_remaining === 0) {
-    return "يوجد خطة للطالب وتنتهي اليوم";
+    return "تنتهي اليوم";
   }
-  return `يوجد خطة للطالب وتنتهي بعد ${p.days_remaining} يوماً`;
+  return `تنتهي بعد ${p.days_remaining} يوماً`;
+}
+
+function planProgressPct(p: PlanRow): number {
+  const total = p.total_working_days ?? 0;
+  const done = p.completed_days ?? 0;
+  if (p.progress_pct != null) return p.progress_pct;
+  return total > 0 ? Math.round((done / total) * 100) : 0;
 }
 
 export function TeacherPlansPage() {
@@ -124,6 +132,29 @@ export function TeacherPlansPage() {
   const [permanentStep, setPermanentStep] = useState<1 | 2>(1);
   const [permanentDayRecords, setPermanentDayRecords] = useState(0);
   const [permanentLoading, setPermanentLoading] = useState(false);
+  const [followUpPlan, setFollowUpPlan] = useState<PlanRow | null>(null);
+
+  const patchPlanProgress = useCallback(async (planId: number) => {
+    try {
+      const res = await api.teacherPlanDaysGet(planId);
+      const total = Number(res.total_working_days) || 0;
+      const completed = Number(res.completed_days) || 0;
+      const pct = total > 0 ? Math.round((completed / total) * 1000) / 10 : 0;
+      const patch = {
+        total_working_days: total,
+        completed_days: completed,
+        progress_pct: pct,
+      };
+      setPlans((prev) =>
+        prev.map((p) => (p.id === planId ? { ...p, ...patch } : p)),
+      );
+      setFollowUpPlan((prev) =>
+        prev?.id === planId ? { ...prev, ...patch } : prev,
+      );
+    } catch {
+      /* الحوار يبقى مفتوحاً */
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -306,6 +337,9 @@ export function TeacherPlansPage() {
                           const expired =
                             Boolean(p.is_expired) ||
                             (p.days_remaining != null && p.days_remaining < 0);
+                          const total = p.total_working_days ?? 0;
+                          const done = p.completed_days ?? 0;
+                          const pct = planProgressPct(p);
                           return (
                             <li
                               key={p.id}
@@ -315,16 +349,28 @@ export function TeacherPlansPage() {
                                   : "border-primary/25 bg-primary/5"
                               }`}
                             >
-                              <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="flex flex-col gap-3 min-w-0">
                                 <div className="min-w-0 space-y-1">
-                                  <p className="font-semibold text-sm" style={tajawal}>
-                                    {PLAN_KIND_LABEL[p.plan_kind] ?? p.plan_kind}
-                                    {" · "}
-                                    {dailyAmountLabel(p)}
-                                    {p.duration_weeks
-                                      ? ` · ${p.duration_weeks} أسابيع`
-                                      : ""}
-                                  </p>
+                                  <div
+                                    className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm font-semibold"
+                                    style={tajawal}
+                                  >
+                                    <span className="shrink-0">
+                                      {PLAN_KIND_LABEL[p.plan_kind] ?? p.plan_kind}
+                                    </span>
+                                    <span className="text-muted-foreground">·</span>
+                                    <span className="min-w-0 break-words">
+                                      {dailyAmountLabel(p)}
+                                    </span>
+                                    {p.duration_weeks ? (
+                                      <>
+                                        <span className="text-muted-foreground">·</span>
+                                        <span className="shrink-0">
+                                          {p.duration_weeks} أسابيع
+                                        </span>
+                                      </>
+                                    ) : null}
+                                  </div>
                                   <p className="text-xs" style={tajawal}>
                                     {countdownLabel(p)}
                                   </p>
@@ -338,52 +384,78 @@ export function TeacherPlansPage() {
                                     </p>
                                   )}
                                 </div>
-                                <div className="flex flex-wrap items-center gap-2 shrink-0">
+
+                                {total > 0 && (
+                                  <div className="space-y-1.5">
+                                    <div
+                                      className="flex justify-between text-xs text-muted-foreground"
+                                      style={tajawal}
+                                    >
+                                      <span>
+                                        {done} من {total} يوماً
+                                      </span>
+                                      <span>{pct}%</span>
+                                    </div>
+                                    <div className="h-2 rounded-full bg-muted overflow-hidden">
+                                      <div
+                                        className="h-full bg-primary transition-all"
+                                        style={{
+                                          width: `${Math.min(100, pct)}%`,
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+
+                                <div className="grid w-full min-w-0 grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="default"
+                                    className={`${ds.btnRound} min-h-11 w-full gap-1.5 px-3 sm:w-auto`}
+                                    onClick={() => setFollowUpPlan(p)}
+                                    style={tajawal}
+                                  >
+                                    <CalendarCheck className="size-4 shrink-0" />
+                                    متابعة
+                                  </Button>
                                   <Button
                                     type="button"
                                     size="sm"
                                     variant="outline"
-                                    className={`${ds.btnRound} min-h-11 gap-1.5 px-3`}
+                                    className={`${ds.btnRound} min-h-11 w-full gap-1.5 px-3 sm:w-auto`}
                                     onClick={() => openEdit(s, p)}
                                     style={tajawal}
                                   >
-                                    <Pencil className="size-4" />
+                                    <Pencil className="size-4 shrink-0" />
                                     تعديل
                                   </Button>
                                   <Button
                                     type="button"
                                     size="sm"
                                     variant={expired ? "default" : "outline"}
-                                    className={`${ds.btnRound} min-h-11 gap-1.5 px-3`}
+                                    className={`${ds.btnRound} min-h-11 w-full gap-1.5 px-3 sm:w-auto`}
                                     disabled={busyPlanId === p.id}
                                     onClick={() => setCloseTarget(p)}
                                     style={tajawal}
                                   >
-                                    <Lock className="size-4" />
+                                    <Lock className="size-4 shrink-0" />
                                     {expired ? "أغلق الخطة" : "إغلاق"}
                                   </Button>
                                   <Button
                                     type="button"
                                     size="sm"
                                     variant="ghost"
-                                    className={`${ds.btnRound} min-h-11 gap-1.5 px-3 text-destructive hover:text-destructive`}
+                                    className={`${ds.btnRound} min-h-11 w-full gap-1.5 px-3 text-destructive hover:text-destructive sm:w-auto`}
                                     disabled={busyPlanId === p.id}
                                     onClick={() => void openPermanentDelete(p)}
                                     style={tajawal}
                                   >
-                                    <Trash2 className="size-4" />
+                                    <Trash2 className="size-4 shrink-0" />
                                     حذف نهائي
                                   </Button>
                                 </div>
                               </div>
-
-                              <PlanDayGrid
-                                planId={p.id}
-                                startsAt={p.starts_at}
-                                endsAt={p.ends_at}
-                                restDays={p.rest_days}
-                                onSaved={() => void refresh()}
-                              />
                             </li>
                           );
                         })}
@@ -455,7 +527,7 @@ export function TeacherPlansPage() {
                 لا خطط في نطاقك.
               </p>
             ) : (
-              <table className={`${ds.printTable} w-full text-xs border-collapse min-w-[720px]`}>
+              <table className={`${ds.printTable} w-full text-xs border-collapse min-w-full`}>
                 <thead>
                   <tr className="border-b text-muted-foreground print:text-black">
                     <th className={`${ds.table.head} print:border print:border-black`} style={tajawal}>
@@ -650,6 +722,48 @@ export function TeacherPlansPage() {
                   style={tajawal}
                 >
                   نعم، احذف نهائياً
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(followUpPlan)}
+        onOpenChange={(o) => {
+          if (!o) setFollowUpPlan(null);
+        }}
+      >
+        <DialogContent
+          className={`${ds.dialog} max-h-[90vh] overflow-y-auto overflow-x-hidden sm:max-w-lg`}
+        >
+          {followUpPlan && (
+            <>
+              <DialogHeader>
+                <DialogTitle style={tajawal}>
+                  متابعة يومية — {followUpPlan.full_name_ar}
+                </DialogTitle>
+                <DialogDescription style={tajawal}>
+                  أيام العمل فقط — اضغط يوماً بين منجَز وغير منجَز.
+                </DialogDescription>
+              </DialogHeader>
+              <PlanDayGrid
+                planId={followUpPlan.id}
+                startsAt={followUpPlan.starts_at}
+                endsAt={followUpPlan.ends_at}
+                restDays={followUpPlan.rest_days}
+                onSaved={() => void patchPlanProgress(followUpPlan.id)}
+              />
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={`${ds.btnRound} min-h-11`}
+                  onClick={() => setFollowUpPlan(null)}
+                  style={tajawal}
+                >
+                  إغلاق
                 </Button>
               </DialogFooter>
             </>

@@ -9,8 +9,11 @@ import {
   buildPlanEstimateCalendar,
   computeEndsAtFromWorkingDays,
   countWorkingDaysInRange,
+  countWorkingDaysRemaining,
   parseRestDays,
   planDailyAmount,
+  REST_DAYS_DEFAULT,
+  workingDaysPerWeek,
   type RestDaysSetting,
 } from "../lib/plan-working-days";
 import { teacherCanAccessStudent } from "../lib/dept-scope";
@@ -26,19 +29,14 @@ function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
 }
 
-/** O(1) — أيام متبقية حتى ends_at (تقويم الرياض). */
+/** O(D) — أيام عمل متبقية حتى ends_at (تقويم الرياض + rest_days). */
 export function daysRemainingRiyadh(
   endsAt: string | null | undefined,
   today = todayRiyadhIso(),
+  restDays: RestDaysSetting = REST_DAYS_DEFAULT,
 ): number | null {
   if (!endsAt?.trim()) return null;
-  const end = endsAt.trim().slice(0, 10);
-  const [ey, em, ed] = end.split("-").map(Number);
-  const [ty, tm, td] = today.split("-").map(Number);
-  if (![ey, em, ed, ty, tm, td].every(Number.isFinite)) return null;
-  const endMs = Date.UTC(ey, em - 1, ed);
-  const todayMs = Date.UTC(ty, tm - 1, td);
-  return Math.round((endMs - todayMs) / 86_400_000);
+  return countWorkingDaysRemaining(endsAt, today, restDays);
 }
 
 type PlanStatusKey = "active" | "expired_pending_close" | "closed";
@@ -70,7 +68,8 @@ function withPlanMeta<T extends Record<string, unknown>>(
   plan_status_ar: string;
 } {
   const endsAt = row.ends_at != null ? String(row.ends_at) : null;
-  const days = daysRemainingRiyadh(endsAt, today);
+  const restDays = parseRestDays(row.rest_days);
+  const days = daysRemainingRiyadh(endsAt, today, restDays);
   const status = resolvePlanStatus(row, today);
   return {
     ...row,
@@ -554,8 +553,10 @@ export async function handleTeacherRouter(
       if (!Number.isFinite(durationWeeks) || durationWeeks < 1) {
         const prevEnds = existing.ends_at ? String(existing.ends_at).slice(0, 10) : null;
         if (prevEnds) {
-          const rem = daysRemainingRiyadh(prevEnds, startsAt);
-          durationWeeks = rem != null && rem > 0 ? Math.max(1, Math.ceil(rem / 7)) : 1;
+          const rem = countWorkingDaysInRange(startsAt, prevEnds, restDays);
+          const perWeek = workingDaysPerWeek(restDays);
+          durationWeeks =
+            rem > 0 && perWeek > 0 ? Math.max(1, Math.ceil(rem / perWeek)) : 1;
         } else {
           durationWeeks = 1;
         }
@@ -651,7 +652,7 @@ export async function handleTeacherRouter(
         ends_at: endsAt,
         duration_weeks: durationWeeks,
         rest_days: restDays,
-        days_remaining: daysRemainingRiyadh(endsAt),
+        days_remaining: daysRemainingRiyadh(endsAt, todayRiyadhIso(), restDays),
       });
     }
 
@@ -853,7 +854,7 @@ export async function handleTeacherRouter(
           ends_at: endsAt,
           duration_weeks: durationWeeks,
           rest_days: restDays,
-          days_remaining: daysRemainingRiyadh(endsAt),
+          days_remaining: daysRemainingRiyadh(endsAt, todayRiyadhIso(), restDays),
         });
       }
 
@@ -943,7 +944,7 @@ export async function handleTeacherRouter(
         ends_at: endsAt,
         duration_weeks: durationWeeks,
         rest_days: restDays,
-        days_remaining: daysRemainingRiyadh(endsAt),
+        days_remaining: daysRemainingRiyadh(endsAt, todayRiyadhIso(), restDays),
       });
     }
   }

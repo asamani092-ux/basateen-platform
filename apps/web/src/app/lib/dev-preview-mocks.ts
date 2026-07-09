@@ -1946,6 +1946,38 @@ export function resolveDevPreviewMock<T>(
     } as T;
   }
 
+  if (p === "/api/teacher/plans/report" && m === "GET") {
+    return { items: teacherPreviewStore.listPlansReport() } as T;
+  }
+
+  const teacherPlanPermanent = p.match(
+    /^\/api\/teacher\/plans\/by-id\/(\d+)\/permanent$/,
+  );
+  if (teacherPlanPermanent) {
+    const planId = Number(teacherPlanPermanent[1]);
+    if (m === "DELETE") {
+      const res = teacherPreviewStore.permanentDeletePlan(planId);
+      if (!res) return { error: "not_found" } as T;
+      return res as T;
+    }
+  }
+
+  const teacherPlanDays = p.match(/^\/api\/teacher\/plans\/by-id\/(\d+)\/days$/);
+  if (teacherPlanDays) {
+    const planId = Number(teacherPlanDays[1]);
+    if (m === "GET") {
+      const res = teacherPreviewStore.listPlanDays(planId);
+      if (!res) return { error: "not_found" } as T;
+      return res as T;
+    }
+    if (m === "PUT") {
+      const body = bodyText ? JSON.parse(bodyText) : {};
+      const res = teacherPreviewStore.upsertPlanDays(planId, body.days ?? []);
+      if (!res) return { error: "not_found" } as T;
+      return res as T;
+    }
+  }
+
   const teacherPlanById = p.match(/^\/api\/teacher\/plans\/by-id\/(\d+)$/);
   if (teacherPlanById) {
     const planId = Number(teacherPlanById[1]);

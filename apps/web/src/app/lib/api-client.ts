@@ -974,8 +974,13 @@ export const api = {
       body: JSON.stringify(body),
     }),
   teacherPlanDelete: (planId: number) =>
-    request<{ ok: boolean; id: number }>(
+    request<{ ok: boolean; id: number; closed?: boolean }>(
       `/api/teacher/plans/by-id/${planId}`,
+      { method: "DELETE" },
+    ),
+  teacherPlanPermanentDelete: (planId: number) =>
+    request<{ ok: boolean; id: number; deleted?: boolean }>(
+      `/api/teacher/plans/by-id/${planId}/permanent`,
       { method: "DELETE" },
     ),
   teacherPlanEstimate: (body: Record<string, unknown>) =>

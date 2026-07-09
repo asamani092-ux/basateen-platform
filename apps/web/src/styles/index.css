@@ -568,6 +568,36 @@
     print-color-adjust: exact;
   }
 
+  /* Teacher plans report print */
+  body.printing-teacher-plans aside,
+  body.printing-teacher-plans header,
+  body.printing-teacher-plans [data-dev-preview-banner],
+  body.printing-teacher-plans .print\\:hidden {
+    display: none !important;
+  }
+
+  body.printing-teacher-plans main {
+    padding: 0 !important;
+  }
+
+  body.printing-teacher-plans #teacher-plans-report-print {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  body.printing-teacher-plans .teacher-plans-print-header {
+    display: block !important;
+  }
+
+  body.printing-teacher-plans #teacher-plans-report-print * {
+    color: #000 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
   .print-table {
     width: 100%;
     border-collapse: collapse;

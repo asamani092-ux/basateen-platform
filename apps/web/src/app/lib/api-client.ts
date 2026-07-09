@@ -935,7 +935,9 @@ export const api = {
       teaching_days_total: number;
     }>("/api/teacher/calendar"),
   teacherPlansList: () =>
-    request<{ items: Array<Record<string, unknown>> }>("/api/teacher/plans"),
+    request<{ items: Array<Record<string, unknown>>; scope_unassigned?: boolean }>(
+      "/api/teacher/plans",
+    ),
   teacherPlanGet: (studentId: number) =>
     request<{
       plan: Record<string, unknown> | null;
@@ -1019,9 +1021,9 @@ export const api = {
       body: JSON.stringify(body),
     }),
   teacherPlansReport: () =>
-    request<{
-      items: Array<Record<string, unknown>>;
-    }>("/api/teacher/plans/report"),
+    request<{ items: Array<Record<string, unknown>>; scope_unassigned?: boolean }>(
+      "/api/teacher/plans/report",
+    ),
   teacherDailyMarks: (date?: string) => {
     const qs = date ? `?date=${encodeURIComponent(date)}` : "";
     return request<{
@@ -2317,6 +2319,8 @@ export const api = {
       default_task_weight?: number;
       circle_id?: number | null;
       circle_name?: string | null;
+      track_id?: number | null;
+      track_name?: string | null;
     }>("/api/edu-dept/teacher-competitions"),
   eduDeptTeacherCompetitionCreate: (body: {
     name_ar: string;
@@ -2338,10 +2342,17 @@ export const api = {
         type?: string;
         input_type?: string;
       }>;
-      students: Array<{ id: number; full_name_ar: string }>;
+      students: Array<{
+        id: number;
+        full_name_ar: string;
+        circle_name?: string | null;
+        track_name?: string | null;
+      }>;
       scores: Array<{ task_id: number; student_id: number; points: number }>;
       circle_id?: number | null;
       circle_name?: string | null;
+      track_id?: number | null;
+      track_name?: string | null;
     }>(`/api/edu-dept/teacher-competitions/${id}`),
   eduDeptTeacherCompetitionUpdate: (
     id: number,
@@ -2380,6 +2391,8 @@ export const api = {
         student_id: number;
         full_name_ar: string;
         total_points: number;
+        circle_name?: string | null;
+        track_name?: string | null;
       }>;
     }>(`/api/edu-dept/teacher-competitions/${compId}/leaderboard`),
   eduDeptTeacherCompetitionSaveScores: (

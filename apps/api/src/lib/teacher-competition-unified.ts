@@ -9,6 +9,7 @@ import {
   type StudentTargetInput,
 } from "./competition-engine";
 import { studentsInTeacherCircle } from "./teacher-circle";
+import { resolveTrackSupervisorTrackIds } from "./student-placement";
 
 export const TEACHER_CIRCLE_OWNERSHIP = "teacher_circle";
 
@@ -99,7 +100,16 @@ export async function createTeacherCircleCompetition(
   if (hasTargetScope) {
     cols.push("target_scope");
     vals.push("?");
-    binds.push(JSON.stringify({ circle_ids: [circleId] }));
+    if (teacherRole === "track_supervisor") {
+      const trackIds = await resolveTrackSupervisorTrackIds(
+        env,
+        teacherUserId,
+        complexId,
+      );
+      binds.push(JSON.stringify({ track_ids: trackIds }));
+    } else {
+      binds.push(JSON.stringify({ circle_ids: [circleId] }));
+    }
   }
   if (hasCreatedBy) {
     cols.push("created_by_user_id");

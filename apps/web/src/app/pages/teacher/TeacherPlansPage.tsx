@@ -26,9 +26,11 @@ import {
 } from "../../components/ui/dialog";
 import { api, type StudentRow } from "../../lib/api-client";
 import { getAuthUser } from "../../lib/auth-store";
+import { useAuth } from "../../context/AuthContext";
 import { getApiToken } from "../../lib/api-token";
 import { isUiDevPreview } from "../../lib/dev-preview";
 import { ds, tajawal } from "../../lib/design-system";
+import { StudentPlacementSubBadge } from "../../components/edu/StudentPlacementSubBadge";
 import { PlanDayGrid } from "./PlanDayGrid";
 import { PlanWizardDialog, type PlanWizardSeed } from "./PlanWizardDialog";
 
@@ -115,12 +117,16 @@ function planProgressPct(p: PlanRow): number {
 }
 
 export function TeacherPlansPage() {
+  const { user } = useAuth();
+  const isTrackSupervisor = user?.role === "track_supervisor";
+  const placementView: "circle" | "track" = isTrackSupervisor ? "track" : "circle";
   const canLoad = Boolean(getApiToken()) || isUiDevPreview();
   const teacherName = getAuthUser()?.full_name_ar ?? "—";
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [plans, setPlans] = useState<PlanRow[]>([]);
   const [report, setReport] = useState<ReportRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [scopeUnassigned, setScopeUnassigned] = useState(false);
   const [wizardStudent, setWizardStudent] = useState<StudentRow | null>(null);
   const [editPlan, setEditPlan] = useState<PlanWizardSeed | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -175,6 +181,7 @@ export function TeacherPlansPage() {
       setStudents(
         stuRes.items.filter((s) => s.admission_status !== "pending_placement"),
       );
+      setScopeUnassigned(Boolean((planRes as { scope_unassigned?: boolean }).scope_unassigned));
       setPlans(planRes.items as PlanRow[]);
       setReport(reportRes.items as ReportRow[]);
     } catch (e) {
@@ -295,9 +302,15 @@ export function TeacherPlansPage() {
             <p className="text-muted-foreground text-sm" style={tajawal}>
               جاري التحميل…
             </p>
+          ) : scopeUnassigned ? (
+            <p className={`${ds.alert.warn} text-sm`} style={tajawal}>
+              لم يُسنَد إليك مسار أو حلقة بعد. تواصل مع الإدارة لربط حسابك.
+            </p>
           ) : students.length === 0 ? (
             <p className="text-muted-foreground text-sm" style={tajawal}>
-              لا طلاب في نطاقك حالياً.
+              {isTrackSupervisor
+                ? "لا يوجد طلاب في نطاق مسارك حالياً."
+                : "لا يوجد طلاب في حلقتك حالياً."}
             </p>
           ) : (
             <ul className="space-y-4">
@@ -313,6 +326,12 @@ export function TeacherPlansPage() {
                         <p className={`${ds.page.data} font-semibold`} style={tajawal}>
                           {s.full_name_ar}
                         </p>
+                        <StudentPlacementSubBadge
+                          circleName={s.circle_name}
+                          trackName={s.track_name}
+                          view={placementView}
+                          className="max-w-full"
+                        />
                         <p className={ds.page.caption} style={tajawal}>
                           {s.circle_name ?? "—"}
                           {studentPlans.length === 0 ? " · بلا خطة" : ""}

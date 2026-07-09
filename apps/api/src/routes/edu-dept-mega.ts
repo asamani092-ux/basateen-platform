@@ -14,6 +14,8 @@ import {
 } from "../lib/competition-engine";
 import {
   resolveTeacherPrimaryCircle,
+  resolveTrackSupervisorPrimaryTrack,
+  loadStudentPlacementLabels,
   studentsInTeacherCircle,
   TEACHER_NO_CIRCLE_ACCOUNT_MSG,
 } from "../lib/teacher-circle";
@@ -98,6 +100,9 @@ async function loadTeacherStudents(
     auth.role,
   );
   if (students === null) {
+    if (auth.role === "track_supervisor") {
+      return json({ error: "no_track_assigned", scope_unassigned: true }, 404);
+    }
     return json({ error: TEACHER_NO_CIRCLE_ACCOUNT_MSG }, 400);
   }
   return { students };
@@ -176,16 +181,25 @@ export async function handleEduDeptMegaRouter(
             isTeacherCircleCompetition(String(r.rules_json ?? "")),
           )
         : (rows.results ?? []);
-      const circle = await resolveTeacherPrimaryCircle(
-        env,
-        auth.userId,
-        auth.complexId,
-      );
+      const circle =
+        auth.role === "track_supervisor"
+          ? null
+          : await resolveTeacherPrimaryCircle(env, auth.userId, auth.complexId);
+      const track =
+        auth.role === "track_supervisor"
+          ? await resolveTrackSupervisorPrimaryTrack(
+              env,
+              auth.userId,
+              auth.complexId,
+            )
+          : null;
       const eventDefaults = await loadEventDefaults(env, auth.complexId);
       return json({
         items,
         circle_id: circle?.id ?? null,
         circle_name: circle?.name_ar ?? null,
+        track_id: track?.id ?? null,
+        track_name: track?.name_ar ?? null,
         default_task_weight: eventDefaults.competition.default_task_weight,
       });
     }
@@ -200,12 +214,23 @@ export async function handleEduDeptMegaRouter(
       const name = String(body.name_ar ?? "").trim();
       if (!name) return json({ error: "name_required" }, 400);
 
-      const circle = await resolveTeacherPrimaryCircle(
-        env,
-        auth.userId,
-        auth.complexId,
-      );
-      if (!circle) {
+      const circle =
+        auth.role === "track_supervisor"
+          ? null
+          : await resolveTeacherPrimaryCircle(env, auth.userId, auth.complexId);
+      const track =
+        auth.role === "track_supervisor"
+          ? await resolveTrackSupervisorPrimaryTrack(
+              env,
+              auth.userId,
+              auth.complexId,
+            )
+          : null;
+      if (auth.role === "track_supervisor") {
+        if (!track) {
+          return json({ error: "no_track_assigned" }, 400);
+        }
+      } else if (!circle) {
         return json({ error: TEACHER_NO_CIRCLE_ACCOUNT_MSG }, 400);
       }
 
@@ -222,9 +247,14 @@ export async function handleEduDeptMegaRouter(
           name,
           startDate,
           endDate,
-          circle.id,
+          circle?.id ?? track!.id,
         );
-        return json({ ok: true, id: compId, circle_id: circle.id });
+        return json({
+          ok: true,
+          id: compId,
+          circle_id: circle?.id ?? null,
+          track_id: track?.id ?? null,
+        });
       }
 
       const ins = await env.DB.prepare(
@@ -234,7 +264,12 @@ export async function handleEduDeptMegaRouter(
         .bind(auth.complexId, auth.userId, name, startDate, endDate)
         .run();
       const compId = Number(ins.meta.last_row_id);
-      return json({ ok: true, id: compId, circle_id: circle.id });
+      return json({
+        ok: true,
+        id: compId,
+        circle_id: circle?.id ?? null,
+        track_id: track?.id ?? null,
+      });
     }
 
     const detailMatch = path.match(/^\/api\/edu-dept\/teacher-competitions\/(\d+)$/);
@@ -415,19 +450,39 @@ export async function handleEduDeptMegaRouter(
         }
       }
 
-      const circle = await resolveTeacherPrimaryCircle(
+      const circle =
+        auth.role === "track_supervisor"
+          ? null
+          : await resolveTeacherPrimaryCircle(env, auth.userId, auth.complexId);
+      const track =
+        auth.role === "track_supervisor"
+          ? await resolveTrackSupervisorPrimaryTrack(
+              env,
+              auth.userId,
+              auth.complexId,
+            )
+          : null;
+
+      const labelMap = await loadStudentPlacementLabels(
         env,
-        auth.userId,
         auth.complexId,
+        students.map((s) => s.id),
       );
+      const studentsEnriched = students.map((s) => ({
+        ...s,
+        circle_name: labelMap.get(s.id)?.circle_name ?? null,
+        track_name: labelMap.get(s.id)?.track_name ?? null,
+      }));
 
       return json({
         competition: comp,
         tasks: taskRows,
-        students,
+        students: studentsEnriched,
         scores,
         circle_id: circle?.id ?? null,
         circle_name: circle?.name_ar ?? null,
+        track_id: track?.id ?? null,
+        track_name: track?.name_ar ?? null,
       });
     }
 
@@ -465,7 +520,17 @@ export async function handleEduDeptMegaRouter(
           String(compRow?.start_date ?? todayRiyadhIso()),
           String(compRow?.end_date ?? todayRiyadhIso()),
         );
-        return json({ items });
+        const labelMap = await loadStudentPlacementLabels(
+          env,
+          auth.complexId,
+          items.map((r) => r.student_id),
+        );
+        const enriched = items.map((r) => ({
+          ...r,
+          circle_name: labelMap.get(r.student_id)?.circle_name ?? null,
+          track_name: labelMap.get(r.student_id)?.track_name ?? null,
+        }));
+        return json({ items: enriched });
       }
 
       const scoreMap = new Map<number, number>();
@@ -505,7 +570,18 @@ export async function handleEduDeptMegaRouter(
         )
         .map((row, i) => ({ ...row, rank: i + 1 }));
 
-      return json({ items });
+      const labelMap = await loadStudentPlacementLabels(
+        env,
+        auth.complexId,
+        items.map((r) => r.student_id),
+      );
+      const enriched = items.map((r) => ({
+        ...r,
+        circle_name: labelMap.get(r.student_id)?.circle_name ?? null,
+        track_name: labelMap.get(r.student_id)?.track_name ?? null,
+      }));
+
+      return json({ items: enriched });
     }
 
     const taskMatch = path.match(/^\/api\/edu-dept\/teacher-competitions\/(\d+)\/tasks$/);

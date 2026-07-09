@@ -18,8 +18,7 @@ import {
 } from "../lib/plan-working-days";
 import { teacherCanAccessStudent } from "../lib/dept-scope";
 import { buildStudentPlacementSql } from "../lib/student-list-sql";
-import { buildTeacherCircleAccessSql } from "../lib/teacher-circle";
-import { resolveTrackSupervisorTrackIds } from "../lib/student-placement";
+import { buildTeacherCircleAccessSql, buildTrackSupervisorStudentScopeSql } from "../lib/teacher-circle";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 import { tableHasColumn } from "../lib/db-schema";
 
@@ -140,21 +139,13 @@ async function loadCalendar(env: Env, complexId: number) {
 async function buildPlansListScope(
   env: Env,
   auth: { userId: number; role: string; complexId: number },
-): Promise<{ sql: string; binds: number[] } | null> {
+): Promise<{ sql: string; binds: number[] } | { unassigned: true }> {
   const placement = await buildStudentPlacementSql(env);
 
   if (auth.role === "track_supervisor") {
-    const trackIds = await resolveTrackSupervisorTrackIds(
-      env,
-      auth.userId,
-      auth.complexId,
-    );
-    if (!trackIds.length) return null;
-    const ph = trackIds.map(() => "?").join(",");
-    return {
-      sql: `${placement.trackRef} IN (${ph})`,
-      binds: trackIds,
-    };
+    const scope = await buildTrackSupervisorStudentScopeSql(env, auth, placement);
+    if (!scope.assigned) return { unassigned: true };
+    return { sql: scope.sql, binds: scope.binds };
   }
 
   const teacherScope = await buildTeacherCircleAccessSql(env, placement.circleRef);
@@ -196,7 +187,9 @@ export async function handleTeacherRouter(
   if (path === "/api/teacher/plans/report" && request.method === "GET") {
     const placement = await buildStudentPlacementSql(env);
     const scope = await buildPlansListScope(env, auth);
-    if (!scope) return json({ items: [] });
+    if ("unassigned" in scope) {
+      return json({ items: [], scope_unassigned: true });
+    }
 
     const hasDuration = await tableHasColumn(env, "student_semester_plans", "duration_weeks");
     const today = todayRiyadhIso();
@@ -259,7 +252,9 @@ export async function handleTeacherRouter(
   if (path === "/api/teacher/plans" && request.method === "GET") {
     const placement = await buildStudentPlacementSql(env);
     const scope = await buildPlansListScope(env, auth);
-    if (!scope) return json({ items: [] });
+    if ("unassigned" in scope) {
+      return json({ items: [], scope_unassigned: true });
+    }
 
     const hasDuration = await tableHasColumn(env, "student_semester_plans", "duration_weeks");
     const today = todayRiyadhIso();

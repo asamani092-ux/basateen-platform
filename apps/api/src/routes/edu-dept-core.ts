@@ -37,10 +37,10 @@ import { applyStudentPlacement } from "../lib/students-admin";
 import { todayRiyadhIso } from "../lib/today-riyadh-iso";
 import {
   queryStudentsInCircle,
-  queryStudentsInTracks,
   resolveTrackSupervisorCircles,
   resolveTrackSupervisorTrackIds,
 } from "../lib/student-placement";
+import { studentsInTeacherCircle } from "../lib/teacher-circle";
 import {
   buildTasksSnapshot,
   computeQualityForRecord,
@@ -848,7 +848,7 @@ export async function handleEduDeptCoreRouter(
           auth.complexId,
         );
         if (supervisedTrackIds.length === 0) {
-          return json({ error: "no_circle_assigned" }, 404);
+          return json({ error: "no_track_assigned", scope_unassigned: true }, 404);
         }
         const activeTrackIds =
           trackFilter != null && trackFilter > 0
@@ -870,11 +870,16 @@ export async function handleEduDeptCoreRouter(
           );
         }
 
-        const students = await queryStudentsInTracks(
+        const roster = await studentsInTeacherCircle(
           env,
           auth.complexId,
-          activeTrackIds,
+          auth.userId,
+          auth.role,
         );
+        if (roster === null) {
+          return json({ error: "no_track_assigned", scope_unassigned: true }, 404);
+        }
+        const students = roster;
 
         const criteriaPromise = loadEvaluationCriteria(env, auth.complexId);
         const [evaluation_criteria, items] = await Promise.all([
@@ -1054,13 +1059,17 @@ export async function handleEduDeptCoreRouter(
             auth.complexId,
           );
           if (trackIds.length === 0) {
-            return json({ error: "no_circle_assigned" }, 404);
+            return json({ error: "no_track_assigned", scope_unassigned: true }, 404);
           }
-          const allowed = await queryStudentsInTracks(
+          const allowed = await studentsInTeacherCircle(
             env,
             auth.complexId,
-            trackIds,
+            auth.userId,
+            auth.role,
           );
+          if (!allowed) {
+            return json({ error: "no_track_assigned", scope_unassigned: true }, 404);
+          }
           const allowedIds = new Set(allowed.map((s) => s.id));
           const saveIds = rows
             .map((r) => Number(r.student_id))

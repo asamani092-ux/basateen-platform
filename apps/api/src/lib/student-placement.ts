@@ -56,7 +56,7 @@ export async function resolveTrackSupervisorTrackIds(
  * Circle ids linked to track ids (circles.track_id + track_circles).
  * Time O(C), Space O(C).
  */
-async function circleIdsForTracks(
+export async function circleIdsForTracks(
   env: Env,
   complexId: number,
   trackIds: number[],

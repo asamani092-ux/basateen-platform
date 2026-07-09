@@ -33,8 +33,10 @@ import {
 } from "../../components/ui/table";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
+import { useAuth } from "../../context/AuthContext";
 import { cn } from "../../components/ui/utils";
 import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
+import { StudentPlacementSubBadge } from "../../components/edu/StudentPlacementSubBadge";
 import { ds, tajawal } from "../../lib/design-system";
 import { queryKeys } from "../../lib/query-keys";
 import { RecitationTableSkeleton } from "../../components/shared/RecitationTableSkeleton";
@@ -104,6 +106,9 @@ type TeacherCompetitionsPageProps = {
 
 export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetitionsPageProps) {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const isTrackSupervisor = user?.role === "track_supervisor";
+  const placementView: "circle" | "track" = isTrackSupervisor ? "track" : "circle";
   const [activeCompetitionId, setActiveCompetitionId] = useState<number | null>(null);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [tab, setTab] = useState<"scores" | "leaderboard">("scores");
@@ -233,7 +238,12 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                   end_date: string | null;
                 };
                 tasks: TeacherCompetitionTask[];
-                students: Array<{ id: number; full_name_ar: string }>;
+                students: Array<{
+                  id: number;
+                  full_name_ar: string;
+                  circle_name?: string | null;
+                  track_name?: string | null;
+                }>;
                 scores: Array<{ task_id: number; student_id: number; points: number }>;
                 circle_id?: number | null;
                 circle_name?: string | null;
@@ -243,6 +253,8 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                 student_id: number;
                 full_name_ar: string;
                 total_points: number;
+                circle_name?: string | null;
+                track_name?: string | null;
               }>;
             }
           | undefined,
@@ -268,6 +280,13 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
     detailQuery.data?.detail.circle_name ??
     listQuery.data?.circle_name ??
     null;
+
+  const trackName =
+    detailQuery.data?.detail.track_name ??
+    listQuery.data?.track_name ??
+    null;
+
+  const scopeLabel = isTrackSupervisor ? trackName : circleName;
 
   const topLeaderPoints = leaderboard[0]?.total_points ?? 0;
 
@@ -484,7 +503,9 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
       {embedded && (
         <div className="flex items-center justify-between gap-3 print:hidden">
           <p className="text-sm text-muted-foreground" style={tajawal}>
-            رصد نقاط طلاب حلقتك ومتابعة الترتيب.
+            {isTrackSupervisor
+              ? "رصد نقاط طلاب مسارك ومتابعة الترتيب."
+              : "رصد نقاط طلاب حلقتك ومتابعة الترتيب."}
           </p>
           <Button
             type="button"
@@ -531,7 +552,7 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
             icon={<Users className="w-3.5 h-3.5 text-primary" />}
             label="الطلاب"
             value={students.length}
-            sub="الحلقة"
+            sub={isTrackSupervisor ? "المسار" : "الحلقة"}
           />
           <EduKpiCard
             compact
@@ -722,7 +743,15 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                               className={`${ds.table.cell} sticky right-0 bg-inherit font-medium`}
                               style={tajawal}
                             >
-                              {st.full_name_ar}
+                              <div className="min-w-0 flex flex-col items-start gap-1 max-w-full">
+                                <span className="truncate max-w-full">{st.full_name_ar}</span>
+                                <StudentPlacementSubBadge
+                                  circleName={st.circle_name}
+                                  trackName={st.track_name}
+                                  view={placementView}
+                                  className="max-w-full"
+                                />
+                              </div>
                             </TableCell>
                             {tasks.map((t) => (
                               <TableCell key={t.id} className={`${ds.table.cell} text-center py-2`}>
@@ -756,7 +785,15 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                               style={tajawal}
                             >
                               <div className="flex flex-1 items-center justify-between gap-2 min-w-0">
-                                <p className="font-semibold text-sm truncate">{st.full_name_ar}</p>
+                                <div className="min-w-0 text-right flex-1">
+                                  <p className="font-semibold text-sm truncate">{st.full_name_ar}</p>
+                                  <StudentPlacementSubBadge
+                                    circleName={st.circle_name}
+                                    trackName={st.track_name}
+                                    view={placementView}
+                                    className="mt-1 max-w-full"
+                                  />
+                                </div>
                                 <span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold tabular-nums text-primary">
                                   {studentTotal}
                                 </span>
@@ -817,7 +854,9 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                 <p className={ds.alert.info} style={tajawal}>
                   {tasks.length === 0
                     ? "أنشئ منافسة جديدة ثم أضف المهام يدوياً من بطاقة المهام."
-                    : "لا يوجد طلاب في حلقتك."}
+                    : isTrackSupervisor
+                      ? "لا يوجد طلاب في نطاق مسارك."
+                      : "لا يوجد طلاب في حلقتك."}
                 </p>
               )}
             </div>
@@ -827,11 +866,19 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
             <div id="teacher-competition-print" className="space-y-4 text-right" dir="rtl">
               <div className="teacher-competition-print-header hidden print:block mb-4">
                 <h2 className="text-xl font-bold" style={tajawal}>
-                  لوحة صدارة — {activeCompetition?.name_ar ?? "منافسة الحلقة"}
+                  لوحة صدارة — {activeCompetition?.name_ar ?? (isTrackSupervisor ? "منافسة المسار" : "منافسة الحلقة")}
                 </h2>
-                {circleName ? (
+                {isTrackSupervisor && trackName ? (
                   <p className="text-sm font-medium" style={tajawal}>
-                    الحلقة / المسار: {circleName}
+                    المسار: {trackName}
+                  </p>
+                ) : circleName ? (
+                  <p className="text-sm font-medium" style={tajawal}>
+                    الحلقة: {circleName}
+                  </p>
+                ) : scopeLabel ? (
+                  <p className="text-sm font-medium" style={tajawal}>
+                    {isTrackSupervisor ? "المسار" : "الحلقة"}: {scopeLabel}
                   </p>
                 ) : null}
                 {activeCompetition?.start_date || activeCompetition?.end_date ? (
@@ -893,7 +940,17 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                                 ? "🥉"
                                 : row.rank}
                         </TableCell>
-                        <TableTruncatedCell style={tajawal}>{row.full_name_ar}</TableTruncatedCell>
+                        <TableTruncatedCell style={tajawal}>
+                          <div className="min-w-0 flex flex-col items-start gap-1 max-w-full">
+                            <span className="truncate max-w-full">{row.full_name_ar}</span>
+                            <StudentPlacementSubBadge
+                              circleName={row.circle_name}
+                              trackName={row.track_name}
+                              view={placementView}
+                              className="max-w-full"
+                            />
+                          </div>
+                        </TableTruncatedCell>
                         <TableCell
                           className={`${ds.table.cell} text-center font-semibold tabular-nums`}
                           style={tajawal}

@@ -9,7 +9,7 @@ import {
   tableHasColumn,
 } from "../lib/db-schema";
 import { buildStudentPlacementSql } from "../lib/student-list-sql";
-import { buildTeacherCircleAccessSql } from "../lib/teacher-circle";
+import { buildTeacherCircleAccessSql, buildTrackSupervisorStudentScopeSql } from "../lib/teacher-circle";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 import { PAGE_SIZE_MAX, pageMeta, parsePageParams } from "../lib/pagination";
 
@@ -121,11 +121,24 @@ export async function handleStudentsList(
     const binds: (string | number)[] = [auth.complexId];
 
     if (auth.role === "teacher" || auth.role === "track_supervisor") {
-      const teacherScope = await buildTeacherCircleAccessSql(env, circleRef);
-      const scopeParts = teacherScope.split("?").length - 1;
-      sql += ` AND ${teacherScope}`;
-      for (let i = 0; i < scopeParts; i += 1) {
-        binds.push(auth.userId);
+      if (auth.role === "track_supervisor") {
+        const supScope = await buildTrackSupervisorStudentScopeSql(env, auth, {
+          circleRef,
+          trackRef,
+        });
+        if (!supScope.assigned) {
+          sql += ` AND 0=1`;
+        } else {
+          sql += ` AND ${supScope.sql}`;
+          binds.push(...supScope.binds);
+        }
+      } else {
+        const teacherScope = await buildTeacherCircleAccessSql(env, circleRef);
+        const scopeParts = teacherScope.split("?").length - 1;
+        sql += ` AND ${teacherScope}`;
+        for (let i = 0; i < scopeParts; i += 1) {
+          binds.push(auth.userId);
+        }
       }
     }
 

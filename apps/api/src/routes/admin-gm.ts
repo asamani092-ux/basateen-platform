@@ -1289,6 +1289,9 @@ async function resolveTrackSupervisorId(
       }
       return { id: upserted.id };
     } catch (error: unknown) {
+      if (error instanceof StaffSoftDeletedError) {
+        return { error: "staff_soft_deleted", status: 409, staff: error.info };
+      }
       const msg = error instanceof Error ? error.message : String(error);
       if (msg === "mobile_already_used") {
         return { error: "duplicate_mobile", status: 409 };

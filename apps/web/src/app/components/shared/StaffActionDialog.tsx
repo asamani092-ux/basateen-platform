@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PauseCircle, PlayCircle, Trash2 } from "lucide-react";
 import { Button } from "../ui/button";
 import {
@@ -9,10 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog";
-import { DoubleConfirmDialog } from "./DoubleConfirmDialog";
 import { ds, tajawal } from "../../lib/design-system";
-
-type ActionKind = "delete" | null;
 
 type Props = {
   open: boolean;
@@ -24,7 +21,10 @@ type Props = {
   onActivate?: () => void | Promise<void>;
 };
 
-/** إجراءات المنسوب — تعليق / تنشيط / حذف بتأكيد ثنائي للحذف */
+/** خطوات تأكيد الحذف — شرح ثم تنفيذ صريح */
+type DeleteConfirmStep = null | 1 | 2;
+
+/** إجراءات المنسوب — تعليق / تنشيط / حذف بتأكيد ثنائي صريح */
 export function StaffActionDialog({
   open,
   onOpenChange,
@@ -34,30 +34,108 @@ export function StaffActionDialog({
   onDelete,
   onActivate,
 }: Props) {
-  const [pending, setPending] = useState<ActionKind>(null);
+  const [deleteConfirmStep, setDeleteConfirmStep] = useState<DeleteConfirmStep>(null);
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    if (!open) setDeleteConfirmStep(null);
+  }, [open]);
+
   function closeAll() {
-    setPending(null);
+    setDeleteConfirmStep(null);
     onOpenChange(false);
   }
 
-  if (pending === "delete") {
+  async function runDeleteFinal() {
+    setBusy(true);
+    try {
+      await onDelete();
+      closeAll();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (deleteConfirmStep === 1) {
     return (
-      <DoubleConfirmDialog
+      <Dialog
         open
         onOpenChange={(o) => {
-          if (!o) setPending(null);
+          if (!o) setDeleteConfirmStep(null);
         }}
-        title="حذف المنسوب"
-        description={`سيتم حذف «${personName}» من القائمة الافتراضية وفك إسناد الحلقات والمسارات. السجلات التاريخية تبقى محفوظة.`}
-        confirmLabel="حذف"
-        destructive
-        onConfirm={async () => {
-          await onDelete();
-          closeAll();
+      >
+        <DialogContent className={`${ds.dialog} sm:max-w-md`} dir="rtl">
+          <DialogHeader className="text-right">
+            <DialogTitle style={tajawal}>حذف المنسوب</DialogTitle>
+            <DialogDescription style={tajawal}>
+              سيتم حذف «{personName}» من القائمة الافتراضية وفك إسناد الحلقات والمسارات فوراً.
+              السجلات التاريخية (الحضور، المنافسات، التعيينات السابقة) تبقى محفوظة.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:justify-start">
+            <Button
+              type="button"
+              variant="outline"
+              className={`${ds.btnRound} min-h-11`}
+              style={tajawal}
+              onClick={() => setDeleteConfirmStep(null)}
+            >
+              إلغاء
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              className={`${ds.btnRound} ${ds.primaryActionBtn}`}
+              style={tajawal}
+              onClick={() => setDeleteConfirmStep(2)}
+            >
+              متابعة الحذف
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  if (deleteConfirmStep === 2) {
+    return (
+      <Dialog
+        open
+        onOpenChange={(o) => {
+          if (!o) setDeleteConfirmStep(1);
         }}
-      />
+      >
+        <DialogContent className={`${ds.dialog} sm:max-w-md`} dir="rtl">
+          <DialogHeader className="text-right">
+            <DialogTitle style={tajawal}>تأكيد نهائي</DialogTitle>
+            <DialogDescription style={tajawal}>
+              هذا الإجراء لا يُراجع بسهولة. اضغط «نعم، احذف نهائياً» لتنفيذ حذف «{personName}».
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:justify-start">
+            <Button
+              type="button"
+              variant="outline"
+              className={`${ds.btnRound} min-h-11`}
+              style={tajawal}
+              disabled={busy}
+              onClick={() => setDeleteConfirmStep(1)}
+            >
+              رجوع
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              className={`${ds.btnRound} ${ds.primaryActionBtn}`}
+              style={tajawal}
+              disabled={busy}
+              onClick={() => void runDeleteFinal()}
+            >
+              {busy ? "جاري الحذف…" : "نعم، احذف نهائياً"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     );
   }
 
@@ -121,7 +199,7 @@ export function StaffActionDialog({
             variant="destructive"
             className={`${ds.btnRound} ${ds.primaryActionBtn} w-full gap-2`}
             style={tajawal}
-            onClick={() => setPending("delete")}
+            onClick={() => setDeleteConfirmStep(1)}
           >
             <Trash2 className="size-5 shrink-0" aria-hidden />
             حذف المنسوب

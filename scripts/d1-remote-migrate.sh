@@ -139,7 +139,7 @@ d1_query_json() {
 # ترحيلات لها فحص أثر صريح في migration_effect_status (ليست trusted)
 has_guarded_effect_check() {
   case "$1" in
-    033_edu_central_event_weights.sql|062_stage_id_backfill.sql|066_semester_plans_columns.sql|067_teacher_competition_task_types.sql|068_student_semester_plans_multi.sql|069_plan_daily_followup.sql|070_competition_source.sql)
+    033_edu_central_event_weights.sql|062_stage_id_backfill.sql|066_semester_plans_columns.sql|067_teacher_competition_task_types.sql|068_student_semester_plans_multi.sql|069_plan_daily_followup.sql|070_competition_source.sql|071_users_staff_deleted_at.sql)
       return 0
       ;;
     *)
@@ -291,6 +291,17 @@ migration_effect_status() {
             const hasSource=cols.has('competition_source');
             const hasIndex=(xb?.results??[]).length>0;
             console.log(hasSource && hasIndex ? 'applied' : 'missing');
+          } catch { console.log('unknown'); }
+        });
+      "
+      ;;
+    071_users_staff_deleted_at.sql)
+      d1_query_json "PRAGMA table_info(users);" | node -e "
+        let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{
+          try {
+            const j=JSON.parse(d); const b=Array.isArray(j)?j[0]:j;
+            const cols=new Set((b?.results??[]).map(r=>r.name));
+            console.log(cols.has('deleted_at') ? 'applied' : 'missing');
           } catch { console.log('unknown'); }
         });
       "
@@ -456,6 +467,14 @@ apply_pending() {
         break
       fi
     fi
+    if [[ "$f" == "071_users_staff_deleted_at.sql" ]]; then
+      if node "$API_DIR/scripts/migrate-071-remote.mjs"; then
+        continue
+      else
+        failed=1
+        break
+      fi
+    fi
     if run_sql "$f"; then
       record_migration "$f"
     else
@@ -609,8 +628,11 @@ case "$MODE" in
   070)
     node "$API_DIR/scripts/migrate-070-remote.mjs"
     ;;
+  071)
+    node "$API_DIR/scripts/migrate-071-remote.mjs"
+    ;;
   *)
-    echo "Usage: $0 upgrade|all|demo|apply-pending|effect-status|bootstrap-tracking|048|061|062|063|064|065|066|067|068|069|070|..." >&2
+    echo "Usage: $0 upgrade|all|demo|apply-pending|effect-status|bootstrap-tracking|048|061|062|063|064|065|066|067|068|069|070|071|..." >&2
     exit 1
     ;;
 esac

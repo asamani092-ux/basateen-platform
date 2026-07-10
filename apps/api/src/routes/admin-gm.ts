@@ -316,7 +316,10 @@ export async function handleAdminStaffList(
     const url = new URL(request.url);
     const pageParams = parsePageParams(url);
     const roleFilter = url.searchParams.get("role")?.trim();
-    let sql = await staffListSql(env);
+    const statusRaw = url.searchParams.get("status")?.trim();
+    const status =
+      statusRaw === "active" || statusRaw === "suspended" ? statusRaw : "all";
+    let sql = await staffListSql(env, status);
     const binds: (string | number)[] = [auth!.complexId];
     if (roleFilter) {
       sql = sql.replace(
@@ -442,8 +445,17 @@ export async function handleAdminStaffPatch(
         .run();
     }
     if (body.is_active != null) {
-      await env.DB.prepare(`UPDATE users SET is_active = ? WHERE id = ?`)
-        .bind(body.is_active ? 1 : 0, userId)
+      const sets = ["is_active = ?"];
+      const binds: (number)[] = [body.is_active ? 1 : 0];
+      if (
+        body.is_active &&
+        (await tableHasColumn(env, "users", "deleted_at"))
+      ) {
+        sets.push("deleted_at = NULL");
+      }
+      binds.push(userId);
+      await env.DB.prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`)
+        .bind(...binds)
         .run();
     }
 

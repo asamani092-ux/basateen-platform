@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { GuardedForm } from "../../components/ui/guarded-form";
 import { toast } from "sonner";
 import { UserCog } from "lucide-react";
-import { AdminEntityActionModal } from "../../components/admin/AdminEntityActionModal";
+import { StaffActionDialog } from "../../components/shared/StaffActionDialog";
 import {
   TableActionsCell,
   TableIconAction,
@@ -13,6 +13,7 @@ import {
   type PageInfo,
 } from "../../components/shared/TablePagination";
 import { Button } from "../../components/ui/button";
+import { Badge } from "../../components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -103,9 +104,18 @@ function apiErrorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
+type StaffStatusFilter = "all" | "active" | "suspended";
+
+const STAFF_STATUS_OPTIONS: Array<{ value: StaffStatusFilter; label: string }> = [
+  { value: "all", label: "الكل" },
+  { value: "active", label: "نشط" },
+  { value: "suspended", label: "معلَّق" },
+];
+
 export function StaffManagementPage() {
   const [items, setItems] = useState<StaffMemberRow[]>([]);
   const [page, setPage] = useState(1);
+  const [statusFilter, setStatusFilter] = useState<StaffStatusFilter>("all");
   const [pageInfo, setPageInfo] = useState<PageInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
@@ -121,7 +131,9 @@ export function StaffManagementPage() {
       return;
     }
     setLoading(true);
-    const staffRes = await Promise.allSettled([api.adminStaff({ page })]);
+    const staffRes = await Promise.allSettled([
+      api.adminStaff({ page, status: statusFilter }),
+    ]);
     if (staffRes[0].status === "fulfilled") {
       const payload = staffRes[0].value as {
         items?: StaffMemberRow[];
@@ -144,7 +156,7 @@ export function StaffManagementPage() {
       toast.error(apiErrorMessage(staffRes[0].reason, "تعذر تحميل المنسوبين"));
     }
     setLoading(false);
-  }, [hasApi, page]);
+  }, [hasApi, page, statusFilter]);
 
   useEffect(() => {
     void load();
@@ -192,6 +204,26 @@ export function StaffManagementPage() {
           </Button>
         </CardHeader>
         <CardContent>
+          <div className={`${ds.filterRow} mb-4`}>
+            <div className="space-y-1 min-w-[10rem]">
+              <Label style={tajawal}>الحالة</Label>
+              <select
+                value={statusFilter}
+                onChange={(e) => {
+                  setPage(1);
+                  setStatusFilter(e.target.value as StaffStatusFilter);
+                }}
+                className={ds.select}
+                style={tajawal}
+              >
+                {STAFF_STATUS_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
           {loading ? (
             <p className="text-muted-foreground" style={tajawal}>
               جاري التحميل…
@@ -244,11 +276,13 @@ export function StaffManagementPage() {
                       <TableTruncatedCell style={tajawal}>
                         {staffRoleLabel(row.role)}
                         {row.is_active === 0 ? (
-                          <span className="mr-2 text-xs text-amber-700">(معلق)</span>
+                          <Badge variant="secondary" className="mr-2">
+                            معلَّق
+                          </Badge>
                         ) : null}
                       </TableTruncatedCell>
                       <TableTruncatedCell title={assignedEntityLabel(row)} style={tajawal}>
-                        {assignedEntityLabel(row)}
+                        {assignedEntityLabel(row) === "—" ? "غير مسند" : assignedEntityLabel(row)}
                       </TableTruncatedCell>
                       <TableActionsCell wide>
                         <TableIconAction
@@ -301,28 +335,32 @@ export function StaffManagementPage() {
       )}
 
       {actionRow && (
-        <AdminEntityActionModal
+        <StaffActionDialog
           open
           onOpenChange={(o) => {
             if (!o) setActionRow(null);
           }}
-          entityTitle="المنسوب"
-          entityName={actionRow.full_name_ar}
+          personName={actionRow.full_name_ar}
           isActive={actionRow.is_active !== 0}
-          onToggleActive={async () => {
+          onFreeze={async () => {
             try {
-              const next = actionRow.is_active !== 0 ? 0 : 1;
-              await api.adminStaffPatch(actionRow.id, { is_active: next });
-              setItems((prev) =>
-                prev.map((x) =>
-                  x.id === actionRow.id ? { ...x, is_active: next } : x,
-                ),
-              );
+              await api.adminStaffPatch(actionRow.id, { is_active: 0 });
               afterStaffMutation();
-              toast.success(next ? "تم التنشيط" : "تم التعليق");
+              toast.success("تم التعليق");
               setActionRow(null);
             } catch (err) {
-              toast.error(apiErrorMessage(err, "فشل تحديث الحالة"));
+              toast.error(apiErrorMessage(err, "فشل التعليق"));
+              throw err;
+            }
+          }}
+          onActivate={async () => {
+            try {
+              await api.adminStaffPatch(actionRow.id, { is_active: 1 });
+              afterStaffMutation();
+              toast.success("تم التنشيط");
+              setActionRow(null);
+            } catch (err) {
+              toast.error(apiErrorMessage(err, "فشل التنشيط"));
               throw err;
             }
           }}
@@ -330,15 +368,13 @@ export function StaffManagementPage() {
             try {
               await api.adminStaffDelete(actionRow.id);
               afterStaffMutation();
-              toast.success("تم الحذف من قاعدة البيانات");
-              setItems((prev) => prev.filter((x) => x.id !== actionRow.id));
+              toast.success("تم الحذف — السجلات التاريخية محفوظة");
               setActionRow(null);
             } catch (err) {
               toast.error(apiErrorMessage(err, "فشل الحذف"));
               throw err;
             }
           }}
-          deleteHint="سيتم فك ارتباط الحلقات والمسارات المرتبطة بهذا المنسوب."
         />
       )}
 

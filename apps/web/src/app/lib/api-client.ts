@@ -1062,11 +1062,19 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  adminStaff: (params?: { page?: number; page_size?: number; role?: string }) => {
+  adminStaff: (params?: {
+    page?: number;
+    page_size?: number;
+    role?: string;
+    status?: "all" | "active" | "suspended";
+  }) => {
     const search = new URLSearchParams();
     if (params?.page != null) search.set("page", String(params.page));
     if (params?.page_size != null) search.set("page_size", String(params.page_size));
     if (params?.role?.trim()) search.set("role", params.role.trim());
+    if (params?.status && params.status !== "all") {
+      search.set("status", params.status);
+    }
     const qs = search.toString();
     return request<{
       items: StaffMemberRow[];

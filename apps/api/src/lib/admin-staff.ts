@@ -443,8 +443,30 @@ export async function insertStaffUser(
   return Number(ins.meta.last_row_id);
 }
 
-async function staffListSqlV25(env: Env): Promise<string> {
+export type StaffListStatus = "all" | "active" | "suspended";
+
+/** O(1) — شرط ظهور المنسوب حسب فلتر الحالة (يستبعد المحذوفين دائماً) */
+async function staffVisibilityClause(
+  env: Env,
+  status: StaffListStatus,
+): Promise<string> {
+  const hasDeletedAt = await tableHasColumn(env, "users", "deleted_at");
+  const notDeleted = hasDeletedAt ? "AND u.deleted_at IS NULL" : "";
+  if (status === "active") {
+    return `AND COALESCE(u.is_active, 1) = 1 ${notDeleted}`;
+  }
+  if (status === "suspended") {
+    return `AND COALESCE(u.is_active, 1) = 0 ${notDeleted}`;
+  }
+  return notDeleted;
+}
+
+async function staffListSqlV25(
+  env: Env,
+  status: StaffListStatus = "all",
+): Promise<string> {
   const joinCols = await staffListJoinCols(env);
+  const visibility = await staffVisibilityClause(env, status);
   return `SELECT u.id, u.full_name_ar, u.mobile, u.is_active,
             CASE
               WHEN COALESCE(u.is_admin, 0) = 1 THEN 'super_admin'
@@ -461,7 +483,7 @@ async function staffListSqlV25(env: Env): Promise<string> {
      FROM users u
      ${joinCols.joins}
      WHERE u.complex_id = ?
-       AND COALESCE(u.is_active, 1) = 1
+       ${visibility}
        AND (
          COALESCE(u.is_teacher, 0) = 1
          OR COALESCE(u.is_track_supervisor, 0) = 1
@@ -472,13 +494,17 @@ async function staffListSqlV25(env: Env): Promise<string> {
      ORDER BY u.full_name_ar`;
 }
 
-export async function staffListSql(env: Env): Promise<string> {
+export async function staffListSql(
+  env: Env,
+  status: StaffListStatus = "all",
+): Promise<string> {
   if (await usesV25FlatStaffSchema(env)) {
-    return staffListSqlV25(env);
+    return staffListSqlV25(env, status);
   }
 
   const hasRole = await usersHaveRoleColumn(env);
   const joinCols = await staffListJoinCols(env);
+  const visibility = await staffVisibilityClause(env, status);
   if (hasRole) {
     return `SELECT u.id, u.full_name_ar, u.mobile, u.is_active,
               CASE u.role
@@ -494,7 +520,7 @@ export async function staffListSql(env: Env): Promise<string> {
        FROM users u
        ${joinCols.joins}
        WHERE u.complex_id = ?
-         AND COALESCE(u.is_active, 1) = 1
+         ${visibility}
          AND u.role IN (
            'teacher', 'track_supervisor', 'edu_supervisor', 'programs_supervisor',
            'prog_supervisor', 'admin_supervisor', 'general_supervisor', 'super_admin'
@@ -502,7 +528,7 @@ export async function staffListSql(env: Env): Promise<string> {
        ORDER BY u.full_name_ar`;
   }
 
-  return staffListSqlV25(env);
+  return staffListSqlV25(env, status);
 }
 
 async function clearStaffUserRelations(
@@ -633,10 +659,17 @@ export async function safeDeleteStaffUser(
   const batch: D1PreparedStatement[] = [
     ...(await unassignStaffFromGroups(env, userId, complexId)),
     ...(await clearStaffUserRelations(env, userId)),
-    env.DB.prepare(
-      `UPDATE users SET is_active = 0 WHERE id = ? AND complex_id = ?`,
-    ).bind(userId, complexId),
   ];
+
+  const sets = ["is_active = 0"];
+  if (await tableHasColumn(env, "users", "deleted_at")) {
+    sets.push("deleted_at = datetime('now')");
+  }
+  batch.push(
+    env.DB.prepare(
+      `UPDATE users SET ${sets.join(", ")} WHERE id = ? AND complex_id = ?`,
+    ).bind(userId, complexId),
+  );
 
   await env.DB.batch(batch);
 }

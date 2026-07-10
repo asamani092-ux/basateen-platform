@@ -1,18 +1,18 @@
 import { useState } from "react";
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "../ui/alert-dialog";
+import { PauseCircle, PlayCircle, Trash2 } from "lucide-react";
 import { Button } from "../ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
 import { DoubleConfirmDialog } from "./DoubleConfirmDialog";
-import { tajawal } from "../../lib/design-system";
+import { ds, tajawal } from "../../lib/design-system";
 
-type ActionKind = "freeze" | "delete" | null;
+type ActionKind = "delete" | null;
 
 type Props = {
   open: boolean;
@@ -24,7 +24,7 @@ type Props = {
   onActivate?: () => void | Promise<void>;
 };
 
-/** اختيار تجميد أو حذف ثم تأكيد ثنائي */
+/** إجراءات المنسوب — تعليق / تنشيط / حذف بتأكيد ثنائي للحذف */
 export function StaffActionDialog({
   open,
   onOpenChange,
@@ -35,28 +35,11 @@ export function StaffActionDialog({
   onActivate,
 }: Props) {
   const [pending, setPending] = useState<ActionKind>(null);
+  const [busy, setBusy] = useState(false);
 
   function closeAll() {
     setPending(null);
     onOpenChange(false);
-  }
-
-  if (pending === "freeze") {
-    return (
-      <DoubleConfirmDialog
-        open
-        onOpenChange={(o) => {
-          if (!o) setPending(null);
-        }}
-        title="تجميد الحساب"
-        description={`سيتم تجميد حساب «${personName}» ولن يتمكن من الدخول حتى إعادة التفعيل.`}
-        confirmLabel="تجميد"
-        onConfirm={async () => {
-          await onFreeze();
-          closeAll();
-        }}
-      />
-    );
   }
 
   if (pending === "delete") {
@@ -66,9 +49,9 @@ export function StaffActionDialog({
         onOpenChange={(o) => {
           if (!o) setPending(null);
         }}
-        title="حذف نهائي"
-        description={`سيتم حذف «${personName}» من النظام نهائياً. تأكد من عدم وجود ارتباطات تشغيلية.`}
-        confirmLabel="حذف نهائي"
+        title="حذف المنسوب"
+        description={`سيتم حذف «${personName}» من القائمة الافتراضية وفك إسناد الحلقات والمسارات. السجلات التاريخية تبقى محفوظة.`}
+        confirmLabel="حذف"
         destructive
         onConfirm={async () => {
           await onDelete();
@@ -79,53 +62,84 @@ export function StaffActionDialog({
   }
 
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent dir="rtl" className="rounded-2xl">
-        <AlertDialogHeader>
-          <AlertDialogTitle style={tajawal}>إدارة الحساب — {personName}</AlertDialogTitle>
-          <AlertDialogDescription style={tajawal}>
-            اختر الإجراء المطلوب. التجميد يعطّل الدخول مؤقتاً؛ الحذف إزالة دائمة من القاعدة.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <div className="flex flex-col gap-2 py-2">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className={`${ds.dialog} sm:max-w-md`} dir="rtl">
+        <DialogHeader className="text-right">
+          <DialogTitle style={tajawal}>إجراءات المنسوب</DialogTitle>
+          <DialogDescription style={tajawal}>
+            {personName}
+            <span className="mx-2 text-muted-foreground">·</span>
+            الحالة: {isActive ? "نشط" : "معلَّق"}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-3">
           {isActive ? (
             <Button
               type="button"
               variant="outline"
-              className="w-full justify-center"
+              className={`${ds.btnRound} ${ds.primaryActionBtn} w-full gap-2`}
               style={tajawal}
-              onClick={() => setPending("freeze")}
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await onFreeze();
+                  closeAll();
+                } finally {
+                  setBusy(false);
+                }
+              }}
             >
-              تجميد الحساب
+              <PauseCircle className="size-5 shrink-0" aria-hidden />
+              {busy ? "جاري التعليق…" : "تعليق الحساب"}
             </Button>
           ) : (
             <Button
               type="button"
               variant="default"
-              className="w-full justify-center"
+              className={`${ds.btnRound} ${ds.primaryActionBtn} w-full gap-2`}
               style={tajawal}
+              disabled={busy}
               onClick={async () => {
-                await onActivate?.();
-                closeAll();
+                setBusy(true);
+                try {
+                  await onActivate?.();
+                  closeAll();
+                } finally {
+                  setBusy(false);
+                }
               }}
             >
-              إعادة التفعيل
+              <PlayCircle className="size-5 shrink-0" aria-hidden />
+              {busy ? "جاري التنشيط…" : "إعادة التنشيط"}
             </Button>
           )}
+
           <Button
             type="button"
             variant="destructive"
-            className="w-full justify-center"
+            className={`${ds.btnRound} ${ds.primaryActionBtn} w-full gap-2`}
             style={tajawal}
             onClick={() => setPending("delete")}
           >
-            حذف نهائي
+            <Trash2 className="size-5 shrink-0" aria-hidden />
+            حذف المنسوب
           </Button>
         </div>
-        <AlertDialogFooter>
-          <AlertDialogCancel style={tajawal}>إغلاق</AlertDialogCancel>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="ghost"
+            className={`${ds.btnRound} min-h-11`}
+            style={tajawal}
+            onClick={() => onOpenChange(false)}
+          >
+            إغلاق
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

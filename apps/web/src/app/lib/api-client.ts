@@ -2908,16 +2908,22 @@ export const api = {
     request<{
       items: Array<{
         id: number;
+        slide_type: string;
         media_type: string;
         media_url: string;
+        competition_id: number | null;
+        duration_seconds: number;
         display_order: number;
         is_active: number;
         created_at: string;
       }>;
     }>("/api/display-dept/media"),
   displayMediaCreate: (body: {
-    media_type: "image" | "gif" | "video";
-    media_url: string;
+    slide_type?: "media" | "kpi" | "competition";
+    media_type?: "image" | "gif" | "video";
+    media_url?: string;
+    competition_id?: number;
+    duration_seconds?: number;
     display_order?: number;
     is_active?: number;
   }) =>
@@ -2928,8 +2934,11 @@ export const api = {
   displayMediaPatch: (
     id: number,
     body: {
+      slide_type?: string;
       media_type?: string;
       media_url?: string;
+      competition_id?: number;
+      duration_seconds?: number;
       display_order?: number;
       is_active?: number;
     },
@@ -2967,15 +2976,34 @@ export const api = {
     request<{
       complex_name: string;
       slide_seconds: number;
+      indicators_enabled: boolean;
       slides: Array<Record<string, unknown>>;
     }>("/api/public/live-display/carousel"),
   displaySettingsGet: () =>
-    request<{ slide_seconds: number }>("/api/display-dept/settings"),
-  displaySettingsPatch: (body: { slide_seconds: number }) =>
-    request<{ ok: boolean; slide_seconds: number }>("/api/display-dept/settings", {
-      method: "PATCH",
-      body: JSON.stringify(body),
-    }),
+    request<{ slide_seconds: number; indicators_enabled: boolean }>(
+      "/api/display-dept/settings",
+    ),
+  displaySettingsPatch: (body: {
+    slide_seconds?: number;
+    indicators_enabled?: boolean;
+  }) =>
+    request<{ ok: boolean; slide_seconds: number; indicators_enabled: boolean }>(
+      "/api/display-dept/settings",
+      {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      },
+    ),
+  displayCompetitionsList: () =>
+    request<{
+      items: Array<{
+        id: number;
+        name_ar: string;
+        start_date?: string;
+        end_date?: string;
+        status?: string;
+      }>;
+    }>("/api/display-dept/competitions"),
   progQuizResponseGrade: (quizId: number, responseId: number, total_score: number) =>
     request<{ ok: boolean; total_score: number }>(
       `/api/prog-supervisor/quizzes/${quizId}/responses/${responseId}/grade`,

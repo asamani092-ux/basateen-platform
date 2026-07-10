@@ -24,6 +24,7 @@ import {
   buildStudentsInScopeWhere,
   STAGE_LABELS,
   studentsInScopeBinds,
+  studentsInScopeWhere,
   type ScopeMode,
 } from "./dept-scope";
 
@@ -2072,4 +2073,31 @@ export async function loadCompetitionTargetRows(
     .bind(competitionId)
     .all<DashboardTargetRow>();
   return rows.results ?? [];
+}
+
+/** O(T + S) — طلاب المنافسة من الأهداف أو نطاق المشرف */
+export async function resolveCompetitionStudents(
+  env: Env,
+  complexId: number,
+  competitionId: number,
+  scope: ScopeMode,
+): Promise<number[]> {
+  if (await hasEngineTargets(env)) {
+    const rows = await env.DB.prepare(
+      `SELECT student_id FROM competition_targets WHERE competition_id = ?`,
+    )
+      .bind(competitionId)
+      .all<{ student_id: number }>();
+    if (rows.results?.length) {
+      return rows.results.map((r) => r.student_id);
+    }
+  }
+
+  const scopeWhere = studentsInScopeWhere(scope);
+  const all = await env.DB.prepare(
+    `SELECT s.id FROM students s WHERE ${scopeWhere}`,
+  )
+    .bind(...studentsInScopeBinds(complexId, scope))
+    .all<{ id: number }>();
+  return (all.results ?? []).map((r) => r.id);
 }

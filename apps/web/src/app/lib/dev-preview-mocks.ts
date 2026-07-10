@@ -1752,6 +1752,15 @@ export function resolveDevPreviewMock<T>(
   if (p === "/api/display-dept/media" && m === "GET") {
     return { items: [] } as T;
   }
+  if (p === "/api/display-dept/settings" && m === "GET") {
+    return { slide_seconds: 12, indicators_enabled: true } as T;
+  }
+  if (p === "/api/display-dept/settings" && m === "PATCH") {
+    return { ok: true, slide_seconds: 12, indicators_enabled: true } as T;
+  }
+  if (p === "/api/display-dept/competitions" && m === "GET") {
+    return { items: [] } as T;
+  }
   if (p === "/api/display-dept/media" && m === "POST") {
     return { ok: true, id: 1 } as T;
   }
@@ -1782,6 +1791,33 @@ export function resolveDevPreviewMock<T>(
   }
   if (p === "/api/public/live-display/media" && m === "GET") {
     return { items: [] } as T;
+  }
+  if (p === "/api/public/live-display/carousel" && m === "GET") {
+    return {
+      complex_name: "مجمع حلقات بساتين",
+      slide_seconds: 12,
+      indicators_enabled: true,
+      slides: [
+        {
+          kind: "kpi",
+          id: 1,
+          duration_seconds: 12,
+          metrics: {
+            attendance_present_today: 120,
+            attendance_absent_today: 8,
+            faces_cumulative: 450,
+            active_pledges: 12,
+            total_circles: 18,
+            total_tracks: 6,
+            total_students: 240,
+            students_by_stage: [
+              { stage_id: 2, label: "ابتدائي", count: 80 },
+              { stage_id: 3, label: "متوسط", count: 90 },
+            ],
+          },
+        },
+      ],
+    } as T;
   }
 
   const publicQuizMeta = p.match(/^\/api\/public\/quiz\/(\d+)\/public$/);

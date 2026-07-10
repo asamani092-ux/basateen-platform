@@ -25,6 +25,7 @@ import {
 } from "../lib/admin-educational-groups";
 import {
   StaffSoftDeletedError,
+  type SoftDeletedStaffInfo,
   assertStaffMobileAvailableForCreate,
   findInactiveStaffByContact,
   findSupervisorOtherActiveTrack,
@@ -1257,7 +1258,9 @@ async function resolveTrackSupervisorId(
     supervisor_id?: number | null;
     new_supervisor?: { full_name_ar: string; mobile: string };
   },
-): Promise<{ id: number } | { error: string; status: number }> {
+): Promise<
+  { id: number } | { error: string; status: number; staff?: SoftDeletedStaffInfo }
+> {
   let supervisorId = Number(body.supervisor_id ?? 0);
   if (Number.isFinite(supervisorId) && supervisorId > 0) {
     const sup = await env.DB.prepare(

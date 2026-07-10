@@ -37,3 +37,4 @@ bucket_name = "basateen-display-media"
 [env.production.vars]
 ENVIRONMENT = "production"
 CORS_ALLOWED_ORIGINS = "https://basateen.sam-dev.win"
+R2_PUBLIC_BASE_URL = "https://pub-cace01d6ad114b77b5969bb148555a61.r2.dev"

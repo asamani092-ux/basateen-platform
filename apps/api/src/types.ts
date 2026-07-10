@@ -20,6 +20,8 @@ export interface Env {
   TV_ACCESS_TOKEN?: string;
   /** قائمة دومينات Pages مفصولة بفاصلة، مثال: https://basateen.pages.dev */
   CORS_ALLOWED_ORIGINS?: string;
+  /** رابط R2 العام (pub-….r2.dev) — عند ضبطه تُخزَّن روابط الوسائط مباشرة من R2 */
+  R2_PUBLIC_BASE_URL?: string;
 }
 
 /** Active user row returned from auth queries (RBAC schema) */

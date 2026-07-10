@@ -3,7 +3,8 @@
  * 073 remote: ترحيل display_media.media_url من data: إلى R2
  *
  * Usage (from apps/api):
- *   API_PUBLIC_ORIGIN=https://winter-term-cb93.a-samani092.workers.dev node scripts/migrate-073-remote.mjs
+ *   R2_PUBLIC_BASE_URL=https://pub-….r2.dev node scripts/migrate-073-remote.mjs
+ *   (أو API_PUBLIC_ORIGIN=… للبروكسي عبر Worker)
  */
 import { execSync } from "node:child_process";
 import fs from "node:fs";
@@ -15,11 +16,10 @@ const apiDir = path.dirname(fileURLToPath(import.meta.url));
 const apiRoot = path.resolve(apiDir, "..");
 const remote = "--remote --yes";
 const BUCKET = "basateen-display-media";
-const API_ORIGIN =
-  (process.env.API_PUBLIC_ORIGIN ?? "https://winter-term-cb93.a-samani092.workers.dev").replace(
-    /\/$/,
-    "",
-  );
+const R2_PUBLIC_BASE = (process.env.R2_PUBLIC_BASE_URL ?? "").replace(/\/$/, "") || null;
+const API_ORIGIN = (
+  process.env.API_PUBLIC_ORIGIN ?? "https://winter-term-cb93.a-samani092.workers.dev"
+).replace(/\/$/, "");
 
 function queryJson(sql) {
   const out = execSync(
@@ -69,6 +69,13 @@ function decodeDataUrl(dataUrl) {
   }
 }
 
+function buildPublicUrl(key) {
+  if (R2_PUBLIC_BASE) {
+    return `${R2_PUBLIC_BASE}/${key.split("/").map((s) => encodeURIComponent(s)).join("/")}`;
+  }
+  return `${API_ORIGIN}/api/public/display-media/${encodeURIComponent(key)}`;
+}
+
 function sqlEscape(value) {
   return String(value).replace(/'/g, "''");
 }
@@ -81,6 +88,11 @@ function putR2Object(key, filePath, contentType) {
 }
 
 console.log("\n>>> 073 display_media data: → R2 (one-time)");
+if (R2_PUBLIC_BASE) {
+  console.log(`using R2_PUBLIC_BASE_URL=${R2_PUBLIC_BASE}`);
+} else {
+  console.log(`using API_PUBLIC_ORIGIN=${API_ORIGIN} (worker proxy)`);
+}
 
 const rows = queryJson(
   `SELECT id, complex_id, media_url, media_type FROM display_media WHERE media_url LIKE 'data:%' ORDER BY id`,
@@ -111,7 +123,7 @@ for (const row of rows) {
 
   try {
     putR2Object(key, tmp, decoded.mime);
-    const publicUrl = `${API_ORIGIN}/api/public/display-media/${encodeURIComponent(key)}`;
+    const publicUrl = buildPublicUrl(key);
     runCommand(
       `UPDATE display_media SET media_url = '${sqlEscape(publicUrl)}' WHERE id = ${id}`,
     );

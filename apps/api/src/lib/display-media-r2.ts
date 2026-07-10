@@ -5,6 +5,12 @@ export const DISPLAY_MEDIA_MAX_BYTES = 100 * 1024 * 1024;
 
 const PUBLIC_PATH_PREFIX = "/api/public/display-media/";
 
+/** O(1) — قاعدة R2 العامة من البيئة */
+export function resolveR2PublicBaseUrl(env: Env): string | null {
+  const base = env.R2_PUBLIC_BASE_URL?.trim().replace(/\/$/, "");
+  return base || null;
+}
+
 /** O(1) — رفض تخزين base64 في D1 */
 export function isDataUrl(url: string): boolean {
   return url.trim().toLowerCase().startsWith("data:");
@@ -81,26 +87,57 @@ export function displayMediaPublicPath(key: string): string {
   return `${PUBLIC_PATH_PREFIX}${encodeURIComponent(key)}`;
 }
 
-/** O(1) — بناء رابط العرض العام من الطلب */
-export function buildDisplayMediaPublicUrl(request: Request, key: string): string {
+/** O(1) — رابط مباشر من R2 pub عند توفر R2_PUBLIC_BASE_URL */
+export function buildR2DirectPublicUrl(publicBase: string, key: string): string {
+  const base = publicBase.replace(/\/$/, "");
+  const segments = key.split("/").map((s) => encodeURIComponent(s));
+  return `${base}/${segments.join("/")}`;
+}
+
+/**
+ * O(1) — بناء رابط العرض: R2 pub مباشر إن وُجد، وإلا بروكسي الـ Worker.
+ */
+export function buildDisplayMediaPublicUrl(
+  env: Env,
+  request: Request,
+  key: string,
+): string {
+  const r2Base = resolveR2PublicBaseUrl(env);
+  if (r2Base) return buildR2DirectPublicUrl(r2Base, key);
   const origin = new URL(request.url).origin;
   return `${origin}${displayMediaPublicPath(key)}`;
 }
 
-/** O(1) — استخراج مفتاح R2 من رابط العرض العام */
-export function extractR2KeyFromPublicUrl(url: string): string | null {
+/**
+ * O(n) — استخراج مفتاح R2 من رابط العرض (Worker أو pub.r2.dev).
+ */
+export function extractR2KeyFromPublicUrl(url: string, r2PublicBase?: string | null): string | null {
   const trimmed = url.trim();
   try {
     const parsed = new URL(trimmed);
-    if (!parsed.pathname.startsWith(PUBLIC_PATH_PREFIX)) return null;
-    const encoded = parsed.pathname.slice(PUBLIC_PATH_PREFIX.length);
-    return decodeURIComponent(encoded);
+    const pathKey = decodeURIComponent(parsed.pathname.replace(/^\//, ""));
+
+    if (r2PublicBase) {
+      const base = r2PublicBase.replace(/\/$/, "");
+      if (trimmed.startsWith(`${base}/`) && pathKey.startsWith("display/")) {
+        return pathKey;
+      }
+    }
+
+    if (parsed.hostname.endsWith(".r2.dev") && pathKey.startsWith("display/")) {
+      return pathKey;
+    }
+
+    if (parsed.pathname.startsWith(PUBLIC_PATH_PREFIX)) {
+      const encoded = parsed.pathname.slice(PUBLIC_PATH_PREFIX.length);
+      return decodeURIComponent(encoded);
+    }
   } catch {
     if (trimmed.startsWith(PUBLIC_PATH_PREFIX)) {
       return decodeURIComponent(trimmed.slice(PUBLIC_PATH_PREFIX.length));
     }
-    return null;
   }
+  return null;
 }
 
 export function r2Available(env: Env): env is Env & { DISPLAY_MEDIA: R2Bucket } {
@@ -153,7 +190,7 @@ export async function putDisplayMediaObject(
 /** O(1) — حذف كائن R2 إن وُجد مفتاح في الرابط */
 export async function deleteDisplayMediaR2ByUrl(env: Env, mediaUrl: string): Promise<boolean> {
   if (!r2Available(env)) return false;
-  const key = extractR2KeyFromPublicUrl(mediaUrl);
+  const key = extractR2KeyFromPublicUrl(mediaUrl, resolveR2PublicBaseUrl(env));
   if (!key) return false;
   await env.DISPLAY_MEDIA.delete(key);
   return true;
@@ -184,7 +221,7 @@ export async function uploadDisplayMediaFile(
 
   const key = buildR2ObjectKey(complexId, mime);
   await putDisplayMediaObject(env, key, file.stream(), mime);
-  const url = buildDisplayMediaPublicUrl(request, key);
+  const url = buildDisplayMediaPublicUrl(env, request, key);
   return { url, media_type: mediaTypeFromMime(mime), r2_key: key };
 }
 
@@ -212,7 +249,7 @@ export function decodeDataUrl(dataUrl: string): { bytes: Uint8Array; mime: strin
 /** O(B) — رفع بايتات من data URL إلى R2 (ترحيل لمرة واحدة) */
 export async function uploadDataUrlToR2(
   env: Env,
-  origin: string,
+  request: Request,
   complexId: number,
   dataUrl: string,
 ): Promise<DisplayMediaUploadResult | null> {
@@ -223,6 +260,16 @@ export async function uploadDataUrlToR2(
   }
   const key = buildR2ObjectKey(complexId, decoded.mime);
   await putDisplayMediaObject(env, key, decoded.bytes, decoded.mime);
-  const url = `${origin}${displayMediaPublicPath(key)}`;
+  const url = buildDisplayMediaPublicUrl(env, request, key);
   return { url, media_type: mediaTypeFromMime(decoded.mime), r2_key: key };
+}
+
+/** O(1) — بناء رابط عام لسكربت الترحيل (بدون Request) */
+export function buildDisplayMediaPublicUrlForMigration(
+  publicBase: string | null,
+  apiOrigin: string,
+  key: string,
+): string {
+  if (publicBase) return buildR2DirectPublicUrl(publicBase, key);
+  return `${apiOrigin.replace(/\/$/, "")}${displayMediaPublicPath(key)}`;
 }

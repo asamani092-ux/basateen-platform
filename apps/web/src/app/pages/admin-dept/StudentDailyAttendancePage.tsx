@@ -31,6 +31,7 @@ type StudentRow = {
   full_name_ar: string;
   status: string;
   has_record: boolean;
+  other_placement_name?: string | null;
 };
 
 export function StudentDailyAttendancePage() {
@@ -55,6 +56,8 @@ export function StudentDailyAttendancePage() {
   const [entityMeta, setEntityMeta] = useState(
     () => new Map<string, { student_count: number; has_record: boolean }>(),
   );
+  const [dateMin, setDateMin] = useState<string | undefined>();
+  const [dateMax, setDateMax] = useState<string | undefined>();
   const { invalidate } = useAdminDataSyncContext();
 
   const dirtyCount = useMemo(() => Object.keys(statusMap).length, [statusMap]);
@@ -84,6 +87,8 @@ export function StudentDailyAttendancePage() {
     try {
       const res = await api.adminDeptStudentAttendanceEntityStatus(date);
       setEntityMeta(buildAttendanceEntityMetaMap(res.circles ?? [], res.tracks ?? []));
+      if (res.date_min) setDateMin(res.date_min);
+      if (res.date_max) setDateMax(res.date_max);
     } catch {
       setEntityMeta(new Map());
     }
@@ -111,6 +116,7 @@ export function StudentDailyAttendancePage() {
         full_name_ar: r.full_name_ar,
         status: normalizeAttendanceStatus(r.status ?? "present"),
         has_record: Boolean(r.has_record),
+        other_placement_name: r.other_placement_name ?? null,
       }));
       setRows(items);
       setPageInfo(res.page ?? null);
@@ -204,8 +210,13 @@ export function StudentDailyAttendancePage() {
         status: r.status,
         has_record: r.has_record,
         isDirty: r.student_id in statusMap,
+        entityView: entity?.type,
+        other_placement_name: r.other_placement_name,
+        show_shared_marker: Boolean(
+          r.has_record && r.other_placement_name?.trim(),
+        ),
       })),
-    [filteredRows, statusMap],
+    [filteredRows, statusMap, entity?.type],
   );
 
   return (
@@ -216,8 +227,8 @@ export function StudentDailyAttendancePage() {
             تحضير الطلاب
           </h2>
           <p className={ds.page.description} style={tajawal}>
-            اختر الحلقة أو المسار وسجّل تحضير اليوم — التعديلات التاريخية في
-            السجل المنزلق أعلاه.
+            اختر الحلقة أو المسار وسجّل تحضير اليوم — الطالب المشترك بين حلقة
+            ومسار يملك سجلاً واحداً يومياً؛ تعديله من أي نافذة يحدّث نفس السجل.
           </p>
         </div>
         <Button
@@ -275,6 +286,8 @@ export function StudentDailyAttendancePage() {
             <input
               type="date"
               value={date}
+              min={dateMin}
+              max={dateMax}
               onChange={(e) => setDate(e.target.value)}
               className={`block w-full mt-1 border border-border px-3 py-2 ${ds.btnRound}`}
             />

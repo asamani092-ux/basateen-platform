@@ -1,5 +1,5 @@
 import type { Env } from "../types";
-import { hasTable, studentAttendanceEligibleSql } from "../lib/db-schema";
+import { hasTable, studentAttendanceEligibleSql, tableHasColumn } from "../lib/db-schema";
 import { enforceRateLimit } from "../lib/rate-limit";
 import {
   isSharedTokenUsable,
@@ -11,6 +11,11 @@ import {
 import { batchSaveStudentAttendance } from "../lib/attendance-batch";
 import type { AttendanceStatus } from "../lib/student-attendance-db";
 import { todayRiyadhIso } from "../lib/today-riyadh-iso";
+import { clampAttendanceDate } from "../lib/admin-attendance-entities";
+import {
+  fetchSemesterPeriod,
+  semesterQueryRange,
+} from "../lib/semester-period";
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
@@ -34,6 +39,7 @@ type ResolvedAttendanceLink = {
 async function resolveAttendanceToken(
   env: Env,
   token: string,
+  requestedDate?: string | null,
 ): Promise<{ data: ResolvedAttendanceLink } | { error: Response }> {
   if (!(await hasTable(env, "shared_access_tokens"))) {
     return { error: json({ error: "migration_required" }, 503) };
@@ -54,7 +60,12 @@ async function resolveAttendanceToken(
     return { error: json({ error: "invalid_link_context" }, 500) };
   }
 
-  const attendanceDate = todayRiyadhIso();
+  const semester = await fetchSemesterPeriod(env, row.complex_id);
+  const semesterRange = semesterQueryRange(semester);
+  const attendanceDate = clampAttendanceDate(
+    requestedDate?.trim() || todayRiyadhIso(),
+    semesterRange,
+  );
 
   if (groupType === "track") {
     const track = await env.DB.prepare(
@@ -103,15 +114,29 @@ async function loadStudentsForMagicLink(
   const isActiveExpr = await studentAttendanceEligibleSql(env, "s");
   const placementCol =
     resolved.groupType === "track" ? "current_track_id" : "current_circle_id";
+  const hasCircleCol = await tableHasColumn(env, "students", "current_circle_id");
+  const hasTrackCol = await tableHasColumn(env, "students", "current_track_id");
+  const otherPlacementSql =
+    resolved.groupType === "circle" && hasTrackCol
+      ? ", s.current_track_id AS other_placement_id, ot.name_ar AS other_placement_name"
+      : resolved.groupType === "track" && hasCircleCol
+        ? ", s.current_circle_id AS other_placement_id, oc.name_ar AS other_placement_name"
+        : ", NULL AS other_placement_id, NULL AS other_placement_name";
+  const otherPlacementJoin =
+    resolved.groupType === "circle" && hasTrackCol
+      ? " LEFT JOIN tracks ot ON ot.id = s.current_track_id AND ot.complex_id = s.complex_id"
+      : resolved.groupType === "track" && hasCircleCol
+        ? " LEFT JOIN circles oc ON oc.id = s.current_circle_id AND oc.complex_id = s.complex_id"
+        : "";
 
   const students = await env.DB.prepare(
     `SELECT s.id AS student_id, s.full_name_ar,
             CASE WHEN sa.id IS NOT NULL THEN 1 ELSE 0 END AS has_record,
             COALESCE(sa.status, 'present') AS status,
-            sa.recorded_at
+            sa.recorded_at${otherPlacementSql}
      FROM students s
      LEFT JOIN student_attendance sa
-       ON sa.student_id = s.id AND sa.attendance_date = ?
+       ON sa.student_id = s.id AND sa.attendance_date = ?${otherPlacementJoin}
      WHERE s.complex_id = ? AND ${isActiveExpr} AND s.${placementCol} = ?
      ORDER BY s.full_name_ar`,
   )
@@ -135,10 +160,13 @@ export async function handlePublicLinksRouter(
   if (limited) return limited;
 
   if (request.method === "GET") {
-    const resolved = await resolveAttendanceToken(env, token);
+    const requestedDate = url.searchParams.get("date");
+    const resolved = await resolveAttendanceToken(env, token, requestedDate);
     if ("error" in resolved) return resolved.error;
     const { data } = resolved;
 
+    const semester = await fetchSemesterPeriod(env, data.row.complex_id);
+    const semesterRange = semesterQueryRange(semester);
     const items = await loadStudentsForMagicLink(env, data);
     await touchSharedTokenUse(env, data.row.id);
 
@@ -147,6 +175,8 @@ export async function handlePublicLinksRouter(
       feature_name: data.row.feature_name,
       entity_type: data.groupType,
       attendance_date: data.attendanceDate,
+      date_min: semesterRange.start,
+      date_max: semesterRange.end,
       circle: data.circle,
       track: data.track,
       items,
@@ -156,11 +186,8 @@ export async function handlePublicLinksRouter(
   }
 
   if (request.method === "POST") {
-    const resolved = await resolveAttendanceToken(env, token);
-    if ("error" in resolved) return resolved.error;
-    const { data } = resolved;
-
     let body: {
+      attendance_date?: string;
       records?: Array<{ student_id?: number; status?: string; notes?: string }>;
     };
     try {
@@ -168,6 +195,14 @@ export async function handlePublicLinksRouter(
     } catch {
       return json({ error: "invalid_json" }, 400);
     }
+
+    const resolved = await resolveAttendanceToken(
+      env,
+      token,
+      body.attendance_date,
+    );
+    if ("error" in resolved) return resolved.error;
+    const { data } = resolved;
 
     const records = body.records ?? [];
     if (!Array.isArray(records) || records.length === 0) {

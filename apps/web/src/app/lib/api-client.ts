@@ -1517,6 +1517,8 @@ export const api = {
         status: string;
         recorded_at?: string | null;
         source?: string | null;
+        other_placement_id?: number | null;
+        other_placement_name?: string | null;
       }>;
       default_status: string;
       page?: {
@@ -1547,6 +1549,8 @@ export const api = {
         status: string;
         recorded_at?: string | null;
         source?: string | null;
+        other_placement_id?: number | null;
+        other_placement_name?: string | null;
       }>;
       default_status: string;
       page?: {
@@ -1565,6 +1569,8 @@ export const api = {
     const qs = search.toString();
     return request<{
       date: string;
+      date_min?: string;
+      date_max?: string;
       circles: Array<{ id: number; student_count: number; has_record: boolean }>;
       tracks: Array<{ id: number; student_count: number; has_record: boolean }>;
     }>(
@@ -2659,11 +2665,14 @@ export const api = {
       }>;
     }>(`/api/edu-dept/reports/progress${qs ? `?${qs}` : ""}`);
   },
-  publicAttendanceGet: (token: string) =>
-    request<{
+  publicAttendanceGet: (token: string, date?: string) => {
+    const qs = date ? `?date=${encodeURIComponent(date)}` : "";
+    return request<{
       token: string;
       entity_type: "circle" | "track";
       attendance_date: string;
+      date_min?: string;
+      date_max?: string;
       circle: { id: number; name_ar: string; stage?: string } | null;
       track: { id: number; name_ar: string } | null;
       items: Array<{
@@ -2671,12 +2680,18 @@ export const api = {
         full_name_ar: string;
         status: string;
         has_record?: boolean;
+        other_placement_id?: number | null;
+        other_placement_name?: string | null;
       }>;
       default_status: string;
-    }>(`/api/public/attendance/${encodeURIComponent(token)}`),
+    }>(`/api/public/attendance/${encodeURIComponent(token)}${qs}`);
+  },
   publicAttendanceSave: (
     token: string,
-    body: { records: Array<{ student_id: number; status: string }> },
+    body: {
+      attendance_date?: string;
+      records: Array<{ student_id: number; status: string }>;
+    },
   ) =>
     request<{ ok: boolean; saved: number }>(
       `/api/public/attendance/${encodeURIComponent(token)}`,

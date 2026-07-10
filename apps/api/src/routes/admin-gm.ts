@@ -24,6 +24,8 @@ import {
   safeDeleteEducationalGroup,
 } from "../lib/admin-educational-groups";
 import {
+  StaffSoftDeletedError,
+  assertStaffMobileAvailableForCreate,
   findInactiveStaffByContact,
   findSupervisorOtherActiveTrack,
   findTeacherOtherActiveCircle,
@@ -61,6 +63,17 @@ const DEFAULT_PASSWORD = "Basateen123!";
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
+}
+
+function jsonStaffSoftDeleted(err: StaffSoftDeletedError): Response {
+  return json(
+    {
+      error: "staff_soft_deleted",
+      message: "هذا الرقم لمنسوب محذوف — يمكن استعادته",
+      staff: err.info,
+    },
+    409,
+  );
 }
 
 function requireGm(auth: Awaited<ReturnType<typeof getAuth>>) {
@@ -318,7 +331,11 @@ export async function handleAdminStaffList(
     const roleFilter = url.searchParams.get("role")?.trim();
     const statusRaw = url.searchParams.get("status")?.trim();
     const status =
-      statusRaw === "active" || statusRaw === "suspended" ? statusRaw : "all";
+      statusRaw === "active" ||
+      statusRaw === "suspended" ||
+      statusRaw === "deleted"
+        ? statusRaw
+        : "all";
     let sql = await staffListSql(env, status);
     const binds: (string | number)[] = [auth!.complexId];
     if (roleFilter) {
@@ -345,6 +362,7 @@ export async function handleAdminStaffList(
         circle_name: string | null;
         track_id: number | null;
         track_name: string | null;
+        deleted_at: string | null;
       }>();
 
     return json({ items: rows.results ?? [], page: pageMeta(total, pageParams) });
@@ -613,6 +631,9 @@ export async function handleAdminTeachersCreate(
 
     return json({ ok: true, id: userId, reactivated: upserted.reactivated });
   } catch (error: unknown) {
+    if (error instanceof StaffSoftDeletedError) {
+      return jsonStaffSoftDeleted(error);
+    }
     const d1 = d1ErrorJson(error);
     if (d1) return d1;
     const msg = error instanceof Error ? error.message : String(error);
@@ -710,63 +731,39 @@ export async function handleAdminSupervisorsCreate(
   const mobile = body.mobile.trim();
 
   try {
-    const inactive = await findInactiveStaffByContact(env, auth!.complexId, {
+    await assertStaffMobileAvailableForCreate(env, auth!.complexId, mobile);
+
+    const userId = await insertSupervisorUser(env, auth!.complexId, {
+      full_name_ar: body.full_name_ar.trim(),
       mobile,
+      role,
+      supervisor_scope: scope,
     });
-    let userId: number;
-    let reactivated = false;
-
-    if (inactive) {
-      await reactivateSupervisorUser(
-        env,
-        inactive.id,
-        auth!.complexId,
-        {
-          full_name_ar: body.full_name_ar.trim(),
-          mobile,
-          role,
-          supervisor_scope: scope,
-        },
-        normalizeSupervisorRoleForDb,
-      );
-      userId = inactive.id;
-      reactivated = true;
-    } else {
-      const existing = await env.DB.prepare(
-        `SELECT id FROM users WHERE mobile = ? AND COALESCE(is_active, 1) = 1`,
-      )
-        .bind(mobile)
-        .first();
-      if (existing) {
-        return json(
-          {
-            error: "duplicate_mobile",
-            message: "رقم الجوال مسجل مسبقاً في النظام",
-          },
-          409,
-        );
-      }
-
-      userId = await insertSupervisorUser(env, auth!.complexId, {
-        full_name_ar: body.full_name_ar.trim(),
-        mobile,
-        role,
-        supervisor_scope: scope,
-      });
-    }
 
     await syncSupervisorSections(env, userId, role);
 
-    return json({ ok: true, id: userId, reactivated });
+    return json({ ok: true, id: userId, reactivated: false });
   } catch (error: unknown) {
+    if (error instanceof StaffSoftDeletedError) {
+      return jsonStaffSoftDeleted(error);
+    }
     const d1 = d1ErrorJson(error);
     if (d1) return d1;
+    const msg = error instanceof Error ? error.message : String(error);
+    if (msg === "mobile_already_used") {
+      return json(
+        {
+          error: "duplicate_mobile",
+          message: "رقم الجوال مسجل مسبقاً في النظام",
+        },
+        409,
+      );
+    }
     console.error("[admin-gm] supervisors create:", error);
     return json(
       {
         error: "admin_gm_error",
-        message:
-          error instanceof Error ? error.message : "Failed to create supervisor",
+        message: msg || "Failed to create supervisor",
       },
       500,
     );
@@ -942,6 +939,9 @@ export async function handleAdminCirclesCreate(
               .run();
           }
         } catch (error: unknown) {
+          if (error instanceof StaffSoftDeletedError) {
+            return jsonStaffSoftDeleted(error);
+          }
           const d1 = d1ErrorJson(error);
           if (d1) return d1;
           const msg = error instanceof Error ? error.message : String(error);

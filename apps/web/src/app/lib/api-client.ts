@@ -154,10 +154,19 @@ export type StaffMemberRow = {
   mobile: string | null;
   role: string;
   is_active: number;
+  deleted_at?: string | null;
   circle_id: number | null;
   circle_name: string | null;
   track_id: number | null;
   track_name: string | null;
+};
+
+export type SoftDeletedStaffPayload = {
+  id: number;
+  full_name_ar: string;
+  mobile: string;
+  role: string;
+  deleted_at: string;
 };
 
 export type StudentPlacement = {
@@ -218,12 +227,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       message?: string;
       details?: unknown;
       issues?: unknown;
+      staff?: SoftDeletedStaffPayload;
     };
     const err = new Error(
       payload.message ?? payload.error ?? `HTTP ${res.status}`,
-    ) as Error & { details?: unknown; issues?: unknown; code?: string };
+    ) as Error & {
+      details?: unknown;
+      issues?: unknown;
+      code?: string;
+      staff?: SoftDeletedStaffPayload;
+    };
     err.code = payload.error;
     err.details = payload.details ?? payload.issues;
+    err.staff = payload.staff;
     throw err;
   }
 
@@ -1066,13 +1082,16 @@ export const api = {
     page?: number;
     page_size?: number;
     role?: string;
-    status?: "all" | "active" | "suspended";
+    status?: "all" | "active" | "suspended" | "deleted";
   }) => {
     const search = new URLSearchParams();
     if (params?.page != null) search.set("page", String(params.page));
     if (params?.page_size != null) search.set("page_size", String(params.page_size));
     if (params?.role?.trim()) search.set("role", params.role.trim());
-    if (params?.status && params.status !== "all") {
+    if (
+      params?.status &&
+      params.status !== "all"
+    ) {
       search.set("status", params.status);
     }
     const qs = search.toString();

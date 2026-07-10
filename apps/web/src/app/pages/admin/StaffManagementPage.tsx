@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { GuardedForm } from "../../components/ui/guarded-form";
 import { toast } from "sonner";
-import { UserCog } from "lucide-react";
+import { UserCog, RotateCcw } from "lucide-react";
 import { StaffActionDialog } from "../../components/shared/StaffActionDialog";
 import {
   TableActionsCell,
@@ -43,7 +43,7 @@ import {
   SCOPE_GLOBAL,
   stageLabel,
 } from "../../lib/stages";
-import { api, type StaffMemberRow } from "../../lib/api-client";
+import { api, type StaffMemberRow, type SoftDeletedStaffPayload } from "../../lib/api-client";
 import { getApiToken } from "../../lib/api-token";
 import { ds, tajawal } from "../../lib/design-system";
 import {
@@ -104,12 +104,13 @@ function apiErrorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
-type StaffStatusFilter = "all" | "active" | "suspended";
+type StaffStatusFilter = "all" | "active" | "suspended" | "deleted";
 
 const STAFF_STATUS_OPTIONS: Array<{ value: StaffStatusFilter; label: string }> = [
   { value: "all", label: "الكل" },
   { value: "active", label: "نشط" },
   { value: "suspended", label: "معلَّق" },
+  { value: "deleted", label: "محذوف" },
 ];
 
 export function StaffManagementPage() {
@@ -121,6 +122,8 @@ export function StaffManagementPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [editRow, setEditRow] = useState<StaffMemberRow | null>(null);
   const [actionRow, setActionRow] = useState<StaffMemberRow | null>(null);
+  const [restoreRow, setRestoreRow] = useState<StaffMemberRow | null>(null);
+  const [restoreBusy, setRestoreBusy] = useState(false);
   const hasApi = Boolean(getApiToken());
   const { invalidate } = useAdminDataSyncContext();
 
@@ -275,25 +278,51 @@ export function StaffManagementPage() {
                       </TableTruncatedCell>
                       <TableTruncatedCell style={tajawal}>
                         {staffRoleLabel(row.role)}
-                        {row.is_active === 0 ? (
+                        {statusFilter === "deleted" ? (
+                          <Badge variant="outline" className="mr-2">
+                            محذوف
+                          </Badge>
+                        ) : row.is_active === 0 ? (
                           <Badge variant="secondary" className="mr-2">
                             معلَّق
                           </Badge>
+                        ) : null}
+                        {row.deleted_at ? (
+                          <span className="block text-xs text-muted-foreground mt-1">
+                            {row.deleted_at}
+                          </span>
                         ) : null}
                       </TableTruncatedCell>
                       <TableTruncatedCell title={assignedEntityLabel(row)} style={tajawal}>
                         {assignedEntityLabel(row) === "—" ? "غير مسند" : assignedEntityLabel(row)}
                       </TableTruncatedCell>
                       <TableActionsCell wide>
-                        <TableIconAction
-                          kind="edit"
-                          onClick={() => setEditRow(row)}
-                        />
-                        {row.id !== SOVEREIGN_USER_ID && (
-                          <TableIconAction
-                            kind="more"
-                            onClick={() => setActionRow(row)}
-                          />
+                        {statusFilter === "deleted" ? (
+                          row.id !== SOVEREIGN_USER_ID && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className={`${ds.btnRound} min-h-11 gap-1`}
+                              style={tajawal}
+                              onClick={() => setRestoreRow(row)}
+                            >
+                              <RotateCcw className="size-4 shrink-0" aria-hidden />
+                              استعادة
+                            </Button>
+                          )
+                        ) : (
+                          <>
+                            <TableIconAction
+                              kind="edit"
+                              onClick={() => setEditRow(row)}
+                            />
+                            {row.id !== SOVEREIGN_USER_ID && (
+                              <TableIconAction
+                                kind="more"
+                                onClick={() => setActionRow(row)}
+                              />
+                            )}
+                          </>
                         )}
                       </TableActionsCell>
                     </TableRow>
@@ -378,6 +407,61 @@ export function StaffManagementPage() {
         />
       )}
 
+      {restoreRow && (
+        <Dialog
+          open
+          onOpenChange={(o) => {
+            if (!o) setRestoreRow(null);
+          }}
+        >
+          <DialogContent className={`${ds.dialog} sm:max-w-md`} dir="rtl">
+            <DialogHeader className="text-right">
+              <DialogTitle style={tajawal}>استعادة المنسوب</DialogTitle>
+              <DialogDescription style={tajawal}>
+                استعادة «{restoreRow.full_name_ar}» بنفس المعرف ({restoreRow.id}) —
+                يبقى غير مسند حتى إعادة الإسناد يدوياً.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-wrap gap-2 justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                className={ds.btnRound}
+                style={tajawal}
+                disabled={restoreBusy}
+                onClick={() => setRestoreRow(null)}
+              >
+                إلغاء
+              </Button>
+              <Button
+                type="button"
+                variant="default"
+                className={`${ds.btnRound} ${ds.primaryActionBtn}`}
+                style={tajawal}
+                disabled={restoreBusy}
+                onClick={async () => {
+                  setRestoreBusy(true);
+                  try {
+                    await api.adminStaffPatch(restoreRow.id, { is_active: 1 });
+                    setRestoreRow(null);
+                    setStatusFilter("active");
+                    setPage(1);
+                    afterStaffMutation();
+                    toast.success("تمت الاستعادة — نفس المعرف محفوظ");
+                  } catch (err) {
+                    toast.error(apiErrorMessage(err, "فشل الاستعادة"));
+                  } finally {
+                    setRestoreBusy(false);
+                  }
+                }}
+              >
+                {restoreBusy ? "جاري الاستعادة…" : "تأكيد الاستعادة"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
     </div>
   );
 }
@@ -396,6 +480,10 @@ function AddStaffDialog({
   const [role, setRole] = useState<string>(ALL_STAFF_ROLES[4].value);
   const [scope, setScope] = useState<string>(SCOPE_GLOBAL);
   const [saving, setSaving] = useState(false);
+  const [softDeleted, setSoftDeleted] = useState<SoftDeletedStaffPayload | null>(
+    null,
+  );
+  const [restoreBusy, setRestoreBusy] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -403,7 +491,36 @@ function AddStaffDialog({
     setMobile("");
     setRole(ALL_STAFF_ROLES[4].value);
     setScope(SCOPE_GLOBAL);
+    setSoftDeleted(null);
   }, [open]);
+
+  async function restoreSoftDeleted() {
+    if (!softDeleted) return;
+    setRestoreBusy(true);
+    try {
+      const trimmedName = name.trim();
+      const trimmedMobile = mobile.trim();
+      const apiRole =
+        role === "teacher" || role === "track_supervisor"
+          ? role
+          : roleForApi(role);
+      await api.adminStaffPatch(softDeleted.id, {
+        is_active: 1,
+        full_name_ar: trimmedName,
+        mobile: trimmedMobile,
+        role: apiRole,
+        supervisor_scope:
+          role === "teacher" || role === "track_supervisor" ? undefined : scope,
+      });
+      setSoftDeleted(null);
+      onSaved();
+      toast.success(`تمت استعادة المنسوب (المعرف ${softDeleted.id})`);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "فشل الاستعادة"));
+    } finally {
+      setRestoreBusy(false);
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -427,6 +544,14 @@ function AddStaffDialog({
       }
       onSaved();
     } catch (err) {
+      const apiErr = err as Error & {
+        code?: string;
+        staff?: SoftDeletedStaffPayload;
+      };
+      if (apiErr.code === "staff_soft_deleted" && apiErr.staff) {
+        setSoftDeleted(apiErr.staff);
+        return;
+      }
       toast.error(apiErrorMessage(err, "فشل الإضافة"));
     } finally {
       setSaving(false);
@@ -438,15 +563,16 @@ function AddStaffDialog({
   const isSupervisor = !isTeacher && !isTrackSup;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={`${ds.dialog} sm:max-w-md`} dir="rtl">
-        <DialogHeader className="text-right">
-          <DialogTitle style={tajawal}>إضافة منسوب</DialogTitle>
-          <DialogDescription style={tajawal}>
-            الاسم، الجوال، والدور
-          </DialogDescription>
-        </DialogHeader>
-        <GuardedForm onSubmit={submit} className="grid gap-3">
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className={`${ds.dialog} sm:max-w-md`} dir="rtl">
+          <DialogHeader className="text-right">
+            <DialogTitle style={tajawal}>إضافة منسوب</DialogTitle>
+            <DialogDescription style={tajawal}>
+              الاسم، الجوال، والدور
+            </DialogDescription>
+          </DialogHeader>
+          <GuardedForm onSubmit={submit} className="grid gap-3">
           <div className="space-y-1">
             <Label style={tajawal}>الاسم *</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} required />
@@ -497,8 +623,60 @@ function AddStaffDialog({
             {saving ? "جاري الحفظ…" : "حفظ"}
           </Button>
         </GuardedForm>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={softDeleted != null}
+        onOpenChange={(o) => {
+          if (!o) setSoftDeleted(null);
+        }}
+      >
+        <DialogContent className={`${ds.dialog} sm:max-w-md`} dir="rtl">
+          <DialogHeader className="text-right">
+            <DialogTitle style={tajawal}>منسوب محذوف</DialogTitle>
+            <DialogDescription style={tajawal}>
+              هذا الرقم لمنسوب محذوف — هل تريد استعادته؟
+              {softDeleted ? (
+                <>
+                  <span className="block mt-2 font-medium text-foreground">
+                    {softDeleted.full_name_ar} — {staffRoleLabel(softDeleted.role)}
+                  </span>
+                  <span className="block text-xs text-muted-foreground mt-1">
+                    تاريخ الحذف: {softDeleted.deleted_at} · المعرف: {softDeleted.id}
+                  </span>
+                  <span className="block text-xs text-muted-foreground mt-2">
+                    تُستعاد السجلات التاريخية على نفس المعرف دون تكرار.
+                  </span>
+                </>
+              ) : null}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-wrap gap-2 justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              className={ds.btnRound}
+              style={tajawal}
+              disabled={restoreBusy}
+              onClick={() => setSoftDeleted(null)}
+            >
+              إلغاء
+            </Button>
+            <Button
+              type="button"
+              variant="default"
+              className={`${ds.btnRound} ${ds.primaryActionBtn}`}
+              style={tajawal}
+              disabled={restoreBusy}
+              onClick={() => void restoreSoftDeleted()}
+            >
+              {restoreBusy ? "جاري الاستعادة…" : "استعادة المنسوب"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

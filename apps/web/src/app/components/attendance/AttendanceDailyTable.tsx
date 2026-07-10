@@ -1,4 +1,5 @@
 import { AttendanceStatusButtons } from "./AttendanceStatusButtons";
+import { StudentPlacementSubBadge } from "../edu/StudentPlacementSubBadge";
 import {
   Table,
   TableBody,
@@ -17,6 +18,9 @@ export type DailyAttendanceRow = {
   status: string;
   has_record?: boolean;
   isDirty?: boolean;
+  entityView?: "circle" | "track";
+  other_placement_name?: string | null;
+  show_shared_marker?: boolean;
 };
 
 type Props = {
@@ -51,7 +55,25 @@ export function AttendanceDailyTable({
             <TableRow key={row.id} className="print:break-inside-avoid">
               <TableCell className={`${ds.table.cell} min-w-0`} style={tajawal}>
                 <p className="font-medium truncate">{row.full_name_ar}</p>
-                {row.subtitle ? (
+                {row.show_shared_marker && row.other_placement_name ? (
+                  <div className="mt-1 flex flex-col items-start gap-1">
+                    <p className="text-[10px] text-muted-foreground">
+                      {row.entityView === "track"
+                        ? "مسجَّل من حلقته"
+                        : "مسجَّل من مساره"}
+                    </p>
+                    <StudentPlacementSubBadge
+                      circleName={
+                        row.entityView === "track" ? row.other_placement_name : null
+                      }
+                      trackName={
+                        row.entityView === "circle" ? row.other_placement_name : null
+                      }
+                      view={row.entityView === "track" ? "track" : "circle"}
+                      className="max-w-full"
+                    />
+                  </div>
+                ) : row.subtitle ? (
                   <p className="text-xs text-muted-foreground truncate">
                     {row.subtitle}
                   </p>
@@ -63,7 +85,6 @@ export function AttendanceDailyTable({
                 <AttendanceStatusButtons
                   value={row.status}
                   disabled={disabled}
-                  highlightSaved={Boolean(row.has_record || row.isDirty)}
                   onChange={(st) => onStatusChange(row.id, st)}
                 />
               </TableCell>

@@ -11,6 +11,8 @@ export { resolveRoleFromUser } from "../../../packages/types/schema";
 
 export interface Env {
   DB: D1Database;
+  /** R2 bucket: basateen-display-media — يُنشئه المالك في Cloudflare */
+  DISPLAY_MEDIA?: R2Bucket;
   JWT_SECRET?: string;
   SETUP_KEY?: string;
   ENVIRONMENT?: string;

@@ -634,8 +634,11 @@ case "$MODE" in
   072)
     node "$API_DIR/scripts/migrate-072-remote.mjs"
     ;;
+  073)
+    node "$API_DIR/scripts/migrate-073-remote.mjs"
+    ;;
   *)
-    echo "Usage: $0 upgrade|all|demo|apply-pending|effect-status|bootstrap-tracking|048|061|062|063|064|065|066|067|068|069|070|071|072|..." >&2
+    echo "Usage: $0 upgrade|all|demo|apply-pending|effect-status|bootstrap-tracking|048|061|062|063|064|065|066|067|068|069|070|071|072|073|..." >&2
     exit 1
     ;;
 esac

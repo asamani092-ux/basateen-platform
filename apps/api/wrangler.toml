@@ -9,6 +9,11 @@ binding = "DB"
 database_name = "basateen"
 database_id = "ab9ce5ad-7c2a-4f58-8e18-c0db7a30dfad"
 
+# المالك يُنشئ هذا الـ bucket في لوحة Cloudflare R2 قبل النشر
+[[r2_buckets]]
+binding = "DISPLAY_MEDIA"
+bucket_name = "basateen-display-media"
+
 [vars]
 ENVIRONMENT = "development"
 
@@ -24,6 +29,10 @@ name = "winter-term-cb93"
 binding = "DB"
 database_name = "basateen"
 database_id = "ab9ce5ad-7c2a-4f58-8e18-c0db7a30dfad"
+
+[[env.production.r2_buckets]]
+binding = "DISPLAY_MEDIA"
+bucket_name = "basateen-display-media"
 
 [env.production.vars]
 ENVIRONMENT = "production"

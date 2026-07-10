@@ -1764,6 +1764,13 @@ export function resolveDevPreviewMock<T>(
   if (p === "/api/display-dept/media" && m === "POST") {
     return { ok: true, id: 1 } as T;
   }
+  if (p === "/api/display-dept/media/upload" && m === "POST") {
+    return {
+      ok: true,
+      url: "https://example.test/api/public/display-media/dev-preview.bin",
+      media_type: "image",
+    } as T;
+  }
   if (p.match(/^\/api\/display-dept\/media\/\d+$/) && (m === "PATCH" || m === "DELETE")) {
     return { ok: true } as T;
   }

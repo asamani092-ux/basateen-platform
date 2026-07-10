@@ -1,9 +1,24 @@
 import type { Env } from "../types";
 import { getAuth, requireAuth, requireRoles } from "../middleware/auth";
 import { hasTable, tableHasColumn } from "../lib/db-schema";
+import {
+  DISPLAY_MEDIA_MAX_BYTES,
+  deleteDisplayMediaR2ByUrl,
+  normalizeMediaSlideUrl,
+  r2Available,
+  uploadDisplayMediaFile,
+} from "../lib/display-media-r2";
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
+}
+
+function jsonError(
+  error: string,
+  status: number,
+  message?: string,
+): Response {
+  return json(message ? { error, message } : { error }, status);
 }
 
 function migrationRequired(): Response {
@@ -194,6 +209,48 @@ export async function handleDisplayDeptRouter(
 
   if (!(await hasTable(env, "display_media"))) return migrationRequired();
 
+  if (method === "POST" && path === "/api/display-dept/media/upload") {
+    if (!r2Available(env)) {
+      return jsonError("r2_not_configured", 503, "تخزين R2 غير مُعدّ بعد.");
+    }
+    const contentType = request.headers.get("content-type") ?? "";
+    if (!contentType.toLowerCase().includes("multipart/form-data")) {
+      return jsonError("invalid_content_type", 400);
+    }
+    let form: FormData;
+    try {
+      form = await request.formData();
+    } catch {
+      return jsonError("invalid_form_data", 400);
+    }
+    const fileEntry = form.get("file");
+    if (!fileEntry || typeof fileEntry === "string") {
+      return jsonError("file_required", 400, "الملف مطلوب.");
+    }
+    const file = fileEntry as { size: number; type: string; stream: () => ReadableStream };
+    if (file.size > DISPLAY_MEDIA_MAX_BYTES) {
+      return jsonError(
+        "file_too_large",
+        400,
+        "الملف أكبر من 100 ميجابايت.",
+      );
+    }
+    try {
+      const uploaded = await uploadDisplayMediaFile(env, request, complexId, file);
+      return json({ ok: true, url: uploaded.url, media_type: uploaded.media_type });
+    } catch (err) {
+      const code = err instanceof Error ? err.message : "upload_failed";
+      if (code === "invalid_content_type") {
+        return jsonError(
+          code,
+          400,
+          "يُسمح فقط بملفات صورة أو فيديو.",
+        );
+      }
+      return jsonError(code, 500);
+    }
+  }
+
   const selectCols = hasSlideCols
     ? "id, slide_type, media_type, media_url, competition_id, duration_seconds, display_order, is_active, created_at"
     : "id, media_type, media_url, display_order, is_active, created_at";
@@ -250,7 +307,11 @@ export async function handleDisplayDeptRouter(
         return json({ error: "invalid_media_type" }, 400);
       }
       if (!mediaUrl) return json({ error: "media_url_required" }, 400);
-      if (mediaUrl.length > 10_000_000) return json({ error: "media_too_large" }, 400);
+      const normalized = normalizeMediaSlideUrl(mediaUrl, mediaType);
+      if (!normalized.ok) {
+        return jsonError(normalized.code, 400, normalized.error);
+      }
+      mediaUrl = normalized.url;
     } else if (slideType === "kpi") {
       mediaType = "image";
       mediaUrl = mediaUrl || "-";
@@ -349,7 +410,7 @@ export async function handleDisplayDeptRouter(
       }
 
       const mediaType = body.media_type?.trim() ?? String(row?.media_type ?? "image");
-      const mediaUrl = body.media_url?.trim() ?? String(row?.media_url ?? "");
+      let mediaUrl = body.media_url?.trim() ?? String(row?.media_url ?? "");
       const duration = clampDuration(
         Number(body.duration_seconds ?? row?.duration_seconds ?? settings.slide_seconds),
         settings.slide_seconds,
@@ -366,7 +427,11 @@ export async function handleDisplayDeptRouter(
           return json({ error: "invalid_media_type" }, 400);
         }
         if (!mediaUrl) return json({ error: "media_url_required" }, 400);
-        if (mediaUrl.length > 10_000_000) return json({ error: "media_too_large" }, 400);
+        const normalized = normalizeMediaSlideUrl(mediaUrl, mediaType);
+        if (!normalized.ok) {
+          return jsonError(normalized.code, 400, normalized.error);
+        }
+        mediaUrl = normalized.url;
         competitionId = null;
       } else if (slideType === "competition") {
         if (!Number.isFinite(competitionId) || (competitionId ?? 0) <= 0) {
@@ -375,6 +440,9 @@ export async function handleDisplayDeptRouter(
       } else {
         competitionId = null;
       }
+
+      const prevUrl = String(row?.media_url ?? "");
+      const prevSlideType = hasSlideCols ? String(row?.slide_type ?? "media") : "media";
 
       if (hasSlideCols) {
         await env.DB.prepare(
@@ -419,10 +487,28 @@ export async function handleDisplayDeptRouter(
           )
           .run();
       }
+
+      if (
+        prevSlideType === "media" &&
+        slideType === "media" &&
+        body.media_url != null &&
+        prevUrl !== mediaUrl
+      ) {
+        await deleteDisplayMediaR2ByUrl(env, prevUrl);
+      }
       return json({ ok: true });
     }
 
     if (method === "DELETE") {
+      const existing = await env.DB.prepare(
+        `SELECT media_url, slide_type FROM display_media WHERE id = ? AND complex_id = ?`,
+      )
+        .bind(mediaId, complexId)
+        .first<{ media_url: string; slide_type?: string }>();
+      const slideType = String(existing?.slide_type ?? "media");
+      if (slideType === "media" && existing?.media_url) {
+        await deleteDisplayMediaR2ByUrl(env, existing.media_url);
+      }
       await env.DB.prepare(`DELETE FROM display_media WHERE id = ? AND complex_id = ?`)
         .bind(mediaId, complexId)
         .run();

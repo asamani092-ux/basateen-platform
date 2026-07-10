@@ -2931,6 +2931,47 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  displayMediaUpload: async (file: File) => {
+    if (isUiDevPreview()) {
+      await new Promise((r) => setTimeout(r, 60));
+      const mock = resolveDevPreviewMock<{
+        ok: boolean;
+        url: string;
+        media_type: "image" | "gif" | "video";
+      }>("/api/display-dept/media/upload", "POST");
+      if (mock) return mock;
+      return {
+        ok: true,
+        url: "https://example.test/api/public/display-media/preview.bin",
+        media_type: file.type.includes("gif")
+          ? "gif"
+          : file.type.startsWith("video/")
+            ? "video"
+            : "image",
+      };
+    }
+    const url = `${API_BASE.replace(/\/$/, "")}/api/display-dept/media/upload`;
+    const token = getApiToken();
+    const form = new FormData();
+    form.append("file", file);
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(url, { method: "POST", body: form, headers });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      const payload = body as { error?: string; message?: string };
+      const err = new Error(payload.message ?? payload.error ?? `HTTP ${res.status}`) as Error & {
+        code?: string;
+      };
+      err.code = payload.error;
+      throw err;
+    }
+    return res.json() as Promise<{
+      ok: boolean;
+      url: string;
+      media_type: "image" | "gif" | "video";
+    }>;
+  },
   displayMediaPatch: (
     id: number,
     body: {

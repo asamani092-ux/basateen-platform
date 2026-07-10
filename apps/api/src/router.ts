@@ -63,6 +63,7 @@ import { handleLiveLogRouter, handleYomHimmaLiveLogToken } from "./routes/live-l
 import { handleProgSupervisorRouter } from "./routes/prog-supervisor";
 import { handleQuizPublicRouter } from "./routes/quiz-public";
 import { handleDisplayDeptRouter } from "./routes/display-dept";
+import { handleDisplayMediaPublicRouter } from "./routes/display-media-public";
 import { handlePublicLiveDisplayRouter } from "./routes/public-live-display";
 
 type RouteHandler = (
@@ -249,6 +250,9 @@ export async function handleRequest(
 
     const publicLink = await handlePublicLinksRouter(request, env, url);
     if (publicLink) return withCors(publicLink, request, env);
+
+    const displayMediaPublic = await handleDisplayMediaPublicRouter(request, env, url);
+    if (displayMediaPublic) return withCors(displayMediaPublic, request, env);
 
     const publicLive = await handlePublicLiveDisplayRouter(request, env, url);
     if (publicLive) return withCors(publicLive, request, env);

@@ -50,7 +50,7 @@ type MediaRow = {
 
 type CompetitionOption = { id: number; name_ar: string };
 
-const MAX_MEDIA = 10_000_000;
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
 function slideTypeLabel(t: SlideType): string {
   if (t === "kpi") return "مؤشرات المجمع";
@@ -126,16 +126,21 @@ export function DisplayManagerPage() {
 
   async function onFile(file: File | null) {
     if (!file) return;
-    if (file.size > MAX_MEDIA) {
-      setError("الملف أكبر من الحد المسموح.");
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setError("الملف أكبر من 100 ميجابايت.");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => setMediaUrl(String(reader.result ?? ""));
-    reader.readAsDataURL(file);
-    if (file.type.includes("gif")) setMediaType("gif");
-    else if (file.type.startsWith("video/")) setMediaType("video");
-    else setMediaType("image");
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await api.displayMediaUpload(file);
+      setMediaUrl(res.url);
+      setMediaType(res.media_type);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "فشل رفع الملف");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function saveSlide(e: React.FormEvent) {
@@ -161,7 +166,17 @@ export function DisplayManagerPage() {
       setSuccess("تمت إضافة الشريحة.");
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "فشل الحفظ");
+      const e = err as Error & { code?: string };
+      if (e.code === "drive_video_not_supported") {
+        setError(
+          e.message ||
+            "لا يمكن تشغيل فيديو من رابط Google Drive — يُرجى رفع ملف الفيديو مباشرة.",
+        );
+      } else if (e.code === "data_url_rejected") {
+        setError(e.message || "يُمنع تخزين الوسائط كـ base64.");
+      } else {
+        setError(e.message || "فشل الحفظ");
+      }
     } finally {
       setSaving(false);
     }
@@ -458,6 +473,9 @@ export function DisplayManagerPage() {
                     accept="image/*,video/*"
                     onChange={(e) => void onFile(e.target.files?.[0] ?? null)}
                   />
+                  <p className="text-xs text-muted-foreground" style={tajawal}>
+                    صور Google Drive: الصق رابط المشاركة. الفيديو: ارفع الملف مباشرة (لا يُقبل رابط Drive).
+                  </p>
                 </div>
               </>
             )}

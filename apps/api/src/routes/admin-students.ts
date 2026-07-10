@@ -83,7 +83,16 @@ function mapKnownCreateError(error: unknown): Response | null {
   if (d1) return d1;
 
   const msg = error instanceof Error ? error.message : String(error);
-  if (msg === "placement_required") {
+  if (msg.startsWith("missing_field:")) {
+    return json(
+      {
+        error: msg,
+        message: msg,
+      },
+      400,
+    );
+  }
+  if (msg === "placement_required" || msg === "missing_field: placement") {
     return errorJson(error, 400);
   }
   if (msg === "national_id_exists" || msg === "duplicate_national_id") {

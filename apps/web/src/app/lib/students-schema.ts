@@ -53,13 +53,53 @@ export const optionalAge = z.preprocess(
 );
 
 const OPTIONAL_STRING_KEYS = [
-  "school_name",
-  "school_grade",
-  "memorization_amount",
   "guardian_national_id",
   "guardian_work",
   "health_notes",
 ] as const;
+
+/** رسالة خطأ تسمي الحقل الناقص — للإضافة فقط */
+export function requiredField(field: string) {
+  return z
+    .union([z.string(), z.number()])
+    .transform((v) => String(v).trim())
+    .refine((s) => s.length > 0, { message: `missing_field: ${field}` });
+}
+
+/** O(1) — تحقق حقول الإضافة الإلزامية بعد التحويل */
+function refineStudentCreateRequired(
+  data: ReturnType<typeof transformStudentBody>,
+  ctx: z.RefinementCtx,
+): void {
+  if (!data.school_name?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "missing_field: school_name",
+      path: ["school_name"],
+    });
+  }
+  if (!data.school_grade?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "missing_field: school_grade",
+      path: ["school_grade"],
+    });
+  }
+  if (data.memorization_faces == null || data.memorization_faces <= 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "missing_field: memorization",
+      path: ["memorization_amount"],
+    });
+  }
+  if (data.circle_id == null && data.track_id == null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "missing_field: placement",
+      path: ["circle_id"],
+    });
+  }
+}
 
 /** تهيئة الجسم الخام قبل Zod — توحيد المسميات وتحويل الأرقام */
 export function normalizeIncomingStudentPayload(
@@ -117,8 +157,8 @@ const placementFields = z.object({
 
 const studentCreateBaseSchema = z
   .object({
-    full_name_ar: requiredText,
-    national_id: requiredText,
+    full_name_ar: requiredField("full_name_ar"),
+    national_id: requiredField("national_id"),
     nationality: z.preprocess(
       (v) => {
         if (v == null || v === "") return "سعودي";
@@ -126,8 +166,8 @@ const studentCreateBaseSchema = z
       },
       z.string().min(1),
     ),
-    phone: requiredText,
-    guardian_phone: requiredText,
+    phone: requiredField("phone"),
+    guardian_phone: requiredField("guardian_phone"),
     school_name: optionalText.optional(),
     school_grade: optionalText.optional(),
     memorization_amount: optionalText.optional(),
@@ -199,15 +239,7 @@ function transformStudentBody(body: z.infer<typeof studentCreateBaseSchema>) {
 export const studentCreateBodySchema = z.preprocess(
   (raw) => normalizeIncomingStudentPayload(raw),
   studentCreateBaseSchema.transform(transformStudentBody),
-).superRefine((data, ctx) => {
-  if (data.circle_id == null && data.track_id == null) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "placement_required",
-      path: ["circle_id"],
-    });
-  }
-});
+).superRefine(refineStudentCreateRequired);
 
 /** PATCH — لا يشترط الإسناد؛ العمر اختياري بالكامل */
 export const studentPatchBodySchema = z.preprocess(
@@ -216,17 +248,17 @@ export const studentPatchBodySchema = z.preprocess(
 );
 
 export const studentBulkRowSchema = z.object({
-  full_name_ar: requiredText,
-  national_id: requiredText,
+  full_name_ar: requiredField("full_name_ar"),
+  national_id: requiredField("national_id"),
   nationality: optionalText.optional(),
-  phone: requiredText,
-  guardian_phone: requiredText,
-  school_name: optionalText.optional(),
-  school_grade: optionalText.optional(),
-  memorization_amount: optionalText.optional(),
+  phone: requiredField("phone"),
+  guardian_phone: requiredField("guardian_phone"),
+  school_name: requiredField("school_name"),
+  school_grade: requiredField("school_grade"),
+  memorization_amount: requiredField("memorization"),
   guardian_national_id: optionalText.optional(),
   health_notes: optionalText.optional(),
-  group_name: optionalText.optional(),
+  group_name: requiredField("group_name"),
   circle_name: optionalText.optional(),
   track_name: optionalText.optional(),
 });

@@ -210,17 +210,40 @@ export type CreateStudentInput = {
   track_id?: number | null;
 };
 
+/** O(1) — تحقق الحقول الإلزامية عند الإنشاء (دفاع إضافي بعد Zod) */
+function assertCreateRequiredFields(input: CreateStudentInput): void {
+  const checks: Array<[string, boolean]> = [
+    ["full_name_ar", !input.full_name_ar.trim()],
+    ["national_id", !input.national_id.trim()],
+    ["nationality", !input.nationality.trim()],
+    ["phone", !input.phone.trim()],
+    ["guardian_phone", !input.guardian_phone.trim()],
+    ["school_name", !(input.school_name ?? "").trim()],
+    ["school_grade", !(input.school_grade ?? "").trim()],
+    [
+      "memorization",
+      input.memorization_faces == null || input.memorization_faces <= 0,
+    ],
+    ["placement", !input.circle_id && !input.track_id],
+  ];
+  for (const [field, missing] of checks) {
+    if (missing) throw new Error(`missing_field: ${field}`);
+  }
+}
+
 export async function createStudentWithPlacement(
   env: Env,
   complexId: number,
   input: CreateStudentInput,
   auth: { userId: number; role: string; complexId: number },
 ): Promise<{ id: number }> {
+  assertCreateRequiredFields(input);
+
   const circleId = parsePositiveIntField(input.circle_id);
   const trackId = parsePositiveIntField(input.track_id);
 
   if (!circleId && !trackId) {
-    throw new Error("placement_required");
+    throw new Error("missing_field: placement");
   }
 
   if (circleId) {
@@ -254,8 +277,8 @@ export async function createStudentWithPlacement(
     ["nationality", input.nationality.trim()],
     ["phone", input.phone.trim()],
     ["guardian_phone", input.guardian_phone.trim()],
-    ["school_name", opt(input.school_name)],
-    ["school_grade", opt(input.school_grade)],
+    ["school_name", (input.school_name ?? "").trim()],
+    ["school_grade", (input.school_grade ?? "").trim()],
     ["health_notes", opt(input.health_notes)],
     ["memorization_amount", opt(input.memorization_amount)],
     ["memorization_faces", input.memorization_faces ?? null],
@@ -414,6 +437,27 @@ export function sanitizeExcelCell(v: unknown, max = 500): string | null {
   return s.slice(0, max);
 }
 
+/** O(1) — أول حقل إلزامي ناقص في صف الاستيراد */
+function firstMissingBulkField(row: AdminBulkStudentRow): string | null {
+  const full_name_ar = sanitizeExcelCell(row.full_name_ar, 200);
+  if (!full_name_ar) return "full_name_ar";
+  const national_id = sanitizeExcelCell(row.national_id, 32);
+  if (!national_id) return "national_id";
+  const phone = sanitizeExcelCell(row.phone, 20);
+  if (!phone) return "phone";
+  const guardian_phone =
+    sanitizeExcelCell(row.guardian_phone, 20) ?? phone;
+  if (!guardian_phone) return "guardian_phone";
+  const school_name = sanitizeExcelCell(row.school_name, 120);
+  if (!school_name) return "school_name";
+  const school_grade = sanitizeExcelCell(row.school_grade, 80);
+  if (!school_grade) return "school_grade";
+  const memText = sanitizeExcelCell(row.memorization_amount, 120);
+  if (!memText) return "memorization";
+  const groupName = sanitizeExcelCell(row.group_name, 100);
+  if (!groupName) return "group_name";
+  return null;
+}
 /** O(n) — معالجة مصفوفة الاستيراد مع تجاوز الصفوف الفاشلة */
 export async function processAdminStudentsBulk(
   env: Env,
@@ -445,30 +489,26 @@ export async function processAdminStudentsBulk(
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]!;
     const rowNum = i + 1;
-    const full_name_ar = sanitizeExcelCell(row.full_name_ar, 200);
-    const national_id = sanitizeExcelCell(row.national_id, 32);
-    const nationality = sanitizeExcelCell(row.nationality, 80) ?? "سعودي";
-    const phone = sanitizeExcelCell(row.phone, 20);
-    const guardian_phone =
-      sanitizeExcelCell(row.guardian_phone, 20) ?? phone;
-
     const groupName = sanitizeExcelCell(row.group_name, 100);
 
-    if (
-      !full_name_ar ||
-      !national_id ||
-      !phone ||
-      !guardian_phone
-    ) {
+    const missingField = firstMissingBulkField(row);
+    if (missingField) {
       failedCount += 1;
       failedDetails.push({
         row: rowNum,
-        national_id,
-        full_name_ar,
-        error: "missing_required_fields",
+        national_id: sanitizeExcelCell(row.national_id, 32),
+        full_name_ar: sanitizeExcelCell(row.full_name_ar, 200),
+        error: `missing_field: ${missingField}`,
       });
       continue;
     }
+
+    const full_name_ar = sanitizeExcelCell(row.full_name_ar, 200)!;
+    const national_id = sanitizeExcelCell(row.national_id, 32)!;
+    const nationality = sanitizeExcelCell(row.nationality, 80) ?? "سعودي";
+    const phone = sanitizeExcelCell(row.phone, 20)!;
+    const guardian_phone =
+      sanitizeExcelCell(row.guardian_phone, 20) ?? phone;
 
     const placement = resolveEducationalGroupByName(maps, groupName);
     if (!placement) {

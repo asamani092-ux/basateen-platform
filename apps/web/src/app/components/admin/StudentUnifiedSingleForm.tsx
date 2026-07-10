@@ -103,11 +103,21 @@ export function StudentUnifiedSingleForm({
       "nationality",
       "phone",
       "guardian_phone",
+      "school_name",
+      "school_grade",
     ];
     if (requirePlacement) {
       req.push("placement");
     }
-    return req.filter((k) => !String(values[k]).trim());
+    const missing = req.filter((k) => !String(values[k]).trim());
+    const memValue = Number(values.memorization_value);
+    const hasMemorization =
+      (Number.isFinite(memValue) && memValue > 0) ||
+      values.memorization_amount.trim().length > 0;
+    if (!hasMemorization) {
+      missing.push("memorization_value" as keyof StudentUnifiedFormValues);
+    }
+    return missing;
   }, [values, requirePlacement]);
 
   const canSubmit = missingRequired.length === 0 && !submitting;
@@ -192,7 +202,7 @@ export function StudentUnifiedSingleForm({
             className={ds.btnRound}
           />
         </Field>
-        <Field label={requirePlacement ? "المرحلة *" : "المرحلة (اختياري)"} required={false}>
+        <Field label="المرحلة (اختياري)" required={false}>
           <select
             value={values.stage_id}
             onChange={(e) => {
@@ -231,7 +241,7 @@ export function StudentUnifiedSingleForm({
             ))}
           </select>
         </Field>
-        <Field label="المدرسة">
+        <Field label="المدرسة *" required>
           <Input
             value={values.school_name}
             onChange={(e) => set("school_name", e.target.value)}
@@ -239,7 +249,7 @@ export function StudentUnifiedSingleForm({
             style={tajawal}
           />
         </Field>
-        <Field label="الصف الدراسي">
+        <Field label="الصف الدراسي *" required>
           <Input
             value={values.school_grade}
             onChange={(e) => set("school_grade", e.target.value)}
@@ -247,7 +257,7 @@ export function StudentUnifiedSingleForm({
             style={tajawal}
           />
         </Field>
-        <Field label="مقدار الحفظ" className="sm:col-span-2">
+        <Field label="مقدار الحفظ *" required className="sm:col-span-2">
           <div className="grid grid-cols-2 gap-3" dir="rtl">
             <select
               value={values.memorization_unit}

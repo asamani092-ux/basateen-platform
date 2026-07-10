@@ -58,17 +58,60 @@ function isHeaderRow(cells: string[]): boolean {
   return HEADER_SET.has(first) || first === "الاسم الرباعي";
 }
 
-function rowToRecord(cells: string[]): ParsedStudentImportRow | null {
-  while (cells.length < 11) cells.push("");
+export type StudentImportRejectedRow = {
+  row: number;
+  full_name_ar: string | null;
+  error: string;
+};
+
+export type StudentImportParseResult = {
+  rows: ParsedStudentImportRow[];
+  rejected: StudentImportRejectedRow[];
+};
+
+function firstMissingImportField(cells: string[]): string | null {
   const full_name_ar = cellToString(cells[0]);
-  if (!full_name_ar || isHeaderRow(cells)) return null;
+  if (!full_name_ar) return "full_name_ar";
+  const national_id = cellToString(cells[1]);
+  if (!national_id) return "national_id";
+  const phone = cellToString(cells[3]);
+  if (!phone) return "phone";
+  const guardian_phone = cellToString(cells[4]) || phone;
+  if (!guardian_phone) return "guardian_phone";
+  const school_name = cellToString(cells[5]);
+  if (!school_name) return "school_name";
+  const school_grade = cellToString(cells[6]);
+  if (!school_grade) return "school_grade";
+  const memorization_amount = cellToString(cells[7]);
+  if (!memorization_amount) return "memorization";
+  const group_name = cellToString(cells[10]);
+  if (!group_name) return "group_name";
+  return null;
+}
+
+function rowToRecord(
+  cells: string[],
+  rowNum: number,
+): ParsedStudentImportRow | StudentImportRejectedRow | null {
+  while (cells.length < 11) cells.push("");
+  if (isHeaderRow(cells)) return null;
+
+  const full_name_ar = cellToString(cells[0]);
+  if (!full_name_ar) return null;
+
+  const missing = firstMissingImportField(cells);
+  if (missing) {
+    return {
+      row: rowNum,
+      full_name_ar,
+      error: `missing_field: ${missing}`,
+    };
+  }
 
   const national_id = cellToString(cells[1]);
   const phone = cellToString(cells[3]);
   const guardian_phone = cellToString(cells[4]) || phone;
   const group_name = cellToString(cells[10]);
-
-  if (!national_id || !phone || !guardian_phone || !group_name) return null;
 
   return {
     full_name_ar,
@@ -85,10 +128,10 @@ function rowToRecord(cells: string[]): ParsedStudentImportRow | null {
   };
 }
 
-/** O(n·m) — قراءة ملف Excel/CSV في المتصفح */
+/** O(n·m) — قراءة ملف Excel/CSV مع رفض الصفوف الناقصة */
 export async function parseStudentImportFile(
   file: File,
-): Promise<ParsedStudentImportRow[]> {
+): Promise<StudentImportParseResult> {
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, {
     type: "array",
@@ -96,7 +139,7 @@ export async function parseStudentImportFile(
     raw: false,
   });
   const sheet = wb.Sheets[wb.SheetNames[0]];
-  if (!sheet) return [];
+  if (!sheet) return { rows: [], rejected: [] };
 
   const matrix = XLSX.utils.sheet_to_json<(string | number)[]>(sheet, {
     header: 1,
@@ -105,12 +148,20 @@ export async function parseStudentImportFile(
   }) as unknown[][];
 
   const rows: ParsedStudentImportRow[] = [];
+  const rejected: StudentImportRejectedRow[] = [];
+  let rowNum = 0;
   for (const line of matrix) {
+    rowNum += 1;
     const cells = (line ?? []).map((c) => cellToString(c));
-    const record = rowToRecord(cells);
-    if (record) rows.push(record);
+    const record = rowToRecord(cells, rowNum);
+    if (!record) continue;
+    if ("error" in record) {
+      rejected.push(record);
+      continue;
+    }
+    rows.push(record);
   }
-  return rows;
+  return { rows, rejected };
 }
 
 export function downloadStudentTemplateCsv(): void {

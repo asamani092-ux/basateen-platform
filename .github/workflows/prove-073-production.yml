@@ -49,6 +49,9 @@ jobs:
           echo "=== CMD: npx wrangler r2 object list basateen-display-media --limit 20 ==="
           npx wrangler r2 object list basateen-display-media --limit 20 || true
           echo ""
-          echo "=== CMD: CF REST API list R2 objects (wrangler 3 has no object list) ==="
-          curl -sS "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/basateen-display-media/objects?per_page=20" \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
+          echo "=== CMD: npx wrangler r2 object get basateen-display-media/display/c1/1783736520352-929a116ea61b35ef8cd6358d.png (known 073 key) ==="
+          npx wrangler r2 object get basateen-display-media/display/c1/1783736520352-929a116ea61b35ef8cd6358d.png --file=/tmp/prove-073-r2.png || true
+          ls -la /tmp/prove-073-r2.png 2>/dev/null || echo "object get did not produce file"
+          echo ""
+          echo "=== CMD: curl -sI public r2.dev URL for id=5 ==="
+          curl -sI "https://pub-cace01d6ad114b77b5969bb148555a61.r2.dev/display/c1/1783736520352-929a116ea61b35ef8cd6358d.png"

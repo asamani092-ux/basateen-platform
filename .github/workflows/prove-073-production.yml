@@ -1,0 +1,46 @@
+name: Prove 073 production
+
+on:
+  workflow_dispatch:
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install API deps
+        working-directory: apps/api
+        run: npm install
+
+      - name: Raw 073 production proofs
+        working-directory: apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          echo "=== CMD: npx wrangler secret list --env production ==="
+          npx wrangler secret list --env production
+          echo ""
+          echo "=== CMD: SELECT COUNT(*) data: rows ==="
+          npx wrangler d1 execute basateen --remote --yes --command "SELECT COUNT(*) AS c FROM display_media WHERE media_url LIKE 'data:%';" --json
+          echo ""
+          echo "=== CMD: SELECT COUNT(*) r2/worker urls ==="
+          npx wrangler d1 execute basateen --remote --yes --command "SELECT COUNT(*) AS c FROM display_media WHERE media_url LIKE 'https://%.r2.dev/%' OR media_url LIKE 'https://%.workers.dev/api/public/display-media/%';" --json
+          echo ""
+          echo "=== CMD: SELECT COUNT(*) total display_media ==="
+          npx wrangler d1 execute basateen --remote --yes --command "SELECT COUNT(*) AS c FROM display_media;" --json
+          echo ""
+          echo "=== CMD: SELECT COUNT(*) drive links ==="
+          npx wrangler d1 execute basateen --remote --yes --command "SELECT COUNT(*) AS c FROM display_media WHERE media_url LIKE '%drive.google.com%' OR media_url LIKE '%docs.google.com%';" --json
+          echo ""
+          echo "=== CMD: sample media_url (up to 10) ==="
+          npx wrangler d1 execute basateen --remote --yes --command "SELECT id, media_type, substr(media_url,1,120) AS media_url FROM display_media ORDER BY id LIMIT 10;" --json
+          echo ""
+          echo "=== CMD: npx wrangler r2 object list basateen-display-media --limit 20 ==="
+          npx wrangler r2 object list basateen-display-media --limit 20

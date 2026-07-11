@@ -519,7 +519,8 @@ apply_pending() {
       fi
     fi
     if [[ "$f" == "073_display_media_r2_urls.sql" ]]; then
-      if R2_PUBLIC_BASE_URL="${R2_PUBLIC_BASE_URL:-https://pub-cace01d6ad114b77b5969bb148555a61.r2.dev}" \
+      if SETUP_KEY="${SETUP_KEY:-}" \
+        R2_PUBLIC_BASE_URL="${R2_PUBLIC_BASE_URL:-https://pub-cace01d6ad114b77b5969bb148555a61.r2.dev}" \
         node "$API_DIR/scripts/migrate-073-remote.mjs"; then
         continue
       else

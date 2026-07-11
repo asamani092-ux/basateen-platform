@@ -42,33 +42,35 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler whoami
 
-      # تطبيق أي ترحيل معلّق (بما فيها تصحيح التتبع الكاذب ثم 068)
-      - name: D1 apply-pending (remote)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          set -euo pipefail
-          chmod +x scripts/d1-remote-migrate.sh
-          echo "=== _migrations_applied BEFORE ==="
-          (cd apps/api && npx wrangler d1 execute basateen --remote --yes --command "SELECT * FROM _migrations_applied ORDER BY name;" --json) || true
-          echo "=== PRAGMA table_info(edu_settings) BEFORE ==="
-          (cd apps/api && npx wrangler d1 execute basateen --remote --yes --command "PRAGMA table_info(edu_settings);" --json)
-          echo "=== migration_effect_status 033 (raw) ==="
-          ./scripts/d1-remote-migrate.sh effect-status 033_edu_central_event_weights.sql
-          ./scripts/d1-remote-migrate.sh apply-pending
-          echo "=== PRAGMA table_info(edu_settings) AFTER ==="
-          (cd apps/api && npx wrangler d1 execute basateen --remote --yes --command "PRAGMA table_info(edu_settings);" --json)
-          echo "=== PRAGMA table_info(student_semester_plans) ==="
-          (cd apps/api && npx wrangler d1 execute basateen --remote --yes --command "PRAGMA table_info(student_semester_plans);" --json)
-          echo "=== PRAGMA index_list(student_semester_plans) ==="
-          (cd apps/api && npx wrangler d1 execute basateen --remote --yes --command "PRAGMA index_list(student_semester_plans);" --json)
-          echo "=== _migrations_applied AFTER ==="
-          (cd apps/api && npx wrangler d1 execute basateen --remote --yes --command "SELECT * FROM _migrations_applied ORDER BY name;" --json)
-
+      # نشر Worker أولاً — 073 يرفع عبر R2 binding (wrangler r2 put يفشل 403 بدون صلاحيات R2 Admin)
       - name: Deploy Worker (production env)
         working-directory: apps/api
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npm run deploy:prod
+
+      # تطبيق أي ترحيل معلّق (بما فيها 072/073)
+      - name: D1 apply-pending (remote)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SETUP_KEY: ${{ secrets.SETUP_KEY }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/d1-remote-migrate.sh
+          echo "=== PRAGMA table_info(display_media) BEFORE ==="
+          (cd apps/api && npx wrangler d1 execute basateen --remote --yes --command "PRAGMA table_info(display_media);" --json)
+          echo "=== data: rows BEFORE ==="
+          (cd apps/api && npx wrangler d1 execute basateen --remote --yes --command "SELECT COUNT(*) AS c FROM display_media WHERE media_url LIKE 'data:%';" --json)
+          echo "=== _migrations_applied BEFORE ==="
+          (cd apps/api && npx wrangler d1 execute basateen --remote --yes --command "SELECT * FROM _migrations_applied ORDER BY name;" --json) || true
+          ./scripts/d1-remote-migrate.sh apply-pending
+          echo "=== PRAGMA table_info(display_media) AFTER ==="
+          (cd apps/api && npx wrangler d1 execute basateen --remote --yes --command "PRAGMA table_info(display_media);" --json)
+          echo "=== data: rows AFTER ==="
+          (cd apps/api && npx wrangler d1 execute basateen --remote --yes --command "SELECT COUNT(*) AS c FROM display_media WHERE media_url LIKE 'data:%';" --json)
+          echo "=== apply-pending re-run (expect no pending) ==="
+          ./scripts/d1-remote-migrate.sh apply-pending
+          echo "=== _migrations_applied AFTER ==="
+          (cd apps/api && npx wrangler d1 execute basateen --remote --yes --command "SELECT * FROM _migrations_applied ORDER BY name;" --json)

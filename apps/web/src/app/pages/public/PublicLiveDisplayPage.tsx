@@ -109,13 +109,13 @@ export function PublicLiveDisplayPage() {
     if (slides.length <= 1) return;
 
     const current = slides[slideIndex];
-    const ms = slideDurationSec(current, slideSeconds) * 1000;
 
     if (current?.kind === "video") {
-      timerRef.current = setTimeout(() => advanceSlide(), ms);
-      return () => clearSlideTimer();
+      // فيديو: التقدم عبر onEnded/onError فقط — لا مؤقت مدة (CMD-25)
+      return;
     }
 
+    const ms = slideDurationSec(current, slideSeconds) * 1000;
     timerRef.current = setTimeout(() => advanceSlide(), ms);
     return () => clearSlideTimer();
   }, [slideIndex, slides, slideSeconds, advanceSlide, clearSlideTimer]);
@@ -267,6 +267,7 @@ export function PublicLiveDisplayPage() {
                 autoPlay
                 muted
                 playsInline
+                preload="auto"
                 onEnded={advanceSlide}
                 onError={advanceSlide}
               />

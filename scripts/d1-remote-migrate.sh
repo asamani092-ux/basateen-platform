@@ -139,7 +139,7 @@ d1_query_json() {
 # ترحيلات لها فحص أثر صريح في migration_effect_status (ليست trusted)
 has_guarded_effect_check() {
   case "$1" in
-    033_edu_central_event_weights.sql|062_stage_id_backfill.sql|066_semester_plans_columns.sql|067_teacher_competition_task_types.sql|068_student_semester_plans_multi.sql|069_plan_daily_followup.sql|070_competition_source.sql|071_users_staff_deleted_at.sql)
+    033_edu_central_event_weights.sql|062_stage_id_backfill.sql|066_semester_plans_columns.sql|067_teacher_competition_task_types.sql|068_student_semester_plans_multi.sql|069_plan_daily_followup.sql|070_competition_source.sql|071_users_staff_deleted_at.sql|072_display_slide_types.sql|073_display_media_r2_urls.sql)
       return 0
       ;;
     *)
@@ -302,6 +302,41 @@ migration_effect_status() {
             const j=JSON.parse(d); const b=Array.isArray(j)?j[0]:j;
             const cols=new Set((b?.results??[]).map(r=>r.name));
             console.log(cols.has('deleted_at') ? 'applied' : 'missing');
+          } catch { console.log('unknown'); }
+        });
+      "
+      ;;
+    072_display_slide_types.sql)
+      {
+        d1_query_json "PRAGMA table_info(display_media);"
+        echo "---SPLIT---"
+        d1_query_json "PRAGMA table_info(complex_settings);"
+        echo "---SPLIT---"
+        d1_query_json "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_display_media_slide_type';"
+      } | node -e "
+        let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{
+          try {
+            const parts=d.split('---SPLIT---');
+            const dm=JSON.parse(parts[0]||'[]'); const cs=JSON.parse(parts[1]||'[]'); const ix=JSON.parse(parts[2]||'[]');
+            const dmb=Array.isArray(dm)?dm[0]:dm; const csb=Array.isArray(cs)?cs[0]:cs; const ixb=Array.isArray(ix)?ix[0]:ix;
+            const dmCols=new Set((dmb?.results??[]).map(r=>r.name));
+            const csCols=new Set((csb?.results??[]).map(r=>r.name));
+            const needDm=['slide_type','competition_id','duration_seconds'];
+            const hasDm=needDm.every(c=>dmCols.has(c));
+            const hasCs=csCols.has('display_indicators_enabled');
+            const hasIdx=(ixb?.results??[]).length>0;
+            console.log(hasDm && hasCs && hasIdx ? 'applied' : 'missing');
+          } catch { console.log('unknown'); }
+        });
+      "
+      ;;
+    073_display_media_r2_urls.sql)
+      d1_query_json "SELECT COUNT(*) AS c FROM display_media WHERE media_url LIKE 'data:%';" | node -e "
+        let d=''; process.stdin.on('data',c=>d+=c); process.stdin.on('end',()=>{
+          try {
+            const j=JSON.parse(d); const b=Array.isArray(j)?j[0]:j;
+            const c=Number((b?.results??[])[0]?.c ?? -1);
+            console.log(c === 0 ? 'applied' : 'missing');
           } catch { console.log('unknown'); }
         });
       "
@@ -469,6 +504,23 @@ apply_pending() {
     fi
     if [[ "$f" == "071_users_staff_deleted_at.sql" ]]; then
       if node "$API_DIR/scripts/migrate-071-remote.mjs"; then
+        continue
+      else
+        failed=1
+        break
+      fi
+    fi
+    if [[ "$f" == "072_display_slide_types.sql" ]]; then
+      if node "$API_DIR/scripts/migrate-072-remote.mjs"; then
+        continue
+      else
+        failed=1
+        break
+      fi
+    fi
+    if [[ "$f" == "073_display_media_r2_urls.sql" ]]; then
+      if R2_PUBLIC_BASE_URL="${R2_PUBLIC_BASE_URL:-https://pub-cace01d6ad114b77b5969bb148555a61.r2.dev}" \
+        node "$API_DIR/scripts/migrate-073-remote.mjs"; then
         continue
       else
         failed=1

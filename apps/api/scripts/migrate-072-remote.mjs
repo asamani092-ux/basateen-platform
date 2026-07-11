@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
  * 072 remote: display slide types + per-slide duration + indicators toggle
+ * idempotent — يفحص PRAGMA table_info قبل كل ADD COLUMN
  *
  * Usage (from apps/api): node scripts/migrate-072-remote.mjs
  */

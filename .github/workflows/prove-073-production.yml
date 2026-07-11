@@ -2,6 +2,10 @@ name: Prove 073 production
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/prove-073-production.yml"
 
 jobs:
   prove:

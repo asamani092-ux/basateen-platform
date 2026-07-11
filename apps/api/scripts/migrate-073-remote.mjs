@@ -81,8 +81,9 @@ function sqlEscape(value) {
 }
 
 function putR2Object(key, filePath, contentType) {
+  // r2 object put يستهدف R2 السحابي افتراضياً — لا يدعم --remote/--yes (خلاف d1 execute)
   execSync(
-    `npx wrangler r2 object put ${BUCKET}/${key} --file=${JSON.stringify(filePath)} --content-type=${JSON.stringify(contentType)} ${remote}`,
+    `npx wrangler r2 object put ${BUCKET}/${key} --file=${JSON.stringify(filePath)} --content-type=${JSON.stringify(contentType)}`,
     { cwd: apiRoot, stdio: "inherit", env: process.env },
   );
 }

@@ -47,4 +47,8 @@ jobs:
           npx wrangler d1 execute basateen --remote --yes --command "SELECT id, media_type, substr(media_url,1,120) AS media_url FROM display_media ORDER BY id LIMIT 10;" --json
           echo ""
           echo "=== CMD: npx wrangler r2 object list basateen-display-media --limit 20 ==="
-          npx wrangler r2 object list basateen-display-media --limit 20
+          npx wrangler r2 object list basateen-display-media --limit 20 || true
+          echo ""
+          echo "=== CMD: CF REST API list R2 objects (wrangler 3 has no object list) ==="
+          curl -sS "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/r2/buckets/basateen-display-media/objects?per_page=20" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"

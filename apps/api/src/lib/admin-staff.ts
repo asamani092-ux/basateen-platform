@@ -247,14 +247,14 @@ async function staffDeletedAtSelect(env: Env): Promise<string> {
   return "NULL AS deleted_at";
 }
 
-/** O(1) — منسوب محذوف soft بنفس الجوال في المجمع */
+/** O(1) — منسوب محذوف soft بنفس الجوال في المجمع (كل صيغ الرقم) */
 export async function findSoftDeletedStaffByMobile(
   env: Env,
   complexId: number,
   mobile: string,
 ): Promise<SoftDeletedStaffInfo | null> {
-  const trimmed = mobile.trim();
-  if (!trimmed) return null;
+  const variants = mobileLookupVariants(mobile);
+  if (!variants.length) return null;
   if (!(await tableHasColumn(env, "users", "deleted_at"))) return null;
 
   const hasRole = await usersHaveRoleColumn(env);
@@ -274,13 +274,14 @@ export async function findSoftDeletedStaffByMobile(
          ELSE 'teacher'
        END`;
 
+  const placeholders = variants.map(() => "?").join(", ");
   const row = await env.DB.prepare(
     `SELECT u.id, u.full_name_ar, u.mobile, u.deleted_at, ${roleExpr} AS role
      FROM users u
-     WHERE u.mobile = ? AND u.complex_id = ? AND u.deleted_at IS NOT NULL
+     WHERE u.mobile IN (${placeholders}) AND u.complex_id = ? AND u.deleted_at IS NOT NULL
      LIMIT 1`,
   )
-    .bind(trimmed, complexId)
+    .bind(...variants, complexId)
     .first<{
       id: number;
       full_name_ar: string;
@@ -305,16 +306,17 @@ export async function findLiveStaffByMobile(
   complexId: number,
   mobile: string,
 ): Promise<{ id: number } | null> {
-  const trimmed = mobile.trim();
-  if (!trimmed) return null;
+  const variants = mobileLookupVariants(mobile);
+  if (!variants.length) return null;
 
   const hasDeletedAt = await tableHasColumn(env, "users", "deleted_at");
   const notDeleted = hasDeletedAt ? "AND deleted_at IS NULL" : "";
+  const placeholders = variants.map(() => "?").join(", ");
 
   return env.DB.prepare(
-    `SELECT id FROM users WHERE mobile = ? AND complex_id = ? ${notDeleted} LIMIT 1`,
+    `SELECT id FROM users WHERE mobile IN (${placeholders}) AND complex_id = ? ${notDeleted} LIMIT 1`,
   )
-    .bind(trimmed, complexId)
+    .bind(...variants, complexId)
     .first<{ id: number }>();
 }
 
@@ -322,8 +324,9 @@ export async function findLiveStaffByMobile(
 export async function assertStaffMobileAvailableForCreate(
   env: Env,
   complexId: number,
-  mobile: string,
-): Promise<void> {
+  rawMobile: string,
+): Promise<string> {
+  const mobile = requireStorageMobile(rawMobile);
   const softDeleted = await findSoftDeletedStaffByMobile(env, complexId, mobile);
   if (softDeleted) {
     throw new StaffSoftDeletedError(softDeleted);
@@ -332,6 +335,7 @@ export async function assertStaffMobileAvailableForCreate(
   if (live) {
     throw new Error("mobile_already_used");
   }
+  return mobile;
 }
 
 function isStaffInactive(row: {
@@ -468,13 +472,7 @@ export async function upsertStaffUser(
     return { id: inactive.id, reactivated: true };
   }
 
-  const dupId = await findActiveUserIdByMobileVariants(
-    env,
-    mobileLookupVariants(mobile),
-  );
-  if (dupId) {
-    throw new Error("mobile_already_used");
-  }
+  await assertStaffMobileAvailableForCreate(env, complexId, mobile);
 
   const id = await insertStaffUser(env, complexId, normalizedBody);
   return { id, reactivated: false };
@@ -556,14 +554,20 @@ export async function insertStaffUser(
   const mobile = requireStorageMobile(body.mobile);
   const passwordHash = await hashPassword(DEFAULT_PASSWORD);
   const hasRoleCol = await usersHaveRoleColumn(env);
-  const cols = ["complex_id", "email", "mobile", "password_hash", "full_name_ar"];
-  const vals: (string | number)[] = [
+  const cols = ["complex_id", "email", "mobile", "password_hash", "full_name_ar", "is_active"];
+  const vals: (string | number | null)[] = [
     complexId,
     emailForMobile(mobile, body.role),
     mobile,
     passwordHash,
     body.full_name_ar,
+    1,
   ];
+
+  if (await tableHasColumn(env, "users", "deleted_at")) {
+    cols.push("deleted_at");
+    vals.push(null);
+  }
 
   if (hasRoleCol) {
     cols.push("role");
@@ -701,6 +705,10 @@ async function clearStaffUserRelations(
     ["user_sections", "user_id"],
     ["supervisor_scopes", "user_id"],
     ["teacher_assignments", "user_id"],
+    ["staff_attendance", "user_id"],
+    ["teacher_daily_marks", "user_id"],
+    ["teacher_escalations", "created_by_user_id"],
+    ["teacher_escalations", "resolved_by_user_id"],
   ];
   for (const [table, column] of childDeletes) {
     if (!(await hasTable(env, table))) continue;
@@ -709,6 +717,31 @@ async function clearStaffUserRelations(
       env.DB.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).bind(userId),
     );
   }
+
+  const nullifyRefs: Array<[string, string]> = [
+    ["student_attendance", "recorded_by_user_id"],
+    ["student_circle_history", "teacher_user_id"],
+    ["student_circle_history", "moved_by_user_id"],
+    ["task_assignments", "assigned_by_user_id"],
+    ["task_logs", "logged_by_user_id"],
+    ["student_edu_plans", "updated_by_user_id"],
+    ["transfer_requests", "created_by_user_id"],
+    ["transfer_requests", "processed_by_user_id"],
+    ["program_activities", "created_by_user_id"],
+    ["quizzes", "created_by_user_id"],
+    ["shared_access_tokens", "created_by_user_id"],
+    ["semester_historical_snapshots", "closed_by_user_id"],
+  ];
+  for (const [table, column] of nullifyRefs) {
+    if (!(await hasTable(env, table))) continue;
+    if (!(await tableHasColumn(env, table, column))) continue;
+    stmts.push(
+      env.DB.prepare(`UPDATE ${table} SET ${column} = NULL WHERE ${column} = ?`).bind(
+        userId,
+      ),
+    );
+  }
+
   return stmts;
 }
 
@@ -831,6 +864,36 @@ export async function safeDeleteStaffUser(
     ).bind(userId, complexId),
   );
 
+  await env.DB.batch(batch);
+}
+
+/** O(n) — حذف فعلي من D1 بعد تفريغ المراجع (للاختبار/SETUP_KEY فقط) */
+export async function hardPurgeStaffUser(
+  env: Env,
+  userId: number,
+  complexId: number,
+): Promise<void> {
+  if (userId === SOVEREIGN_USER_ID) {
+    throw new Error("cannot_delete_sovereign_user");
+  }
+
+  const exists = await env.DB.prepare(
+    `SELECT id FROM users WHERE id = ? AND complex_id = ?`,
+  )
+    .bind(userId, complexId)
+    .first();
+  if (!exists) {
+    throw new Error("staff_not_found");
+  }
+
+  const batch: D1PreparedStatement[] = [
+    ...(await unassignStaffFromGroups(env, userId, complexId)),
+    ...(await clearStaffUserRelations(env, userId)),
+    env.DB.prepare(`DELETE FROM users WHERE id = ? AND complex_id = ?`).bind(
+      userId,
+      complexId,
+    ),
+  ];
   await env.DB.batch(batch);
 }
 

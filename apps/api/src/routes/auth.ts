@@ -88,10 +88,22 @@ export async function handleLoginMobile(
   const user = await loadUserByMobile(env, mobile);
 
   if (!user) {
-    return Response.json({ error: "invalid_credentials" }, { status: 401 });
+    return Response.json(
+      {
+        error: "invalid_credentials",
+        message: "رقم الجوال غير مسجّل — تحقق من الرقم (مثال: 0500000000)",
+      },
+      { status: 401 },
+    );
   }
   if (user.is_active !== 1) {
-    return Response.json({ error: "account_frozen" }, { status: 403 });
+    return Response.json(
+      {
+        error: "account_frozen",
+        message: "الحساب موقوف — اطلب من المشرف تفعيله من إدارة المنسوبين",
+      },
+      { status: 403 },
+    );
   }
 
   const { token } = await issueSession(env, user);

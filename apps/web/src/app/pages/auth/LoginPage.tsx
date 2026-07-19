@@ -74,7 +74,19 @@ export function LoginPage() {
     try {
       const res = await api.loginMobile(mobile);
       finishLogin(res, mobile);
-    } catch {
+    } catch (err) {
+      const apiErr = err as Error & { code?: string };
+      if (apiErr.code === "account_frozen") {
+        setError(
+          apiErr.message ||
+            "الحساب موقوف — اطلب من المشرف تفعيله من إدارة المنسوبين",
+        );
+        return;
+      }
+      if (apiErr.code === "invalid_mobile") {
+        setError("أدخل رقم جوال سعودي صحيح (مثال: 0500000000)");
+        return;
+      }
       if (isUiDevPreview()) {
         const mockUser = loginWithMobile(mobile) ?? login(mobile);
         if (mockUser) {
@@ -83,7 +95,8 @@ export function LoginPage() {
         }
       }
       setError(
-        "رقم الجوال غير مسجّل — تحقق من الرقم (مثال: 0500000000 أو 966500000000)",
+        apiErr.message ||
+          "رقم الجوال غير مسجّل — تحقق من الرقم (مثال: 0500000000 أو 966500000000)",
       );
     } finally {
       setLoading(false);

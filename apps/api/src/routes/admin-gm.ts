@@ -25,6 +25,7 @@ import {
 } from "../lib/admin-educational-groups";
 import {
   findInactiveStaffByContact,
+  findActiveUserIdByMobileVariants,
   findSupervisorOtherActiveTrack,
   findTeacherOtherActiveCircle,
   insertStaffUser,
@@ -37,6 +38,7 @@ import {
   upsertStaffUser,
 } from "../lib/admin-staff";
 import { d1ErrorJson } from "../lib/map-d1-error";
+import { mobileForStorage, mobileLookupVariants } from "../lib/mobile";
 import {
   circleCreateSchema,
   staffTeacherCreateSchema,
@@ -223,6 +225,8 @@ async function insertSupervisorUser(
     supervisor_scope: string;
   },
 ): Promise<number> {
+  const mobile = mobileForStorage(body.mobile);
+  if (!mobile) throw new Error("invalid_mobile");
   const passwordHash = await hashPassword(DEFAULT_PASSWORD);
   const dbRole = normalizeSupervisorRoleForDb(body.role);
   const hasRoleCol = await usersHaveRoleColumn(env);
@@ -232,8 +236,8 @@ async function insertSupervisorUser(
   const cols = ["complex_id", "email", "mobile", "password_hash", "full_name_ar"];
   const vals: (string | number)[] = [
     complexId,
-    emailForMobile(body.mobile, dbRole),
-    body.mobile,
+    emailForMobile(mobile, dbRole),
+    mobile,
     passwordHash,
     body.full_name_ar,
   ];
@@ -431,14 +435,24 @@ export async function handleAdminStaffPatch(
         .run();
     }
     if (body.mobile?.trim()) {
-      const dup = await env.DB.prepare(
-        `SELECT id FROM users WHERE mobile = ? AND id != ?`,
-      )
-        .bind(body.mobile.trim(), userId)
-        .first();
-      if (dup) return json({ error: "mobile_already_used" }, 409);
+      const mobile = mobileForStorage(body.mobile.trim());
+      if (!mobile) {
+        return json(
+          {
+            error: "invalid_mobile",
+            message: "رقم جوال سعودي غير صالح (مثال: 0500000000)",
+          },
+          400,
+        );
+      }
+      const dupId = await findActiveUserIdByMobileVariants(
+        env,
+        mobileLookupVariants(mobile),
+        userId,
+      );
+      if (dupId) return json({ error: "mobile_already_used" }, 409);
       await env.DB.prepare(`UPDATE users SET mobile = ? WHERE id = ?`)
-        .bind(body.mobile.trim(), userId)
+        .bind(mobile, userId)
         .run();
     }
     if (body.is_active != null) {
@@ -613,6 +627,15 @@ export async function handleAdminTeachersCreate(
         409,
       );
     }
+    if (msg === "invalid_mobile") {
+      return json(
+        {
+          error: "invalid_mobile",
+          message: "رقم جوال سعودي غير صالح (مثال: 0500000000)",
+        },
+        400,
+      );
+    }
     console.error("[admin-gm] teachers create:", error);
     return json(
       {
@@ -695,7 +718,16 @@ export async function handleAdminSupervisorsCreate(
   }
 
   const scope = body.supervisor_scope?.trim() || "global";
-  const mobile = body.mobile.trim();
+  const mobile = mobileForStorage(body.mobile.trim());
+  if (!mobile) {
+    return json(
+      {
+        error: "invalid_mobile",
+        message: "رقم جوال سعودي غير صالح (مثال: 0500000000)",
+      },
+      400,
+    );
+  }
 
   try {
     const inactive = await findInactiveStaffByContact(env, auth!.complexId, {
@@ -720,12 +752,11 @@ export async function handleAdminSupervisorsCreate(
       userId = inactive.id;
       reactivated = true;
     } else {
-      const existing = await env.DB.prepare(
-        `SELECT id FROM users WHERE mobile = ? AND COALESCE(is_active, 1) = 1`,
-      )
-        .bind(mobile)
-        .first();
-      if (existing) {
+      const dupId = await findActiveUserIdByMobileVariants(
+        env,
+        mobileLookupVariants(mobile),
+      );
+      if (dupId) {
         return json(
           {
             error: "duplicate_mobile",
@@ -1582,14 +1613,24 @@ export async function handleAdminTeachersPatch(
       .run();
   }
   if (body.mobile?.trim()) {
-    const dup = await env.DB.prepare(
-      `SELECT id FROM users WHERE mobile = ? AND id != ?`,
-    )
-      .bind(body.mobile.trim(), userId)
-      .first();
-    if (dup) return json({ error: "mobile_already_used" }, 409);
+    const mobile = mobileForStorage(body.mobile.trim());
+    if (!mobile) {
+      return json(
+        {
+          error: "invalid_mobile",
+          message: "رقم جوال سعودي غير صالح (مثال: 0500000000)",
+        },
+        400,
+      );
+    }
+    const dupId = await findActiveUserIdByMobileVariants(
+      env,
+      mobileLookupVariants(mobile),
+      userId,
+    );
+    if (dupId) return json({ error: "mobile_already_used" }, 409);
     await env.DB.prepare(`UPDATE users SET mobile = ? WHERE id = ?`)
-      .bind(body.mobile.trim(), userId)
+      .bind(mobile, userId)
       .run();
   }
   if (body.is_active != null) {
@@ -1659,14 +1700,24 @@ export async function handleAdminSupervisorsPatch(
       .run();
   }
   if (body.mobile?.trim()) {
-    const dup = await env.DB.prepare(
-      `SELECT id FROM users WHERE mobile = ? AND id != ?`,
-    )
-      .bind(body.mobile.trim(), userId)
-      .first();
-    if (dup) return json({ error: "mobile_already_used" }, 409);
+    const mobile = mobileForStorage(body.mobile.trim());
+    if (!mobile) {
+      return json(
+        {
+          error: "invalid_mobile",
+          message: "رقم جوال سعودي غير صالح (مثال: 0500000000)",
+        },
+        400,
+      );
+    }
+    const dupId = await findActiveUserIdByMobileVariants(
+      env,
+      mobileLookupVariants(mobile),
+      userId,
+    );
+    if (dupId) return json({ error: "mobile_already_used" }, 409);
     await env.DB.prepare(`UPDATE users SET mobile = ? WHERE id = ?`)
-      .bind(body.mobile.trim(), userId)
+      .bind(mobile, userId)
       .run();
   }
   if (body.role && isSupervisorInputRole(body.role)) {

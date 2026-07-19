@@ -5,6 +5,7 @@ import type { Env } from "../types";
 import { hashPassword } from "./password";
 import { hasTable, tableHasColumn } from "./db-schema";
 import { usersHaveRoleColumn } from "./db-user";
+import { mobileForStorage, mobileLookupVariants } from "./mobile";
 import {
   usesV25FlatStaffSchema,
   v25TeacherFlags,
@@ -177,6 +178,30 @@ export type StaffListRow = {
 const SOVEREIGN_USER_ID = 1;
 const DEFAULT_PASSWORD = "Basateen123!";
 
+function requireStorageMobile(raw: string): string {
+  const mobile = mobileForStorage(raw);
+  if (!mobile) throw new Error("invalid_mobile");
+  return mobile;
+}
+
+export async function findActiveUserIdByMobileVariants(
+  env: Env,
+  variants: string[],
+  excludeId?: number,
+): Promise<number | null> {
+  if (!variants.length) return null;
+  const placeholders = variants.map(() => "?").join(", ");
+  const sql =
+    excludeId != null
+      ? `SELECT id FROM users WHERE mobile IN (${placeholders}) AND COALESCE(is_active, 1) = 1 AND id != ? LIMIT 1`
+      : `SELECT id FROM users WHERE mobile IN (${placeholders}) AND COALESCE(is_active, 1) = 1 LIMIT 1`;
+  const binds = excludeId != null ? [...variants, excludeId] : variants;
+  const row = await env.DB.prepare(sql)
+    .bind(...binds)
+    .first<{ id: number }>();
+  return row?.id ?? null;
+}
+
 function emailForMobile(mobile: string, role: string): string {
   const clean = mobile.replace(/\D/g, "");
   return `${role}-${clean}@basateen.local`;
@@ -202,18 +227,20 @@ export async function findInactiveStaffByContact(
   complexId: number,
   contact: { mobile: string; national_id?: string | null },
 ): Promise<StaffContactRow | null> {
-  const mobile = contact.mobile.trim();
-  if (!mobile) return null;
+  const mobile = requireStorageMobile(contact.mobile);
+  const variants = mobileLookupVariants(mobile);
+  if (!variants.length) return null;
 
   const hasDeletedAt = await tableHasColumn(env, "users", "deleted_at");
   const hasNationalId = await tableHasColumn(env, "users", "national_id");
   const deletedCol = hasDeletedAt ? ", deleted_at" : ", NULL AS deleted_at";
+  const placeholders = variants.map(() => "?").join(", ");
 
   const byMobile = await env.DB.prepare(
     `SELECT id, is_active, complex_id${deletedCol}
-     FROM users WHERE mobile = ? AND complex_id = ?`,
+     FROM users WHERE mobile IN (${placeholders}) AND complex_id = ? LIMIT 1`,
   )
-    .bind(mobile, complexId)
+    .bind(...variants, complexId)
     .first<StaffContactRow>();
   if (byMobile && isStaffInactive(byMobile)) return byMobile;
 
@@ -242,11 +269,12 @@ export async function reactivateStaffUser(
     role: "teacher" | "track_supervisor";
   },
 ): Promise<void> {
+  const mobile = requireStorageMobile(body.mobile);
   const sets = ["is_active = 1", "full_name_ar = ?", "mobile = ?", "email = ?"];
   const binds: (string | number)[] = [
     body.full_name_ar.trim(),
-    body.mobile.trim(),
-    emailForMobile(body.mobile, body.role),
+    mobile,
+    emailForMobile(mobile, body.role),
   ];
 
   if (await tableHasColumn(env, "users", "deleted_at")) {
@@ -308,22 +336,23 @@ export async function upsertStaffUser(
     national_id?: string | null;
   },
 ): Promise<StaffUpsertResult> {
-  const inactive = await findInactiveStaffByContact(env, complexId, body);
+  const mobile = requireStorageMobile(body.mobile);
+  const normalizedBody = { ...body, mobile };
+  const inactive = await findInactiveStaffByContact(env, complexId, normalizedBody);
   if (inactive) {
-    await reactivateStaffUser(env, inactive.id, complexId, body);
+    await reactivateStaffUser(env, inactive.id, complexId, normalizedBody);
     return { id: inactive.id, reactivated: true };
   }
 
-  const activeDup = await env.DB.prepare(
-    `SELECT id FROM users WHERE mobile = ? AND COALESCE(is_active, 1) = 1`,
-  )
-    .bind(body.mobile.trim())
-    .first();
-  if (activeDup) {
+  const dupId = await findActiveUserIdByMobileVariants(
+    env,
+    mobileLookupVariants(mobile),
+  );
+  if (dupId) {
     throw new Error("mobile_already_used");
   }
 
-  const id = await insertStaffUser(env, complexId, body);
+  const id = await insertStaffUser(env, complexId, normalizedBody);
   return { id, reactivated: false };
 }
 
@@ -341,11 +370,12 @@ export async function reactivateSupervisorUser(
   normalizeRole: (role: string) => string,
 ): Promise<void> {
   const dbRole = normalizeRole(body.role);
+  const mobile = requireStorageMobile(body.mobile);
   const sets = ["is_active = 1", "full_name_ar = ?", "mobile = ?", "email = ?"];
   const binds: (string | number)[] = [
     body.full_name_ar.trim(),
-    body.mobile.trim(),
-    emailForMobile(body.mobile, dbRole),
+    mobile,
+    emailForMobile(mobile, dbRole),
   ];
 
   if (await tableHasColumn(env, "users", "deleted_at")) {
@@ -399,13 +429,14 @@ export async function insertStaffUser(
     role: "teacher" | "track_supervisor";
   },
 ): Promise<number> {
+  const mobile = requireStorageMobile(body.mobile);
   const passwordHash = await hashPassword(DEFAULT_PASSWORD);
   const hasRoleCol = await usersHaveRoleColumn(env);
   const cols = ["complex_id", "email", "mobile", "password_hash", "full_name_ar"];
   const vals: (string | number)[] = [
     complexId,
-    emailForMobile(body.mobile, body.role),
-    body.mobile,
+    emailForMobile(mobile, body.role),
+    mobile,
     passwordHash,
     body.full_name_ar,
   ];

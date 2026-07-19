@@ -148,6 +148,8 @@ export function normalizeMobile(input: string): string | null {
 
   if (digits.length === 12 && digits.startsWith("9665")) return `0${digits.slice(3)}`;
 
+  if (digits.length === 9 && digits.startsWith("5")) return `0${digits}`;
+
   return null;
 
 }

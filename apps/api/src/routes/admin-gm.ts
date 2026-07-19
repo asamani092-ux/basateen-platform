@@ -247,14 +247,20 @@ async function insertSupervisorUser(
   const hasScopeCol = await tableHasColumn(env, "users", "supervisor_scope");
   const hasStageScope = await tableHasColumn(env, "users", "stage_scope");
 
-  const cols = ["complex_id", "email", "mobile", "password_hash", "full_name_ar"];
-  const vals: (string | number)[] = [
+  const cols = ["complex_id", "email", "mobile", "password_hash", "full_name_ar", "is_active"];
+  const vals: (string | number | null)[] = [
     complexId,
     emailForMobile(mobile, dbRole),
     mobile,
     passwordHash,
     body.full_name_ar,
+    1,
   ];
+
+  if (await tableHasColumn(env, "users", "deleted_at")) {
+    cols.push("deleted_at");
+    vals.push(null);
+  }
 
   if (hasRoleCol) {
     cols.push("role");

@@ -1,6 +1,7 @@
 import type { Env } from "../types";
 import type { UserRole } from "../types";
 import { hashPassword } from "../lib/password";
+import { hardPurgeStaffUser } from "../lib/admin-staff";
 import { r2Available, uploadDataUrlToR2 } from "../lib/display-media-r2";
 
 const SOVEREIGN_EMAIL = "admin@basateen.win";
@@ -196,4 +197,53 @@ export async function handleMigrateDisplayMediaRow(
     key: uploaded.r2_key,
     media_type: uploaded.media_type,
   });
+}
+
+/** حذف فعلي لمنسوب تجريبي — يفرّغ FK ثم يحذف الصف (SETUP_KEY) */
+export async function handlePurgeUser(
+  request: Request,
+  env: Env,
+  url: URL,
+): Promise<Response> {
+  if (request.method !== "POST") {
+    return Response.json({ error: "method_not_allowed" }, { status: 405 });
+  }
+
+  const key = url.searchParams.get("key");
+  const setupKey = env.SETUP_KEY;
+  if (!setupKey || key !== setupKey) {
+    return Response.json({ error: "invalid_setup_key" }, { status: 401 });
+  }
+
+  const userId = Number(url.searchParams.get("id") ?? 0);
+  const complexId = Number(url.searchParams.get("complex_id") ?? 1);
+  if (!Number.isFinite(userId) || userId <= 1) {
+    return Response.json(
+      {
+        error: "invalid_user_id",
+        message: "حدّد id منسوب (>1) — لا يمكن حذف المشرف العام",
+      },
+      { status: 400 },
+    );
+  }
+
+  try {
+    await hardPurgeStaffUser(env, userId, complexId);
+    return Response.json({ ok: true, purged_user_id: userId });
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (msg === "staff_not_found") {
+      return Response.json({ error: "staff_not_found" }, { status: 404 });
+    }
+    if (msg === "cannot_delete_sovereign_user") {
+      return Response.json({ error: "cannot_delete_sovereign_user" }, { status: 403 });
+    }
+    return Response.json(
+      {
+        error: "purge_failed",
+        message: msg,
+      },
+      { status: 500 },
+    );
+  }
 }

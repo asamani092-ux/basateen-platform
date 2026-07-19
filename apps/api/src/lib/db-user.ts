@@ -122,16 +122,40 @@ export async function loadUserByMobile(
   rawMobile: string,
 ): Promise<UserRow | null> {
   const keys = mobileLookupVariants(rawMobile);
+  if (!keys.length) return null;
+
+  const normalized = normalizeMobile(rawMobile.trim());
+  const cols = await getUserColumns(env);
+  const hasDeletedAt = cols.has("deleted_at");
+  const notDeleted = hasDeletedAt
+    ? "AND (deleted_at IS NULL OR TRIM(deleted_at) = '')"
+    : "";
   const placeholders = keys.map(() => "?").join(", ");
-  return queryUser(
-    env,
-    `SELECT id, email, mobile, password_hash, full_name_ar, complex_id, is_active, role
-     FROM users WHERE mobile IN (${placeholders}) LIMIT 1`,
-    `SELECT id, email, mobile, password_hash, full_name_ar, complex_id, is_active,
+  const orderSql = normalized
+    ? `ORDER BY CASE WHEN mobile = ? THEN 0 WHEN mobile = ? THEN 1 ELSE 2 END, id DESC`
+    : "ORDER BY id DESC";
+
+  const sqlRole = `SELECT id, email, mobile, password_hash, full_name_ar, complex_id, is_active, role
+     FROM users
+     WHERE mobile IN (${placeholders})
+       AND COALESCE(is_active, 1) = 1
+       ${notDeleted}
+     ${orderSql}
+     LIMIT 1`;
+  const sqlFlat = `SELECT id, email, mobile, password_hash, full_name_ar, complex_id, is_active,
             is_admin, is_educational, is_programs, is_teacher, is_track_supervisor
-     FROM users WHERE mobile IN (${placeholders}) LIMIT 1`,
-    keys,
-  );
+     FROM users
+     WHERE mobile IN (${placeholders})
+       AND COALESCE(is_active, 1) = 1
+       ${notDeleted}
+     ${orderSql}
+     LIMIT 1`;
+
+  const binds = normalized
+    ? [...keys, normalized, `966${normalized.slice(1)}`]
+    : keys;
+
+  return queryUser(env, sqlRole, sqlFlat, binds);
 }
 
 export async function loadUserPayload(env: Env, userId: number) {

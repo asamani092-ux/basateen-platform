@@ -3,7 +3,7 @@ import { handleOptions, withCors } from "./middleware/cors";
 import { handleHealth } from "./routes/health";
 import { handleTvSummary } from "./routes/tv-summary";
 import { handleLogin, handleLoginMobile, handleMe } from "./routes/auth";
-import { handleSeedUsers, handleMigrateDisplayMediaRow } from "./routes/setup";
+import { handleSeedUsers, handleMigrateDisplayMediaRow, handlePurgeUser } from "./routes/setup";
 import {
   handleAdminStudentCreate,
   handleAdminStudentsBulk,
@@ -87,6 +87,7 @@ const sharedRoutes: Array<{ method: string; pattern: RegExp; handler: RouteHandl
   { method: "POST", pattern: /^\/api\/auth\/login-mobile$/, handler: handleLoginMobile },
   { method: "GET", pattern: /^\/api\/auth\/me$/, handler: handleMe },
   { method: "POST", pattern: /^\/api\/setup\/seed-users$/, handler: handleSeedUsers },
+  { method: "POST", pattern: /^\/api\/setup\/purge-user$/, handler: handlePurgeUser },
   {
     method: "POST",
     pattern: /^\/api\/setup\/migrate-display-media-row$/,

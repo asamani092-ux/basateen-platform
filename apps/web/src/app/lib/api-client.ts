@@ -2931,7 +2931,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  displayMediaUpload: async (file: File) => {
+  displayMediaUpload: async (
+    file: File,
+  ): Promise<{ ok: boolean; url: string; media_type: "image" | "gif" | "video" }> => {
     if (isUiDevPreview()) {
       await new Promise((r) => setTimeout(r, 60));
       const mock = resolveDevPreviewMock<{
@@ -2966,11 +2968,11 @@ export const api = {
       err.code = payload.error;
       throw err;
     }
-    return res.json() as Promise<{
+    return (await res.json()) as {
       ok: boolean;
       url: string;
       media_type: "image" | "gif" | "video";
-    }>;
+    };
   },
   displayMediaPatch: (
     id: number,

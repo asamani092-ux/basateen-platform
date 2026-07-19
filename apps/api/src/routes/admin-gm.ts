@@ -656,7 +656,8 @@ export async function handleAdminTeachersCreate(
       return json(
         {
           error: "duplicate_mobile",
-          message: "رقم الجوال مسجل مسبقاً في النظام",
+          message:
+            "رقم الجوال مسجل مسبقاً — تأكد أنه مختلف عن المنسوب الأول (05xxxxxxxx ≠ 9665xxxxxxxx لنفس الرقم)",
         },
         409,
       );
@@ -772,46 +773,6 @@ export async function handleAdminSupervisorsCreate(
       role,
       supervisor_scope: scope,
     });
-    let userId: number;
-    let reactivated = false;
-
-    if (inactive) {
-      await reactivateSupervisorUser(
-        env,
-        inactive.id,
-        auth!.complexId,
-        {
-          full_name_ar: body.full_name_ar.trim(),
-          mobile,
-          role,
-          supervisor_scope: scope,
-        },
-        normalizeSupervisorRoleForDb,
-      );
-      userId = inactive.id;
-      reactivated = true;
-    } else {
-      const dupId = await findActiveUserIdByMobileVariants(
-        env,
-        mobileLookupVariants(mobile),
-      );
-      if (dupId) {
-        return json(
-          {
-            error: "duplicate_mobile",
-            message: "رقم الجوال مسجل مسبقاً في النظام",
-          },
-          409,
-        );
-      }
-
-      userId = await insertSupervisorUser(env, auth!.complexId, {
-        full_name_ar: body.full_name_ar.trim(),
-        mobile,
-        role,
-        supervisor_scope: scope,
-      });
-    }
 
     await syncSupervisorSections(env, userId, role);
 
@@ -827,7 +788,8 @@ export async function handleAdminSupervisorsCreate(
       return json(
         {
           error: "duplicate_mobile",
-          message: "رقم الجوال مسجل مسبقاً في النظام",
+          message:
+            "رقم الجوال مسجل مسبقاً — تأكد أنه مختلف عن المنسوب الأول (05xxxxxxxx ≠ 9665xxxxxxxx لنفس الرقم)",
         },
         409,
       );

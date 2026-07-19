@@ -247,14 +247,14 @@ async function staffDeletedAtSelect(env: Env): Promise<string> {
   return "NULL AS deleted_at";
 }
 
-/** O(1) — منسوب محذوف soft بنفس الجوال في المجمع */
+/** O(1) — منسوب محذوف soft بنفس الجوال في المجمع (كل صيغ الرقم) */
 export async function findSoftDeletedStaffByMobile(
   env: Env,
   complexId: number,
   mobile: string,
 ): Promise<SoftDeletedStaffInfo | null> {
-  const trimmed = mobile.trim();
-  if (!trimmed) return null;
+  const variants = mobileLookupVariants(mobile);
+  if (!variants.length) return null;
   if (!(await tableHasColumn(env, "users", "deleted_at"))) return null;
 
   const hasRole = await usersHaveRoleColumn(env);
@@ -274,13 +274,14 @@ export async function findSoftDeletedStaffByMobile(
          ELSE 'teacher'
        END`;
 
+  const placeholders = variants.map(() => "?").join(", ");
   const row = await env.DB.prepare(
     `SELECT u.id, u.full_name_ar, u.mobile, u.deleted_at, ${roleExpr} AS role
      FROM users u
-     WHERE u.mobile = ? AND u.complex_id = ? AND u.deleted_at IS NOT NULL
+     WHERE u.mobile IN (${placeholders}) AND u.complex_id = ? AND u.deleted_at IS NOT NULL
      LIMIT 1`,
   )
-    .bind(trimmed, complexId)
+    .bind(...variants, complexId)
     .first<{
       id: number;
       full_name_ar: string;
@@ -305,16 +306,17 @@ export async function findLiveStaffByMobile(
   complexId: number,
   mobile: string,
 ): Promise<{ id: number } | null> {
-  const trimmed = mobile.trim();
-  if (!trimmed) return null;
+  const variants = mobileLookupVariants(mobile);
+  if (!variants.length) return null;
 
   const hasDeletedAt = await tableHasColumn(env, "users", "deleted_at");
   const notDeleted = hasDeletedAt ? "AND deleted_at IS NULL" : "";
+  const placeholders = variants.map(() => "?").join(", ");
 
   return env.DB.prepare(
-    `SELECT id FROM users WHERE mobile = ? AND complex_id = ? ${notDeleted} LIMIT 1`,
+    `SELECT id FROM users WHERE mobile IN (${placeholders}) AND complex_id = ? ${notDeleted} LIMIT 1`,
   )
-    .bind(trimmed, complexId)
+    .bind(...variants, complexId)
     .first<{ id: number }>();
 }
 
@@ -322,8 +324,9 @@ export async function findLiveStaffByMobile(
 export async function assertStaffMobileAvailableForCreate(
   env: Env,
   complexId: number,
-  mobile: string,
-): Promise<void> {
+  rawMobile: string,
+): Promise<string> {
+  const mobile = requireStorageMobile(rawMobile);
   const softDeleted = await findSoftDeletedStaffByMobile(env, complexId, mobile);
   if (softDeleted) {
     throw new StaffSoftDeletedError(softDeleted);
@@ -332,6 +335,7 @@ export async function assertStaffMobileAvailableForCreate(
   if (live) {
     throw new Error("mobile_already_used");
   }
+  return mobile;
 }
 
 function isStaffInactive(row: {
@@ -468,13 +472,7 @@ export async function upsertStaffUser(
     return { id: inactive.id, reactivated: true };
   }
 
-  const dupId = await findActiveUserIdByMobileVariants(
-    env,
-    mobileLookupVariants(mobile),
-  );
-  if (dupId) {
-    throw new Error("mobile_already_used");
-  }
+  await assertStaffMobileAvailableForCreate(env, complexId, mobile);
 
   const id = await insertStaffUser(env, complexId, normalizedBody);
   return { id, reactivated: false };

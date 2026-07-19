@@ -1,5 +1,17 @@
 import { z } from "zod";
+import { mobileForStorage } from "./mobile";
 import { parsePositiveIntField } from "./students-schema";
+
+const saudiMobileSchema = z
+  .union([z.string(), z.number()])
+  .transform((v) => String(v).trim())
+  .pipe(
+    z
+      .string()
+      .min(1, { message: "mobile_required" })
+      .refine((s) => mobileForStorage(s) !== null, { message: "invalid_mobile" })
+      .transform((s) => mobileForStorage(s)!),
+  );
 
 const optionalLinkId = z.preprocess(
   (v) => parsePositiveIntField(v),
@@ -12,10 +24,7 @@ export const staffTeacherCreateSchema = z.object({
     .union([z.string(), z.number()])
     .transform((v) => String(v).trim())
     .refine((s) => s.length > 0, { message: "name_required" }),
-  mobile: z
-    .union([z.string(), z.number()])
-    .transform((v) => String(v).trim())
-    .refine((s) => s.length > 0, { message: "mobile_required" }),
+  mobile: saudiMobileSchema,
   role: z.enum(["teacher", "track_supervisor"]).optional().default("teacher"),
 });
 
@@ -31,7 +40,7 @@ export const circleCreateSchema = z.object({
   new_teacher: z
     .object({
       full_name_ar: z.string().trim().min(1),
-      mobile: z.string().trim().min(1),
+      mobile: saudiMobileSchema,
     })
     .optional(),
   track_id: optionalLinkId,
@@ -42,10 +51,7 @@ const newStaffInlineSchema = z.object({
     .union([z.string(), z.number()])
     .transform((v) => String(v).trim())
     .refine((s) => s.length > 0, { message: "name_required" }),
-  mobile: z
-    .union([z.string(), z.number()])
-    .transform((v) => String(v).trim())
-    .refine((s) => s.length > 0, { message: "mobile_required" }),
+  mobile: saudiMobileSchema,
 });
 
 /** إنشاء مسار — مشرف موجود أو مشرف جديد inline */

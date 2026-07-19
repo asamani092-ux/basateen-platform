@@ -1,6 +1,6 @@
 import type { Env, UserRole, UserRow } from "../types";
 import { normalizeUserRole } from "../../../../packages/types/schema";
-import { mobileLookupKeys, normalizeMobile } from "./mobile";
+import { mobileLookupVariants, normalizeMobile } from "./mobile";
 
 let cachedHasRoleColumn: boolean | null = null;
 let cachedHasUserSectionsTable: boolean | null = null;
@@ -121,7 +121,7 @@ export async function loadUserByMobile(
   env: Env,
   rawMobile: string,
 ): Promise<UserRow | null> {
-  const keys = mobileLookupKeys(normalizeMobile(rawMobile) ?? rawMobile);
+  const keys = mobileLookupVariants(rawMobile);
   const placeholders = keys.map(() => "?").join(", ");
   return queryUser(
     env,

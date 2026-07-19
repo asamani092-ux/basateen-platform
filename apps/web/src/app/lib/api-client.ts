@@ -154,10 +154,19 @@ export type StaffMemberRow = {
   mobile: string | null;
   role: string;
   is_active: number;
+  deleted_at?: string | null;
   circle_id: number | null;
   circle_name: string | null;
   track_id: number | null;
   track_name: string | null;
+};
+
+export type SoftDeletedStaffPayload = {
+  id: number;
+  full_name_ar: string;
+  mobile: string;
+  role: string;
+  deleted_at: string;
 };
 
 export type StudentPlacement = {
@@ -218,12 +227,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       message?: string;
       details?: unknown;
       issues?: unknown;
+      staff?: SoftDeletedStaffPayload;
     };
     const err = new Error(
       payload.message ?? payload.error ?? `HTTP ${res.status}`,
-    ) as Error & { details?: unknown; issues?: unknown; code?: string };
+    ) as Error & {
+      details?: unknown;
+      issues?: unknown;
+      code?: string;
+      staff?: SoftDeletedStaffPayload;
+    };
     err.code = payload.error;
     err.details = payload.details ?? payload.issues;
+    err.staff = payload.staff;
     throw err;
   }
 
@@ -935,7 +951,9 @@ export const api = {
       teaching_days_total: number;
     }>("/api/teacher/calendar"),
   teacherPlansList: () =>
-    request<{ items: Array<Record<string, unknown>> }>("/api/teacher/plans"),
+    request<{ items: Array<Record<string, unknown>>; scope_unassigned?: boolean }>(
+      "/api/teacher/plans",
+    ),
   teacherPlanGet: (studentId: number) =>
     request<{
       plan: Record<string, unknown> | null;
@@ -974,8 +992,13 @@ export const api = {
       body: JSON.stringify(body),
     }),
   teacherPlanDelete: (planId: number) =>
-    request<{ ok: boolean; id: number }>(
+    request<{ ok: boolean; id: number; closed?: boolean }>(
       `/api/teacher/plans/by-id/${planId}`,
+      { method: "DELETE" },
+    ),
+  teacherPlanPermanentDelete: (planId: number) =>
+    request<{ ok: boolean; id: number; deleted?: boolean }>(
+      `/api/teacher/plans/by-id/${planId}/permanent`,
       { method: "DELETE" },
     ),
   teacherPlanEstimate: (body: Record<string, unknown>) =>
@@ -990,6 +1013,33 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  teacherPlanDaysGet: (planId: number) =>
+    request<{
+      plan_id: number;
+      starts_at: string;
+      ends_at: string;
+      rest_days: string;
+      total_working_days: number;
+      completed_days: number;
+      days: Array<{ day_date: string; completed: number; updated_at?: string }>;
+    }>(`/api/teacher/plans/by-id/${planId}/days`),
+  teacherPlanDaysUpsert: (
+    planId: number,
+    body: { days: Array<{ day_date: string; completed: boolean }> },
+  ) =>
+    request<{
+      ok: boolean;
+      plan_id: number;
+      total_working_days: number;
+      completed_days: number;
+    }>(`/api/teacher/plans/by-id/${planId}/days`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  teacherPlansReport: () =>
+    request<{ items: Array<Record<string, unknown>>; scope_unassigned?: boolean }>(
+      "/api/teacher/plans/report",
+    ),
   teacherDailyMarks: (date?: string) => {
     const qs = date ? `?date=${encodeURIComponent(date)}` : "";
     return request<{
@@ -1028,11 +1078,22 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  adminStaff: (params?: { page?: number; page_size?: number; role?: string }) => {
+  adminStaff: (params?: {
+    page?: number;
+    page_size?: number;
+    role?: string;
+    status?: "all" | "active" | "suspended" | "deleted";
+  }) => {
     const search = new URLSearchParams();
     if (params?.page != null) search.set("page", String(params.page));
     if (params?.page_size != null) search.set("page_size", String(params.page_size));
     if (params?.role?.trim()) search.set("role", params.role.trim());
+    if (
+      params?.status &&
+      params.status !== "all"
+    ) {
+      search.set("status", params.status);
+    }
     const qs = search.toString();
     return request<{
       items: StaffMemberRow[];
@@ -1483,6 +1544,8 @@ export const api = {
         status: string;
         recorded_at?: string | null;
         source?: string | null;
+        other_placement_id?: number | null;
+        other_placement_name?: string | null;
       }>;
       default_status: string;
       page?: {
@@ -1513,6 +1576,8 @@ export const api = {
         status: string;
         recorded_at?: string | null;
         source?: string | null;
+        other_placement_id?: number | null;
+        other_placement_name?: string | null;
       }>;
       default_status: string;
       page?: {
@@ -1531,6 +1596,8 @@ export const api = {
     const qs = search.toString();
     return request<{
       date: string;
+      date_min?: string;
+      date_max?: string;
       circles: Array<{ id: number; student_count: number; has_record: boolean }>;
       tracks: Array<{ id: number; student_count: number; has_record: boolean }>;
     }>(
@@ -2283,6 +2350,10 @@ export const api = {
         created_at: string;
       }>;
       default_task_weight?: number;
+      circle_id?: number | null;
+      circle_name?: string | null;
+      track_id?: number | null;
+      track_name?: string | null;
     }>("/api/edu-dept/teacher-competitions"),
   eduDeptTeacherCompetitionCreate: (body: {
     name_ar: string;
@@ -2304,8 +2375,17 @@ export const api = {
         type?: string;
         input_type?: string;
       }>;
-      students: Array<{ id: number; full_name_ar: string }>;
+      students: Array<{
+        id: number;
+        full_name_ar: string;
+        circle_name?: string | null;
+        track_name?: string | null;
+      }>;
       scores: Array<{ task_id: number; student_id: number; points: number }>;
+      circle_id?: number | null;
+      circle_name?: string | null;
+      track_id?: number | null;
+      track_name?: string | null;
     }>(`/api/edu-dept/teacher-competitions/${id}`),
   eduDeptTeacherCompetitionUpdate: (
     id: number,
@@ -2344,6 +2424,8 @@ export const api = {
         student_id: number;
         full_name_ar: string;
         total_points: number;
+        circle_name?: string | null;
+        track_name?: string | null;
       }>;
     }>(`/api/edu-dept/teacher-competitions/${compId}/leaderboard`),
   eduDeptTeacherCompetitionSaveScores: (
@@ -2610,11 +2692,14 @@ export const api = {
       }>;
     }>(`/api/edu-dept/reports/progress${qs ? `?${qs}` : ""}`);
   },
-  publicAttendanceGet: (token: string) =>
-    request<{
+  publicAttendanceGet: (token: string, date?: string) => {
+    const qs = date ? `?date=${encodeURIComponent(date)}` : "";
+    return request<{
       token: string;
       entity_type: "circle" | "track";
       attendance_date: string;
+      date_min?: string;
+      date_max?: string;
       circle: { id: number; name_ar: string; stage?: string } | null;
       track: { id: number; name_ar: string } | null;
       items: Array<{
@@ -2622,12 +2707,18 @@ export const api = {
         full_name_ar: string;
         status: string;
         has_record?: boolean;
+        other_placement_id?: number | null;
+        other_placement_name?: string | null;
       }>;
       default_status: string;
-    }>(`/api/public/attendance/${encodeURIComponent(token)}`),
+    }>(`/api/public/attendance/${encodeURIComponent(token)}${qs}`);
+  },
   publicAttendanceSave: (
     token: string,
-    body: { records: Array<{ student_id: number; status: string }> },
+    body: {
+      attendance_date?: string;
+      records: Array<{ student_id: number; status: string }>;
+    },
   ) =>
     request<{ ok: boolean; saved: number }>(
       `/api/public/attendance/${encodeURIComponent(token)}`,
@@ -2817,16 +2908,22 @@ export const api = {
     request<{
       items: Array<{
         id: number;
+        slide_type: string;
         media_type: string;
         media_url: string;
+        competition_id: number | null;
+        duration_seconds: number;
         display_order: number;
         is_active: number;
         created_at: string;
       }>;
     }>("/api/display-dept/media"),
   displayMediaCreate: (body: {
-    media_type: "image" | "gif" | "video";
-    media_url: string;
+    slide_type?: "media" | "kpi" | "competition";
+    media_type?: "image" | "gif" | "video";
+    media_url?: string;
+    competition_id?: number;
+    duration_seconds?: number;
     display_order?: number;
     is_active?: number;
   }) =>
@@ -2834,11 +2931,55 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  displayMediaUpload: async (file: File) => {
+    if (isUiDevPreview()) {
+      await new Promise((r) => setTimeout(r, 60));
+      const mock = resolveDevPreviewMock<{
+        ok: boolean;
+        url: string;
+        media_type: "image" | "gif" | "video";
+      }>("/api/display-dept/media/upload", "POST");
+      if (mock) return mock;
+      return {
+        ok: true,
+        url: "https://example.test/api/public/display-media/preview.bin",
+        media_type: file.type.includes("gif")
+          ? "gif"
+          : file.type.startsWith("video/")
+            ? "video"
+            : "image",
+      };
+    }
+    const url = `${API_BASE.replace(/\/$/, "")}/api/display-dept/media/upload`;
+    const token = getApiToken();
+    const form = new FormData();
+    form.append("file", file);
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(url, { method: "POST", body: form, headers });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      const payload = body as { error?: string; message?: string };
+      const err = new Error(payload.message ?? payload.error ?? `HTTP ${res.status}`) as Error & {
+        code?: string;
+      };
+      err.code = payload.error;
+      throw err;
+    }
+    return res.json() as Promise<{
+      ok: boolean;
+      url: string;
+      media_type: "image" | "gif" | "video";
+    }>;
+  },
   displayMediaPatch: (
     id: number,
     body: {
+      slide_type?: string;
       media_type?: string;
       media_url?: string;
+      competition_id?: number;
+      duration_seconds?: number;
       display_order?: number;
       is_active?: number;
     },
@@ -2876,15 +3017,34 @@ export const api = {
     request<{
       complex_name: string;
       slide_seconds: number;
+      indicators_enabled: boolean;
       slides: Array<Record<string, unknown>>;
     }>("/api/public/live-display/carousel"),
   displaySettingsGet: () =>
-    request<{ slide_seconds: number }>("/api/display-dept/settings"),
-  displaySettingsPatch: (body: { slide_seconds: number }) =>
-    request<{ ok: boolean; slide_seconds: number }>("/api/display-dept/settings", {
-      method: "PATCH",
-      body: JSON.stringify(body),
-    }),
+    request<{ slide_seconds: number; indicators_enabled: boolean }>(
+      "/api/display-dept/settings",
+    ),
+  displaySettingsPatch: (body: {
+    slide_seconds?: number;
+    indicators_enabled?: boolean;
+  }) =>
+    request<{ ok: boolean; slide_seconds: number; indicators_enabled: boolean }>(
+      "/api/display-dept/settings",
+      {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      },
+    ),
+  displayCompetitionsList: () =>
+    request<{
+      items: Array<{
+        id: number;
+        name_ar: string;
+        start_date?: string;
+        end_date?: string;
+        status?: string;
+      }>;
+    }>("/api/display-dept/competitions"),
   progQuizResponseGrade: (quizId: number, responseId: number, total_score: number) =>
     request<{ ok: boolean; total_score: number }>(
       `/api/prog-supervisor/quizzes/${quizId}/responses/${responseId}/grade`,

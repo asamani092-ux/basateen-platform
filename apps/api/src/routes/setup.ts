@@ -1,6 +1,7 @@
 import type { Env } from "../types";
 import type { UserRole } from "../types";
 import { hashPassword } from "../lib/password";
+import { r2Available, uploadDataUrlToR2 } from "../lib/display-media-r2";
 
 const SOVEREIGN_EMAIL = "admin@basateen.win";
 const SOVEREIGN_MOBILE = "966500000000";
@@ -148,5 +149,51 @@ export async function handleSeedUsers(
     default_password: SOVEREIGN_PASSWORD,
     message:
       "تم حقن المشرف العام وتصفير الجلسات — استخدم هذا الحساب لاختبار الاتصال",
+  });
+}
+
+/** ترحيل صف واحد من data: إلى R2 عبر ربط Worker — لسكربت 073 فقط */
+export async function handleMigrateDisplayMediaRow(
+  request: Request,
+  env: Env,
+  url: URL,
+): Promise<Response> {
+  if (request.method !== "POST") {
+    return Response.json({ error: "method_not_allowed" }, { status: 405 });
+  }
+  const key = url.searchParams.get("key");
+  const setupKey = env.SETUP_KEY;
+  if (!setupKey || key !== setupKey) {
+    return Response.json({ error: "invalid_setup_key" }, { status: 401 });
+  }
+  if (!r2Available(env)) {
+    return Response.json({ error: "r2_not_configured" }, { status: 503 });
+  }
+
+  let body: { dataUrl?: string; complexId?: number; id?: number };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return Response.json({ error: "invalid_json" }, { status: 400 });
+  }
+
+  const dataUrl = String(body.dataUrl ?? "");
+  const complexId = Number(body.complexId ?? 1);
+  const id = Number(body.id ?? 0);
+  if (!dataUrl || !id) {
+    return Response.json({ error: "dataUrl_and_id_required" }, { status: 400 });
+  }
+
+  const uploaded = await uploadDataUrlToR2(env, request, complexId, dataUrl);
+  if (!uploaded) {
+    return Response.json({ error: "invalid_data_url" }, { status: 400 });
+  }
+
+  return Response.json({
+    ok: true,
+    id,
+    url: uploaded.url,
+    key: uploaded.r2_key,
+    media_type: uploaded.media_type,
   });
 }

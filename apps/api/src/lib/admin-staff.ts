@@ -169,11 +169,30 @@ export type StaffListRow = {
   mobile: string | null;
   is_active: number;
   role: string;
+  deleted_at: string | null;
   circle_id: number | null;
   circle_name: string | null;
   track_id: number | null;
   track_name: string | null;
 };
+
+export type SoftDeletedStaffInfo = {
+  id: number;
+  full_name_ar: string;
+  mobile: string;
+  role: string;
+  deleted_at: string;
+};
+
+/** خطأ إنشاء — جوال يخص منسوباً محذوفاً soft (يحتاج تأكيد استعادة) */
+export class StaffSoftDeletedError extends Error {
+  readonly info: SoftDeletedStaffInfo;
+
+  constructor(info: SoftDeletedStaffInfo) {
+    super("staff_soft_deleted");
+    this.info = info;
+  }
+}
 
 const SOVEREIGN_USER_ID = 1;
 const DEFAULT_PASSWORD = "Basateen123!";
@@ -214,6 +233,107 @@ type StaffContactRow = {
   complex_id: number;
 };
 
+function isStaffSoftDeleted(row: {
+  deleted_at?: string | null;
+}): boolean {
+  return row.deleted_at != null && String(row.deleted_at).trim() !== "";
+}
+
+/** O(1) — عمود deleted_at في استعلام القائمة */
+async function staffDeletedAtSelect(env: Env): Promise<string> {
+  if (await tableHasColumn(env, "users", "deleted_at")) {
+    return "u.deleted_at AS deleted_at";
+  }
+  return "NULL AS deleted_at";
+}
+
+/** O(1) — منسوب محذوف soft بنفس الجوال في المجمع */
+export async function findSoftDeletedStaffByMobile(
+  env: Env,
+  complexId: number,
+  mobile: string,
+): Promise<SoftDeletedStaffInfo | null> {
+  const trimmed = mobile.trim();
+  if (!trimmed) return null;
+  if (!(await tableHasColumn(env, "users", "deleted_at"))) return null;
+
+  const hasRole = await usersHaveRoleColumn(env);
+  const roleExpr = hasRole
+    ? `CASE u.role
+         WHEN 'general_supervisor' THEN 'super_admin'
+         WHEN 'admin_supervisor' THEN 'super_admin'
+         WHEN 'prog_supervisor' THEN 'programs_supervisor'
+         ELSE u.role
+       END`
+    : `CASE
+         WHEN COALESCE(u.is_admin, 0) = 1 THEN 'super_admin'
+         WHEN COALESCE(u.is_educational, 0) = 1 THEN 'edu_supervisor'
+         WHEN COALESCE(u.is_programs, 0) = 1 THEN 'programs_supervisor'
+         WHEN COALESCE(u.is_track_supervisor, 0) = 1 THEN 'track_supervisor'
+         WHEN COALESCE(u.is_teacher, 0) = 1 THEN 'teacher'
+         ELSE 'teacher'
+       END`;
+
+  const row = await env.DB.prepare(
+    `SELECT u.id, u.full_name_ar, u.mobile, u.deleted_at, ${roleExpr} AS role
+     FROM users u
+     WHERE u.mobile = ? AND u.complex_id = ? AND u.deleted_at IS NOT NULL
+     LIMIT 1`,
+  )
+    .bind(trimmed, complexId)
+    .first<{
+      id: number;
+      full_name_ar: string;
+      mobile: string;
+      deleted_at: string;
+      role: string;
+    }>();
+
+  if (!row || !isStaffSoftDeleted(row)) return null;
+  return {
+    id: row.id,
+    full_name_ar: row.full_name_ar,
+    mobile: row.mobile,
+    role: row.role,
+    deleted_at: row.deleted_at,
+  };
+}
+
+/** O(1) — جوال مسجّل لمنسوب نشط أو معلّق (غير محذوف) */
+export async function findLiveStaffByMobile(
+  env: Env,
+  complexId: number,
+  mobile: string,
+): Promise<{ id: number } | null> {
+  const trimmed = mobile.trim();
+  if (!trimmed) return null;
+
+  const hasDeletedAt = await tableHasColumn(env, "users", "deleted_at");
+  const notDeleted = hasDeletedAt ? "AND deleted_at IS NULL" : "";
+
+  return env.DB.prepare(
+    `SELECT id FROM users WHERE mobile = ? AND complex_id = ? ${notDeleted} LIMIT 1`,
+  )
+    .bind(trimmed, complexId)
+    .first<{ id: number }>();
+}
+
+/** O(1) — رفض الإنشاء إذا الجوال محجوز أو يخص محذوفاً */
+export async function assertStaffMobileAvailableForCreate(
+  env: Env,
+  complexId: number,
+  mobile: string,
+): Promise<void> {
+  const softDeleted = await findSoftDeletedStaffByMobile(env, complexId, mobile);
+  if (softDeleted) {
+    throw new StaffSoftDeletedError(softDeleted);
+  }
+  const live = await findLiveStaffByMobile(env, complexId, mobile);
+  if (live) {
+    throw new Error("mobile_already_used");
+  }
+}
+
 function isStaffInactive(row: {
   is_active: number;
   deleted_at?: string | null;
@@ -242,7 +362,9 @@ export async function findInactiveStaffByContact(
   )
     .bind(...variants, complexId)
     .first<StaffContactRow>();
-  if (byMobile && isStaffInactive(byMobile)) return byMobile;
+  if (byMobile && isStaffInactive(byMobile) && !isStaffSoftDeleted(byMobile)) {
+    return byMobile;
+  }
 
   const nationalId = contact.national_id?.trim();
   if (hasNationalId && nationalId) {
@@ -252,7 +374,9 @@ export async function findInactiveStaffByContact(
     )
       .bind(nationalId, complexId)
       .first<StaffContactRow>();
-    if (byNational && isStaffInactive(byNational)) return byNational;
+    if (byNational && isStaffInactive(byNational) && !isStaffSoftDeleted(byNational)) {
+      return byNational;
+    }
   }
 
   return null;
@@ -474,9 +598,35 @@ export async function insertStaffUser(
   return Number(ins.meta.last_row_id);
 }
 
-async function staffListSqlV25(env: Env): Promise<string> {
+export type StaffListStatus = "all" | "active" | "suspended" | "deleted";
+
+/** O(1) — شرط ظهور المنسوب حسب فلتر الحالة */
+async function staffVisibilityClause(
+  env: Env,
+  status: StaffListStatus,
+): Promise<string> {
+  const hasDeletedAt = await tableHasColumn(env, "users", "deleted_at");
+  if (status === "deleted") {
+    return hasDeletedAt ? "AND u.deleted_at IS NOT NULL" : "AND 0 = 1";
+  }
+  const notDeleted = hasDeletedAt ? "AND u.deleted_at IS NULL" : "";
+  if (status === "active") {
+    return `AND COALESCE(u.is_active, 1) = 1 ${notDeleted}`;
+  }
+  if (status === "suspended") {
+    return `AND COALESCE(u.is_active, 1) = 0 ${notDeleted}`;
+  }
+  return notDeleted;
+}
+
+async function staffListSqlV25(
+  env: Env,
+  status: StaffListStatus = "all",
+): Promise<string> {
   const joinCols = await staffListJoinCols(env);
-  return `SELECT u.id, u.full_name_ar, u.mobile, u.is_active,
+  const visibility = await staffVisibilityClause(env, status);
+  const deletedCol = await staffDeletedAtSelect(env);
+  return `SELECT u.id, u.full_name_ar, u.mobile, u.is_active, ${deletedCol},
             CASE
               WHEN COALESCE(u.is_admin, 0) = 1 THEN 'super_admin'
               WHEN COALESCE(u.is_educational, 0) = 1 THEN 'edu_supervisor'
@@ -492,7 +642,7 @@ async function staffListSqlV25(env: Env): Promise<string> {
      FROM users u
      ${joinCols.joins}
      WHERE u.complex_id = ?
-       AND COALESCE(u.is_active, 1) = 1
+       ${visibility}
        AND (
          COALESCE(u.is_teacher, 0) = 1
          OR COALESCE(u.is_track_supervisor, 0) = 1
@@ -503,15 +653,20 @@ async function staffListSqlV25(env: Env): Promise<string> {
      ORDER BY u.full_name_ar`;
 }
 
-export async function staffListSql(env: Env): Promise<string> {
+export async function staffListSql(
+  env: Env,
+  status: StaffListStatus = "all",
+): Promise<string> {
   if (await usesV25FlatStaffSchema(env)) {
-    return staffListSqlV25(env);
+    return staffListSqlV25(env, status);
   }
 
   const hasRole = await usersHaveRoleColumn(env);
   const joinCols = await staffListJoinCols(env);
+  const visibility = await staffVisibilityClause(env, status);
+  const deletedCol = await staffDeletedAtSelect(env);
   if (hasRole) {
-    return `SELECT u.id, u.full_name_ar, u.mobile, u.is_active,
+    return `SELECT u.id, u.full_name_ar, u.mobile, u.is_active, ${deletedCol},
               CASE u.role
                 WHEN 'general_supervisor' THEN 'super_admin'
                 WHEN 'admin_supervisor' THEN 'super_admin'
@@ -525,7 +680,7 @@ export async function staffListSql(env: Env): Promise<string> {
        FROM users u
        ${joinCols.joins}
        WHERE u.complex_id = ?
-         AND COALESCE(u.is_active, 1) = 1
+         ${visibility}
          AND u.role IN (
            'teacher', 'track_supervisor', 'edu_supervisor', 'programs_supervisor',
            'prog_supervisor', 'admin_supervisor', 'general_supervisor', 'super_admin'
@@ -533,7 +688,7 @@ export async function staffListSql(env: Env): Promise<string> {
        ORDER BY u.full_name_ar`;
   }
 
-  return staffListSqlV25(env);
+  return staffListSqlV25(env, status);
 }
 
 async function clearStaffUserRelations(
@@ -664,10 +819,17 @@ export async function safeDeleteStaffUser(
   const batch: D1PreparedStatement[] = [
     ...(await unassignStaffFromGroups(env, userId, complexId)),
     ...(await clearStaffUserRelations(env, userId)),
-    env.DB.prepare(
-      `UPDATE users SET is_active = 0 WHERE id = ? AND complex_id = ?`,
-    ).bind(userId, complexId),
   ];
+
+  const sets = ["is_active = 0"];
+  if (await tableHasColumn(env, "users", "deleted_at")) {
+    sets.push("deleted_at = datetime('now')");
+  }
+  batch.push(
+    env.DB.prepare(
+      `UPDATE users SET ${sets.join(", ")} WHERE id = ? AND complex_id = ?`,
+    ).bind(userId, complexId),
+  );
 
   await env.DB.batch(batch);
 }

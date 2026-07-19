@@ -1,18 +1,15 @@
-import { useState } from "react";
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "../ui/alert-dialog";
+import { useEffect, useState } from "react";
+import { PauseCircle, PlayCircle, Trash2 } from "lucide-react";
 import { Button } from "../ui/button";
-import { DoubleConfirmDialog } from "./DoubleConfirmDialog";
-import { tajawal } from "../../lib/design-system";
-
-type ActionKind = "freeze" | "delete" | null;
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
+import { ds, tajawal } from "../../lib/design-system";
 
 type Props = {
   open: boolean;
@@ -24,7 +21,10 @@ type Props = {
   onActivate?: () => void | Promise<void>;
 };
 
-/** اختيار تجميد أو حذف ثم تأكيد ثنائي */
+/** خطوات تأكيد الحذف — شرح ثم تنفيذ صريح */
+type DeleteConfirmStep = null | 1 | 2;
+
+/** إجراءات المنسوب — تعليق / تنشيط / حذف بتأكيد ثنائي صريح */
 export function StaffActionDialog({
   open,
   onOpenChange,
@@ -34,98 +34,190 @@ export function StaffActionDialog({
   onDelete,
   onActivate,
 }: Props) {
-  const [pending, setPending] = useState<ActionKind>(null);
+  const [deleteConfirmStep, setDeleteConfirmStep] = useState<DeleteConfirmStep>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open) setDeleteConfirmStep(null);
+  }, [open]);
 
   function closeAll() {
-    setPending(null);
+    setDeleteConfirmStep(null);
     onOpenChange(false);
   }
 
-  if (pending === "freeze") {
+  async function runDeleteFinal() {
+    setBusy(true);
+    try {
+      await onDelete();
+      closeAll();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (deleteConfirmStep === 1) {
     return (
-      <DoubleConfirmDialog
+      <Dialog
         open
         onOpenChange={(o) => {
-          if (!o) setPending(null);
+          if (!o) setDeleteConfirmStep(null);
         }}
-        title="تجميد الحساب"
-        description={`سيتم تجميد حساب «${personName}» ولن يتمكن من الدخول حتى إعادة التفعيل.`}
-        confirmLabel="تجميد"
-        onConfirm={async () => {
-          await onFreeze();
-          closeAll();
-        }}
-      />
+      >
+        <DialogContent className={`${ds.dialog} sm:max-w-md`} dir="rtl">
+          <DialogHeader className="text-right">
+            <DialogTitle style={tajawal}>حذف المنسوب</DialogTitle>
+            <DialogDescription style={tajawal}>
+              سيتم حذف «{personName}» من القائمة الافتراضية وفك إسناد الحلقات والمسارات فوراً.
+              السجلات التاريخية (الحضور، المنافسات، التعيينات السابقة) تبقى محفوظة.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:justify-start">
+            <Button
+              type="button"
+              variant="outline"
+              className={`${ds.btnRound} min-h-11`}
+              style={tajawal}
+              onClick={() => setDeleteConfirmStep(null)}
+            >
+              إلغاء
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              className={`${ds.btnRound} ${ds.primaryActionBtn}`}
+              style={tajawal}
+              onClick={() => setDeleteConfirmStep(2)}
+            >
+              متابعة الحذف
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     );
   }
 
-  if (pending === "delete") {
+  if (deleteConfirmStep === 2) {
     return (
-      <DoubleConfirmDialog
+      <Dialog
         open
         onOpenChange={(o) => {
-          if (!o) setPending(null);
+          if (!o) setDeleteConfirmStep(1);
         }}
-        title="حذف نهائي"
-        description={`سيتم حذف «${personName}» من النظام نهائياً. تأكد من عدم وجود ارتباطات تشغيلية.`}
-        confirmLabel="حذف نهائي"
-        destructive
-        onConfirm={async () => {
-          await onDelete();
-          closeAll();
-        }}
-      />
+      >
+        <DialogContent className={`${ds.dialog} sm:max-w-md`} dir="rtl">
+          <DialogHeader className="text-right">
+            <DialogTitle style={tajawal}>تأكيد نهائي</DialogTitle>
+            <DialogDescription style={tajawal}>
+              هذا الإجراء لا يُراجع بسهولة. اضغط «نعم، احذف نهائياً» لتنفيذ حذف «{personName}».
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:justify-start">
+            <Button
+              type="button"
+              variant="outline"
+              className={`${ds.btnRound} min-h-11`}
+              style={tajawal}
+              disabled={busy}
+              onClick={() => setDeleteConfirmStep(1)}
+            >
+              رجوع
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              className={`${ds.btnRound} ${ds.primaryActionBtn}`}
+              style={tajawal}
+              disabled={busy}
+              onClick={() => void runDeleteFinal()}
+            >
+              {busy ? "جاري الحذف…" : "نعم، احذف نهائياً"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     );
   }
 
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent dir="rtl" className="rounded-2xl">
-        <AlertDialogHeader>
-          <AlertDialogTitle style={tajawal}>إدارة الحساب — {personName}</AlertDialogTitle>
-          <AlertDialogDescription style={tajawal}>
-            اختر الإجراء المطلوب. التجميد يعطّل الدخول مؤقتاً؛ الحذف إزالة دائمة من القاعدة.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <div className="flex flex-col gap-2 py-2">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className={`${ds.dialog} sm:max-w-md`} dir="rtl">
+        <DialogHeader className="text-right">
+          <DialogTitle style={tajawal}>إجراءات المنسوب</DialogTitle>
+          <DialogDescription style={tajawal}>
+            {personName}
+            <span className="mx-2 text-muted-foreground">·</span>
+            الحالة: {isActive ? "نشط" : "معلَّق"}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-3">
           {isActive ? (
             <Button
               type="button"
               variant="outline"
-              className="w-full justify-center"
+              className={`${ds.btnRound} ${ds.primaryActionBtn} w-full gap-2`}
               style={tajawal}
-              onClick={() => setPending("freeze")}
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await onFreeze();
+                  closeAll();
+                } finally {
+                  setBusy(false);
+                }
+              }}
             >
-              تجميد الحساب
+              <PauseCircle className="size-5 shrink-0" aria-hidden />
+              {busy ? "جاري التعليق…" : "تعليق الحساب"}
             </Button>
           ) : (
             <Button
               type="button"
               variant="default"
-              className="w-full justify-center"
+              className={`${ds.btnRound} ${ds.primaryActionBtn} w-full gap-2`}
               style={tajawal}
+              disabled={busy}
               onClick={async () => {
-                await onActivate?.();
-                closeAll();
+                setBusy(true);
+                try {
+                  await onActivate?.();
+                  closeAll();
+                } finally {
+                  setBusy(false);
+                }
               }}
             >
-              إعادة التفعيل
+              <PlayCircle className="size-5 shrink-0" aria-hidden />
+              {busy ? "جاري التنشيط…" : "إعادة التنشيط"}
             </Button>
           )}
+
           <Button
             type="button"
             variant="destructive"
-            className="w-full justify-center"
+            className={`${ds.btnRound} ${ds.primaryActionBtn} w-full gap-2`}
             style={tajawal}
-            onClick={() => setPending("delete")}
+            onClick={() => setDeleteConfirmStep(1)}
           >
-            حذف نهائي
+            <Trash2 className="size-5 shrink-0" aria-hidden />
+            حذف المنسوب
           </Button>
         </div>
-        <AlertDialogFooter>
-          <AlertDialogCancel style={tajawal}>إغلاق</AlertDialogCancel>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="ghost"
+            className={`${ds.btnRound} min-h-11`}
+            style={tajawal}
+            onClick={() => onOpenChange(false)}
+          >
+            إغلاق
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

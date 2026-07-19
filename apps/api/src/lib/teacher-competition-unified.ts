@@ -9,8 +9,29 @@ import {
   type StudentTargetInput,
 } from "./competition-engine";
 import { studentsInTeacherCircle } from "./teacher-circle";
+import { resolveTrackSupervisorTrackIds } from "./student-placement";
 
 export const TEACHER_CIRCLE_OWNERSHIP = "teacher_circle";
+export const COMPETITION_SOURCE_EDU_DEPT = "edu_dept";
+export const COMPETITION_SOURCE_TEACHER_CIRCLE = "teacher_circle";
+
+/** شرط SQL لقائمة قسم التعليم — O(1) جزء ثابت */
+export function eduDeptSourceSql(alias: string, hasSourceCol: boolean): string {
+  const col = alias ? `${alias}.` : "";
+  if (hasSourceCol) {
+    return `${col}competition_source = '${COMPETITION_SOURCE_EDU_DEPT}'`;
+  }
+  return `(json_extract(${col}rules_json, '$.ownership') IS NULL OR json_extract(${col}rules_json, '$.ownership') != '${TEACHER_CIRCLE_OWNERSHIP}')`;
+}
+
+/** شرط SQL لقائمة حلقة المعلم — O(1) جزء ثابت */
+export function teacherCircleSourceSql(alias: string, hasSourceCol: boolean): string {
+  const col = alias ? `${alias}.` : "";
+  if (hasSourceCol) {
+    return `${col}competition_source = '${COMPETITION_SOURCE_TEACHER_CIRCLE}'`;
+  }
+  return `json_extract(${col}rules_json, '$.ownership') = '${TEACHER_CIRCLE_OWNERSHIP}'`;
+}
 
 export async function useUnifiedTeacherCompetitions(env: Env): Promise<boolean> {
   return (
@@ -45,17 +66,24 @@ export async function assertTeacherOwnsUnifiedCompetition(
   complexId: number,
 ): Promise<boolean> {
   const hasCreatedBy = await tableHasColumn(env, "competitions", "created_by_user_id");
+  const hasSource = await tableHasColumn(env, "competitions", "competition_source");
+  const sourceClause = hasSource
+    ? " AND competition_source = ?"
+    : " AND json_extract(rules_json, '$.ownership') = ?";
+  const sourceBind = hasSource
+    ? COMPETITION_SOURCE_TEACHER_CIRCLE
+    : TEACHER_CIRCLE_OWNERSHIP;
   const row = hasCreatedBy
     ? await env.DB.prepare(
         `SELECT id, rules_json FROM competitions
-         WHERE id = ? AND complex_id = ? AND created_by_user_id = ?`,
+         WHERE id = ? AND complex_id = ? AND created_by_user_id = ?${sourceClause}`,
       )
-        .bind(competitionId, complexId, teacherUserId)
+        .bind(competitionId, complexId, teacherUserId, sourceBind)
         .first<{ id: number; rules_json: string }>()
     : await env.DB.prepare(
-        `SELECT id, rules_json FROM competitions WHERE id = ? AND complex_id = ?`,
+        `SELECT id, rules_json FROM competitions WHERE id = ? AND complex_id = ?${sourceClause}`,
       )
-        .bind(competitionId, complexId)
+        .bind(competitionId, complexId, sourceBind)
         .first<{ id: number; rules_json: string }>();
   return Boolean(row && isTeacherCircleCompetition(row.rules_json));
 }
@@ -73,6 +101,7 @@ export async function createTeacherCircleCompetition(
   const hasCreatedBy = await tableHasColumn(env, "competitions", "created_by_user_id");
   const hasTargetScope = await tableHasColumn(env, "competitions", "target_scope");
   const hasCategory = await tableHasColumn(env, "competitions", "category");
+  const hasSource = await tableHasColumn(env, "competitions", "competition_source");
 
   const students = await studentsInTeacherCircle(
     env,
@@ -99,12 +128,26 @@ export async function createTeacherCircleCompetition(
   if (hasTargetScope) {
     cols.push("target_scope");
     vals.push("?");
-    binds.push(JSON.stringify({ circle_ids: [circleId] }));
+    if (teacherRole === "track_supervisor") {
+      const trackIds = await resolveTrackSupervisorTrackIds(
+        env,
+        teacherUserId,
+        complexId,
+      );
+      binds.push(JSON.stringify({ track_ids: trackIds }));
+    } else {
+      binds.push(JSON.stringify({ circle_ids: [circleId] }));
+    }
   }
   if (hasCreatedBy) {
     cols.push("created_by_user_id");
     vals.push("?");
     binds.push(teacherUserId);
+  }
+  if (hasSource) {
+    cols.push("competition_source");
+    vals.push("?");
+    binds.push(COMPETITION_SOURCE_TEACHER_CIRCLE);
   }
 
   const ins = await env.DB.prepare(

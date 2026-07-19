@@ -87,10 +87,29 @@ export function resolveTaskInputType(task: {
 }
 
 export const TASK_INPUT_TYPE_OPTIONS: Array<{ value: TaskInputType; label: string }> = [
-  { value: "boolean", label: "نعم/لا (checkbox)" },
-  { value: "numeric", label: "رقم (إدخال)" },
+  { value: "boolean", label: "مربع اختيار" },
+  { value: "numeric", label: "عدد نقاط / عدد الأوجه" },
   { value: "counter", label: "عداد (+/−)" },
 ];
+
+/** O(1) — هل نوع الإدخال مسموح لنوع المهمة (إضافة: بدون عداد). */
+export function isInputTypeAllowedForTaskType(
+  inputType: TaskInputType,
+  taskType: TaskType,
+): boolean {
+  if (taskType === "addition") {
+    return inputType === "boolean" || inputType === "numeric";
+  }
+  return inputType === "boolean" || inputType === "counter";
+}
+
+/** O(k) — k ≤ 3 خيارات في القائمة */
+export function inputTypeOptionsForTaskType(
+  taskType: TaskType,
+  pool: Array<{ value: TaskInputType; label: string }> = TASK_INPUT_TYPE_OPTIONS,
+): Array<{ value: TaskInputType; label: string }> {
+  return pool.filter((o) => isInputTypeAllowedForTaskType(o.value, taskType));
+}
 
 export const WEEKDAY_OPTIONS = [
   { value: 0, label: "الأحد" },
@@ -233,6 +252,15 @@ export function gradingScoreKey(
   return `${studentId}:${taskId}`;
 }
 
+/** O(1) — تحويل نص الإدخال الرقمي إلى عدد صحيح ≥ 0 أو null إذا غير صالح */
+export function parseIntegerInputValue(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return 0;
+  if (!/^\d+$/.test(trimmed)) return null;
+  const n = Number(trimmed);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
+
 /** O(1) — normalize raw widget value before persistence (matches engine semantics). */
 export function normalizeTaskInput(
   task: { type: string; input_type?: string | null },
@@ -240,7 +268,11 @@ export function normalizeTaskInput(
 ): number {
   const inputType = resolveTaskInputType(task);
   if (inputType === "boolean") return raw > 0 ? 1 : 0;
-  if (inputType === "numeric") return Math.max(0, Number(raw) || 0);
+  if (inputType === "numeric") {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || !Number.isInteger(n)) return 0;
+    return Math.max(0, n);
+  }
   return Math.max(0, Math.round(raw));
 }
 
@@ -260,9 +292,9 @@ export const TEACHER_TASK_TYPE_OPTIONS: Array<{ value: TaskType; label: string }
 ];
 
 export const TEACHER_TASK_INPUT_OPTIONS: Array<{ value: TaskInputType; label: string }> = [
-  { value: "boolean", label: "تشيك بوكس" },
-  { value: "numeric", label: "عدد نقاط" },
-  { value: "counter", label: "عدد أوجه" },
+  { value: "boolean", label: "مربع اختيار" },
+  { value: "numeric", label: "عدد نقاط / عدد الأوجه" },
+  { value: "counter", label: "عداد (+/−)" },
 ];
 
 export type SirdSettings = {

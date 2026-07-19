@@ -885,12 +885,19 @@ async function handleAdminDeptRouterImpl(
     path === "/api/admin-dept/students/attendance/entity-status"
   ) {
     const date = url.searchParams.get("date")?.trim() || todayRiyadhIso();
+    const semester = await fetchSemesterPeriod(env, admin.complexId);
+    const semesterRange = semesterQueryRange(semester);
     const status = await loadEntityAttendanceStatus(
       env,
       admin.complexId,
       date,
     );
-    return json({ date, ...status });
+    return json({
+      date,
+      date_min: semesterRange.start,
+      date_max: semesterRange.end,
+      ...status,
+    });
   }
 
   // GET /api/admin-dept/students/attendance/track/:trackId

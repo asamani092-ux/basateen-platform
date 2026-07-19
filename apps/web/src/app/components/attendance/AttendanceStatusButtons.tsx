@@ -44,10 +44,11 @@ export function AttendanceStatusButtons({
   disabled,
   highlightSaved = true,
 }: Props) {
+  void highlightSaved;
   return (
     <div className={cn(ds.attendance.segmentedWrap, "shrink-0")} style={tajawal}>
       {OPTIONS.map((opt) => {
-        const isActive = highlightSaved && value === opt.value;
+        const isActive = value === opt.value;
         return (
           <Button
             key={opt.value}

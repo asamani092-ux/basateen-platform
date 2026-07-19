@@ -8,6 +8,16 @@ import {
 
 export type AttendanceEntityType = "circle" | "track";
 
+/** يقيّد التاريخ ضمن نطاق الفصل — O(1) */
+export function clampAttendanceDate(
+  requested: string,
+  range: { start: string; end: string },
+): string {
+  if (requested < range.start) return range.start;
+  if (requested > range.end) return range.end;
+  return requested;
+}
+
 export async function assertTrackInComplex(
   env: Env,
   complexId: number,
@@ -50,6 +60,20 @@ export async function loadStudentsForEntityAttendance(
     : "";
   const eligibleExpr = await studentAttendanceEligibleSql(env, "s");
   const placementCol = entity.type === "circle" ? "current_circle_id" : "current_track_id";
+  const hasCircleCol = await tableHasColumn(env, "students", "current_circle_id");
+  const hasTrackCol = await tableHasColumn(env, "students", "current_track_id");
+  const otherPlacementSql =
+    entity.type === "circle" && hasTrackCol
+      ? ", s.current_track_id AS other_placement_id, ot.name_ar AS other_placement_name"
+      : entity.type === "track" && hasCircleCol
+        ? ", s.current_circle_id AS other_placement_id, oc.name_ar AS other_placement_name"
+        : ", NULL AS other_placement_id, NULL AS other_placement_name";
+  const otherPlacementJoin =
+    entity.type === "circle" && hasTrackCol
+      ? " LEFT JOIN tracks ot ON ot.id = s.current_track_id AND ot.complex_id = s.complex_id"
+      : entity.type === "track" && hasCircleCol
+        ? " LEFT JOIN circles oc ON oc.id = s.current_circle_id AND oc.complex_id = s.complex_id"
+        : "";
   const params = pageParams ?? { page: 1, pageSize: PAGE_SIZE_MAX, offset: 0 };
 
   const countRow = await env.DB.prepare(
@@ -66,10 +90,10 @@ export async function loadStudentsForEntityAttendance(
             sa.id AS attendance_id,
             CASE WHEN sa.id IS NOT NULL THEN 1 ELSE 0 END AS has_record,
             COALESCE(sa.status, 'present') AS status,
-            sa.recorded_at${attSourceCol}
+            sa.recorded_at${attSourceCol}${otherPlacementSql}
      FROM students s
      LEFT JOIN ${attTable} sa
-       ON sa.student_id = s.id AND sa.attendance_date = ?
+       ON sa.student_id = s.id AND sa.attendance_date = ?${otherPlacementJoin}
      WHERE s.complex_id = ? AND ${eligibleExpr}
        AND s.${placementCol} = ?
      ORDER BY s.full_name_ar
@@ -126,7 +150,7 @@ export function isAttendanceStatus(raw: unknown): AttendanceStatus | null {
   return null;
 }
 
-/** O(E×S) — حالة «محضّر اليوم» لكل حلقة/مسار (كل الطلاب المؤهلين لهم سجل). */
+/** O(E) — استعلام واحد لكل الحلقات والمسارات؛ E = عدد الكيانات */
 export async function loadEntityAttendanceStatus(
   env: Env,
   complexId: number,
@@ -164,7 +188,7 @@ export async function loadEntityAttendanceStatus(
       circles.push({
         id: r.id,
         student_count: roster,
-        has_record: marked > 0,
+        has_record: roster > 0 && marked === roster,
       });
     }
   }
@@ -189,7 +213,7 @@ export async function loadEntityAttendanceStatus(
       tracks.push({
         id: r.id,
         student_count: roster,
-        has_record: marked > 0,
+        has_record: roster > 0 && marked === roster,
       });
     }
   }

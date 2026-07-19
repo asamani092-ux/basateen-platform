@@ -34,6 +34,8 @@ import {
   hasCriterionId,
   competitionTaskSelectSql,
   parseTaskInputType,
+  isInputTypeAllowedForTaskType,
+  validateCompetitionScoreEntries,
   buildCompetitionLeaderboard,
   loadCompetitionLogsForLeaderboard,
   loadCompetitionTaskMeta,
@@ -62,6 +64,7 @@ import {
   patchStudentTargets,
   upsertStudentTargets,
   updateStudentTargetAmount,
+  resolveCompetitionStudents,
 } from "../lib/competition-engine";
 import {
   loadUserScope,
@@ -75,6 +78,10 @@ import { saveCompetitionGradingBulk } from "../lib/competition-grading-save";
 import { DEFAULT_COMPETITION } from "../lib/edu-settings-defaults";
 import { loadEvaluationCriteria } from "../lib/evaluation-criteria";
 import { COMPETITION_MANAGER_ROLES } from "../lib/roles";
+import {
+  COMPETITION_SOURCE_EDU_DEPT,
+  eduDeptSourceSql,
+} from "../lib/teacher-competition-unified";
 import {
   clampFaces,
   convertToFaces,
@@ -120,6 +127,7 @@ type CompetitionSchema = {
   stage_id: boolean;
   category: boolean;
   target_scope: boolean;
+  competition_source: boolean;
 };
 
 async function competitionSchema(env: Env): Promise<CompetitionSchema> {
@@ -133,6 +141,7 @@ async function competitionSchema(env: Env): Promise<CompetitionSchema> {
     stage_id,
     category,
     target_scope,
+    competition_source,
   ] = await Promise.all([
     tableHasColumn(env, t, "description"),
     tableHasColumn(env, t, "telemetry_type"),
@@ -142,6 +151,7 @@ async function competitionSchema(env: Env): Promise<CompetitionSchema> {
     tableHasColumn(env, t, "stage_id"),
     tableHasColumn(env, t, "category"),
     tableHasColumn(env, t, "target_scope"),
+    tableHasColumn(env, t, "competition_source"),
   ]);
   return {
     description,
@@ -152,6 +162,7 @@ async function competitionSchema(env: Env): Promise<CompetitionSchema> {
     stage_id,
     category,
     target_scope,
+    competition_source,
   };
 }
 
@@ -245,6 +256,11 @@ async function insertCompetitionRow(
     cols.push("created_by_user_id");
     placeholders.push("?");
     binds.push(params.userId);
+  }
+  if (schema.competition_source) {
+    cols.push("competition_source");
+    placeholders.push("?");
+    binds.push(COMPETITION_SOURCE_EDU_DEPT);
   }
 
   return env.DB.prepare(
@@ -407,13 +423,14 @@ export async function handleEduCompetitionsRouter(
 
   if (request.method === "GET" && path === "/api/edu-dept/competitions") {
     const scopeClause = competitionsScopeClause(scope, schema.stage_id);
+    const sourceClause = eduDeptSourceSql("c", schema.competition_source);
     const descCol = schema.description ? ", c.description" : "";
     const catCol = schema.category ? ", c.category, c.custom_category" : "";
     const rows = await env.DB.prepare(
       `SELECT c.id, c.name_ar${descCol}${catCol}, c.start_date, c.end_date, c.status,
               c.live_log_token, c.tv_launch_key
        FROM competitions c
-       WHERE c.complex_id = ? AND ${scopeClause.where}
+       WHERE c.complex_id = ? AND ${sourceClause} AND ${scopeClause.where}
        ORDER BY c.start_date DESC LIMIT 100`,
     )
       .bind(auth.complexId, ...scopeClause.binds)
@@ -588,6 +605,9 @@ export async function handleEduCompetitionsRouter(
       if (!body.name_ar?.trim()) return json({ error: "name_required" }, 400);
       const taskType = body.type === "deduction" ? "deduction" : "addition";
       const inputType = parseTaskInputType(body.input_type, taskType);
+      if (!isInputTypeAllowedForTaskType(inputType, taskType)) {
+        return json({ error: "input_type_not_allowed" }, 400);
+      }
       const hasInputType = await hasTaskInputType(env);
       const maxSort = await env.DB.prepare(
         `SELECT COALESCE(MAX(sort_order), 0) AS m FROM competition_tasks WHERE competition_id = ?`,
@@ -1168,6 +1188,13 @@ export async function handleEduCompetitionsRouter(
       const logDate =
         body.log_date?.trim() || todayRiyadhIso();
       const records = body.records ?? [];
+      if (records.length > 0 && engineTasks) {
+        const taskMeta = await loadCompetitionTaskMeta(env, id);
+        const scoreCheck = validateCompetitionScoreEntries(records, taskMeta);
+        if (!scoreCheck.ok) {
+          return json({ error: scoreCheck.error }, 400);
+        }
+      }
       const category = String(row.category ?? "recitation");
       const compRules = JSON.parse(String(row.rules_json ?? "{}")) as Record<
         string,
@@ -1568,28 +1595,4 @@ export async function handleEduCompetitionsRouter(
   return json({ error: "Not Found", path }, 404);
 }
 
-export async function resolveCompetitionStudents(
-  env: Env,
-  complexId: number,
-  competitionId: number,
-  scope: ScopeMode,
-): Promise<number[]> {
-  if (await hasEngineTargets(env)) {
-    const rows = await env.DB.prepare(
-      `SELECT student_id FROM competition_targets WHERE competition_id = ?`,
-    )
-      .bind(competitionId)
-      .all<{ student_id: number }>();
-    if (rows.results?.length) {
-      return rows.results.map((r) => r.student_id);
-    }
-  }
-
-  const scopeWhere = studentsInScopeWhere(scope);
-  const all = await env.DB.prepare(
-    `SELECT s.id FROM students s WHERE ${scopeWhere}`,
-  )
-    .bind(...studentsInScopeBinds(complexId, scope))
-    .all<{ id: number }>();
-  return (all.results ?? []).map((r) => r.id);
-}
+export { resolveCompetitionStudents } from "../lib/competition-engine";

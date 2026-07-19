@@ -3,7 +3,7 @@ import { handleOptions, withCors } from "./middleware/cors";
 import { handleHealth } from "./routes/health";
 import { handleTvSummary } from "./routes/tv-summary";
 import { handleLogin, handleLoginMobile, handleMe } from "./routes/auth";
-import { handleSeedUsers } from "./routes/setup";
+import { handleSeedUsers, handleMigrateDisplayMediaRow } from "./routes/setup";
 import {
   handleAdminStudentCreate,
   handleAdminStudentsBulk,
@@ -63,6 +63,7 @@ import { handleLiveLogRouter, handleYomHimmaLiveLogToken } from "./routes/live-l
 import { handleProgSupervisorRouter } from "./routes/prog-supervisor";
 import { handleQuizPublicRouter } from "./routes/quiz-public";
 import { handleDisplayDeptRouter } from "./routes/display-dept";
+import { handleDisplayMediaPublicRouter } from "./routes/display-media-public";
 import { handlePublicLiveDisplayRouter } from "./routes/public-live-display";
 
 type RouteHandler = (
@@ -86,6 +87,11 @@ const sharedRoutes: Array<{ method: string; pattern: RegExp; handler: RouteHandl
   { method: "POST", pattern: /^\/api\/auth\/login-mobile$/, handler: handleLoginMobile },
   { method: "GET", pattern: /^\/api\/auth\/me$/, handler: handleMe },
   { method: "POST", pattern: /^\/api\/setup\/seed-users$/, handler: handleSeedUsers },
+  {
+    method: "POST",
+    pattern: /^\/api\/setup\/migrate-display-media-row$/,
+    handler: handleMigrateDisplayMediaRow,
+  },
   { method: "GET", pattern: /^\/api\/circles$/, handler: handleCirclesList },
   { method: "GET", pattern: /^\/api\/students$/, handler: handleStudentsList },
   { method: "POST", pattern: /^\/api\/students$/, handler: handleStudentCreate },
@@ -249,6 +255,9 @@ export async function handleRequest(
 
     const publicLink = await handlePublicLinksRouter(request, env, url);
     if (publicLink) return withCors(publicLink, request, env);
+
+    const displayMediaPublic = await handleDisplayMediaPublicRouter(request, env, url);
+    if (displayMediaPublic) return withCors(displayMediaPublic, request, env);
 
     const publicLive = await handlePublicLiveDisplayRouter(request, env, url);
     if (publicLive) return withCors(publicLive, request, env);

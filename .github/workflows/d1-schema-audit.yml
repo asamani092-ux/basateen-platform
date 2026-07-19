@@ -1,0 +1,38 @@
+# تدقيق قراءة فقط — لا يطبّق أي ترحيل
+name: D1 Schema Audit (read-only)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/audit-migrations-readonly.mjs"
+      - ".github/workflows/d1-schema-audit.yml"
+
+concurrency:
+  group: d1-schema-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Check Cloudflare secrets
+        run: |
+          if [ -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ]; then
+            echo "::error::Add CLOUDFLARE_API_TOKEN"
+            exit 1
+          fi
+
+      - name: Run read-only migration audit
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/audit-migrations-readonly.mjs

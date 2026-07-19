@@ -1,9 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { todayRiyadhIso } from "../../lib/today-riyadh-iso";
-import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import {
+  formatGregorianAr,
+  formatHijriUmalqura,
+  todayRiyadhIso,
+} from "../../lib/today-riyadh-iso";
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { GuardedForm } from "../../components/ui/guarded-form";
 import {
-  Check,
   ClipboardList,
   Grid3X3,
   LayoutGrid,
@@ -55,8 +63,7 @@ import {
 } from "../../lib/evaluation-criteria";
 import { ds, tajawal } from "../../lib/design-system";
 import { cn } from "../../components/ui/utils";
-import { StudentTrackBadge } from "../../components/edu/StudentTrackBadge";
-import { StudentCircleBadge } from "../../components/edu/StudentCircleBadge";
+import { StudentPlacementSubBadge } from "../../components/edu/StudentPlacementSubBadge";
 import { queryKeys } from "../../lib/query-keys";
 import { RecitationTableSkeleton } from "../../components/shared/RecitationTableSkeleton";
 import { teacherBootstrapToRecitationPayload } from "../../lib/teacher-bootstrap";
@@ -205,6 +212,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
   const isTrackSupervisor = user?.role === "track_supervisor";
   const isBroadSupervisor = isSupervisor && !isTrackSupervisor;
   const teacherLikeUi = !isSupervisor || isTrackSupervisor;
+  const placementView: "circle" | "track" = isTrackSupervisor ? "track" : "circle";
 
   const [circles, setCircles] = useState<
     Array<{ id: number; name_ar: string; track_id?: number | null }>
@@ -297,6 +305,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
     },
     enabled: canUseApi(),
     staleTime: 60_000,
+    placeholderData: keepPreviousData,
   });
 
   const criteria = useMemo(
@@ -311,6 +320,10 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
   const editableCriteria = useMemo(
     () => enabledCriteria.filter((c) => !c.requires_all?.length),
     [enabledCriteria],
+  );
+  const { booleans: booleanCriteria, others: nonBooleanCriteria } = useMemo(
+    () => splitEditableCriteria(editableCriteria),
+    [editableCriteria],
   );
   const bonusCriteria = useMemo(
     () => enabledCriteria.filter((c) => c.requires_all?.length),
@@ -349,7 +362,12 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
     if (!studentsQuery.isError) return;
     const e = studentsQuery.error;
     const msg = e instanceof Error ? e.message : "فشل التحميل";
-    const isNoCircleErr = /no_circle_assigned|لم يتم ربط حلقة/i.test(msg);
+    const isNoCircleErr = /no_circle_assigned|no_track_assigned|لم يتم ربط حلقة/i.test(msg);
+    if (isTrackSupervisor && /no_track_assigned|scope_unassigned/i.test(msg)) {
+      setError("لم يُسنَد إليك مسار بعد. تواصل مع الإدارة لربط حسابك.");
+      setRows([]);
+      return;
+    }
     if (isTrackSupervisor && isNoCircleErr && (tracks.length > 0 || circles.length > 0)) {
       setError(null);
       setRows([]);
@@ -369,7 +387,10 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
     if (studentsQuery.isSuccess) setError(null);
   }, [studentsQuery.isSuccess, studentsQuery.dataUpdatedAt]);
 
+  /** هيكل الجدول يبقى ظاهراً عند تبديل التاريخ — لا يُفرَّغ إلا عند أول تحميل */
   const loading = studentsQuery.isPending && !studentsQuery.data;
+  const dateRefreshing =
+    studentsQuery.isFetching && Boolean(studentsQuery.data);
 
   function patchTaskScore(studentId: number, taskId: string, value: boolean | number) {
     setRows((prev) =>
@@ -609,18 +630,43 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
             </select>
           </div>
         )}
-        <div className="space-y-1 w-full md:max-w-xs">
+        <div className="space-y-1 w-full md:max-w-sm">
           <Label style={tajawal}>التاريخ</Label>
-          <Input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className={ds.btnRound}
-          />
+          <div
+            className={cn(
+              "flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-2.5 py-1.5",
+              dateRefreshing && "opacity-80",
+            )}
+          >
+            <Input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className={cn(
+                ds.btnRound,
+                "h-9 w-[9.5rem] shrink-0 border-0 bg-transparent px-1 shadow-none focus-visible:ring-1",
+              )}
+              aria-label="التاريخ الميلادي"
+            />
+            <div className="min-w-0 flex-1 leading-tight">
+              <p className="text-xs font-medium text-foreground truncate" style={tajawal}>
+                {formatGregorianAr(date)}
+              </p>
+              <p className="text-[11px] text-muted-foreground truncate" style={tajawal}>
+                {formatHijriUmalqura(date)}
+              </p>
+            </div>
+            {dateRefreshing && (
+              <Loader2
+                className="size-3.5 shrink-0 animate-spin text-primary"
+                aria-label="جاري تحديث التاريخ"
+              />
+            )}
+          </div>
         </div>
       </div>
 
-      <div className={ds.card}>
+      <div className={cn(ds.card, dateRefreshing && "relative")}>
         {loading ? (
           <RecitationTableSkeleton showFilters={false} columns={editableCriteria.length || 4} />
         ) : isBroadSupervisor && circleId == null ? (
@@ -686,7 +732,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                       {rows.map((r) => (
                         <TableRow key={r.student_id} className="print:break-inside-avoid">
                           <TableCell className={ds.table.cell} style={tajawal}>
-                            <StudentNameCell row={r} showCircleBadge={isTrackSupervisor} />
+                            <StudentNameCell row={r} placementView={placementView} />
                           </TableCell>
                           {editableCriteria.map((c, idx) => (
                             <TableCell key={c.id} className="text-center align-middle">
@@ -695,6 +741,7 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                                 taskCol={criterionToTaskCol(c, idx)}
                                 value={r.task_scores[c.id]}
                                 onChange={(v) => patchTaskScore(r.student_id, c.id, v)}
+                                compact
                               />
                             </TableCell>
                           ))}
@@ -768,13 +815,26 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                       <p className="font-bold text-sm" style={tajawal}>
                         {r.full_name_ar}
                       </p>
-                      {isTrackSupervisor && r.circle_name ? (
-                        <StudentCircleBadge circleName={r.circle_name} />
-                      ) : r.track_name ? (
-                        <StudentTrackBadge trackName={r.track_name} />
-                      ) : null}
-                      <div className="space-y-2 text-sm" style={tajawal}>
-                        {editableCriteria.map((c, idx) => (
+                        <StudentPlacementSubBadge
+                          circleName={r.circle_name}
+                          trackName={r.track_name}
+                          view={placementView}
+                          className="mt-1 max-w-full"
+                        />
+                      <div className="space-y-3 text-sm" style={tajawal}>
+                        {booleanCriteria.length > 0 && (
+                          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                            {booleanCriteria.map((c) => (
+                              <BooleanCriterionPill
+                                key={c.id}
+                                criterion={c}
+                                checked={Boolean(r.task_scores[c.id])}
+                                onChange={(v) => patchTaskScore(r.student_id, c.id, v)}
+                              />
+                            ))}
+                          </div>
+                        )}
+                        {nonBooleanCriteria.map((c, idx) => (
                           <div key={c.id} className="flex items-center justify-between gap-2">
                             <span>{c.name}</span>
                             <CriterionInput
@@ -839,14 +899,12 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                         <div className="flex flex-1 items-center justify-between gap-2 min-w-0">
                           <div className="min-w-0 text-right flex-1">
                             <p className="font-semibold text-sm truncate">{r.full_name_ar}</p>
-                            {isTrackSupervisor && r.circle_name ? (
-                              <StudentCircleBadge
-                                circleName={r.circle_name}
-                                className="mt-1 max-w-full"
-                              />
-                            ) : r.track_name ? (
-                              <StudentTrackBadge trackName={r.track_name} className="mt-1 max-w-full" />
-                            ) : null}
+                            <StudentPlacementSubBadge
+                              circleName={r.circle_name}
+                              trackName={r.track_name}
+                              view={placementView}
+                              className="mt-1 max-w-full"
+                            />
                             {r.admin_present && (
                               <span className="text-[10px] text-success font-medium">
                                 حضور إداري
@@ -867,14 +925,27 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
                         </div>
                       </AccordionTrigger>
                       <AccordionContent className="pb-2 pt-0">
-                        <div className="space-y-1 border-t border-border/80 pt-2">
-                          {editableCriteria.map((c) => (
+                        <div className="space-y-2 border-t border-border/80 pt-2">
+                          {booleanCriteria.length > 0 && (
+                            <div className="grid grid-cols-2 gap-2 py-1">
+                              {booleanCriteria.map((c) => (
+                                <BooleanCriterionPill
+                                  key={c.id}
+                                  criterion={c}
+                                  checked={Boolean(r.task_scores[c.id])}
+                                  onChange={(v) => patchTaskScore(r.student_id, c.id, v)}
+                                  disabled={saving || savingStudentId != null}
+                                />
+                              ))}
+                            </div>
+                          )}
+                          {nonBooleanCriteria.map((c) => (
                             <div
                               key={c.id}
-                              className="flex flex-row flex-wrap items-center gap-x-2 gap-y-1 py-1 min-h-10"
+                              className="flex flex-row flex-wrap items-center gap-x-2 gap-y-1 py-1 min-h-11"
                             >
                               <span
-                                className="shrink-0 text-xs font-medium text-foreground truncate max-w-[32%] sm:max-w-[38%]"
+                                className="shrink-0 text-xs font-medium text-foreground truncate max-w-[38%]"
                                 style={tajawal}
                                 title={c.name}
                               >
@@ -1039,19 +1110,20 @@ export function DailyRecitationPage({ embedded = false }: { embedded?: boolean }
 
 function StudentNameCell({
   row,
-  showCircleBadge = false,
+  placementView,
 }: {
   row: Row;
-  showCircleBadge?: boolean;
+  placementView: "circle" | "track";
 }) {
   return (
     <div className="min-w-0 flex flex-col items-start gap-1 text-right max-w-full">
       <span className="truncate max-w-full">{row.full_name_ar}</span>
-      {showCircleBadge && row.circle_name ? (
-        <StudentCircleBadge circleName={row.circle_name} />
-      ) : row.track_name ? (
-        <StudentTrackBadge trackName={row.track_name} />
-      ) : null}
+      <StudentPlacementSubBadge
+        circleName={row.circle_name}
+        trackName={row.track_name}
+        view={placementView}
+        className="max-w-full"
+      />
       {row.admin_present && (
         <span className="text-[10px] text-success font-medium">
           حضور إداري
@@ -1090,40 +1162,67 @@ function isCounterCriterion(c: EvalCriterion): boolean {
   return c.type === "penalty" || c.input_type === "counter";
 }
 
-function MobileBooleanToggle({
+function isBooleanCriterion(c: EvalCriterion): boolean {
+  if (c.input_type === "boolean") return true;
+  if (
+    c.input_type === "numeric" ||
+    c.input_type === "counter" ||
+    c.type === "penalty" ||
+    c.input === "number"
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function splitEditableCriteria(criteria: EvalCriterion[]) {
+  const booleans: EvalCriterion[] = [];
+  const others: EvalCriterion[] = [];
+  for (const c of criteria) {
+    if (isBooleanCriterion(c)) booleans.push(c);
+    else others.push(c);
+  }
+  return { booleans, others };
+}
+
+function BooleanCriterionPill({
+  criterion,
   checked,
   onChange,
-  label,
   disabled,
+  compact,
 }: {
+  criterion: EvalCriterion;
   checked: boolean;
   onChange: (next: boolean) => void;
-  label: string;
   disabled?: boolean;
+  compact?: boolean;
 }) {
+  const isPenalty = criterion.type === "penalty";
   return (
     <button
       type="button"
-      role="switch"
+      role="checkbox"
       aria-checked={checked}
-      aria-label={label}
+      aria-label={criterion.name}
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
-        "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-all duration-200 touch-manipulation",
-        checked
-          ? "border-secondary bg-secondary text-secondary-foreground shadow-sm"
-          : "border-input bg-input-background text-muted-foreground hover:border-border hover:bg-muted/50",
+        ds.btnRound,
+        "inline-flex min-h-11 w-full items-center justify-center border px-2.5 font-semibold transition-colors touch-manipulation",
+        compact ? "py-1.5 text-[11px]" : "py-2 text-xs",
+        isPenalty
+          ? checked
+            ? "border-destructive bg-destructive text-destructive-foreground"
+            : "border-destructive/40 bg-destructive/5 text-destructive hover:border-destructive/60"
+          : checked
+            ? "border-primary bg-primary text-primary-foreground"
+            : "border-border bg-card text-muted-foreground hover:border-primary/40",
         disabled && "pointer-events-none opacity-50",
       )}
+      style={tajawal}
     >
-      <Check
-        className={cn(
-          "size-4 transition-all duration-200",
-          checked ? "scale-100 opacity-100" : "scale-75 opacity-0",
-        )}
-        strokeWidth={2.5}
-      />
+      <span className="truncate">{criterion.name}</span>
     </button>
   );
 }
@@ -1141,28 +1240,28 @@ function MobileCounterInput({
 }) {
   const count = Math.max(0, Math.round(value));
   return (
-    <div className="inline-flex shrink-0 items-center gap-1" aria-label={label}>
+    <div className="inline-flex shrink-0 items-center gap-0.5" aria-label={label}>
       <Button
         type="button"
         size="icon"
         variant="outline"
-        className="h-8 w-8 rounded-lg"
+        className="h-7 w-7 min-h-11 min-w-11 rounded-lg p-0"
         disabled={disabled || count <= 0}
         onClick={() => onChange(count - 1)}
         aria-label="إنقاص"
       >
-        <Minus className="size-3.5" />
+        <Minus className="size-3" />
       </Button>
-      <span className="w-7 text-center text-sm font-semibold tabular-nums">{count}</span>
+      <span className="w-5 text-center text-xs font-semibold tabular-nums">{count}</span>
       <Button
         type="button"
         size="icon"
-        className="h-8 w-8 rounded-lg"
+        className="h-7 w-7 min-h-11 min-w-11 rounded-lg p-0"
         disabled={disabled}
         onClick={() => onChange(count + 1)}
         aria-label="زيادة"
       >
-        <Plus className="size-3.5" />
+        <Plus className="size-3" />
       </Button>
     </div>
   );
@@ -1207,14 +1306,7 @@ function MobileCriterionInput({
     );
   }
 
-  return (
-    <MobileBooleanToggle
-      checked={Boolean(value)}
-      onChange={(next) => onChange(next)}
-      label={criterion.name}
-      disabled={disabled}
-    />
-  );
+  return null;
 }
 
 function CriterionInput({
@@ -1230,6 +1322,17 @@ function CriterionInput({
   onChange: (v: boolean | number) => void;
   compact?: boolean;
 }) {
+  if (isBooleanCriterion(criterion)) {
+    return (
+      <BooleanCriterionPill
+        criterion={criterion}
+        checked={Boolean(value)}
+        onChange={(next) => onChange(next)}
+        compact={compact}
+      />
+    );
+  }
+
   return (
     <TaskInputCell
       task={taskCol}

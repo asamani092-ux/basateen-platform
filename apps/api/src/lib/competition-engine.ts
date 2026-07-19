@@ -24,6 +24,7 @@ import {
   buildStudentsInScopeWhere,
   STAGE_LABELS,
   studentsInScopeBinds,
+  studentsInScopeWhere,
   type ScopeMode,
 } from "./dept-scope";
 
@@ -779,9 +780,67 @@ export function defaultInputTypeFromTaskType(type: TaskType): TaskInputType {
   return type === "deduction" ? "counter" : "boolean";
 }
 
+/** O(1) — هل نوع الإدخال مسموح لنوع المهمة */
+export function isInputTypeAllowedForTaskType(
+  inputType: TaskInputType,
+  taskType: TaskType,
+): boolean {
+  if (taskType === "addition") {
+    return inputType === "boolean" || inputType === "numeric";
+  }
+  return inputType === "boolean" || inputType === "counter";
+}
+
 export function parseTaskInputType(raw: unknown, fallbackType: TaskType): TaskInputType {
   if (raw === "boolean" || raw === "numeric" || raw === "counter") return raw;
   return defaultInputTypeFromTaskType(fallbackType);
+}
+
+/** O(1) — رفض صريح للكسور على numeric/boolean/counter */
+export function validateTaskScoreValue(
+  points: unknown,
+  inputType: TaskInputType,
+): { ok: true; value: number } | { ok: false; error: string } {
+  const n = Number(points);
+  if (!Number.isFinite(n)) {
+    return { ok: false, error: "invalid_score" };
+  }
+  if (inputType === "boolean") {
+    if (n !== 0 && n !== 1) {
+      return { ok: false, error: "boolean_score_must_be_0_or_1" };
+    }
+    return { ok: true, value: n };
+  }
+  if (!Number.isInteger(n)) {
+    return { ok: false, error: "score_must_be_integer" };
+  }
+  if (n < 0) {
+    return { ok: false, error: "score_must_be_non_negative" };
+  }
+  return { ok: true, value: n };
+}
+
+export type CompetitionTaskInputMeta = {
+  id: number;
+  type: string;
+  input_type?: string | null;
+};
+
+/** O(S) — التحقق من صحة نقاط المهام قبل الحفظ */
+export function validateCompetitionScoreEntries(
+  list: Array<{ task_id: number; student_id: number; points: number }>,
+  tasks: CompetitionTaskInputMeta[],
+): { ok: true } | { ok: false; error: string } {
+  const taskById = new Map(tasks.map((t) => [t.id, t]));
+  for (const s of list) {
+    const meta = taskById.get(Number(s.task_id));
+    if (!meta) continue;
+    const taskType: TaskType = meta.type === "deduction" ? "deduction" : "addition";
+    const inputType = parseTaskInputType(meta.input_type, taskType);
+    const check = validateTaskScoreValue(s.points, inputType);
+    if (!check.ok) return { ok: false, error: check.error };
+  }
+  return { ok: true };
 }
 
 export async function hasTaskInputType(env: Env): Promise<boolean> {
@@ -2014,4 +2073,31 @@ export async function loadCompetitionTargetRows(
     .bind(competitionId)
     .all<DashboardTargetRow>();
   return rows.results ?? [];
+}
+
+/** O(T + S) — طلاب المنافسة من الأهداف أو نطاق المشرف */
+export async function resolveCompetitionStudents(
+  env: Env,
+  complexId: number,
+  competitionId: number,
+  scope: ScopeMode,
+): Promise<number[]> {
+  if (await hasEngineTargets(env)) {
+    const rows = await env.DB.prepare(
+      `SELECT student_id FROM competition_targets WHERE competition_id = ?`,
+    )
+      .bind(competitionId)
+      .all<{ student_id: number }>();
+    if (rows.results?.length) {
+      return rows.results.map((r) => r.student_id);
+    }
+  }
+
+  const scopeWhere = studentsInScopeWhere(scope);
+  const all = await env.DB.prepare(
+    `SELECT s.id FROM students s WHERE ${scopeWhere}`,
+  )
+    .bind(...studentsInScopeBinds(complexId, scope))
+    .all<{ id: number }>();
+  return (all.results ?? []).map((r) => r.id);
 }

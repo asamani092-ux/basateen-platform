@@ -13,6 +13,9 @@ export type PlanInputs = {
   daily_muraja_pages: number;
   daily_rabt_faces: number;
   repeat_target: number;
+  /** اختياري — عند التمرير يُستخدم لبناء تقويم تقدير الخطة وليس الفصل */
+  duration_weeks?: number;
+  rest_days?: "friday" | "saturday" | "friday_saturday";
 };
 
 export type PlanEstimate = {

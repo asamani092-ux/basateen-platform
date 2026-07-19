@@ -521,6 +521,7 @@ function StudentAddDialog({
   const [tab, setTab] = useState("single");
   const [importFile, setImportFile] = useState<File | null>(null);
   const [parsedCount, setParsedCount] = useState(0);
+  const [rejectedRows, setRejectedRows] = useState<string[]>([]);
   const [bulkLoading, setBulkLoading] = useState(false);
 
   const [saving, setSaving] = useState(false);
@@ -531,18 +532,27 @@ function StudentAddDialog({
     setTab("single");
     setImportFile(null);
     setParsedCount(0);
+    setRejectedRows([]);
     setFormError(null);
   }, [open]);
 
   async function onFileSelected(file: File | null) {
     setImportFile(file);
     setParsedCount(0);
+    setRejectedRows([]);
     if (!file) return;
     try {
-      const rows = await parseStudentImportFile(file);
-      setParsedCount(rows.length);
-      if (rows.length === 0) {
-        setFormError("لم يُعثر على صفوف صالحة — استخدم النموذج الرسمي");
+      const parsed = await parseStudentImportFile(file);
+      setParsedCount(parsed.rows.length);
+      setRejectedRows(
+        parsed.rejected.map((r) => `صف ${r.row}: ${r.error}`),
+      );
+      if (parsed.rows.length === 0) {
+        setFormError(
+          parsed.rejected.length > 0
+            ? `لا توجد صفوف صالحة — ${parsed.rejected.length} صفوف مرفوضة`
+            : "لم يُعثر على صفوف صالحة — استخدم النموذج الرسمي",
+        );
       } else {
         setFormError(null);
       }
@@ -583,19 +593,27 @@ function StudentAddDialog({
     setBulkLoading(true);
     setFormError(null);
     try {
-      const rows = await parseStudentImportFile(importFile);
-      if (rows.length === 0) {
-        setFormError("لا توجد صفوف صالحة في الملف");
+      const parsed = await parseStudentImportFile(importFile);
+      if (parsed.rows.length === 0) {
+        setFormError(
+          parsed.rejected.length > 0
+            ? `لا توجد صفوف صالحة — صفوف مرفوضة: ${parsed.rejected.map((r) => r.row).join("، ")}`
+            : "لا توجد صفوف صالحة في الملف",
+        );
         return;
       }
-      const res = await api.adminStudentsBulk(rows);
+      const res = await api.adminStudentsBulk(parsed.rows);
       toast.success(res.message);
+      if (parsed.rejected.length > 0) {
+        console.warn("import_rejected_rows", parsed.rejected);
+      }
       if (res.failedDetails && res.failedDetails.length > 0) {
         console.warn("bulk_import_failures", res.failedDetails);
       }
       if ((res.successCount ?? res.success) > 0) {
         setImportFile(null);
         setParsedCount(0);
+    setRejectedRows([]);
         onCreated();
       }
     } catch (err) {
@@ -678,7 +696,17 @@ function StudentAddDialog({
                 <p className="text-xs text-muted-foreground mt-2" style={tajawal}>
                   {importFile.name}
                   {parsedCount > 0 ? ` — ${parsedCount} صف جاهز` : ""}
+                  {rejectedRows.length > 0
+                    ? ` — ${rejectedRows.length} صف مرفوض`
+                    : ""}
                 </p>
+              )}
+              {rejectedRows.length > 0 && (
+                <ul className="text-xs text-destructive mt-2 list-disc pr-4" style={tajawal}>
+                  {rejectedRows.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
               )}
             </div>
             <Button
@@ -794,7 +822,7 @@ function StudentEditDialog({
         </DialogHeader>
         {unassigned && (
           <p className={`${ds.alert.info} text-sm`} style={tajawal}>
-            هذا الطالب غير مسند — يجب اختيار حلقة أو مسار عند الحفظ.
+            هذا الطالب غير مسند — يمكنك حفظ التعديلات دون إسناد جديد.
           </p>
         )}
         {error && (
@@ -806,7 +834,7 @@ function StudentEditDialog({
           key={student.id}
           groups={groups}
           initialValues={initialValues}
-          requirePlacement={unassigned}
+          requirePlacement={false}
           resetOnSubmit={false}
           submitLabel="حفظ التعديلات"
           submitting={saving}

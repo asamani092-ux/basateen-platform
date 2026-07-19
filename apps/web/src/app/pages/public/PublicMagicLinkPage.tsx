@@ -4,9 +4,11 @@ import { CalendarDays, CheckCircle2, Loader2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { AttendanceDailyTable } from "../../components/attendance/AttendanceDailyTable";
 import { Button } from "../../components/ui/button";
+import { Label } from "../../components/ui/label";
 import { api } from "../../lib/api-client";
 import { normalizeAttendanceStatus } from "../../lib/attendance-status";
 import type { AttendanceStatusValue } from "../../lib/attendance-mutations";
+import { todayRiyadhIso } from "../../lib/today-riyadh-iso";
 import { ds, tajawal } from "../../lib/design-system";
 
 type Row = {
@@ -14,13 +16,16 @@ type Row = {
   full_name_ar: string;
   status: string;
   has_record: boolean;
+  other_placement_name?: string | null;
   isDirty?: boolean;
 };
 
 /** تحضير عام بدون تسجيل دخول — رابط سحري (حلقة أو مسار) */
 export function PublicMagicLinkPage() {
   const { token = "" } = useParams<{ token: string }>();
-  const [date, setDate] = useState("");
+  const [date, setDate] = useState(todayRiyadhIso());
+  const [dateMin, setDateMin] = useState<string | undefined>();
+  const [dateMax, setDateMax] = useState<string | undefined>();
   const [entityType, setEntityType] = useState<"circle" | "track">("circle");
   const [entityName, setEntityName] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
@@ -33,8 +38,10 @@ export function PublicMagicLinkPage() {
     setLoading(true);
     setFatalError(null);
     try {
-      const res = await api.publicAttendanceGet(token);
+      const res = await api.publicAttendanceGet(token, date);
       setDate(res.attendance_date);
+      if (res.date_min) setDateMin(res.date_min);
+      if (res.date_max) setDateMax(res.date_max);
       setEntityType(res.entity_type ?? (res.track ? "track" : "circle"));
       setEntityName(
         res.entity_type === "track"
@@ -46,6 +53,7 @@ export function PublicMagicLinkPage() {
         full_name_ar: r.full_name_ar,
         status: normalizeAttendanceStatus(r.status),
         has_record: Boolean(r.has_record),
+        other_placement_name: r.other_placement_name ?? null,
       }));
       setRows(items);
     } catch (e) {
@@ -56,10 +64,10 @@ export function PublicMagicLinkPage() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, date]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   const counts = useMemo(() => {
@@ -87,6 +95,7 @@ export function PublicMagicLinkPage() {
     setSaving(true);
     try {
       await api.publicAttendanceSave(token, {
+        attendance_date: date,
         records: rows.map((r) => ({
           student_id: r.student_id,
           status: r.status,
@@ -129,6 +138,10 @@ export function PublicMagicLinkPage() {
             <p className={ds.page.description} style={tajawal}>
               {entityName || "—"}
             </p>
+            <p className="text-xs text-muted-foreground mt-2" style={tajawal}>
+              الطالب المشترك بين حلقة ومسار يملك سجلاً واحداً يومياً — تعديل
+              حالته هنا يحدّث نفس السجل في المنصة.
+            </p>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-2 text-sm text-muted-foreground">
             <span
@@ -147,6 +160,20 @@ export function PublicMagicLinkPage() {
                 {counts.total} طالب
               </span>
             ) : null}
+          </div>
+          <div className="text-right max-w-xs mx-auto">
+            <Label className="text-xs text-muted-foreground" style={tajawal}>
+              تاريخ التحضير
+            </Label>
+            <input
+              type="date"
+              value={date}
+              min={dateMin}
+              max={dateMax}
+              disabled={loading || saving}
+              onChange={(e) => setDate(e.target.value)}
+              className={`block w-full mt-1 border border-border px-3 py-2 ${ds.btnRound}`}
+            />
           </div>
         </header>
 
@@ -219,6 +246,11 @@ export function PublicMagicLinkPage() {
                   status: r.status,
                   has_record: r.has_record,
                   isDirty: r.isDirty,
+                  entityView: entityType,
+                  other_placement_name: r.other_placement_name,
+                  show_shared_marker: Boolean(
+                    r.has_record && r.other_placement_name?.trim(),
+                  ),
                 }))}
                 disabled={saving}
                 onStatusChange={pickStatus}

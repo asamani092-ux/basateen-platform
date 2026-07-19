@@ -33,8 +33,10 @@ import {
 } from "../../components/ui/table";
 import { api } from "../../lib/api-client";
 import { canUseApi } from "../../lib/api-access";
+import { useAuth } from "../../context/AuthContext";
 import { cn } from "../../components/ui/utils";
 import { TableTruncatedCell } from "../../components/shared/TableTruncatedCell";
+import { StudentPlacementSubBadge } from "../../components/edu/StudentPlacementSubBadge";
 import { ds, tajawal } from "../../lib/design-system";
 import { queryKeys } from "../../lib/query-keys";
 import { RecitationTableSkeleton } from "../../components/shared/RecitationTableSkeleton";
@@ -44,6 +46,8 @@ import {
   signedTaskPoints,
   TEACHER_TASK_INPUT_OPTIONS,
   TEACHER_TASK_TYPE_OPTIONS,
+  defaultInputTypeFromTaskType,
+  inputTypeOptionsForTaskType,
   type TaskInputType,
   type TaskType,
 } from "../../lib/competition-engine";
@@ -104,6 +108,9 @@ type TeacherCompetitionsPageProps = {
 
 export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetitionsPageProps) {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const isTrackSupervisor = user?.role === "track_supervisor";
+  const placementView: "circle" | "track" = isTrackSupervisor ? "track" : "circle";
   const [activeCompetitionId, setActiveCompetitionId] = useState<number | null>(null);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [tab, setTab] = useState<"scores" | "leaderboard">("scores");
@@ -124,6 +131,17 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
   const [taskWeight, setTaskWeight] = useState(1);
   const [taskType, setTaskType] = useState<TaskType>("addition");
   const [taskInputType, setTaskInputType] = useState<TaskInputType>("boolean");
+
+  const taskInputOptions = useMemo(
+    () => inputTypeOptionsForTaskType(taskType, TEACHER_TASK_INPUT_OPTIONS),
+    [taskType],
+  );
+
+  useEffect(() => {
+    if (!taskInputOptions.some((o) => o.value === taskInputType)) {
+      setTaskInputType(defaultInputTypeFromTaskType(taskType));
+    }
+  }, [taskType, taskInputOptions, taskInputType]);
 
   const listQuery = useQuery({
     queryKey: queryKeys.eduDept.teacherCompetitions,
@@ -212,10 +230,76 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
     }
   }
 
+  /** O(T) — إدراج مهمة في كاش التفاصيل فوراً دون انتظار refetch كامل */
+  function patchDetailTasksCache(
+    competitionId: number,
+    updater: (
+      tasks: TeacherCompetitionTask[],
+    ) => TeacherCompetitionTask[],
+  ) {
+    const key = queryKeys.eduDept.teacherCompetitionDetail(competitionId);
+    queryClient.setQueryData(
+      key,
+      (
+        prev:
+          | {
+              detail: {
+                competition: {
+                  id: number;
+                  name_ar: string;
+                  start_date: string | null;
+                  end_date: string | null;
+                };
+                tasks: TeacherCompetitionTask[];
+                students: Array<{
+                  id: number;
+                  full_name_ar: string;
+                  circle_name?: string | null;
+                  track_name?: string | null;
+                }>;
+                scores: Array<{ task_id: number; student_id: number; points: number }>;
+                circle_id?: number | null;
+                circle_name?: string | null;
+              };
+              leaderboard: Array<{
+                rank: number;
+                student_id: number;
+                full_name_ar: string;
+                total_points: number;
+                circle_name?: string | null;
+                track_name?: string | null;
+              }>;
+            }
+          | undefined,
+      ) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          detail: {
+            ...prev.detail,
+            tasks: updater(prev.detail.tasks ?? []),
+          },
+        };
+      },
+    );
+  }
+
   const activeCompetition = useMemo(
     () => items.find((c) => c.id === activeCompetitionId) ?? null,
     [items, activeCompetitionId],
   );
+
+  const circleName =
+    detailQuery.data?.detail.circle_name ??
+    listQuery.data?.circle_name ??
+    null;
+
+  const trackName =
+    detailQuery.data?.detail.track_name ??
+    listQuery.data?.track_name ??
+    null;
+
+  const scopeLabel = isTrackSupervisor ? trackName : circleName;
 
   const topLeaderPoints = leaderboard[0]?.total_points ?? 0;
 
@@ -260,7 +344,8 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
       });
       await api.eduDeptTeacherCompetitionSaveScores(activeCompetitionId, payload);
       toast.success("تم حفظ النقاط.");
-      await invalidateCompetitionQueries(activeCompetitionId);
+      // لا ننتظر refetch — وإلا يبقى زر الحفظ في حالة loading
+      void invalidateCompetitionQueries(activeCompetitionId);
     } catch (err) {
       const msg = getFriendlyTeacherCompetitionError(err);
       setError(msg);
@@ -273,8 +358,11 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
     if (activeCompetitionId == null || taskId == null) return;
     try {
       await api.eduDeptTeacherCompetitionDeleteTask(activeCompetitionId, taskId);
-      await invalidateCompetitionQueries(activeCompetitionId);
+      patchDetailTasksCache(activeCompetitionId, (prev) =>
+        prev.filter((t) => t.id !== taskId),
+      );
       toast.success("تم حذف المهمة.");
+      void invalidateCompetitionQueries(activeCompetitionId);
     } catch (err) {
       const msg = getFriendlyTeacherCompetitionError(err);
       setError(msg);
@@ -286,19 +374,33 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
 
   const { run: runAddTask, pending: addingTask } = useGuardedVoidAction(async () => {
     if (activeCompetitionId == null || !taskTitle.trim()) return;
+    const title = taskTitle.trim();
+    const weight = taskWeight;
+    const type = taskType;
+    const inputType = taskInputType;
     try {
-      await api.eduDeptTeacherCompetitionAddTask(activeCompetitionId, {
-        title_ar: taskTitle.trim(),
-        weight_points: taskWeight,
-        type: taskType,
-        input_type: taskInputType,
+      const res = await api.eduDeptTeacherCompetitionAddTask(activeCompetitionId, {
+        title_ar: title,
+        weight_points: weight,
+        type,
+        input_type: inputType,
       });
+      const newTask: TeacherCompetitionTask = {
+        id: Number(res.id),
+        title_ar: title,
+        weight_points: weight,
+        sort_order: tasks.length + 1,
+        type,
+        input_type: inputType,
+      };
+      patchDetailTasksCache(activeCompetitionId, (prev) => [...prev, newTask]);
       setTaskOpen(false);
       setTaskTitle("");
       setTaskWeight(defaultTaskWeight);
       setTaskType("addition");
       setTaskInputType("boolean");
-      await invalidateCompetitionQueries(activeCompetitionId);
+      toast.success("تمت إضافة المهمة.");
+      void invalidateCompetitionQueries(activeCompetitionId);
     } catch (err) {
       const msg = getFriendlyTeacherCompetitionError(err);
       setError(msg);
@@ -414,7 +516,9 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
       {embedded && (
         <div className="flex items-center justify-between gap-3 print:hidden">
           <p className="text-sm text-muted-foreground" style={tajawal}>
-            رصد نقاط طلاب حلقتك ومتابعة الترتيب.
+            {isTrackSupervisor
+              ? "رصد نقاط طلاب مسارك ومتابعة الترتيب."
+              : "رصد نقاط طلاب حلقتك ومتابعة الترتيب."}
           </p>
           <Button
             type="button"
@@ -461,7 +565,7 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
             icon={<Users className="w-3.5 h-3.5 text-primary" />}
             label="الطلاب"
             value={students.length}
-            sub="الحلقة"
+            sub={isTrackSupervisor ? "المسار" : "الحلقة"}
           />
           <EduKpiCard
             compact
@@ -609,29 +713,18 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
 
           {tab === "scores" && (
             <div className="space-y-3 text-right" dir="rtl">
-              <div className="flex flex-wrap gap-2 justify-start print:hidden">
-                <Button
-                  type="button"
-                  variant="default"
-                  className={cn(ds.btnRound, ds.primaryActionBtn, "rounded-full")}
-                  loading={saving}
-                  disabled={saving || tasks.length === 0}
-                  onClick={saveScores}
-                  style={tajawal}
-                >
-                  {saving ? "جاري الحفظ…" : "حفظ النقاط"}
-                </Button>
-              </div>
-
               {tasks.length > 0 && students.length > 0 ? (
                 <>
                   {/* Desktop — wide table */}
-                  <div className={`${ds.card} overflow-x-auto text-right hidden md:block`} dir="rtl">
+                  <div
+                    className={`${ds.card} overflow-x-auto text-right hidden md:block border border-border`}
+                    dir="rtl"
+                  >
                     <Table className={`${ds.tableMin} text-right`}>
                       <TableHeader>
-                        <TableRow>
+                        <TableRow className="bg-muted/40 hover:bg-muted/40">
                           <TableHead
-                            className={`${ds.table.head} sticky right-0 bg-card z-10 min-w-[140px]`}
+                            className={`${ds.table.head} sticky right-0 bg-muted/40 z-10 min-w-[140px]`}
                             style={tajawal}
                           >
                             الطالب
@@ -641,7 +734,7 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                             return (
                             <TableHead
                               key={t.id}
-                              className={`${ds.table.head} min-w-[100px] text-center`}
+                              className={`${ds.table.head} min-w-[88px] text-center`}
                               style={tajawal}
                             >
                               {t.title_ar}
@@ -654,16 +747,27 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {students.map((st) => (
-                          <TableRow key={st.id}>
+                        {students.map((st, idx) => (
+                          <TableRow
+                            key={st.id}
+                            className={idx % 2 === 1 ? "bg-muted/20" : undefined}
+                          >
                             <TableCell
-                              className={`${ds.table.cell} sticky right-0 bg-card font-medium`}
+                              className={`${ds.table.cell} sticky right-0 bg-inherit font-medium`}
                               style={tajawal}
                             >
-                              {st.full_name_ar}
+                              <div className="min-w-0 flex flex-col items-start gap-1 max-w-full">
+                                <span className="truncate max-w-full">{st.full_name_ar}</span>
+                                <StudentPlacementSubBadge
+                                  circleName={st.circle_name}
+                                  trackName={st.track_name}
+                                  view={placementView}
+                                  className="max-w-full"
+                                />
+                              </div>
                             </TableCell>
                             {tasks.map((t) => (
-                              <TableCell key={t.id} className={ds.table.cell}>
+                              <TableCell key={t.id} className={`${ds.table.cell} text-center py-2`}>
                                 <TaskInputCell
                                   task={toTaskInputCol(t)}
                                   value={scores[scoreKey(t.id, st.id)] ?? 0}
@@ -694,7 +798,15 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                               style={tajawal}
                             >
                               <div className="flex flex-1 items-center justify-between gap-2 min-w-0">
-                                <p className="font-semibold text-sm truncate">{st.full_name_ar}</p>
+                                <div className="min-w-0 text-right flex-1">
+                                  <p className="font-semibold text-sm truncate">{st.full_name_ar}</p>
+                                  <StudentPlacementSubBadge
+                                    circleName={st.circle_name}
+                                    trackName={st.track_name}
+                                    view={placementView}
+                                    className="mt-1 max-w-full"
+                                  />
+                                </div>
                                 <span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold tabular-nums text-primary">
                                   {studentTotal}
                                 </span>
@@ -725,21 +837,6 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                                     />
                                   </div>
                                 ))}
-                                <Button
-                                  type="button"
-                                  variant="default"
-                                  className={cn(
-                                    ds.btnRound,
-                                    ds.primaryActionBtn,
-                                    "rounded-full w-full mt-1",
-                                  )}
-                                  loading={saving}
-                                  disabled={saving}
-                                  onClick={saveScores}
-                                  style={tajawal}
-                                >
-                                  {saving ? "جاري الحفظ…" : "حفظ النقاط"}
-                                </Button>
                               </div>
                             </AccordionContent>
                           </AccordionItem>
@@ -747,12 +844,32 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                       })}
                     </Accordion>
                   </div>
+
+                  <div className="flex justify-center pt-2 print:hidden">
+                    <Button
+                      type="button"
+                      variant="default"
+                      className={cn(
+                        ds.btnRound,
+                        ds.primaryActionBtn,
+                        "rounded-full min-w-[10rem]",
+                      )}
+                      loading={saving}
+                      disabled={saving || tasks.length === 0}
+                      onClick={saveScores}
+                      style={tajawal}
+                    >
+                      {saving ? "جاري الحفظ…" : "حفظ النقاط"}
+                    </Button>
+                  </div>
                 </>
               ) : (
                 <p className={ds.alert.info} style={tajawal}>
                   {tasks.length === 0
                     ? "أنشئ منافسة جديدة ثم أضف المهام يدوياً من بطاقة المهام."
-                    : "لا يوجد طلاب في حلقتك."}
+                    : isTrackSupervisor
+                      ? "لا يوجد طلاب في نطاق مسارك."
+                      : "لا يوجد طلاب في حلقتك."}
                 </p>
               )}
             </div>
@@ -762,8 +879,21 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
             <div id="teacher-competition-print" className="space-y-4 text-right" dir="rtl">
               <div className="teacher-competition-print-header hidden print:block mb-4">
                 <h2 className="text-xl font-bold" style={tajawal}>
-                  لوحة صدارة — {activeCompetition?.name_ar ?? "منافسة الحلقة"}
+                  لوحة صدارة — {activeCompetition?.name_ar ?? (isTrackSupervisor ? "منافسة المسار" : "منافسة الحلقة")}
                 </h2>
+                {isTrackSupervisor && trackName ? (
+                  <p className="text-sm font-medium" style={tajawal}>
+                    المسار: {trackName}
+                  </p>
+                ) : circleName ? (
+                  <p className="text-sm font-medium" style={tajawal}>
+                    الحلقة: {circleName}
+                  </p>
+                ) : scopeLabel ? (
+                  <p className="text-sm font-medium" style={tajawal}>
+                    {isTrackSupervisor ? "المسار" : "الحلقة"}: {scopeLabel}
+                  </p>
+                ) : null}
                 {activeCompetition?.start_date || activeCompetition?.end_date ? (
                   <p className="text-sm text-muted-foreground" style={tajawal}>
                     {activeCompetition.start_date ?? "—"} → {activeCompetition.end_date ?? "—"}
@@ -783,7 +913,7 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                   طباعة الترتيب
                 </Button>
               </div>
-              <div className={`${ds.card} text-right`} dir="rtl">
+              <div className={`${ds.card} text-right border border-border`} dir="rtl">
               {leaderboard.length === 0 ? (
                 <p className={`p-4 ${ds.alert.info}`} style={tajawal}>
                   لا توجد نقاط مسجّلة بعد في هذه المنافسة.
@@ -791,7 +921,7 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
               ) : (
                 <Table className={`${ds.tableMin} text-right`}>
                   <TableHeader>
-                    <TableRow>
+                    <TableRow className="bg-muted/40 hover:bg-muted/40">
                       <TableHead className={`${ds.table.head} w-[12%] text-center`} style={tajawal}>
                         الترتيب
                       </TableHead>
@@ -823,7 +953,17 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                                 ? "🥉"
                                 : row.rank}
                         </TableCell>
-                        <TableTruncatedCell style={tajawal}>{row.full_name_ar}</TableTruncatedCell>
+                        <TableTruncatedCell style={tajawal}>
+                          <div className="min-w-0 flex flex-col items-start gap-1 max-w-full">
+                            <span className="truncate max-w-full">{row.full_name_ar}</span>
+                            <StudentPlacementSubBadge
+                              circleName={row.circle_name}
+                              trackName={row.track_name}
+                              view={placementView}
+                              className="max-w-full"
+                            />
+                          </div>
+                        </TableTruncatedCell>
                         <TableCell
                           className={`${ds.table.cell} text-center font-semibold tabular-nums`}
                           style={tajawal}
@@ -967,34 +1107,46 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
       </Dialog>
 
       <Dialog open={taskOpen} onOpenChange={setTaskOpen}>
-        <DialogContent dir="rtl" className={cn(ds.dialog, "text-right")}>
-          <DialogHeader className="text-right">
-            <DialogTitle style={tajawal}>مهمة جديدة</DialogTitle>
+        <DialogContent dir="rtl" className={cn(ds.dialog, "text-right [direction:rtl]")}>
+          <DialogHeader className="text-right items-stretch" dir="rtl">
+            <DialogTitle className="text-right" style={tajawal}>
+              مهمة جديدة
+            </DialogTitle>
           </DialogHeader>
-          <GuardedForm onSubmit={addTask} className="space-y-4 text-right">
-            <div className="space-y-2">
-              <Label htmlFor="task-title" style={tajawal}>
+          <GuardedForm
+            onSubmit={addTask}
+            className="space-y-4 text-right"
+            dir="rtl"
+          >
+            <div className="space-y-2 text-right" dir="rtl">
+              <Label htmlFor="task-title" className="block text-right" style={tajawal}>
                 عنوان المهمة
               </Label>
               <Input
                 id="task-title"
-                className={ds.field}
+                className={cn(ds.field, "text-right")}
+                dir="rtl"
                 value={taskTitle}
                 onChange={(e) => setTaskTitle(e.target.value)}
                 style={tajawal}
                 required
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="task-type" style={tajawal}>
+            <div className="grid grid-cols-2 gap-3" dir="rtl">
+              <div className="space-y-2 text-right">
+                <Label htmlFor="task-type" className="block text-right" style={tajawal}>
                   نوع المهمة
                 </Label>
                 <select
                   id="task-type"
-                  className={ds.select}
+                  className={cn(ds.select, "text-right w-full")}
+                  dir="rtl"
                   value={taskType}
-                  onChange={(e) => setTaskType(e.target.value as TaskType)}
+                  onChange={(e) => {
+                    const next = e.target.value as TaskType;
+                    setTaskType(next);
+                    setTaskInputType(defaultInputTypeFromTaskType(next));
+                  }}
                   style={tajawal}
                 >
                   {TEACHER_TASK_TYPE_OPTIONS.map((o) => (
@@ -1004,18 +1156,19 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                   ))}
                 </select>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="task-input-type" style={tajawal}>
+              <div className="space-y-2 text-right">
+                <Label htmlFor="task-input-type" className="block text-right" style={tajawal}>
                   طريقة الإدخال
                 </Label>
                 <select
                   id="task-input-type"
-                  className={ds.select}
+                  className={cn(ds.select, "text-right w-full")}
+                  dir="rtl"
                   value={taskInputType}
                   onChange={(e) => setTaskInputType(e.target.value as TaskInputType)}
                   style={tajawal}
                 >
-                  {TEACHER_TASK_INPUT_OPTIONS.map((o) => (
+                  {taskInputOptions.map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
                     </option>
@@ -1023,8 +1176,8 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                 </select>
               </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="task-weight" style={tajawal}>
+            <div className="space-y-2 text-right" dir="rtl">
+              <Label htmlFor="task-weight" className="block text-right" style={tajawal}>
                 وزن النقاط
               </Label>
               <Input
@@ -1033,12 +1186,15 @@ export function TeacherCompetitionsPage({ embedded = false }: TeacherCompetition
                 min={0.5}
                 step="0.5"
                 dir="ltr"
-                className={ds.field}
+                className={cn(ds.field, "text-left")}
                 value={taskWeight}
                 onChange={(e) => setTaskWeight(Number(e.target.value) || 1)}
               />
             </div>
-            <DialogFooter className="gap-2 sm:gap-2 sm:justify-start flex-row-reverse">
+            <DialogFooter
+              className="gap-2 sm:gap-2 sm:justify-start flex-row-reverse"
+              dir="rtl"
+            >
               <Button type="submit" loading={addingTask} className={cn(ds.btnRound, "rounded-full")} style={tajawal}>
                 {addingTask ? "جاري الإضافة…" : "إضافة"}
               </Button>

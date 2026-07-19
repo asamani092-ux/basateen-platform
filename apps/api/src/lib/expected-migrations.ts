@@ -89,4 +89,9 @@ export const EXPECTED_MIGRATIONS: readonly string[] = [
   "066_semester_plans_columns.sql",
   "067_teacher_competition_task_types.sql",
   "068_student_semester_plans_multi.sql",
+  "069_plan_daily_followup.sql",
+  "070_competition_source.sql",
+  "071_users_staff_deleted_at.sql",
+  "072_display_slide_types.sql",
+  "073_display_media_r2_urls.sql",
 ];

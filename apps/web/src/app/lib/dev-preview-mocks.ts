@@ -874,6 +874,8 @@ export function resolveDevPreviewMock<T>(
   if (p === "/api/edu-dept/teacher-competitions" && m === "GET") {
     return {
       items: [{ id: 1, name_ar: "منافسة رمضان", start_date: date, end_date: null, created_at: date }],
+      circle_id: 1,
+      circle_name: "حلقة الصديق",
     } as T;
   }
   if (p === "/api/edu-dept/teacher-competitions" && m === "POST") {
@@ -906,6 +908,8 @@ export function resolveDevPreviewMock<T>(
       ],
       students: students.map((s) => ({ id: s.id, full_name_ar: s.full_name_ar })),
       scores: [],
+      circle_id: 1,
+      circle_name: "حلقة الصديق",
     } as T;
   }
   const tcTask = p.match(/^\/api\/edu-dept\/teacher-competitions\/(\d+)\/tasks$/);
@@ -1748,8 +1752,24 @@ export function resolveDevPreviewMock<T>(
   if (p === "/api/display-dept/media" && m === "GET") {
     return { items: [] } as T;
   }
+  if (p === "/api/display-dept/settings" && m === "GET") {
+    return { slide_seconds: 12, indicators_enabled: true } as T;
+  }
+  if (p === "/api/display-dept/settings" && m === "PATCH") {
+    return { ok: true, slide_seconds: 12, indicators_enabled: true } as T;
+  }
+  if (p === "/api/display-dept/competitions" && m === "GET") {
+    return { items: [] } as T;
+  }
   if (p === "/api/display-dept/media" && m === "POST") {
     return { ok: true, id: 1 } as T;
+  }
+  if (p === "/api/display-dept/media/upload" && m === "POST") {
+    return {
+      ok: true,
+      url: "https://example.test/api/public/display-media/dev-preview.bin",
+      media_type: "image",
+    } as T;
   }
   if (p.match(/^\/api\/display-dept\/media\/\d+$/) && (m === "PATCH" || m === "DELETE")) {
     return { ok: true } as T;
@@ -1778,6 +1798,33 @@ export function resolveDevPreviewMock<T>(
   }
   if (p === "/api/public/live-display/media" && m === "GET") {
     return { items: [] } as T;
+  }
+  if (p === "/api/public/live-display/carousel" && m === "GET") {
+    return {
+      complex_name: "مجمع حلقات بساتين",
+      slide_seconds: 12,
+      indicators_enabled: true,
+      slides: [
+        {
+          kind: "kpi",
+          id: 1,
+          duration_seconds: 12,
+          metrics: {
+            attendance_present_today: 120,
+            attendance_absent_today: 8,
+            faces_cumulative: 450,
+            active_pledges: 12,
+            total_circles: 18,
+            total_tracks: 6,
+            total_students: 240,
+            students_by_stage: [
+              { stage_id: 2, label: "ابتدائي", count: 80 },
+              { stage_id: 3, label: "متوسط", count: 90 },
+            ],
+          },
+        },
+      ],
+    } as T;
   }
 
   const publicQuizMeta = p.match(/^\/api\/public\/quiz\/(\d+)\/public$/);
@@ -1940,6 +1987,38 @@ export function resolveDevPreviewMock<T>(
         repeat_target: Number(body.repeat_target) || 1,
       }),
     } as T;
+  }
+
+  if (p === "/api/teacher/plans/report" && m === "GET") {
+    return { items: teacherPreviewStore.listPlansReport() } as T;
+  }
+
+  const teacherPlanPermanent = p.match(
+    /^\/api\/teacher\/plans\/by-id\/(\d+)\/permanent$/,
+  );
+  if (teacherPlanPermanent) {
+    const planId = Number(teacherPlanPermanent[1]);
+    if (m === "DELETE") {
+      const res = teacherPreviewStore.permanentDeletePlan(planId);
+      if (!res) return { error: "not_found" } as T;
+      return res as T;
+    }
+  }
+
+  const teacherPlanDays = p.match(/^\/api\/teacher\/plans\/by-id\/(\d+)\/days$/);
+  if (teacherPlanDays) {
+    const planId = Number(teacherPlanDays[1]);
+    if (m === "GET") {
+      const res = teacherPreviewStore.listPlanDays(planId);
+      if (!res) return { error: "not_found" } as T;
+      return res as T;
+    }
+    if (m === "PUT") {
+      const body = bodyText ? JSON.parse(bodyText) : {};
+      const res = teacherPreviewStore.upsertPlanDays(planId, body.days ?? []);
+      if (!res) return { error: "not_found" } as T;
+      return res as T;
+    }
   }
 
   const teacherPlanById = p.match(/^\/api\/teacher\/plans\/by-id\/(\d+)$/);

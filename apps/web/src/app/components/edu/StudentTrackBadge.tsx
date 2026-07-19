@@ -20,10 +20,10 @@ export function StudentTrackBadge({ trackName, className }: Props) {
         className,
       )}
       style={tajawal}
-      title={`في مسار: ${label}`}
+      title={`مسار: ${label}`}
     >
       <Route className="size-3 shrink-0 opacity-80" aria-hidden />
-      <span className="truncate">في مسار: {label}</span>
+      <span className="truncate">مسار: {label}</span>
     </span>
   );
 }

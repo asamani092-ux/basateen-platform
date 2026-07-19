@@ -174,6 +174,7 @@ export async function collectHardDeleteCircleBatch(
   complexId: number,
 ): Promise<D1PreparedStatement[]> {
   return [
+    ...(await detachStudentsFromCircle(env, circleId, complexId)),
     env.DB.prepare(`DELETE FROM circles WHERE id = ? AND complex_id = ?`).bind(
       circleId,
       complexId,
@@ -227,6 +228,24 @@ async function detachStudentsFromTrack(
         `UPDATE students SET current_track_id = NULL
          WHERE current_track_id = ? AND complex_id = ?`,
       ).bind(trackId, complexId),
+    );
+  }
+  return stmts;
+}
+
+/** O(1) — فك إسناد الطلاب قبل حذف الحلقة (PRAGMA foreign_keys=OFF يعطّل SET NULL) */
+async function detachStudentsFromCircle(
+  env: Env,
+  circleId: number,
+  complexId: number,
+): Promise<D1PreparedStatement[]> {
+  const stmts: D1PreparedStatement[] = [];
+  if (await tableHasColumn(env, "students", "current_circle_id")) {
+    stmts.push(
+      env.DB.prepare(
+        `UPDATE students SET current_circle_id = NULL
+         WHERE current_circle_id = ? AND complex_id = ?`,
+      ).bind(circleId, complexId),
     );
   }
   return stmts;

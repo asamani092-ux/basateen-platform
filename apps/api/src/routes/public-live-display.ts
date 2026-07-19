@@ -1,26 +1,54 @@
 import type { Env } from "../types";
 import { hasTable, tableHasColumn } from "../lib/db-schema";
 import { todayRiyadhIso } from "../lib/today-riyadh-iso";
+import { loadCompetitionDisplayDashboard } from "../lib/competition-display-dashboard";
+import type { ScopeMode } from "../lib/dept-scope";
 
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status });
 }
 
-
-async function loadSlideSeconds(env: Env, complexId: number): Promise<number> {
-  if (!(await hasTable(env, "complex_settings"))) return 12;
-  if (await tableHasColumn(env, "complex_settings", "display_slide_seconds")) {
-    const row = await env.DB.prepare(
-      `SELECT display_slide_seconds FROM complex_settings WHERE complex_id = ?`,
-    )
-      .bind(complexId)
-      .first<{ display_slide_seconds: number }>();
-    const n = Number(row?.display_slide_seconds ?? 12);
-    return n >= 3 && n <= 120 ? n : 12;
-  }
-  return 12;
+function clampDuration(sec: number, fallback = 12): number {
+  const n = Number(sec);
+  if (!Number.isFinite(n)) return fallback;
+  return n >= 3 && n <= 120 ? Math.round(n) : fallback;
 }
 
+const GLOBAL_SCOPE: ScopeMode = { type: "global" };
+
+async function loadDisplaySettings(env: Env, complexId: number) {
+  let slideSeconds = 12;
+  let indicatorsEnabled = true;
+  if (await hasTable(env, "complex_settings")) {
+    const hasSeconds = await tableHasColumn(env, "complex_settings", "display_slide_seconds");
+    const hasIndicators = await tableHasColumn(
+      env,
+      "complex_settings",
+      "display_indicators_enabled",
+    );
+    const cols: string[] = [];
+    if (hasSeconds) cols.push("display_slide_seconds");
+    if (hasIndicators) cols.push("display_indicators_enabled");
+    if (cols.length) {
+      const row = await env.DB.prepare(
+        `SELECT ${cols.join(", ")} FROM complex_settings WHERE complex_id = ?`,
+      )
+        .bind(complexId)
+        .first<{
+          display_slide_seconds?: number;
+          display_indicators_enabled?: number;
+        }>();
+      if (hasSeconds) slideSeconds = clampDuration(Number(row?.display_slide_seconds ?? 12));
+      if (hasIndicators) indicatorsEnabled = (row?.display_indicators_enabled ?? 1) !== 0;
+    }
+  }
+  return { slide_seconds: slideSeconds, indicators_enabled: indicatorsEnabled };
+}
+
+/**
+ * مؤشرات المجمع — استعلام واحد لكل مجموعة بيانات (لا round-trip لكل طالب).
+ * الزمن: O(S + G + 1) حيث S=طلاب، G=مراحل؛ المكان: O(G).
+ */
 async function loadMetrics(env: Env, complexId: number, date: string) {
   let presentToday = 0;
   let absentToday = 0;
@@ -141,6 +169,107 @@ async function loadMetrics(env: Env, complexId: number, date: string) {
   };
 }
 
+type DisplayMediaRow = {
+  id: number;
+  slide_type?: string;
+  media_type: string;
+  media_url: string;
+  competition_id?: number | null;
+  duration_seconds?: number;
+  display_order: number;
+};
+
+async function buildCarouselSlides(
+  env: Env,
+  complexId: number,
+  settings: { slide_seconds: number; indicators_enabled: boolean },
+  date: string,
+): Promise<Array<Record<string, unknown>>> {
+  const slides: Array<Record<string, unknown>> = [];
+  if (!(await hasTable(env, "display_media"))) return slides;
+
+  const hasSlideType = await tableHasColumn(env, "display_media", "slide_type");
+  const hasDuration = await tableHasColumn(env, "display_media", "duration_seconds");
+  const hasCompId = await tableHasColumn(env, "display_media", "competition_id");
+
+  const cols = [
+    "id",
+    hasSlideType ? "slide_type" : null,
+    "media_type",
+    "media_url",
+    hasCompId ? "competition_id" : null,
+    hasDuration ? "duration_seconds" : null,
+    "display_order",
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  const rows = await env.DB.prepare(
+    `SELECT ${cols}
+     FROM display_media
+     WHERE complex_id = ? AND is_active = 1
+     ORDER BY display_order ASC, id ASC`,
+  )
+    .bind(complexId)
+    .all<DisplayMediaRow>();
+
+  let metricsCache: Awaited<ReturnType<typeof loadMetrics>> | null = null;
+
+  for (const row of rows.results ?? []) {
+    const slideType = hasSlideType ? String(row.slide_type ?? "media") : "media";
+    if (!settings.indicators_enabled && slideType !== "media") continue;
+
+    const duration = clampDuration(
+      hasDuration ? Number(row.duration_seconds ?? settings.slide_seconds) : settings.slide_seconds,
+      settings.slide_seconds,
+    );
+
+    if (slideType === "kpi") {
+      if (!metricsCache) metricsCache = await loadMetrics(env, complexId, date);
+      slides.push({
+        kind: "kpi",
+        id: row.id,
+        duration_seconds: duration,
+        metrics: metricsCache,
+      });
+      continue;
+    }
+
+    if (slideType === "competition") {
+      const compId = hasCompId ? Number(row.competition_id) : 0;
+      if (!compId) continue;
+      const snapshot = await loadCompetitionDisplayDashboard(env, {
+        complexId,
+        competitionId: compId,
+        scope: GLOBAL_SCOPE,
+        leaderboardMode: "top",
+      });
+      if (!snapshot) continue;
+      slides.push({
+        kind: "competition",
+        id: row.id,
+        duration_seconds: duration,
+        competition_id: compId,
+        name_ar: snapshot.name_ar,
+        category: snapshot.category,
+        kpis: snapshot.kpis,
+        leaders: snapshot.leaders,
+      });
+      continue;
+    }
+
+    slides.push({
+      kind: row.media_type,
+      id: row.id,
+      duration_seconds: duration,
+      media_url: row.media_url,
+      display_order: row.display_order,
+    });
+  }
+
+  return slides;
+}
+
 export async function handlePublicLiveDisplayRouter(
   request: Request,
   env: Env,
@@ -151,7 +280,7 @@ export async function handlePublicLiveDisplayRouter(
 
   const complexId = 1;
   const date = todayRiyadhIso();
-  const slideSeconds = await loadSlideSeconds(env, complexId);
+  const settings = await loadDisplaySettings(env, complexId);
   const metrics = await loadMetrics(env, complexId, date);
 
   if (request.method === "GET" && path === "/api/public/live-display/metrics") {
@@ -159,7 +288,8 @@ export async function handlePublicLiveDisplayRouter(
       complex_name: "مجمع حلقات بساتين",
       date,
       updated_at: new Date().toISOString(),
-      slide_seconds: slideSeconds,
+      slide_seconds: settings.slide_seconds,
+      indicators_enabled: settings.indicators_enabled,
       metrics,
       top_students: [],
     });
@@ -181,32 +311,12 @@ export async function handlePublicLiveDisplayRouter(
   }
 
   if (request.method === "GET" && path === "/api/public/live-display/carousel") {
-    const slides: Array<Record<string, unknown>> = [
-      { kind: "metrics", id: "metrics-main", metrics },
-    ];
-
-    if (await hasTable(env, "display_media")) {
-      const rows = await env.DB.prepare(
-        `SELECT id, media_type, media_url, display_order
-         FROM display_media
-         WHERE complex_id = ? AND is_active = 1
-         ORDER BY display_order ASC, id ASC`,
-      )
-        .bind(complexId)
-        .all<{ id: number; media_type: string; media_url: string; display_order: number }>();
-      for (const row of rows.results ?? []) {
-        slides.push({
-          kind: row.media_type,
-          id: row.id,
-          media_url: row.media_url,
-          display_order: row.display_order,
-        });
-      }
-    }
+    const slides = await buildCarouselSlides(env, complexId, settings, date);
 
     return json({
       complex_name: "مجمع حلقات بساتين",
-      slide_seconds: slideSeconds,
+      slide_seconds: settings.slide_seconds,
+      indicators_enabled: settings.indicators_enabled,
       slides,
     });
   }
